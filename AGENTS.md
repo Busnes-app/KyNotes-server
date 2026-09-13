@@ -47,7 +47,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 ## Verification
 
 - CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe and govulncheck on every push and pull request.
-- On a push to the default branch that passes every job, the `publish` job pushes the image to `ghcr.io/busness-app/<repo>` as `:latest` and `:<commit sha>`; `docker-compose.yml` names that image.
+- On a push to the default branch that passes every job, the `publish` job pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busness-app/<repo>` as `:latest` and `:<commit sha>`, then attests and verifies its provenance; `docker-compose.yml` names that image with `pull_policy: missing`.
 
 ## Child DOX Index
 
