@@ -1,4 +1,4 @@
 services:
-  kynotes:
+  kynotes-server:
     ports:
       - "8081:8080"

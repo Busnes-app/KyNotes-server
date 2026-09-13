@@ -11,7 +11,7 @@ selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-comp
 an explicit `-f` list would drop it):
 
 ```bash
-(umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env)
+echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env && chmod 600 .env
 # Existing source install? Add that line before the first `up -d` on this checkout: the old
 # image name is gone and a bare `up -d` would pull the published image instead of rebuilding.
 docker compose up -d
@@ -33,7 +33,7 @@ delete the KyNotes database and encrypted blobs. Confirm the mount before a
 maintenance restart:
 
 ```bash
-docker inspect "$(docker compose ps -q kynotes)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
+docker inspect "$(docker compose ps -q kynotes-server)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
 ```
 
 The server applies read-header, read, write, idle, and graceful-shutdown
