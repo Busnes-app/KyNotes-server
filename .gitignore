@@ -8,3 +8,5 @@
 *.sqlite-wal
 .kynotes.lock
 .env
+.env.*
+!.env.example

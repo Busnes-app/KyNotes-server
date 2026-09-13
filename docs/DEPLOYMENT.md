@@ -11,9 +11,16 @@ selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-comp
 an explicit `-f` list would drop it):
 
 ```bash
-(umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env) && chmod 600 .env
-# Existing source install? Add that line before the first `up -d` on this checkout: the old
-# image name is gone and a bare `up -d` would pull the published image instead of rebuilding.
+# Existing install? Your .env is kept: the copy below never overwrites one, and the build overlay is
+# appended to the COMPOSE_FILE chain you already have (a LAN-DNS override survives). A source install must set it before its first `up -d` on this checkout,
+# or a bare `up -d` pulls the published image instead of rebuilding.
+# Installs from before the published image existed have no COMPOSE_FILE line yet: run this block once,
+# then confirm with `docker compose config --images` (must print kynotes-server:local, not the ghcr.io name).
+(umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env \
+  && cf=$({ grep '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } | tail -n1 | cut -d= -f2-) && cf=${cf:-docker-compose.yml} \
+  && case ":$cf:" in *:docker-compose.build.yml:*) ;; *) cf="$cf:docker-compose.build.yml";; esac && case ":$cf:" in *:docker-compose.local.yml:*) ;; *) cf="$cf:docker-compose.local.yml";; esac \
+  && { grep -v -e '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } > "$t" \
+  && printf 'COMPOSE_FILE=%s\n' "$cf" >> "$t" && mv "$t" .env)
 docker compose up -d
 ```
 
@@ -66,12 +73,25 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_BACKUP_KEEP` | `7` | Newest N local copies kept. Must be at least 1. |
 | `KYNOTES_BACKUP_DEPOSIT_INTERVAL` | `24h` | Default schedule. `0` disables; the floor is `15m`. The admin UI setting overrides this. |
 | `KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY` | `false` | Admit a KyRecovery on a private or carrier-grade NAT address. HTTPS is still required; loopback, link-local and reserved ranges stay refused. |
-| `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
+| `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. Set it in `.env` next to `COMPOSE_FILE` (every later compose command needs it once the overlay is in the chain) and recreate the container. |
+
+The snippet appends `docker-compose.lan-dns.yml` to whatever `COMPOSE_FILE` chain `.env` already
+holds (build overlay, local override) and leaves the rest of the chain alone; the resolver
+sits next to it: the resolver comes from an exported
+`KYNOTES_DNS` (`export KYNOTES_DNS=<addr>`; fish: `set -x KYNOTES_DNS <addr>`) or, when that is unset, from the `KYNOTES_DNS` line
+already in `.env`; there is no default, the block refuses to guess. An exported value overrides
+`.env`, so re-running is a no-op only while `KYNOTES_DNS` is unset in your shell. One block for every install type:
 
 ```bash
-# with :docker-compose.lan-dns.yml appended to COMPOSE_FILE in .env
-KYNOTES_DNS=192.168.1.1 docker compose up -d --force-recreate
-docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
+(umask 077; touch .env \
+  && cf=$({ grep '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } | tail -n1 | cut -d= -f2-) && cf=${cf:-docker-compose.yml} \
+  && dns=${KYNOTES_DNS:-$({ grep '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } | tail -n1 | cut -d= -f2-)} \
+  && : "${dns:?no resolver chosen: export KYNOTES_DNS=<your LAN resolver> (fish: set -x KYNOTES_DNS <addr>), then re-run this block}" \
+  && case ":$cf:" in *:docker-compose.lan-dns.yml:*) ;; *) cf="$cf:docker-compose.lan-dns.yml";; esac \
+  && t=$(mktemp ./.env.XXXXXX) && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" \
+  && printf 'COMPOSE_FILE=%s\nKYNOTES_DNS=%s\n' "$cf" "$dns" >> "$t" && mv "$t" .env)
+docker compose up -d --force-recreate
+docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'   # must print the resolver you chose
 ```
 
 The admin Backups section supports pin-by-hand, pairing, local sealed copies,
