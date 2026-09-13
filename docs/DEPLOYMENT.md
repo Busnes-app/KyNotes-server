@@ -11,10 +11,14 @@ selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-comp
 an explicit `-f` list would drop it):
 
 ```bash
-# Existing install? Your .env is kept: the copy below never overwrites one, and the COMPOSE_FILE line
-# is replaced in place. A source install must set it before its first `up -d` on this checkout,
+# Existing install? Your .env is kept: the copy below never overwrites one, and the build overlay is
+# appended to the COMPOSE_FILE chain you already have (a LAN-DNS override survives). A source install must set it before its first `up -d` on this checkout,
 # or a bare `up -d` pulls the published image instead of rebuilding.
-(umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env && { grep -v -e '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } > "$t" && printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml\n' >> "$t" && mv "$t" .env)
+(umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env \
+  && cf=$({ grep '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } | tail -n1 | cut -d= -f2-) && cf=${cf:-docker-compose.yml} \
+  && case ":$cf:" in *:docker-compose.build.yml:*) ;; *) cf="$cf:docker-compose.build.yml";; esac && case ":$cf:" in *:docker-compose.local.yml:*) ;; *) cf="$cf:docker-compose.local.yml";; esac \
+  && { grep -v -e '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } > "$t" \
+  && printf 'COMPOSE_FILE=%s\n' "$cf" >> "$t" && mv "$t" .env)
 docker compose up -d
 ```
 
@@ -82,7 +86,7 @@ run. Re-running it is a no-op. One block for every install type:
   && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" \
   && printf 'COMPOSE_FILE=%s\nKYNOTES_DNS=%s\n' "$cf" "$dns" >> "$t" && mv "$t" .env)
 docker compose up -d --force-recreate
-docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
+docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'   # must print the resolver in .env, e.g. [192.168.1.1]
 ```
 
 The admin Backups section supports pin-by-hand, pairing, local sealed copies,
