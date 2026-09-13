@@ -6,6 +6,11 @@ ciphertext live in the blob store and are **not in the capsule**. Full recovery 
 a ciphertext blob mirror or the original blob directory. Database integrity alone does
 not establish that notes can be read.
 
+The `docker compose` commands below use the base file alone, which runs the published
+image. If this server was installed from source, `COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml`
+must be in `.env` (see the install steps); otherwise a restore silently pulls a different
+binary than the one you built and are running.
+
 ## 1. Preserve the source and prepare an empty target
 
 Stop the damaged deployment, preserve its entire volume separately, and keep the old
