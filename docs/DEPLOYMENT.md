@@ -11,9 +11,10 @@ selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-comp
 an explicit `-f` list would drop it):
 
 ```bash
-(umask 077; printf '\n%s\n' 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env); chmod 600 .env
-# Existing source install? Add that line before the first `up -d` on this checkout: the old
-# image name is gone and a bare `up -d` would pull the published image instead of rebuilding.
+# Existing install? Your .env is kept: the copy below never overwrites one, and the COMPOSE_FILE line
+# is replaced in place. A source install must set it before its first `up -d` on this checkout,
+# or a bare `up -d` pulls the published image instead of rebuilding.
+(umask 077; t=$(mktemp) && touch .env && { grep -v -e '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } > "$t" && printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml\n' >> "$t" && mv "$t" .env)
 docker compose up -d
 ```
 
@@ -69,8 +70,11 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. Set it in `.env` next to `COMPOSE_FILE` (every later compose command needs it once the overlay is in the chain) and recreate the container. |
 
 ```bash
-# Source install (three files) shown; a published-image install uses COMPOSE_FILE=docker-compose.yml:docker-compose.lan-dns.yml.
-(umask 077; printf '\nCOMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.lan-dns.yml\nKYNOTES_DNS=192.168.1.1\n' >> .env); chmod 600 .env
+# All of it lives in .env, replaced in place (never appended twice): the overlay joins COMPOSE_FILE,
+# the resolver sit next to it, since every later compose command recreates the
+# container from .env. Pick ONE line:
+(umask 077; t=$(mktemp) && touch .env && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" && printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.lan-dns.yml\nKYNOTES_DNS=192.168.1.1\n' >> "$t" && mv "$t" .env)   # published image
+(umask 077; t=$(mktemp) && touch .env && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" && printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml:docker-compose.lan-dns.yml\nKYNOTES_DNS=192.168.1.1\n' >> "$t" && mv "$t" .env)   # source install
 docker compose up -d --force-recreate
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
