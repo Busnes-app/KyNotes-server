@@ -14,6 +14,8 @@ an explicit `-f` list would drop it):
 # Existing install? Your .env is kept: the copy below never overwrites one, and the build overlay is
 # appended to the COMPOSE_FILE chain you already have (a LAN-DNS override survives). A source install must set it before its first `up -d` on this checkout,
 # or a bare `up -d` pulls the published image instead of rebuilding.
+# Installs from before the published image existed have no COMPOSE_FILE line yet: run this block once,
+# then confirm with `docker compose config --images` (must print kynotes-server:local, not the ghcr.io name).
 (umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env \
   && cf=$({ grep '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } | tail -n1 | cut -d= -f2-) && cf=${cf:-docker-compose.yml} \
   && case ":$cf:" in *:docker-compose.build.yml:*) ;; *) cf="$cf:docker-compose.build.yml";; esac && case ":$cf:" in *:docker-compose.local.yml:*) ;; *) cf="$cf:docker-compose.local.yml";; esac \
