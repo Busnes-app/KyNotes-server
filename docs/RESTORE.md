@@ -6,6 +6,13 @@ ciphertext live in the blob store and are **not in the capsule**. Full recovery 
 a ciphertext blob mirror or the original blob directory. Database integrity alone does
 not establish that notes can be read.
 
+This runbook runs the image directly with `docker run`, so Compose and `COMPOSE_FILE` do not
+apply here. Restore with the image you actually run: `kynotes-server:local` for a source install
+(built by the `COMPOSE_FILE` step in [deployment](DEPLOYMENT.md)), or the published image pinned
+by a digest you have verified with `gh attestation verify` (recipe in `docker-compose.yml`).
+Do not restore onto a floating `:latest`: a restore is the one step where the binary must match
+the data.
+
 ## 1. Preserve the source and prepare an empty target
 
 Stop the damaged deployment, preserve its entire volume separately, and keep the old
@@ -31,13 +38,15 @@ original secrets, key pin and blob inventory. It relocates `data_dir` in the res
 `kynotes.yaml` and revokes every restored web session. Failure after extraction leaves
 the target for inspection; preserve it and use another empty target for another attempt.
 
-For Docker, use the exact tested image and a writable target owned by the invoking user:
+For Docker, use the image you run (see the note at the top) and a writable target owned by the
+invoking user:
 
 ```bash
+IMAGE=kynotes-server:local   # or ghcr.io/busness-app/kynotes-server@sha256:<verified digest>
 mkdir -m 700 "$PWD/recovery-work"
 docker run --rm -i --user "$(id -u):$(id -g)" \
   -v /absolute/path/KyNotes.kycap:/input/capsule.kycap:ro \
-  -v "$PWD/recovery-work:/restore" kynotes-server:tested \
+  -v "$PWD/recovery-work:/restore" "$IMAGE" \
   restore --in /input/capsule.kycap --to /restore/restored
 ```
 

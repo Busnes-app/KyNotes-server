@@ -1,7 +1,8 @@
 # KyNotes Server
 
 KyNotes stores encrypted notes and attachments; browsers own content decryption.
-See [deployment](docs/DEPLOYMENT.md) for setup and configuration.
+See [deployment](docs/DEPLOYMENT.md) for setup and configuration, including the `COMPOSE_FILE`
+line a source build must set so `docker compose` never swaps in the published image.
 
 Administrators can pin a recovery public key, pair KyRecovery, schedule backups, retain
 local sealed copies, download capsules and run synthetic restore drills. Capsules hold

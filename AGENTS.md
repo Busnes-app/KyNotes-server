@@ -44,6 +44,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   frozen: implement them, do not re-decide them. Changing a frozen contract
   requires updating `DESIGN.md` and the plan in the same change.
 
+## Verification
+
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe and govulncheck on every push and pull request.
+- On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busness-app/kynotes-server:<commit sha>`, attests it and verifies the attestation; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs set `COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml` in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
+
 ## Child DOX Index
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
