@@ -63,7 +63,8 @@ go test -race ./...
 
 ## Docker deployment
 
-`docker-compose.local.yml` exposes `8081:8080`. From the repository root:
+`docker-compose.local.yml` exposes `8081:8080` on loopback; set `KYNOTES_LOCAL_BIND=0.0.0.0`
+in `.env` for LAN access. From the repository root:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml build --no-cache

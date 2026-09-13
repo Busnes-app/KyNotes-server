@@ -1,8 +1,8 @@
 # Source build. Set it once, then every `docker compose` command, the recovery
 # procedure included, keeps using the local build instead of the published image.
-# chmod runs after the append so .env, which also holds secrets, ends up owner-only
-# whether or not it already existed:
-#   echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml' >> .env && chmod 600 .env
+# umask keeps a new .env owner-only from creation; chmod repairs a pre-existing
+# lax one, since .env also holds secrets:
+#   (umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml' >> .env) && chmod 600 .env
 # Further overlays chain onto the same value, e.g. `:docker-compose.lan-dns.yml`;
 # an explicit `-f` list replaces COMPOSE_FILE entirely, so avoid mixing the two.
 # The result is tagged kynotes-server:local so it never occupies the published name.
