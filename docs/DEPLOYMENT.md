@@ -12,6 +12,8 @@ an explicit `-f` list would drop it):
 
 ```bash
 (umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env)
+# Existing source install? Add that line before the first `up -d` on this checkout: the old
+# image name is gone and a bare `up -d` would pull the published image instead of rebuilding.
 docker compose up -d
 ```
 
