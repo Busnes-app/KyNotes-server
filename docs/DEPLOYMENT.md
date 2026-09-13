@@ -11,14 +11,15 @@ selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-comp
 an explicit `-f` list would drop it):
 
 ```bash
-(umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env)
+(umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env) && chmod 600 .env
 # Existing source install? Add that line before the first `up -d` on this checkout: the old
 # image name is gone and a bare `up -d` would pull the published image instead of rebuilding.
 docker compose up -d
 ```
 
-It publishes `8081` on the host and forwards it to the server's internal
-port `8080`. Do not use this override for an internet-facing deployment.
+It publishes `8081` on the host's loopback address and forwards it to the server's
+internal port `8080`. For LAN access set `KYNOTES_LOCAL_BIND=0.0.0.0` in `.env`; the
+listener is plaintext HTTP. Do not use this override for an internet-facing deployment.
 
 The default compose file uses the named `kynotes-data` volume for `/data`.
 Restart without `--volumes` to preserve notes:
@@ -33,7 +34,7 @@ delete the KyNotes database and encrypted blobs. Confirm the mount before a
 maintenance restart:
 
 ```bash
-docker inspect "$(docker compose ps -q kynotes)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
+docker inspect "$(docker compose ps -q kynotes-server)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
 ```
 
 The server applies read-header, read, write, idle, and graceful-shutdown
