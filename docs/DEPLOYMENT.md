@@ -66,11 +66,11 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_BACKUP_KEEP` | `7` | Newest N local copies kept. Must be at least 1. |
 | `KYNOTES_BACKUP_DEPOSIT_INTERVAL` | `24h` | Default schedule. `0` disables; the floor is `15m`. The admin UI setting overrides this. |
 | `KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY` | `false` | Admit a KyRecovery on a private or carrier-grade NAT address. HTTPS is still required; loopback, link-local and reserved ranges stay refused. |
-| `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
+| `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. Set it in `.env` next to `COMPOSE_FILE` (every later compose command needs it once the overlay is in the chain) and recreate the container. |
 
 ```bash
-# with :docker-compose.lan-dns.yml appended to COMPOSE_FILE in .env
-KYNOTES_DNS=192.168.1.1 docker compose up -d --force-recreate
+(umask 077; printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.lan-dns.yml\nKYNOTES_DNS=192.168.1.1\n' >> .env); chmod 600 .env
+docker compose up -d --force-recreate
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
 
