@@ -69,23 +69,16 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY` | `false` | Admit a KyRecovery on a private or carrier-grade NAT address. HTTPS is still required; loopback, link-local and reserved ranges stay refused. |
 | `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. Set it in `.env` next to `COMPOSE_FILE` (every later compose command needs it once the overlay is in the chain) and recreate the container. |
 
-Everything lives in `.env`, replaced in place (never appended twice): the overlay joins
-`COMPOSE_FILE`, the resolver sit next to it, since every later compose
-command recreates the container from `.env`. Two variants, one block each, so a single
-copy-paste can never run both:
-
-Published image:
+The snippet appends `docker-compose.lan-dns.yml` to whatever `COMPOSE_FILE` chain `.env` already
+holds (build overlay, local override) and leaves the rest of the chain alone; the resolver
+are replaced in place next to it. Re-running it is a no-op. One block for every install type:
 
 ```bash
-(umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" && printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.lan-dns.yml\nKYNOTES_DNS=192.168.1.1\n' >> "$t" && mv "$t" .env)
-docker compose up -d --force-recreate
-docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
-```
-
-Source install:
-
-```bash
-(umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" && printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml:docker-compose.lan-dns.yml\nKYNOTES_DNS=192.168.1.1\n' >> "$t" && mv "$t" .env)
+(umask 077; t=$(mktemp ./.env.XXXXXX) && touch .env \
+  && cf=$({ grep '^COMPOSE_FILE=' .env || [ $? -eq 1 ]; } | tail -n1 | cut -d= -f2-) && cf=${cf:-docker-compose.yml} \
+  && case ":$cf:" in *:docker-compose.lan-dns.yml:*) ;; *) cf="$cf:docker-compose.lan-dns.yml";; esac \
+  && { grep -v -e '^COMPOSE_FILE=' -e '^KYNOTES_DNS=' .env || [ $? -eq 1 ]; } > "$t" \
+  && printf 'COMPOSE_FILE=%s\nKYNOTES_DNS=192.168.1.1\n' "$cf" >> "$t" && mv "$t" .env)
 docker compose up -d --force-recreate
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
