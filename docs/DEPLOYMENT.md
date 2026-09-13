@@ -6,10 +6,13 @@ The compose service does not publish a host port. Set `server.behind_proxy`
 and list only the proxy networks in `trusted_proxies`; the proxy must forward
 the client address through `X-Forwarded-For`.
 
-For local/LAN access without a reverse proxy, use the development override:
+For local/LAN access without a reverse proxy, use the development override. Overlays are
+selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-compose.build.yml`;
+an explicit `-f` list would drop it):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.local.yml up -d
+(umask 077; echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml:docker-compose.local.yml' >> .env)
+docker compose up -d
 ```
 
 It publishes `8081` on the host and forwards it to the server's internal
@@ -19,8 +22,8 @@ The default compose file uses the named `kynotes-data` volume for `/data`.
 Restart without `--volumes` to preserve notes:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml down
-docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.local.yml up -d
+docker compose down
+docker compose up -d
 ```
 
 Do not run `docker compose down --volumes` unless you intentionally want to
@@ -28,7 +31,7 @@ delete the KyNotes database and encrypted blobs. Confirm the mount before a
 maintenance restart:
 
 ```bash
-docker inspect "$(docker compose -f docker-compose.yml -f docker-compose.local.yml ps -q kynotes)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
+docker inspect "$(docker compose ps -q kynotes)" --format '{{range .Mounts}}{{.Destination}} <- {{.Name}}{{"\n"}}{{end}}'
 ```
 
 The server applies read-header, read, write, idle, and graceful-shutdown
@@ -63,7 +66,8 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
 
 ```bash
-KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.lan-dns.yml up -d
+# with :docker-compose.lan-dns.yml appended to COMPOSE_FILE in .env
+KYNOTES_DNS=192.168.1.1 docker compose up -d --force-recreate
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
 
