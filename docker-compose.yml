@@ -2,6 +2,8 @@ name: kynotes-server
 
 services:
   kynotes-server:
+    # Pulled by `docker compose pull`; `docker compose up --build` still builds locally.
+    image: ghcr.io/busness-app/kynotes-server:latest
     build:
       context: .
       dockerfile: Dockerfile

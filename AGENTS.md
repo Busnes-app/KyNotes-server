@@ -44,6 +44,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   frozen: implement them, do not re-decide them. Changing a frozen contract
   requires updating `DESIGN.md` and the plan in the same change.
 
+## Verification
+
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe and govulncheck on every push and pull request.
+- On a push to the default branch that passes every job, the `publish` job pushes the image to `ghcr.io/busness-app/<repo>` as `:latest` and `:<commit sha>`; `docker-compose.yml` names that image.
+
 ## Child DOX Index
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
