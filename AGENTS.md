@@ -47,7 +47,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 ## Verification
 
 - CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe and govulncheck on every push and pull request.
-- On a push to the default branch that passes every job, the `publish` job pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busness-app/<repo>` as `:latest` and `:<commit sha>`, then attests and verifies its provenance; `docker-compose.yml` names that image with `pull_policy: missing`.
+- On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busness-app/kynotes-server:<commit sha>`, attests it and verifies the attestation; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source builds use `docker-compose.build.yml`, tagged `kynotes-server:local`.
 
 ## Child DOX Index
 

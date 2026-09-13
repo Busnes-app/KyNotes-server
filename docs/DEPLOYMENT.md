@@ -9,7 +9,7 @@ the client address through `X-Forwarded-For`.
 For local/LAN access without a reverse proxy, use the development override:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.local.yml up -d
 ```
 
 It publishes `8081` on the host and forwards it to the server's internal
@@ -20,7 +20,7 @@ Restart without `--volumes` to preserve notes:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml down
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.local.yml up -d
 ```
 
 Do not run `docker compose down --volumes` unless you intentionally want to
@@ -63,7 +63,7 @@ change hold scrypt verifiers, which are refused; recreate them.
 | `KYNOTES_DNS` | unset | Only with `docker-compose.lan-dns.yml`: the LAN resolver the container uses, for a KyRecovery that resolves only there. A value in `.env` alone does nothing; pass it on the command line and recreate the container. |
 
 ```bash
-KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.lan-dns.yml up -d --build
+KYNOTES_DNS=192.168.1.1 docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.lan-dns.yml up -d
 docker inspect KyNotes-Server --format '{{.HostConfig.Dns}}'
 ```
 
