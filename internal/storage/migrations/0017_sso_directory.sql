@@ -3,6 +3,7 @@ CREATE TABLE sso_directory_state (
  issuer TEXT NOT NULL, subject TEXT NOT NULL,
  revision INTEGER NOT NULL CHECK(revision>0), digest TEXT NOT NULL,
  active INTEGER NOT NULL CHECK(active IN (0,1)), event_id TEXT NOT NULL,
+ revoked_before INTEGER NOT NULL DEFAULT 0,
  PRIMARY KEY(issuer,subject)
 );
 ALTER TABLE sso_sync_events ADD COLUMN issuer TEXT NOT NULL DEFAULT '';

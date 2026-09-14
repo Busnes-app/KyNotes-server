@@ -157,6 +157,13 @@ Unknown inactive subjects retain a tombstone without creating a user. Local
 status edits and OIDC auto-provisioning cannot override an inactive tombstone.
 Downloaded plaintext and client-held keys cannot be recalled by the server.
 
+Directory deactivation also retains a per-identity login-proof cutoff. Session
+admission rejects ID tokens issued at or before that cutoff even after a higher
+active revision, preventing a pending callback from reviving access. Issuance
+and disablement in the same second are conservatively ordered as disabled;
+restart login in a later second. The cutoff and session admission serialize with
+account/revision changes under SQLite's writer lock.
+
 ### Directory readback
 
 POST `/api/v1/sync/readback` with body `{"subject":"subject-id"}`, a fresh event

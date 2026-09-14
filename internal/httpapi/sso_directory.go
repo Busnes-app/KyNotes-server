@@ -183,7 +183,11 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 	status := "already_applied"
 	if revision > prior {
 		status = "applied"
-		_, err = tx.Exec(`INSERT INTO sso_directory_state(issuer,subject,revision,digest,active,event_id) VALUES(?,?,?,?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revision=excluded.revision,digest=excluded.digest,active=excluded.active,event_id=excluded.event_id`, settings.IssuerURL, u.ID, revision, incoming, *u.Active, event.ID)
+		var cutoff int64
+		if !*u.Active {
+			cutoff = time.Now().Unix()
+		}
+		_, err = tx.Exec(`INSERT INTO sso_directory_state(issuer,subject,revision,digest,active,event_id,revoked_before) VALUES(?,?,?,?,?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revision=excluded.revision,digest=excluded.digest,active=excluded.active,event_id=excluded.event_id,revoked_before=max(sso_directory_state.revoked_before,excluded.revoked_before)`, settings.IssuerURL, u.ID, revision, incoming, *u.Active, event.ID, cutoff)
 		if err == nil {
 			err = syncSingleUser(tx, cfg, settings.IssuerURL, &u)
 		}

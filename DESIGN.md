@@ -391,3 +391,10 @@ this receiver endpoint requires a future sender adapter or signed operator probe
 See `docs/SSO.md` for wire fields, upgrade and acknowledgment limits. Client
 cryptography and the remaining role/reauthentication and live acceptance gates
 are unchanged.
+
+Directory deactivation also retains a per-identity login-proof cutoff. Session
+admission rejects ID tokens issued at or before that cutoff even after a higher
+active revision, preventing a pending callback from reviving access. Issuance
+and disablement in the same second are conservatively ordered as disabled;
+restart login in a later second. The cutoff and session admission serialize with
+account/revision changes under SQLite's writer lock.

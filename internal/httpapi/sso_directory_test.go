@@ -169,6 +169,7 @@ func TestDirectoryDisablePreservesDataAndRevokesAllCredentials(t *testing.T) {
 	if _, err := f.db.Exec(`DROP TRIGGER fail_directory_audit`); err != nil {
 		t.Fatal(err)
 	}
+	oldCallback := f.beginLogin("alice", "pending-before-disable", time.Now().Add(-time.Second))
 	send("disable", 1, false, 200)
 	if f.protected(cookies) == 204 || f.protected(local.Result().Cookies()) == 204 || f.protected(other) != 204 {
 		t.Fatal("disable scope wrong")
@@ -180,6 +181,9 @@ func TestDirectoryDisablePreservesDataAndRevokesAllCredentials(t *testing.T) {
 		t.Fatal("disabled login succeeded")
 	}
 	send("enable", 2, true, 200)
+	if res := f.send(oldCallback); res.Code != 403 {
+		t.Fatalf("reenable revived old callback: %d %s", res.Code, res.Body.String())
+	}
 	if f.protected(cookies) == 204 || f.protected(local.Result().Cookies()) == 204 {
 		t.Fatal("reenable revived sessions")
 	}
@@ -192,7 +196,8 @@ func TestDirectoryDisablePreservesDataAndRevokesAllCredentials(t *testing.T) {
 			t.Fatalf("ciphertext lost %x %v", data, err)
 		}
 	}
-	if f.protected(f.login("alice", "fresh")) != 204 {
+	fresh := f.send(f.beginLogin("alice", "fresh", time.Now().Add(time.Second)))
+	if fresh.Code != 302 || f.protected(fresh.Result().Cookies()) != 204 {
 		t.Fatal("fresh login denied")
 	}
 }

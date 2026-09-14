@@ -34,7 +34,8 @@ days and coordinate a fix and disclosure.
   the existing local role and ignores SCIM role claims until explicit application
   role mapping is implemented. Directory deactivation revokes every credential of
   that account and preserves encrypted data; a higher active revision requires
-  fresh credentials. Durable issuer/subject revision fences survive replay expiry
+  fresh credentials. A persistent login-proof cutoff rejects callbacks carrying
+  pre-disable ID tokens after re-enablement. Durable issuer/subject revision fences survive replay expiry
   and user deletion. Local administrators cannot override an inactive directory
   fence by editing status. Unversioned senders must upgrade before this receiver.
   Readback requires a signed purpose/subject and an atomic successful audit.

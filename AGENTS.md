@@ -131,6 +131,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   issuer/subject revisions with account changes, credential revocation and audit.
   Bare versioned SCIM replaces the legacy envelope; inactive delivery preserves
   accounts and keys, and SQL guards prevent activation through an inactive fence.
+  A retained login-proof cutoff blocks pre-disable callbacks after re-enablement;
+  session admission checks verified issuance time under the writer lock.
   Identical retries acknowledge without reapplying; stale/conflicting writes return
   422 because the sender treats create/409 as success. Signed `user.readback`
   binds purpose and subject in the body; sender automation remains unsupported.
