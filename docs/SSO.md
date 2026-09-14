@@ -13,8 +13,8 @@ for the KyNotes client at the issuer (replace `notes.example.com`):
 - Login callback: `https://notes.example.com/api/v1/auth/oidc/callback`
 - Back-channel logout: `https://notes.example.com/api/v1/auth/oidc/backchannel-logout`
 
-Enable session-aware back-channel logout in the issuer's client configuration.
-KySignOn advertises session support in discovery; KyNotes then requires a
+Register the back-channel URI in KySignOn's client settings. KySignOn advertises
+session support in discovery; KyNotes then requires a
 nonempty `sid` in every verified ID token. Other OIDC providers that do not
 advertise session support may use subject-wide logout.
 
