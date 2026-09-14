@@ -17,9 +17,19 @@ days and coordinate a fix and disclosure.
 - The server can see routing metadata, object versions, sizes, timestamps, and
   membership metadata. It must not receive plaintext note or attachment data,
   private encryption keys, or recovery codes.
-- Device keys and container keys are wrapped for authorized devices. Revoking a
-  device removes server-side envelopes, but cannot recall plaintext already
-  downloaded or guarantee local-memory and browser-storage wiping.
+- Device keys and container keys are wrapped for authorized devices. Explicit
+  device revocation removes server-side envelopes. SSO logout and the SSO upgrade
+  instead revoke authentication while preserving envelopes for re-pairing; neither
+  path recalls plaintext already downloaded or guarantees client-storage wiping.
+- SSO logout ends scoped browser sessions and credentials derived from them.
+  Independent local password authentication remains available. Devices paired
+  through SSO must re-pair after their parent session ends, including expiry.
+  Logout requires verified issuer/client signatures and durable atomic replay,
+  revocation and audit. Admitted metadata verification may finish for up to 30
+  seconds after a caller disconnects, preventing cancellation from poisoning shared
+  discovery/JWKS caches; session mutations still honor request cancellation.
+  See [SSO setup and upgrade](docs/SSO.md) for migration
+  effects and the staged directory/role/reauthentication acceptance boundary.
 - Team membership changes rotate keys for future content. Removed members may
   retain content they already downloaded.
 - Deterministic attachment encryption may reveal that two ciphertexts are

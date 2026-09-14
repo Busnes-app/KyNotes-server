@@ -2,10 +2,10 @@ package sso
 
 import (
 	"context"
-	"database/sql"
+	"path/filepath"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 func TestPKCE(t *testing.T) {
@@ -41,16 +41,12 @@ func TestVerifyClaimsRefusesUnsignedIdentity(t *testing.T) {
 }
 
 func TestStorePersistence(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:")
+	st, err := storage.Open(filepath.Join(t.TempDir(), "sso.db"))
 	if err != nil {
-		t.Fatalf("failed to open sqlite: %v", err)
+		t.Fatal(err)
 	}
-	defer db.Close()
-
-	_, err = db.Exec(`CREATE TABLE server_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`)
-	if err != nil {
-		t.Fatalf("failed to create server_settings table: %v", err)
-	}
+	defer st.Close()
+	db := st.DB()
 
 	store := NewStore(db)
 	initial := store.Load()

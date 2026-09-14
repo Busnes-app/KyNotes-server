@@ -272,7 +272,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		tok, c, e := auth.MintPairingToken(cfg.Secrets.PairingSecret, s.UserID, time.Now().UTC())
+		tok, c, e := auth.MintSessionPairingToken(cfg.Secrets.PairingSecret, s.UserID, s.ID, time.Now().UTC())
 		if e != nil {
 			WriteError(w, r, 503, "unavailable", "pairing is unavailable")
 			return
@@ -337,16 +337,39 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		e = dbTx(db, func(tx *sql.Tx) error {
+			// Recheck expiry after acquiring the writer lock.
+			currentTime := time.Now().UTC()
+			if !currentTime.Before(time.Unix(claim.Exp, 0)) {
+				return errors.New("expired pairing token")
+			}
+			now = currentTime.Format(time.RFC3339)
+			var subject string
+			if err := tx.QueryRow(`SELECT sso_subject FROM users WHERE id=? AND status='active'`, userID).Scan(&subject); err != nil {
+				return err
+			}
+			originSession := ""
+			if claim.SessionID != "" {
+				var issuer string
+				if err := tx.QueryRow(`SELECT sso_issuer FROM sessions WHERE id=? AND user_id=? AND revoked_at='' AND expires_at>? AND hard_expires_at>?`, claim.SessionID, userID, now, now).Scan(&issuer); err != nil {
+					return err
+				}
+				if issuer != "" {
+					originSession = claim.SessionID
+				}
+			} else if subject != "" {
+				// Pre-upgrade tokens cannot prove whether their authorizing SSO login ended.
+				return errors.New("unbound SSO pairing token")
+			}
 			if _, e := tx.Exec(`INSERT INTO pairing_nonces(nonce,purpose,user_id,used_at,expires_at) VALUES(?,?,?,?,?)`, hex.EncodeToString(nonceHash[:]), claim.Purpose, userID, now, time.Unix(claim.Exp, 0).UTC().Format(time.RFC3339)); e != nil {
 				return e
 			}
 			var existing string
 			if scanErr := tx.QueryRow(`SELECT id FROM devices WHERE user_id=? AND fingerprint=?`, userID, hex.EncodeToString(fp[:])).Scan(&existing); scanErr == nil {
 				deviceID = existing
-				_, e = tx.Exec(`UPDATE devices SET public_key=?,secret_hash=?,label_ciphertext=?,platform=?,revoked_at='' WHERE id=?`, in.PublicKey, "sha256:"+hex.EncodeToString(sh[:]), label, in.Platform, existing)
+				_, e = tx.Exec(`UPDATE devices SET public_key=?,secret_hash=?,label_ciphertext=?,platform=?,revoked_at='',sso_session_id=? WHERE id=?`, in.PublicKey, "sha256:"+hex.EncodeToString(sh[:]), label, in.Platform, originSession, existing)
 				return e
 			}
-			_, e = tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,label_ciphertext,platform,created_at) VALUES(?,?,?,?,?,?,?,?)`, deviceID, userID, in.PublicKey, hex.EncodeToString(fp[:]), "sha256:"+hex.EncodeToString(sh[:]), label, in.Platform, now)
+			_, e = tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,label_ciphertext,platform,created_at,sso_session_id) VALUES(?,?,?,?,?,?,?,?,?)`, deviceID, userID, in.PublicKey, hex.EncodeToString(fp[:]), "sha256:"+hex.EncodeToString(sh[:]), label, in.Platform, now, originSession)
 			return e
 		})
 		if e != nil {

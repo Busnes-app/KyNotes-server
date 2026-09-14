@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Busness-app/ky-primitives/oidcverify"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 // SSOSettings holds the OpenID Connect and KySignOn sync configuration.
@@ -34,11 +35,14 @@ type SSOSettings struct {
 
 // Store manages SSOSettings loaded and persisted to the SQLite server_settings table.
 type Store struct {
-	mu       sync.RWMutex
-	db       *sql.DB
-	cached   SSOSettings
-	inMemory bool
-	verifier *oidcverify.Verifier
+	mu                 sync.RWMutex
+	discoveryMu        sync.Mutex
+	logoutDiscoveryAt  time.Time
+	logoutDiscoveryKey string
+	db                 *sql.DB
+	cached             SSOSettings
+	inMemory           bool
+	verifier           *oidcverify.Verifier
 }
 
 // NewStore initializes a new Store backed by the SQLite database.
@@ -138,6 +142,14 @@ func (s *Store) Save(settings SSOSettings) error {
 		return err
 	}
 
+	if settings.IssuerURL != s.cached.IssuerURL || settings.ClientID != s.cached.ClientID || !settings.Enabled {
+		if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE sso_issuer<>'' AND revoked_at=''`, now); err != nil {
+			return err
+		}
+		if err := storage.RecordAuditOutcomeTx(tx, "", "auth.sso_configuration", "", "", "success", "configuration_changed", ""); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -148,11 +160,12 @@ func (s *Store) Save(settings SSOSettings) error {
 
 // DiscoveryDoc represents the OpenID Provider Configuration document.
 type DiscoveryDoc struct {
-	Issuer                string `json:"issuer"`
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	UserinfoEndpoint      string `json:"userinfo_endpoint"`
-	JWKSURI               string `json:"jwks_uri"`
+	Issuer                            string `json:"issuer"`
+	AuthorizationEndpoint             string `json:"authorization_endpoint"`
+	TokenEndpoint                     string `json:"token_endpoint"`
+	UserinfoEndpoint                  string `json:"userinfo_endpoint"`
+	JWKSURI                           string `json:"jwks_uri"`
+	BackchannelLogoutSessionSupported bool   `json:"backchannel_logout_session_supported"`
 }
 
 // DiscoverEndpoints fetches the OpenID configuration from the issuer URL.
@@ -268,16 +281,27 @@ func ExchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, co
 
 // Claims represents standard OpenID Connect claims.
 type Claims struct {
-	Subject       string `json:"sub"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name"`
-	Username      string `json:"preferred_username"`
-	Role          string `json:"role"`
+	Subject       string    `json:"sub"`
+	SessionID     string    `json:"sid"`
+	IssuedAt      time.Time `json:"-"`
+	ValidUntil    time.Time `json:"-"`
+	Email         string    `json:"email"`
+	EmailVerified bool      `json:"email_verified"`
+	Name          string    `json:"name"`
+	Username      string    `json:"preferred_username"`
+	Role          string    `json:"role"`
 }
 
 // VerifyClaims accepts identity only from a signed ID token bound to this login.
 func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *DiscoveryDoc, idToken, nonce string) (*Claims, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// The verifier shares its JWKS cache with logout; callers cannot abort a
+	// cache fill and consume its refresh cooldown without reaching the issuer.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	s.mu.Lock()
 	v := s.verifier
 	if v == nil || v.Issuer != settings.IssuerURL || v.Audience != settings.ClientID || v.JWKSURL != doc.JWKSURI {
@@ -292,7 +316,18 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 	if err != nil {
 		return nil, err
 	}
-	claims := &Claims{Subject: verified.Subject, Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username"), Role: verified.String("role")}
+	claims := &Claims{Subject: verified.Subject, IssuedAt: verified.IssuedAt, ValidUntil: verified.ExpiresAt.Add(time.Minute), Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username"), Role: verified.String("role")}
+	if verified.IssuedAt.IsZero() {
+		return nil, errors.New("missing ID token issuance time")
+	}
+	if raw, present := verified.Raw["sid"]; present {
+		if err := json.Unmarshal(raw, &claims.SessionID); err != nil || claims.SessionID == "" {
+			return nil, errors.New("invalid ID token session")
+		}
+	}
+	if doc.BackchannelLogoutSessionSupported && claims.SessionID == "" {
+		return nil, errors.New("missing ID token session")
+	}
 	if raw := verified.Raw["email_verified"]; raw != nil {
 		_ = json.Unmarshal(raw, &claims.EmailVerified)
 	}
@@ -300,6 +335,74 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 		claims.Username = claims.Subject
 	}
 	return claims, nil
+}
+
+// VerifyLogout uses the login verifier and retries key failures against current
+// discovery. Refreshes are bounded per issuer/client, including failed fetches.
+func (s *Store) VerifyLogout(ctx context.Context, settings SSOSettings, token string) (oidcverify.LogoutClaims, error) {
+	if err := ctx.Err(); err != nil {
+		return oidcverify.LogoutClaims{}, err
+	}
+	// Bound shared discovery/JWKS work independently of caller disconnects.
+	// The HTTP handler still uses the original context for the revocation commit.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
+	if settings.IssuerURL == "" || settings.ClientID == "" {
+		return oidcverify.LogoutClaims{}, errors.New("SSO logout is not configured")
+	}
+	v, err := s.logoutVerifier(ctx, settings, false)
+	if err != nil {
+		return oidcverify.LogoutClaims{}, err
+	}
+	claims, err := v.VerifyLogout(ctx, token)
+	if !errors.Is(err, oidcverify.ErrUnknownKey) && !errors.Is(err, oidcverify.ErrJWKS) && !errors.Is(err, oidcverify.ErrSignature) {
+		return claims, err
+	}
+	refreshed, refreshErr := s.logoutVerifier(ctx, settings, true)
+	if refreshErr != nil || refreshed == v {
+		return claims, err
+	}
+	return refreshed.VerifyLogout(ctx, token)
+}
+
+func (s *Store) logoutVerifier(ctx context.Context, settings SSOSettings, refresh bool) (*oidcverify.Verifier, error) {
+	// Never hold the settings mutex across network work.
+	s.discoveryMu.Lock()
+	defer s.discoveryMu.Unlock()
+	// A request that exhausted its own budget waiting did not attempt discovery.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	v := s.verifier
+	s.mu.RUnlock()
+	matches := v != nil && v.Issuer == settings.IssuerURL && v.Audience == settings.ClientID
+	if matches && !refresh {
+		return v, nil
+	}
+	key := settings.IssuerURL + "\x00" + settings.ClientID
+	if s.logoutDiscoveryKey == key && time.Since(s.logoutDiscoveryAt) < time.Minute {
+		if matches {
+			return v, nil
+		}
+		return nil, errors.New("SSO discovery temporarily unavailable")
+	}
+	s.logoutDiscoveryKey, s.logoutDiscoveryAt = key, time.Now()
+	doc, err := DiscoverEndpoints(ctx, settings.IssuerURL)
+	if err != nil {
+		if matches {
+			return v, nil
+		}
+		return nil, err
+	}
+	if !matches || v.JWKSURL != doc.JWKSURI {
+		v = &oidcverify.Verifier{Issuer: settings.IssuerURL, Audience: settings.ClientID, JWKSURL: doc.JWKSURI, HTTPClient: oidcClient()}
+		s.mu.Lock()
+		s.verifier = v
+		s.mu.Unlock()
+	}
+	return v, nil
 }
 
 func oidcClient() *http.Client {

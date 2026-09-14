@@ -68,6 +68,10 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		// spelling. Keying on "v1" alone lets a caller opt out of the limit.
 		path := canonicalAPIPath(r.URL.Path)
 		switch {
+		case path == "/api/v1/auth/oidc/backchannel-logout":
+			// The receiver throttles failed verification; valid issuer bursts must pass.
+			next.ServeHTTP(w, r)
+			return
 		case path == "/api/v1/auth/oidc/login" || path == "/auth/oidc/login":
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "oidc"
 		case path == "/api/v1/auth/login" || path == "/api/v1/auth/login-params":

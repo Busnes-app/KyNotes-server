@@ -4,6 +4,9 @@ KyNotes stores encrypted notes and attachments; browsers own content decryption.
 See [deployment](docs/DEPLOYMENT.md) for setup and configuration, including the `COMPOSE_FILE`
 line a source build must set so `docker compose` never swaps in the published image.
 
+See [SSO setup and upgrade](docs/SSO.md) for session-aware logout and the required
+re-login/re-pairing of linked accounts after migration 0016.
+
 Administrators can pin a recovery public key, pair KyRecovery, schedule backups, retain
 local sealed copies, download capsules and run synthetic restore drills. Capsules hold
 the database and deployment secrets, while ciphertext blobs require separate recovery.

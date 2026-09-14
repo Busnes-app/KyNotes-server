@@ -14,13 +14,19 @@ import (
 )
 
 type PairingClaims struct {
-	Sub     string `json:"sub"`
-	Exp     int64  `json:"exp"`
-	Nonce   string `json:"nonce"`
-	Purpose string `json:"purpose"`
+	Sub       string `json:"sub"`
+	Exp       int64  `json:"exp"`
+	Nonce     string `json:"nonce"`
+	Purpose   string `json:"purpose"`
+	SessionID string `json:"session,omitempty"`
 }
 
 func MintPairingToken(secret, userID string, now time.Time) (string, PairingClaims, error) {
+	return MintSessionPairingToken(secret, userID, "", now)
+}
+
+// MintSessionPairingToken binds HTTP-issued pairing to the authorizing browser session.
+func MintSessionPairingToken(secret, userID, sessionID string, now time.Time) (string, PairingClaims, error) {
 	if len(secret) < 32 {
 		return "", PairingClaims{}, errors.New("pairing disabled")
 	}
@@ -28,7 +34,7 @@ func MintPairingToken(secret, userID string, now time.Time) (string, PairingClai
 	if _, e := rand.Read(n); e != nil {
 		return "", PairingClaims{}, e
 	}
-	c := PairingClaims{Sub: userID, Exp: now.Add(120 * time.Second).Unix(), Nonce: hex.EncodeToString(n), Purpose: "device-pair"}
+	c := PairingClaims{Sub: userID, Exp: now.Add(120 * time.Second).Unix(), Nonce: hex.EncodeToString(n), Purpose: "device-pair", SessionID: sessionID}
 	p, _ := json.Marshal(c)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(p)
