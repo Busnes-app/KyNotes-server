@@ -341,7 +341,10 @@ and a mirrored callback fence. Session-aware issuers must supply a sid.
 Verified tokens bypass the IP abuse bucket; malformed/unverifiable traffic alone
 consumes it. Logout audits retain the JWT ID and actual session/device counts.
 Key failures retry a changed discovery JWKS URI, with discovery attempts bounded
-to once per minute per configured issuer/client.
+to once per minute per configured issuer/client. Already-cancelled calls do not
+start shared work. Admitted login/logout metadata verification detaches caller
+cancellation under a 30-second budget, preserving cache fills on disconnect;
+session issuance and logout revocation retain the original request context.
 
 Device pairing tokens carry their authorizing session. Devices paired through
 SSO require that parent session on every authenticated request, so logout,

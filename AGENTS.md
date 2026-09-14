@@ -138,6 +138,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   malformed/unverifiable requests consume that bucket. Logout with both sid/sub
   covers matching older sid-less sessions and callbacks. Key failures recheck a
   changed JWKS URI with discovery refresh limited to once per minute per client.
+  Already-cancelled verification does no shared work; admitted login/logout
+  metadata verification has a detached 30-second budget so caller disconnects
+  cannot poison discovery/JWKS cooldowns. Session mutations retain request context.
   Callback admission rechecks account,
   configuration and original deadline under the writer lock. SSO-derived device
   credentials require a live parent session on every request. Upgrade revokes

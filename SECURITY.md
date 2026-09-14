@@ -25,7 +25,10 @@ days and coordinate a fix and disclosure.
   Independent local password authentication remains available. Devices paired
   through SSO must re-pair after their parent session ends, including expiry.
   Logout requires verified issuer/client signatures and durable atomic replay,
-  revocation and audit. See [SSO setup and upgrade](docs/SSO.md) for migration
+  revocation and audit. Admitted metadata verification may finish for up to 30
+  seconds after a caller disconnects, preventing cancellation from poisoning shared
+  discovery/JWKS caches; session mutations still honor request cancellation.
+  See [SSO setup and upgrade](docs/SSO.md) for migration
   effects and the staged directory/role/reauthentication acceptance boundary.
 - Team membership changes rotate keys for future content. Removed members may
   retain content they already downloaded.

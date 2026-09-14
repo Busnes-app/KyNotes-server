@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -28,19 +29,20 @@ import (
 const logoutPath = "/api/v1/auth/oidc/backchannel-logout"
 
 type logoutFixture struct {
-	t                 *testing.T
-	db                *sql.DB
-	cfg               config.Config
-	settings          *sso.Store
-	key               *rsa.PrivateKey
-	issuer            *httptest.Server
-	router            http.Handler
-	mu                sync.Mutex
-	proofs            map[string]map[string]any
-	tokenHook         func()
-	sessionSupport    bool
-	jwksPath, keyID   string
-	discoveryRequests int
+	t                       *testing.T
+	db                      *sql.DB
+	cfg                     config.Config
+	settings                *sso.Store
+	key                     *rsa.PrivateKey
+	issuer                  *httptest.Server
+	router                  http.Handler
+	mu                      sync.Mutex
+	proofs                  map[string]map[string]any
+	tokenHook               func()
+	sessionSupport          bool
+	jwksPath, keyID         string
+	discoveryRequests       int
+	discoveryHook, jwksHook func()
 }
 
 func newLogoutFixture(t *testing.T) *logoutFixture {
@@ -59,10 +61,20 @@ func newLogoutFixtureWithSessionSupport(t *testing.T, sessionSupport bool) *logo
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			f.mu.Lock()
-			defer f.mu.Unlock()
 			f.discoveryRequests++
-			_ = json.NewEncoder(w).Encode(sso.DiscoveryDoc{Issuer: f.issuer.URL, AuthorizationEndpoint: f.issuer.URL + "/authorize", TokenEndpoint: f.issuer.URL + "/token", JWKSURI: f.issuer.URL + f.jwksPath, BackchannelLogoutSessionSupported: f.sessionSupport})
+			hook, path, support := f.discoveryHook, f.jwksPath, f.sessionSupport
+			f.mu.Unlock()
+			if hook != nil {
+				hook()
+			}
+			_ = json.NewEncoder(w).Encode(sso.DiscoveryDoc{Issuer: f.issuer.URL, AuthorizationEndpoint: f.issuer.URL + "/authorize", TokenEndpoint: f.issuer.URL + "/token", JWKSURI: f.issuer.URL + path, BackchannelLogoutSessionSupported: support})
 		case "/keys", "/rotated-keys":
+			f.mu.Lock()
+			hook := f.jwksHook
+			f.mu.Unlock()
+			if hook != nil {
+				hook()
+			}
 			kid, signingKey := "one", key
 			if r.URL.Path == "/rotated-keys" {
 				f.mu.Lock()
@@ -626,5 +638,92 @@ func TestSSOLogoutRefreshesChangedJWKSLocation(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.discoveryRequests != before {
 		t.Fatal("invalid tokens amplified discovery requests")
+	}
+}
+
+func TestSSOLogoutCancelledCallerDoesNotConsumeDiscovery(t *testing.T) {
+	f := newLogoutFixture(t)
+	alice := f.login("alice", "cancelled")
+	f.restartRouter() // Keep durable sessions, but start with cold verification caches.
+	token := f.sign("logout+jwt", f.logoutClaims("cancelled", "alice", "cancelled"))
+	f.mu.Lock()
+	before := f.discoveryRequests
+	f.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := f.settings.VerifyLogout(ctx, f.settings.Load(), token); err == nil {
+		t.Fatal("cancelled verification succeeded")
+	}
+	f.mu.Lock()
+	afterCancelled := f.discoveryRequests
+	f.mu.Unlock()
+	if afterCancelled != before {
+		t.Fatal("already-cancelled caller started discovery")
+	}
+	if res := f.logout(token); res.Code != 200 {
+		t.Fatalf("cancelled caller poisoned next delivery: %d %s", res.Code, res.Body.String())
+	}
+	if f.protected(alice) != 401 {
+		t.Fatal("session survived valid delivery")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.discoveryRequests != before+1 {
+		t.Fatal("fresh caller did not fetch discovery")
+	}
+}
+
+func TestSSOLogoutFetchSurvivesCallerDisconnect(t *testing.T) {
+	for _, stage := range []string{"discovery", "jwks", "login-jwks"} {
+		t.Run(stage, func(t *testing.T) {
+			f := newLogoutFixture(t)
+			alice := f.login("alice", "disconnect")
+			f.restartRouter()
+			entered, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			t.Cleanup(unblock)
+			hook := func() { close(entered); <-release }
+			f.mu.Lock()
+			if stage == "discovery" {
+				f.discoveryHook = hook
+			} else {
+				f.jwksHook = hook
+			}
+			f.mu.Unlock()
+			token := f.sign("logout+jwt", f.logoutClaims("disconnect", "alice", "disconnect"))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				var err error
+				if stage == "login-jwks" {
+					idToken := f.sign("JWT", map[string]any{"iss": f.issuer.URL, "aud": "kynotes", "sub": "alice", "sid": "disconnect", "nonce": "test-nonce", "iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix()})
+					_, err = f.settings.VerifyClaims(ctx, f.settings.Load(), &sso.DiscoveryDoc{JWKSURI: f.issuer.URL + "/keys"}, idToken, "test-nonce")
+				} else {
+					_, err = f.settings.VerifyLogout(ctx, f.settings.Load(), token)
+				}
+				done <- err
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("metadata fetch not reached")
+			}
+			cancel()
+			unblock()
+			if err := <-done; err != nil {
+				t.Fatalf("caller aborted shared %s fetch: %v", stage, err)
+			}
+			f.mu.Lock()
+			f.discoveryHook, f.jwksHook = nil, nil
+			f.mu.Unlock()
+			if res := f.logout(token); res.Code != 200 {
+				t.Fatalf("disconnect poisoned next delivery: %d %s", res.Code, res.Body.String())
+			}
+			if f.protected(alice) != 401 {
+				t.Fatal("session survived valid delivery")
+			}
+		})
 	}
 }

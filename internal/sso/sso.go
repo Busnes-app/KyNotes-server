@@ -294,6 +294,14 @@ type Claims struct {
 
 // VerifyClaims accepts identity only from a signed ID token bound to this login.
 func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *DiscoveryDoc, idToken, nonce string) (*Claims, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// The verifier shares its JWKS cache with logout; callers cannot abort a
+	// cache fill and consume its refresh cooldown without reaching the issuer.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	s.mu.Lock()
 	v := s.verifier
 	if v == nil || v.Issuer != settings.IssuerURL || v.Audience != settings.ClientID || v.JWKSURL != doc.JWKSURI {
@@ -332,6 +340,14 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 // VerifyLogout uses the login verifier and retries key failures against current
 // discovery. Refreshes are bounded per issuer/client, including failed fetches.
 func (s *Store) VerifyLogout(ctx context.Context, settings SSOSettings, token string) (oidcverify.LogoutClaims, error) {
+	if err := ctx.Err(); err != nil {
+		return oidcverify.LogoutClaims{}, err
+	}
+	// Bound shared discovery/JWKS work independently of caller disconnects.
+	// The HTTP handler still uses the original context for the revocation commit.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	if settings.IssuerURL == "" || settings.ClientID == "" {
 		return oidcverify.LogoutClaims{}, errors.New("SSO logout is not configured")
 	}
@@ -354,6 +370,10 @@ func (s *Store) logoutVerifier(ctx context.Context, settings SSOSettings, refres
 	// Never hold the settings mutex across network work.
 	s.discoveryMu.Lock()
 	defer s.discoveryMu.Unlock()
+	// A request that exhausted its own budget waiting did not attempt discovery.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	v := s.verifier
 	s.mu.RUnlock()
@@ -371,6 +391,9 @@ func (s *Store) logoutVerifier(ctx context.Context, settings SSOSettings, refres
 	s.logoutDiscoveryKey, s.logoutDiscoveryAt = key, time.Now()
 	doc, err := DiscoverEndpoints(ctx, settings.IssuerURL)
 	if err != nil {
+		if matches {
+			return v, nil
+		}
 		return nil, err
 	}
 	if !matches || v.JWKSURL != doc.JWKSURI {

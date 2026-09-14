@@ -15,7 +15,10 @@ revocation with audit. Login cookies require atomic session/audit admission;
 logout can fence an unfinished callback, including older sid-less logins matched
 by the token's subject and issuance time. Verified logout bypasses IP abuse limits;
 audit retains the JWT ID and revocation counts. Failed key verification can refresh
-a changed discovery JWKS URI at most once per minute per issuer/client.
+a changed discovery JWKS URI at most once per minute per issuer/client. Shared
+login/logout metadata verification rejects already-cancelled calls, then uses a
+detached 30-second budget so disconnects cannot poison shared fetch cooldowns;
+session mutations retain the original request context.
 Pairing tokens add optional signed
 `session` metadata; unbound legacy tokens are refused for linked accounts.
 The migration revokes old linked-account sessions/devices once, preserving

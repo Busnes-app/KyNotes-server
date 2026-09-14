@@ -62,7 +62,12 @@ Key-resolution or signature failures trigger a discovery recheck and retry when
 `jwks_uri` changed. Discovery refresh, including failed fetches, is limited to
 once per minute per configured issuer/client, so junk tokens cannot cause a
 fetch on every request. During that bounded interval a changed endpoint may need
-a later delivery retry; existing verified keys remain usable.
+a later delivery retry; existing verified keys remain usable. Already-cancelled
+verification calls do not start shared metadata work. Admitted login/logout
+verification uses a caller-independent 30-second budget (with the existing
+10-second HTTP timeouts), so disconnects cannot consume discovery/JWKS cooldowns
+without completing the fetch. Session issuance and logout revocation still use
+the original request context.
 
 Devices paired through SSO carry their authorizing local session ID. Their
 credentials require that session to remain live, owned by the same user, and
