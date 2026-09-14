@@ -7,6 +7,20 @@ Extension for Myslop #290: the implemented OIDC and directory-sync paths now use
 0014 records signed event replay atomically with account changes. This supersedes
 the original deferral of SSO for that existing subsystem; client crypto is unchanged.
 
+Lifecycle extension for issue 13, first stage: the root shared dependency is now
+`ky-primitives@v0.7.0`. Migration 0016 adds issuer-bound users, SSO session origin,
+device parent-session binding and durable logout replay/fences. The canonical
+POST `/api/v1/auth/oidc/backchannel-logout` verifies signed form tokens and commits
+revocation with audit. Login cookies require atomic session/audit admission;
+logout can fence an unfinished callback. Pairing tokens add optional signed
+`session` metadata; unbound legacy tokens are refused for linked accounts.
+The migration revokes old linked-account sessions/devices once, preserving
+ciphertext and envelopes. See DESIGN.md and `docs/SSO.md` for the complete
+contract. Verification includes TLS/JWKS integration, writer races, audit
+rollback, restart and migration 1–15 upgrade coverage. Follow-up stages retain
+versioned directory/deactivation, app roles and action-bound reauthentication;
+this stage does not satisfy live deployment acceptance.
+
 Recovery extension for Myslop #290: sealed capsule collection and restore live in
 `internal/backup`, using `ky-primitives/recoveryclient@v0.5.1`; see DESIGN.md and
 `docs/RESTORE.md`. The existing local plaintext commands are now `copy-data-dir`

@@ -22,29 +22,52 @@ type Session struct {
 	StepUpAt                            time.Time // zero until the login secret was re-proven
 }
 
-func MintSession(db *sql.DB, w http.ResponseWriter, userID string, insecure bool, now time.Time) (Session, error) {
+type sessionCredentials struct {
+	session   Session
+	token     string
+	tokenHash string
+	csrfHash  string
+}
+
+func prepareSession(userID string, now time.Time) (sessionCredentials, error) {
 	id, err := ids.Mint("ses")
 	if err != nil {
-		return Session{}, err
+		return sessionCredentials{}, err
 	}
 	token := make([]byte, 32)
 	csrf := make([]byte, 32)
 	if _, err = rand.Read(token); err != nil {
-		return Session{}, err
+		return sessionCredentials{}, err
 	}
 	if _, err = rand.Read(csrf); err != nil {
-		return Session{}, err
+		return sessionCredentials{}, err
 	}
 	hash := sha256.Sum256(token)
 	csrfHash := sha256.Sum256(csrf)
 	s := Session{ID: id, UserID: userID, CSRF: base64.RawURLEncoding.EncodeToString(csrf), CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour), HardExpiresAt: now.Add(7 * 24 * time.Hour)}
-	_, err = db.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES(?,?,?,?,?,?,?)`, id, userID, hex.EncodeToString(hash[:]), hex.EncodeToString(csrfHash[:]), s.CreatedAt.UTC().Format(time.RFC3339), s.ExpiresAt.UTC().Format(time.RFC3339), s.HardExpiresAt.UTC().Format(time.RFC3339))
+	return sessionCredentials{session: s, token: base64.RawURLEncoding.EncodeToString(token), tokenHash: hex.EncodeToString(hash[:]), csrfHash: hex.EncodeToString(csrfHash[:])}, nil
+}
+
+func (c sessionCredentials) setCookies(w http.ResponseWriter, insecure bool) {
+	secure := !insecure
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: c.token, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 7 * 24 * 60 * 60})
+	http.SetCookie(w, &http.Cookie{Name: csrfCookie, Value: c.session.CSRF, Path: "/", HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 7 * 24 * 60 * 60})
+}
+
+func MintSession(db *sql.DB, w http.ResponseWriter, userID string, insecure bool, now time.Time) (Session, error) {
+	c, err := prepareSession(userID, now)
 	if err != nil {
 		return Session{}, err
 	}
-	secure := !insecure
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: base64.RawURLEncoding.EncodeToString(token), Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 7 * 24 * 60 * 60})
-	http.SetCookie(w, &http.Cookie{Name: csrfCookie, Value: s.CSRF, Path: "/", HttpOnly: false, Secure: secure, SameSite: http.SameSiteLaxMode, MaxAge: 7 * 24 * 60 * 60})
+	s := c.session
+	result, err := db.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, s.ID, userID, c.tokenHash, c.csrfHash, s.CreatedAt.UTC().Format(time.RFC3339), s.ExpiresAt.UTC().Format(time.RFC3339), s.HardExpiresAt.UTC().Format(time.RFC3339), userID)
+	if err != nil {
+		return Session{}, err
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		return Session{}, errors.New("account is not active")
+	}
+	c.setCookies(w, insecure)
 	return s, nil
 }
 

@@ -324,3 +324,30 @@ commands after explicit subcommand dispatch, including the removed plaintext `ba
 IP-keyed rate limits resolve forwarded client identity only behind configured trusted
 proxies, using the right-most untrusted X-Forwarded-For address. Untrusted senders and
 malformed suffixes fall back to socket identity. Session-keyed limits remain user-keyed.
+
+## SSO lifecycle extension (issue 13, first stage)
+
+Migration 0016 binds users to issuer/subject and SSO browser sessions to
+issuer/client/subject/sid and verified ID-token issuance time. The shared
+`oidcverify@v0.7.0` verifier handles signed logout tokens at
+`POST /api/v1/auth/oidc/backchannel-logout`. Durable replay admission, callback
+fencing, scoped revocation and audit share one SQLite writer transaction.
+Callbacks recheck their original five-minute deadline, active account and current
+SSO configuration under that lock before committing a session and its audit.
+Subject-wide logout preserves sessions issued after logout; exact sid logout
+never widens to unrelated sessions. Session-aware issuers must supply a sid.
+
+Device pairing tokens carry their authorizing session. Devices paired through
+SSO require that parent session on every authenticated request, so logout,
+expiry and configuration revocation cannot leave a derived credential active.
+Existing linked-account credentials have no reliable origin and are revoked
+once on upgrade; ciphertext and wrapped-key envelopes survive, and users re-pair
+without replacing encryption keys. Independent local authentication remains
+available. Issuer/client changes or disabling SSO revoke bound sessions and
+commit their audit atomically. Identity lookup and trusted legacy directory
+linking are issuer-scoped.
+
+This extends the frozen schema and pairing token with origin metadata; it does
+not change client cryptography. See `docs/SSO.md` for the operator contract,
+upgrade effects, replay response semantics and the remaining directory/role/
+reauthentication stages. Live deployment acceptance is still required.

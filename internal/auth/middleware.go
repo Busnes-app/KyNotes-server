@@ -122,11 +122,11 @@ func resolveDevice(db *sql.DB, r *http.Request) (Device, bool) {
 	}
 	var d Device
 	var stored, status, revoked string
-	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=?`, id).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
+	now := time.Now().UTC()
+	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=? AND (d.sso_session_id='' OR EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.sso_session_id AND s.user_id=d.user_id AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>?))`, id, now.Format(time.RFC3339), now.Format(time.RFC3339)).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
 		return Device{}, false
 	}
 	key := id + "\x00" + clientIP(r)
-	now := time.Now().UTC()
 	if !deviceLockout.Try(key, now) {
 		return Device{}, false
 	}

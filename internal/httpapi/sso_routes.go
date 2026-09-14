@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -23,6 +24,8 @@ import (
 
 const ssoCookieName = "kynotes_sso_state"
 
+type syncSettingsKey struct{}
+
 func isRequestSecure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
@@ -37,6 +40,7 @@ func requestHost(r *http.Request) string {
 // SSORoutes registers OIDC SSO and directory sync endpoints.
 func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
 	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
+	registerSSOLogout(mux, db, ssoStore)
 	handleSSOConfig := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		writeJSON(w, map[string]any{
@@ -78,7 +82,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 
 		state, nonce := sso.GenerateState(), sso.GenerateState()
-		transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, Expires: time.Now().Add(5 * time.Minute)})
+		transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, Expires: time.Now().Add(auth.SSOLoginLifetime)})
 		http.SetCookie(w, &http.Cookie{Name: ssoCookieName, Value: state, Path: "/", HttpOnly: true, Secure: !cfg.Server.DevInsecureCookies && isRequestSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: 300})
 
 		authURL, err := url.Parse(disc.AuthorizationEndpoint)
@@ -158,7 +162,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		var userID, userStatus, userRole string
 		// 1. Try finding user by sso_subject
-		err = db.QueryRow(`SELECT id, status, role FROM users WHERE sso_subject=?`, claims.Subject).Scan(&userID, &userStatus, &userRole)
+		err = db.QueryRow(`SELECT id, status, role FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus, &userRole)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 500, "internal", "account lookup failed")
 			return
@@ -204,13 +208,13 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, claims.Username)
 			now := time.Now().UTC().Format(time.RFC3339)
 
-			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, 'active', ?, ?, ?)`,
-				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, now, now)
+			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, 'active', ?, ?, ?, ?)`,
+				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, settings.IssuerURL, now, now)
 			if err != nil {
 				WriteError(w, r, http.StatusInternalServerError, "internal", "failed to auto-provision user: "+err.Error())
 				return
 			}
-			recordAudit(db, userID, "user.auto_provision", "", "", r.Header.Get("X-Request-Id"))
+			recordAudit(db, userID, "user.auto_provision", "", "", RequestID(r))
 		}
 
 		if userStatus != "active" {
@@ -222,13 +226,20 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		clearCookie(w, ssoCookieName, true, !cfg.Server.DevInsecureCookies && isRequestSecure(r))
 
 		// Mint KyNotes session
-		_, err = auth.MintSession(db, w, userID, cfg.Server.DevInsecureCookies, time.Now().UTC())
+		deadline := transaction.Expires
+		if claims.ValidUntil.Before(deadline) {
+			deadline = claims.ValidUntil
+		}
+		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, IssuedAt: claims.IssuedAt, LoginExpires: deadline}, cfg.Server.DevInsecureCookies, RequestID(r))
 		if err != nil {
+			if errors.Is(err, auth.ErrSSOLoginRejected) {
+				WriteError(w, r, 403, "sso_login_rejected", "restart Single Sign-On login")
+				return
+			}
 			WriteError(w, r, http.StatusInternalServerError, "internal", "failed to create session")
 			return
 		}
 
-		recordAudit(db, userID, "auth.sso_login", "", "", r.Header.Get("X-Request-Id"))
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
 	mux.HandleFunc("GET /api/v1/auth/oidc/callback", handleOIDCCallback)
@@ -237,6 +248,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 	// Directory Sync Webhook from KySignOn
 	handleSyncEvents := func(w http.ResponseWriter, r *http.Request) {
+		syncSettings := r.Context().Value(syncSettingsKey{}).(sso.SSOSettings)
 		verified, ok := syncauth.EventFromContext(r)
 		if !ok {
 			WriteError(w, r, 401, "invalid_signature", "unverified event")
@@ -271,6 +283,11 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 		defer tx.Rollback()
+		var current int
+		if err = tx.QueryRow(`SELECT count(*) FROM server_settings WHERE key='sso_hmac_secret' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)`, syncSettings.HMACSecret, syncSettings.IssuerURL).Scan(&current); err != nil || current != 1 {
+			WriteError(w, r, 409, "sync_configuration_changed", "directory configuration changed")
+			return
+		}
 		// Replay admission and account mutations commit together; failed events remain retryable.
 		if _, err = tx.Exec(`DELETE FROM sso_sync_events WHERE expires_at < ?`, time.Now().Unix()); err == nil {
 			var result sql.Result
@@ -293,17 +310,17 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			if event.User == nil {
 				err = errors.New("missing user")
 			} else {
-				err = syncSingleUser(tx, cfg, event.User)
+				err = syncSingleUser(tx, cfg, syncSettings.IssuerURL, event.User)
 			}
 		case "user.deleted":
 			if event.User == nil || event.User.ID == "" {
 				err = errors.New("missing subject")
 			} else {
-				_, err = tx.Exec(`DELETE FROM users WHERE sso_subject=?`, event.User.ID)
+				_, err = tx.Exec(`DELETE FROM users WHERE sso_subject=? AND sso_issuer=?`, event.User.ID, syncSettings.IssuerURL)
 			}
 		case "directory.resync":
 			for _, u := range event.Users {
-				if err = syncSingleUser(tx, cfg, &u); err != nil {
+				if err = syncSingleUser(tx, cfg, syncSettings.IssuerURL, &u); err != nil {
 					break
 				}
 			}
@@ -321,10 +338,13 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		writeJSON(w, map[string]any{"status": "applied", "eventId": event.EventID})
 	}
-	verify := syncauth.Middleware(func(r *http.Request) ([]byte, error) { return []byte(ssoStore.Load().HMACSecret), nil }, syncauth.Options{}, cfg.Server.MaxRequestBytes, nil)
+	verify := syncauth.Middleware(func(r *http.Request) ([]byte, error) {
+		return []byte(r.Context().Value(syncSettingsKey{}).(sso.SSOSettings).HMACSecret), nil
+	}, syncauth.Options{}, cfg.Server.MaxRequestBytes, nil)
 	handler := verify(http.HandlerFunc(handleSyncEvents))
 	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
 		mux.Handle("POST "+path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(context.WithValue(r.Context(), syncSettingsKey{}, ssoStore.Load()))
 			handler.ServeHTTP(&syncAuthWriter{ResponseWriter: w, request: r}, r)
 		}))
 	}
@@ -392,19 +412,19 @@ func (s *ssoTransactions) take(state string) (ssoTransaction, bool) {
 	return tx, ok && time.Now().Before(tx.Expires)
 }
 
-func syncSingleUser(db *sql.Tx, cfg config.Config, u *sso.SyncUser) error {
+func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *sso.SyncUser) error {
 	if u.ID == "" {
 		return errors.New("missing directory subject")
 	}
-	var existingID, existingUsername, existingRole, existingStatus, existingSubject string
-	err := db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,'') FROM users WHERE sso_subject=?`, u.ID).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject)
+	var existingID, existingUsername, existingRole, existingStatus, existingSubject, existingIssuer string
+	err := db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE sso_subject=? AND sso_issuer=?`, u.ID, issuer).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject, &existingIssuer)
 	if errors.Is(err, sql.ErrNoRows) && u.Username != "" {
-		err = db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,'') FROM users WHERE username=?`, strings.ToLower(u.Username)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject)
+		err = db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE username=?`, strings.ToLower(u.Username)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject, &existingIssuer)
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err == nil && existingSubject != "" && existingSubject != u.ID {
+	if err == nil && existingSubject != "" && (existingSubject != u.ID || existingIssuer != issuer) {
 		return errors.New("directory subject conflict")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -454,13 +474,13 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, u *sso.SyncUser) error {
 		}
 		loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
 
-		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?)`,
-			newID, username, dummyHash, loginSalt, role, status, u.ID, now, now)
+		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?, ?)`,
+			newID, username, dummyHash, loginSalt, role, status, u.ID, issuer, now, now)
 		return err
 	}
 
 	// Update existing user
-	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, updated_at=? WHERE id=?`,
-		username, role, status, u.ID, now, existingID)
+	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, sso_issuer=?, updated_at=? WHERE id=?`,
+		username, role, status, u.ID, issuer, now, existingID)
 	return err
 }

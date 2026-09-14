@@ -126,10 +126,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   and directory synchronization webhooks (`POST /api/v1/sync/events`). ID tokens use
   `oidcverify` with issuer/audience/nonce binding and a one-use server-side PKCE transaction.
   Login never adopts an existing username; trusted directory sync can link an unbound
-  local account but refuses a conflicting subject. `syncauth` verifies every webhook
+  local account but refuses a conflicting issuer/subject. `syncauth` verifies every webhook
   alias; migration `0014_sso_sync_events.sql` commits replay admission with account
   changes so a failed application remains retryable. Tests cover real TLS/JWKS signatures,
   forged claims, metadata tampering, concurrent/restarted replay, and rollback.
+- Migration `0016_sso_logout.sql` binds users by issuer/subject and SSO sessions
+  by issuer/client/subject/sid/issued-at. The canonical back-channel logout POST
+  uses `oidcverify@v0.7.0`; replay admission, pending-callback fences, session/device
+  revocation and audit commit together. Callback admission rechecks account,
+  configuration and original deadline under the writer lock. SSO-derived device
+  credentials require a live parent session on every request. Upgrade revokes
+  untraceable linked-account credentials once and preserves encrypted data.
+  `docs/SSO.md` owns setup, migration and staged-adoption limitations. Verify with
+  `TestSSOLogout*`, `TestSSOLoginRequiresAtomicAuditAndSessionIdentity`,
+  `TestSSOConfigurationRevocationIsAtomic` and
+  `TestSSOUpgradeRevokesOnlyUntraceableCredentials`.
 - `internal/backup/AGENTS.md` owns sealed capsule collection, service operations,
   token compatibility and authenticated restore checks. Cross-server workspace migration
   remains deferred to v2.

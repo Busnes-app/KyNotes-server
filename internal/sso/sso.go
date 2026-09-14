@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Busness-app/ky-primitives/oidcverify"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 // SSOSettings holds the OpenID Connect and KySignOn sync configuration.
@@ -34,11 +35,12 @@ type SSOSettings struct {
 
 // Store manages SSOSettings loaded and persisted to the SQLite server_settings table.
 type Store struct {
-	mu       sync.RWMutex
-	db       *sql.DB
-	cached   SSOSettings
-	inMemory bool
-	verifier *oidcverify.Verifier
+	mu          sync.RWMutex
+	discoveryMu sync.Mutex
+	db          *sql.DB
+	cached      SSOSettings
+	inMemory    bool
+	verifier    *oidcverify.Verifier
 }
 
 // NewStore initializes a new Store backed by the SQLite database.
@@ -138,6 +140,14 @@ func (s *Store) Save(settings SSOSettings) error {
 		return err
 	}
 
+	if settings.IssuerURL != s.cached.IssuerURL || settings.ClientID != s.cached.ClientID || !settings.Enabled {
+		if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE sso_issuer<>'' AND revoked_at=''`, now); err != nil {
+			return err
+		}
+		if err := storage.RecordAuditOutcomeTx(tx, "", "auth.sso_configuration", "", "", "success", "configuration_changed", ""); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -148,11 +158,12 @@ func (s *Store) Save(settings SSOSettings) error {
 
 // DiscoveryDoc represents the OpenID Provider Configuration document.
 type DiscoveryDoc struct {
-	Issuer                string `json:"issuer"`
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	UserinfoEndpoint      string `json:"userinfo_endpoint"`
-	JWKSURI               string `json:"jwks_uri"`
+	Issuer                            string `json:"issuer"`
+	AuthorizationEndpoint             string `json:"authorization_endpoint"`
+	TokenEndpoint                     string `json:"token_endpoint"`
+	UserinfoEndpoint                  string `json:"userinfo_endpoint"`
+	JWKSURI                           string `json:"jwks_uri"`
+	BackchannelLogoutSessionSupported bool   `json:"backchannel_logout_session_supported"`
 }
 
 // DiscoverEndpoints fetches the OpenID configuration from the issuer URL.
@@ -268,12 +279,15 @@ func ExchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, co
 
 // Claims represents standard OpenID Connect claims.
 type Claims struct {
-	Subject       string `json:"sub"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name"`
-	Username      string `json:"preferred_username"`
-	Role          string `json:"role"`
+	Subject       string    `json:"sub"`
+	SessionID     string    `json:"sid"`
+	IssuedAt      time.Time `json:"-"`
+	ValidUntil    time.Time `json:"-"`
+	Email         string    `json:"email"`
+	EmailVerified bool      `json:"email_verified"`
+	Name          string    `json:"name"`
+	Username      string    `json:"preferred_username"`
+	Role          string    `json:"role"`
 }
 
 // VerifyClaims accepts identity only from a signed ID token bound to this login.
@@ -292,7 +306,18 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 	if err != nil {
 		return nil, err
 	}
-	claims := &Claims{Subject: verified.Subject, Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username"), Role: verified.String("role")}
+	claims := &Claims{Subject: verified.Subject, IssuedAt: verified.IssuedAt, ValidUntil: verified.ExpiresAt.Add(time.Minute), Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username"), Role: verified.String("role")}
+	if verified.IssuedAt.IsZero() {
+		return nil, errors.New("missing ID token issuance time")
+	}
+	if raw, present := verified.Raw["sid"]; present {
+		if err := json.Unmarshal(raw, &claims.SessionID); err != nil || claims.SessionID == "" {
+			return nil, errors.New("invalid ID token session")
+		}
+	}
+	if doc.BackchannelLogoutSessionSupported && claims.SessionID == "" {
+		return nil, errors.New("missing ID token session")
+	}
 	if raw := verified.Raw["email_verified"]; raw != nil {
 		_ = json.Unmarshal(raw, &claims.EmailVerified)
 	}
@@ -300,6 +325,31 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 		claims.Username = claims.Subject
 	}
 	return claims, nil
+}
+
+// VerifyLogout uses the same configured trust and JWKS cache as ID-token login.
+func (s *Store) VerifyLogout(ctx context.Context, settings SSOSettings, token string) (oidcverify.LogoutClaims, error) {
+	if settings.IssuerURL == "" || settings.ClientID == "" {
+		return oidcverify.LogoutClaims{}, errors.New("SSO logout is not configured")
+	}
+	// Serialize cold discovery without holding the settings mutex across network work.
+	s.discoveryMu.Lock()
+	s.mu.RLock()
+	v := s.verifier
+	s.mu.RUnlock()
+	if v == nil || v.Issuer != settings.IssuerURL || v.Audience != settings.ClientID {
+		doc, err := DiscoverEndpoints(ctx, settings.IssuerURL)
+		if err != nil {
+			s.discoveryMu.Unlock()
+			return oidcverify.LogoutClaims{}, err
+		}
+		v = &oidcverify.Verifier{Issuer: settings.IssuerURL, Audience: settings.ClientID, JWKSURL: doc.JWKSURI, HTTPClient: oidcClient()}
+		s.mu.Lock()
+		s.verifier = v
+		s.mu.Unlock()
+	}
+	s.discoveryMu.Unlock()
+	return v.VerifyLogout(ctx, token)
 }
 
 func oidcClient() *http.Client {
