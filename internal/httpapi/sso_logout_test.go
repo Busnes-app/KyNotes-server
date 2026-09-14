@@ -613,10 +613,12 @@ func TestSSOLogoutRefreshesChangedJWKSLocation(t *testing.T) {
 	}
 	f.mu.Lock()
 	before := f.discoveryRequests
-	f.keyID = "unknown"
 	f.mu.Unlock()
 	for i := 0; i < 5; i++ {
-		if res := f.logout(f.sign("logout+jwt", f.logoutClaims("unknown-key", "alice", "rotation"))); res.Code == 200 {
+		parts := strings.Split(f.sign("logout+jwt", f.logoutClaims("unknown-key", "alice", "rotation")), ".")
+		// Never publish this key ID, even if a very slow test crosses cache expiry.
+		parts[0] = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"logout+jwt","kid":"unknown"}`))
+		if res := f.logout(strings.Join(parts, ".")); res.Code == 200 {
 			t.Fatal("unknown key accepted")
 		}
 	}
