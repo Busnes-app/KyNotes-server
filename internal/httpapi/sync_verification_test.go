@@ -18,12 +18,12 @@ func TestSyncSignaturesAndAtomicReplay(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	store := sso.NewStore(db)
 	secret := strings.Repeat("s", 32)
-	if err := store.Save(sso.SSOSettings{HMACSecret: secret}); err != nil {
+	if err := store.Save(sso.SSOSettings{HMACSecret: secret, IssuerURL: "https://issuer.example"}); err != nil {
 		t.Fatal(err)
 	}
 	newRouter := func() http.Handler { mux := http.NewServeMux(); SSORoutes(mux, db, cfg, store); return mux }
 	router := newRouter()
-	body := []byte(`{"eventId":"event-one","eventType":"user.created","user":{"id":"subject-one","username":"alice","role":"user"}}`)
+	body, _ := json.Marshal(directoryPayload("subject-one", "alice", 1, true))
 	headers, err := syncauth.Sign([]byte(secret), time.Now(), "user.created", "event-one", body)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestSyncSignaturesAndAtomicReplay(t *testing.T) {
 	if _, err := db.Exec(`DROP TRIGGER fail_sync`); err != nil {
 		t.Fatal(err)
 	}
-	// Race aliases: exactly one commits; every duplicate is refused, including after router restart.
+	// Race aliases: one mutation commits; all identical deliveries acknowledge it.
 	codes := make(chan int, 3)
 	var wg sync.WaitGroup
 	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
@@ -92,25 +92,23 @@ func TestSyncSignaturesAndAtomicReplay(t *testing.T) {
 	}
 	wg.Wait()
 	close(codes)
-	applied := 0
 	for code := range codes {
-		if code == 200 {
-			applied++
-		} else if code != 409 {
+		if code != 200 {
 			t.Fatalf("unexpected concurrent result %d", code)
 		}
 	}
-	if applied != 1 {
-		t.Fatalf("applied %d times", applied)
+	if err := db.QueryRow(`SELECT count(*) FROM audit_events WHERE event='directory.apply'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("concurrent mutations: %d %v", count, err)
 	}
-	if res := send(newRouter(), "/sync/events", body, headers); res.Code != 409 {
+	if res := send(newRouter(), "/sync/events", body, headers); res.Code != 200 {
 		t.Fatalf("restart replay: %d", res.Code)
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM users WHERE sso_subject='subject-one'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("users: %d %v", count, err)
 	}
 	// A trusted event can provision a local username, but cannot steal an existing subject binding.
-	conflict := map[string]any{"eventId": "conflict", "eventType": "user.updated", "user": map[string]any{"id": "other-subject", "username": "alice", "role": "admin"}}
+	conflict := directoryPayload("other-subject", "alice", 1, true)
+	conflict["eventId"], conflict["eventType"] = "conflict", "user.updated"
 	if code := postSyncEvent(t, router, "/sync/events", secret, conflict); code != 500 {
 		t.Fatalf("rebound subject: %d", code)
 	}

@@ -25,8 +25,20 @@ The migration revokes old linked-account sessions/devices once, preserving
 ciphertext and envelopes. See DESIGN.md and `docs/SSO.md` for the complete
 contract. Verification includes TLS/JWKS integration, writer races, audit
 rollback, restart and migration 1–15 upgrade coverage. Follow-up stages retain
-versioned directory/deactivation, app roles and action-bound reauthentication;
+app roles and action-bound reauthentication;
 this stage does not satisfy live deployment acceptance.
+
+Lifecycle extension for issue 13, second stage: migration 0017 adds durable
+issuer/subject revision fences, body digests and inactive-account SQL guards.
+Signed bare SCIM User events atomically apply status, revoke all credentials on
+deactivation, and persist audit/replay/revision. Deletion preserves encrypted
+accounts; stale activation cannot bypass restart or local user deletion. Identical
+retries acknowledge the committed version. Signed `user.readback` probes expose
+audited observed state; sender automation remains a follow-up. Unversioned
+legacy events are refused. Verify `TestDirectory*` and
+`TestSyncSignaturesAndAtomicReplay`, including audit rollback, concurrent retries,
+restart, malformed resources, configuration changes and credential/data survival.
+This extends the frozen schema and webhook contract as described in DESIGN.md.
 
 Recovery extension for Myslop #290: sealed capsule collection and restore live in
 `internal/backup`, using `ky-primitives/recoveryclient@v0.5.1`; see DESIGN.md and

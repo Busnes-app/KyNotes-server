@@ -95,24 +95,13 @@ func TestDirectorySyncWebhook(t *testing.T) {
 	_ = ssoStore.Save(sso.SSOSettings{
 		Enabled:    true,
 		HMACSecret: secret,
+		IssuerURL:  "https://issuer.example",
 	})
 
 	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
 
-	// 1. Create user event
-	eventPayload := map[string]any{
-		"eventId":   "ev_1",
-		"eventType": "user.created",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"user": map[string]any{
-			"id":          "kysignon-user-999",
-			"username":    "charlie",
-			"displayName": "Charlie Brown",
-			"email":       "charlie@example.com",
-			"role":        "admin",
-			"status":      "active",
-		},
-	}
+	eventPayload := directoryPayload("kysignon-user-999", "charlie", 1, true)
+	eventPayload["roles"] = []any{map[string]any{"value": "admin", "primary": true}}
 	bodyBytes, _ := json.Marshal(eventPayload)
 
 	req := httptest.NewRequest("POST", "/api/v1/sync/events", bytes.NewReader(bodyBytes))
@@ -127,23 +116,15 @@ func TestDirectorySyncWebhook(t *testing.T) {
 
 	var uRole, uStatus string
 	err := db.QueryRow(`SELECT role, status FROM users WHERE sso_subject='kysignon-user-999'`).Scan(&uRole, &uStatus)
-	if err != nil || uRole != "admin" || uStatus != "active" {
+	if err != nil || uRole != "user" || uStatus != "active" {
 		t.Fatalf("failed to replicate user from sync event: err=%v, role=%s, status=%s", err, uRole, uStatus)
 	}
 
 	// 2. Disable user event
-	eventPayload2 := map[string]any{
-		"eventId":   "ev_2",
-		"eventType": "user.status_changed",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"user": map[string]any{
-			"id":     "kysignon-user-999",
-			"status": "disabled",
-		},
-	}
+	eventPayload2 := directoryPayload("kysignon-user-999", "", 2, false)
 	bodyBytes2, _ := json.Marshal(eventPayload2)
 	req2 := httptest.NewRequest("POST", "/api/v1/sync/events", bytes.NewReader(bodyBytes2))
-	signSync(t, req2, secret, "ev_2", "user.status_changed", bodyBytes2)
+	signSync(t, req2, secret, "ev_2", "user.updated", bodyBytes2)
 
 	rec2 := httptest.NewRecorder()
 	router.ServeHTTP(rec2, req2)
@@ -247,7 +228,13 @@ func TestAdminSSOAndPairing(t *testing.T) {
 // postSyncEvent sends a directory sync event to path, signing it when secret is non-empty.
 func postSyncEvent(t *testing.T, router http.Handler, path, secret string, payload map[string]any) int {
 	t.Helper()
-	body, _ := json.Marshal(payload)
+	wire := make(map[string]any, len(payload))
+	for key, value := range payload {
+		if key != "eventId" && key != "eventType" {
+			wire[key] = value
+		}
+	}
+	body, _ := json.Marshal(wire)
 	req := httptest.NewRequest("POST", path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if secret != "" {
@@ -263,13 +250,11 @@ func TestDirectorySyncRejectsUnsignedEvents(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	ssoStore := sso.NewStore(db)
 	const secret = "shared-hmac-secret-123"
-	_ = ssoStore.Save(sso.SSOSettings{Enabled: true, HMACSecret: secret})
+	_ = ssoStore.Save(sso.SSOSettings{Enabled: true, HMACSecret: secret, IssuerURL: "https://issuer.example"})
 	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
 
-	event := map[string]any{
-		"eventId": "ev_x", "eventType": "user.created",
-		"user": map[string]any{"id": "attacker-sub", "username": "mallory", "role": "admin"},
-	}
+	event := directoryPayload("attacker-sub", "mallory", 1, true)
+	event["eventId"], event["eventType"] = "ev_x", "user.created"
 
 	// Every alias must reject: omitting the header is the whole attack.
 	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
