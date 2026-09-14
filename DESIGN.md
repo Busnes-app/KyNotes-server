@@ -335,7 +335,13 @@ fencing, scoped revocation and audit share one SQLite writer transaction.
 Callbacks recheck their original five-minute deadline, active account and current
 SSO configuration under that lock before committing a session and its audit.
 Subject-wide logout preserves sessions issued after logout; exact sid logout
-never widens to unrelated sessions. Session-aware issuers must supply a sid.
+never widens to unrelated sessions. A token carrying both sid and subject also
+covers older sid-less sessions for that subject, with the same issuance cutoff
+and a mirrored callback fence. Session-aware issuers must supply a sid.
+Verified tokens bypass the IP abuse bucket; malformed/unverifiable traffic alone
+consumes it. Logout audits retain the JWT ID and actual session/device counts.
+Key failures retry a changed discovery JWKS URI, with discovery attempts bounded
+to once per minute per configured issuer/client.
 
 Device pairing tokens carry their authorizing session. Devices paired through
 SSO require that parent session on every authenticated request, so logout,

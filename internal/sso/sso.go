@@ -35,12 +35,14 @@ type SSOSettings struct {
 
 // Store manages SSOSettings loaded and persisted to the SQLite server_settings table.
 type Store struct {
-	mu          sync.RWMutex
-	discoveryMu sync.Mutex
-	db          *sql.DB
-	cached      SSOSettings
-	inMemory    bool
-	verifier    *oidcverify.Verifier
+	mu                 sync.RWMutex
+	discoveryMu        sync.Mutex
+	logoutDiscoveryAt  time.Time
+	logoutDiscoveryKey string
+	db                 *sql.DB
+	cached             SSOSettings
+	inMemory           bool
+	verifier           *oidcverify.Verifier
 }
 
 // NewStore initializes a new Store backed by the SQLite database.
@@ -327,29 +329,57 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 	return claims, nil
 }
 
-// VerifyLogout uses the same configured trust and JWKS cache as ID-token login.
+// VerifyLogout uses the login verifier and retries key failures against current
+// discovery. Refreshes are bounded per issuer/client, including failed fetches.
 func (s *Store) VerifyLogout(ctx context.Context, settings SSOSettings, token string) (oidcverify.LogoutClaims, error) {
 	if settings.IssuerURL == "" || settings.ClientID == "" {
 		return oidcverify.LogoutClaims{}, errors.New("SSO logout is not configured")
 	}
-	// Serialize cold discovery without holding the settings mutex across network work.
+	v, err := s.logoutVerifier(ctx, settings, false)
+	if err != nil {
+		return oidcverify.LogoutClaims{}, err
+	}
+	claims, err := v.VerifyLogout(ctx, token)
+	if !errors.Is(err, oidcverify.ErrUnknownKey) && !errors.Is(err, oidcverify.ErrJWKS) && !errors.Is(err, oidcverify.ErrSignature) {
+		return claims, err
+	}
+	refreshed, refreshErr := s.logoutVerifier(ctx, settings, true)
+	if refreshErr != nil || refreshed == v {
+		return claims, err
+	}
+	return refreshed.VerifyLogout(ctx, token)
+}
+
+func (s *Store) logoutVerifier(ctx context.Context, settings SSOSettings, refresh bool) (*oidcverify.Verifier, error) {
+	// Never hold the settings mutex across network work.
 	s.discoveryMu.Lock()
+	defer s.discoveryMu.Unlock()
 	s.mu.RLock()
 	v := s.verifier
 	s.mu.RUnlock()
-	if v == nil || v.Issuer != settings.IssuerURL || v.Audience != settings.ClientID {
-		doc, err := DiscoverEndpoints(ctx, settings.IssuerURL)
-		if err != nil {
-			s.discoveryMu.Unlock()
-			return oidcverify.LogoutClaims{}, err
+	matches := v != nil && v.Issuer == settings.IssuerURL && v.Audience == settings.ClientID
+	if matches && !refresh {
+		return v, nil
+	}
+	key := settings.IssuerURL + "\x00" + settings.ClientID
+	if s.logoutDiscoveryKey == key && time.Since(s.logoutDiscoveryAt) < time.Minute {
+		if matches {
+			return v, nil
 		}
+		return nil, errors.New("SSO discovery temporarily unavailable")
+	}
+	s.logoutDiscoveryKey, s.logoutDiscoveryAt = key, time.Now()
+	doc, err := DiscoverEndpoints(ctx, settings.IssuerURL)
+	if err != nil {
+		return nil, err
+	}
+	if !matches || v.JWKSURL != doc.JWKSURI {
 		v = &oidcverify.Verifier{Issuer: settings.IssuerURL, Audience: settings.ClientID, JWKSURL: doc.JWKSURI, HTTPClient: oidcClient()}
 		s.mu.Lock()
 		s.verifier = v
 		s.mu.Unlock()
 	}
-	s.discoveryMu.Unlock()
-	return v.VerifyLogout(ctx, token)
+	return v, nil
 }
 
 func oidcClient() *http.Client {

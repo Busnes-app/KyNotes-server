@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Busness-app/ky-primitives/oidcverify"
@@ -51,15 +52,31 @@ func ApplySSOLogout(ctx context.Context, db *sql.DB, c oidcverify.LogoutClaims, 
 	if n != 1 {
 		return ErrSSOLogoutRejected
 	}
-	_, err = tx.Exec(`UPDATE sessions SET revoked_at=? WHERE revoked_at='' AND sso_issuer=? AND sso_client_id=?
- AND ((?<>'' AND sso_sid=? AND (?='' OR sso_subject=?)) OR (?='' AND sso_subject=? AND sso_issued_at<=?))`, now.Format(time.RFC3339), c.Issuer, clientID, c.SessionID, c.SessionID, c.Subject, c.Subject, c.SessionID, c.Subject, c.IssuedAt.Unix())
+	// The same scope governs sessions and their derived devices. A subject-bearing
+	// token also covers older sid-less sessions, without widening a sid-only token.
+	scope := `sso_issuer=? AND sso_client_id=? AND (
+ (?<>'' AND sso_sid=? AND (?='' OR sso_subject=?))
+ OR (?<>'' AND sso_sid='' AND sso_subject=? AND sso_issued_at<=?)
+ OR (?='' AND sso_subject=? AND sso_issued_at<=?))`
+	args := []any{now.Format(time.RFC3339), c.Issuer, clientID, c.SessionID, c.SessionID, c.Subject, c.Subject, c.Subject, c.Subject, c.IssuedAt.Unix(), c.SessionID, c.Subject, c.IssuedAt.Unix()}
+	result, err = tx.Exec(`UPDATE sessions SET revoked_at=? WHERE revoked_at='' AND `+scope, args...)
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`UPDATE devices SET revoked_at=? WHERE revoked_at='' AND sso_session_id<>'' AND EXISTS(SELECT 1 FROM sessions WHERE sessions.id=devices.sso_session_id AND sessions.user_id=devices.user_id AND sessions.revoked_at<>'')`, now.Format(time.RFC3339)); err != nil {
+	sessions, err := result.RowsAffected()
+	if err != nil {
 		return err
 	}
-	if err = storage.RecordAuditOutcomeTx(tx, "", "auth.sso_logout", "", "", "success", "", requestID); err != nil {
+	result, err = tx.Exec(`UPDATE devices SET revoked_at=? WHERE revoked_at='' AND sso_session_id<>'' AND EXISTS(SELECT 1 FROM sessions WHERE sessions.id=devices.sso_session_id AND sessions.user_id=devices.user_id AND sessions.revoked_at<>'' AND `+scope+`)`, args...)
+	if err != nil {
+		return err
+	}
+	devices, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	counts := fmt.Sprintf("sessions=%d,devices=%d", sessions, devices)
+	if err = storage.RecordAuditOutcomeTx(tx, "", "auth.sso_logout", "", c.JWTID, "success", counts, requestID); err != nil {
 		return err
 	}
 	return tx.Commit()

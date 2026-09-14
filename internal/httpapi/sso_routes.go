@@ -40,7 +40,7 @@ func requestHost(r *http.Request) string {
 // SSORoutes registers OIDC SSO and directory sync endpoints.
 func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
 	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
-	registerSSOLogout(mux, db, ssoStore)
+	registerSSOLogout(mux, db, ssoStore, cfg)
 	handleSSOConfig := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
 		writeJSON(w, map[string]any{

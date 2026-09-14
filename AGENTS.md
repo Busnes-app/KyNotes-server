@@ -133,7 +133,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Migration `0016_sso_logout.sql` binds users by issuer/subject and SSO sessions
   by issuer/client/subject/sid/issued-at. The canonical back-channel logout POST
   uses `oidcverify@v0.7.0`; replay admission, pending-callback fences, session/device
-  revocation and audit commit together. Callback admission rechecks account,
+  revocation and audit commit together. Audit names the JWT ID and counts sessions
+  and devices actually revoked. Verified tokens bypass IP abuse throttling; only
+  malformed/unverifiable requests consume that bucket. Logout with both sid/sub
+  covers matching older sid-less sessions and callbacks. Key failures recheck a
+  changed JWKS URI with discovery refresh limited to once per minute per client.
+  Callback admission rechecks account,
   configuration and original deadline under the writer lock. SSO-derived device
   credentials require a live parent session on every request. Upgrade revokes
   untraceable linked-account credentials once and preserves encrypted data.

@@ -12,7 +12,11 @@ Lifecycle extension for issue 13, first stage: the root shared dependency is now
 device parent-session binding and durable logout replay/fences. The canonical
 POST `/api/v1/auth/oidc/backchannel-logout` verifies signed form tokens and commits
 revocation with audit. Login cookies require atomic session/audit admission;
-logout can fence an unfinished callback. Pairing tokens add optional signed
+logout can fence an unfinished callback, including older sid-less logins matched
+by the token's subject and issuance time. Verified logout bypasses IP abuse limits;
+audit retains the JWT ID and revocation counts. Failed key verification can refresh
+a changed discovery JWKS URI at most once per minute per issuer/client.
+Pairing tokens add optional signed
 `session` metadata; unbound legacy tokens are refused for linked accounts.
 The migration revokes old linked-account sessions/devices once, preserving
 ciphertext and envelopes. See DESIGN.md and `docs/SSO.md` for the complete

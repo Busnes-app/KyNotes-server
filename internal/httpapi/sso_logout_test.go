@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,19 +28,25 @@ import (
 const logoutPath = "/api/v1/auth/oidc/backchannel-logout"
 
 type logoutFixture struct {
-	t         *testing.T
-	db        *sql.DB
-	cfg       config.Config
-	settings  *sso.Store
-	key       *rsa.PrivateKey
-	issuer    *httptest.Server
-	router    http.Handler
-	mu        sync.Mutex
-	proofs    map[string]map[string]any
-	tokenHook func()
+	t                 *testing.T
+	db                *sql.DB
+	cfg               config.Config
+	settings          *sso.Store
+	key               *rsa.PrivateKey
+	issuer            *httptest.Server
+	router            http.Handler
+	mu                sync.Mutex
+	proofs            map[string]map[string]any
+	tokenHook         func()
+	sessionSupport    bool
+	jwksPath, keyID   string
+	discoveryRequests int
 }
 
 func newLogoutFixture(t *testing.T) *logoutFixture {
+	return newLogoutFixtureWithSessionSupport(t, true)
+}
+func newLogoutFixtureWithSessionSupport(t *testing.T, sessionSupport bool) *logoutFixture {
 	t.Helper()
 	db, cfg := setupTestDB(t)
 	cfg.Secrets.PairingSecret = strings.Repeat("p", 32)
@@ -47,13 +54,22 @@ func newLogoutFixture(t *testing.T) *logoutFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &logoutFixture{t: t, db: db, cfg: cfg, key: key, settings: sso.NewStore(db), proofs: make(map[string]map[string]any)}
+	f := &logoutFixture{t: t, db: db, cfg: cfg, key: key, settings: sso.NewStore(db), proofs: make(map[string]map[string]any), sessionSupport: sessionSupport, jwksPath: "/keys", keyID: "one"}
 	f.issuer = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
-			_ = json.NewEncoder(w).Encode(sso.DiscoveryDoc{Issuer: f.issuer.URL, AuthorizationEndpoint: f.issuer.URL + "/authorize", TokenEndpoint: f.issuer.URL + "/token", JWKSURI: f.issuer.URL + "/keys", BackchannelLogoutSessionSupported: true})
-		case "/keys":
-			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "one", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.discoveryRequests++
+			_ = json.NewEncoder(w).Encode(sso.DiscoveryDoc{Issuer: f.issuer.URL, AuthorizationEndpoint: f.issuer.URL + "/authorize", TokenEndpoint: f.issuer.URL + "/token", JWKSURI: f.issuer.URL + f.jwksPath, BackchannelLogoutSessionSupported: f.sessionSupport})
+		case "/keys", "/rotated-keys":
+			kid, signingKey := "one", key
+			if r.URL.Path == "/rotated-keys" {
+				f.mu.Lock()
+				kid, signingKey = f.keyID, f.key
+				f.mu.Unlock()
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(signingKey.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(signingKey.E)).Bytes())}}})
 		case "/token":
 			if err := r.ParseForm(); err != nil {
 				t.Error(err)
@@ -92,7 +108,10 @@ func (f *logoutFixture) restartRouter() {
 }
 func (f *logoutFixture) sign(typ string, claims map[string]any) string {
 	f.t.Helper()
-	h, err := json.Marshal(map[string]string{"alg": "RS256", "kid": "one", "typ": typ})
+	f.mu.Lock()
+	key, kid := f.key, f.keyID
+	f.mu.Unlock()
+	h, err := json.Marshal(map[string]string{"alg": "RS256", "kid": kid, "typ": typ})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -102,7 +121,7 @@ func (f *logoutFixture) sign(typ string, claims map[string]any) string {
 	}
 	input := base64.RawURLEncoding.EncodeToString(h) + "." + base64.RawURLEncoding.EncodeToString(b)
 	digest := sha256.Sum256([]byte(input))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, f.key, crypto.SHA256, digest[:])
+	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -121,6 +140,9 @@ func (f *logoutFixture) beginLogin(subject, sid string, issued time.Time) *http.
 	state := dest.Query().Get("state")
 	f.mu.Lock()
 	f.proofs[state] = map[string]any{"iss": f.issuer.URL, "aud": "kynotes", "sub": subject, "sid": sid, "preferred_username": subject, "role": "user", "iat": issued.Unix(), "exp": issued.Add(time.Hour).Unix(), "nonce": dest.Query().Get("nonce")}
+	if sid == "" {
+		delete(f.proofs[state], "sid")
+	}
 	f.mu.Unlock()
 	req := httptest.NewRequest("GET", "/api/v1/auth/oidc/callback?code="+state+"&state="+state, nil)
 	for _, c := range res.Result().Cookies() {
@@ -500,5 +522,107 @@ func TestSSOConfigurationRevocationIsAtomic(t *testing.T) {
 	// Disabling new logins does not prevent authenticating an outstanding logout.
 	if res := f.logout(f.sign("logout+jwt", f.logoutClaims("after-disable", "alice", "configuration"))); res.Code != 200 {
 		t.Fatalf("disabled logout: %d %s", res.Code, res.Body.String())
+	}
+}
+
+func TestSSOLogoutValidBurstBypassesAbuseLimit(t *testing.T) {
+	f := newLogoutFixture(t)
+	sessions := make([][]*http.Cookie, 20)
+	for i := range sessions {
+		sessions[i] = f.login("alice", "burst-"+strconv.Itoa(i))
+	}
+	f.router = rateLimitMiddleware(config.Defaults(), f.db, f.router)
+	throttled := false
+	for i := 0; i < 20; i++ {
+		if f.logout("junk").Code == 429 {
+			throttled = true
+		}
+	}
+	if !throttled {
+		t.Fatal("invalid tokens were not throttled")
+	}
+	for i, cookies := range sessions {
+		sid := "burst-" + strconv.Itoa(i)
+		if res := f.logout(f.sign("logout+jwt", f.logoutClaims(sid, "alice", sid))); res.Code != 200 {
+			t.Fatalf("valid logout %d: %d", i, res.Code)
+		}
+		if f.protected(cookies) != 401 {
+			t.Fatalf("session %d survived", i)
+		}
+	}
+}
+
+func TestSSOLogoutRevokesLegacySidlessSessions(t *testing.T) {
+	f := newLogoutFixtureWithSessionSupport(t, false)
+	alice, bob := f.login("alice", ""), f.login("bob", "")
+	// A subject is required to identify any legacy sid-less session.
+	if res := f.logout(f.sign("logout+jwt", f.logoutClaims("sid-only", "", "new-sid"))); res.Code != 200 {
+		t.Fatal(res.Code)
+	}
+	if f.protected(alice) != 204 {
+		t.Fatal("sid-only token widened scope")
+	}
+	if res := f.logout(f.sign("logout+jwt", f.logoutClaims("legacy", "alice", "new-sid"))); res.Code != 200 {
+		t.Fatal(res.Code)
+	}
+	if f.protected(alice) != 401 || f.protected(bob) != 204 {
+		t.Fatal("legacy logout scope")
+	}
+	old := f.send(f.beginLogin("alice", "", time.Now().Add(-time.Minute)))
+	if old.Code != 403 {
+		t.Fatalf("legacy callback escaped fence: %d", old.Code)
+	}
+	fresh := f.send(f.beginLogin("alice", "", time.Now().Add(2*time.Second)))
+	if fresh.Code != 302 {
+		t.Fatalf("new legacy login blocked: %d", fresh.Code)
+	}
+}
+
+func TestSSOLogoutAuditIdentifiesDeliveryAndCounts(t *testing.T) {
+	f := newLogoutFixture(t)
+	alice := f.login("alice", "audit")
+	if res := f.register(f.pairing(alice)); res.Code != 200 {
+		t.Fatal(res.Code)
+	}
+	for _, tc := range []struct{ jti, sid, want string }{{"audit-match", "audit", "sessions=1,devices=1"}, {"audit-unmatched", "unknown", "sessions=0,devices=0"}} {
+		if res := f.logout(f.sign("logout+jwt", f.logoutClaims(tc.jti, "alice", tc.sid))); res.Code != 200 {
+			t.Fatal(res.Code)
+		}
+		var counts string
+		if err := f.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='auth.sso_logout' AND object_id=?`, tc.jti).Scan(&counts); err != nil || counts != tc.want {
+			t.Fatalf("audit %s: %q %v", tc.jti, counts, err)
+		}
+	}
+}
+
+func TestSSOLogoutRefreshesChangedJWKSLocation(t *testing.T) {
+	f := newLogoutFixture(t)
+	alice := f.login("alice", "rotation")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.key, f.keyID, f.jwksPath = key, "two", "/rotated-keys"
+	f.mu.Unlock()
+	if res := f.logout(f.sign("logout+jwt", f.logoutClaims("rotation", "alice", "rotation"))); res.Code != 200 {
+		t.Fatalf("rotated JWKS logout: %d %s", res.Code, res.Body.String())
+	}
+	if f.protected(alice) != 401 {
+		t.Fatal("session survived key rotation")
+	}
+	f.mu.Lock()
+	before := f.discoveryRequests
+	f.keyID = "unknown"
+	f.mu.Unlock()
+	for i := 0; i < 5; i++ {
+		if res := f.logout(f.sign("logout+jwt", f.logoutClaims("unknown-key", "alice", "rotation"))); res.Code == 200 {
+			t.Fatal("unknown key accepted")
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.discoveryRequests != before {
+		t.Fatal("invalid tokens amplified discovery requests")
 	}
 }

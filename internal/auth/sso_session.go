@@ -43,8 +43,10 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
  AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)
  AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_client_id' AND value=?)
  AND NOT EXISTS(SELECT 1 FROM sso_logout_events WHERE issuer=? AND client_id=? AND retain_until>=?
- AND ((sid<>'' AND sid=? AND (subject='' OR subject=?)) OR (sid='' AND subject=? AND issued_at>=?)))`,
-		userID, identity.Issuer, identity.Subject, identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
+ AND ((sid<>'' AND sid=? AND (subject='' OR subject=?))
+ OR (?='' AND subject<>'' AND subject=? AND issued_at>=?)
+ OR (sid='' AND subject=? AND issued_at>=?)))`,
+		userID, identity.Issuer, identity.Subject, identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
 	if err != nil {
 		return Session{}, err
 	}

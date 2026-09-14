@@ -21,7 +21,10 @@ advertise session support may use subject-wide logout.
 The receiver accepts only a POST with `application/x-www-form-urlencoded` and one
 body field named `logout_token`. The request body is limited to 64 KiB. Browser
 cookies, CSRF tokens and query-string tokens do not authorize this endpoint.
-Requests share a separate per-IP login-rate bucket; trusted-proxy settings apply.
+Only malformed or unverifiable requests consume a per-IP abuse bucket using
+`LoginPerMinute`; excess failures return 429. Verified logout tokens bypass that
+bucket, including bursts from an issuer sharing a proxy address with bad traffic.
+Trusted-proxy settings still select the failure bucket.
 Responses are `no-store`.
 
 ## Revocation behavior
@@ -34,7 +37,10 @@ subject or session ID. A logout token cannot authenticate a login. Tokens with
 KyNotes commits replay admission, callback fencing, session/device revocation
 and `auth.sso_logout` audit together. An audit failure rolls everything back.
 A session ID selects only that issuer/client/session; a supplied subject must
-also match. A subject without a session ID ends that subject's SSO sessions
+also match. When both are supplied, older sessions without a stored `sid` are
+also revoked if their subject matches and they predate the logout. The mirrored
+callback fence covers those sessions too; a sid-only token cannot widen scope.
+A subject without a session ID ends that subject's SSO sessions
 issued at or before the logout's `iat`. A later login remains usable; timestamps
 in the same second are conservatively treated as preceding logout.
 
@@ -43,12 +49,20 @@ before the callback creates a session. The durable fence then blocks that
 pending callback. Replays return 400. Invalid requests return 400 (oversized
 bodies return 413); persistence failures return 500 and can be retried. A sender
 that lost the first success response may receive 400 for its already-applied
-retry; inspect receiver audit metadata when resolving that ambiguity.
+retry. The `auth.sso_logout` audit records the verified JWT ID in `object_id`
+and `sessions=N,devices=N` in `reason_code`, including zero matches. Match that
+JWT ID to resolve delivery ambiguity; the raw token is never stored in audit.
 
 Replay records survive restart and are retained through both token validity and
 the five-minute callback lifetime. Callback expiry is checked under the same
 SQLite writer lock as logout, with cookies emitted only after session and login
 audit commit. New logout requests prune expired replay records.
+
+Key-resolution or signature failures trigger a discovery recheck and retry when
+`jwks_uri` changed. Discovery refresh, including failed fetches, is limited to
+once per minute per configured issuer/client, so junk tokens cannot cause a
+fetch on every request. During that bounded interval a changed endpoint may need
+a later delivery retry; existing verified keys remain usable.
 
 Devices paired through SSO carry their authorizing local session ID. Their
 credentials require that session to remain live, owned by the same user, and
@@ -94,7 +108,8 @@ new provisioning receiver.
 
 `go test -race ./...` covers real signed TLS/JWKS login/logout, wrong scope and
 invalid tokens, concurrent replay, restart, audit rollback, callback and device
-enrollment races, configuration revocation, and migration from all pre-feature
+enrollment races, configuration revocation, valid bursts after invalid traffic, sid-less compatibility,
+audit counts, JWKS endpoint rotation, and migration from all pre-feature
 schema versions. These are local fixtures. Live KySignOn/KyNotes deployment,
 other suite products, external relying parties, upstream-directory integration,
 role-aware consumers and the combined custodian recovery run remain separate
