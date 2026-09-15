@@ -289,7 +289,7 @@ type Claims struct {
 	EmailVerified bool      `json:"email_verified"`
 	Name          string    `json:"name"`
 	Username      string    `json:"preferred_username"`
-	Role          string    `json:"role"`
+	AppAdmin      bool      `json:"-"`
 }
 
 // VerifyClaims accepts identity only from a signed ID token bound to this login.
@@ -316,7 +316,8 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 	if err != nil {
 		return nil, err
 	}
-	claims := &Claims{Subject: verified.Subject, IssuedAt: verified.IssuedAt, ValidUntil: verified.ExpiresAt.Add(time.Minute), Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username"), Role: verified.String("role")}
+	claims := &Claims{Subject: verified.Subject, IssuedAt: verified.IssuedAt, ValidUntil: verified.ExpiresAt.Add(time.Minute), Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username")}
+	claims.AppAdmin = HasAdminRole(verified.Raw["roles"])
 	if verified.IssuedAt.IsZero() {
 		return nil, errors.New("missing ID token issuance time")
 	}
@@ -476,4 +477,32 @@ func PairWithKySignOn(ctx context.Context, issuerURL, pairingToken, callbackURL 
 	}
 
 	return &pairResp, nil
+}
+
+// AdminAppRole cannot be confused with the sender's legacy global admin/user roles.
+const AdminAppRole = "kynotes.admin"
+
+// HasAdminRole recognizes only the exact product role, in string or SCIM form.
+// Unrelated or unfamiliar role data never prevents login or offboarding.
+func HasAdminRole(raw json.RawMessage) bool {
+	var entries []json.RawMessage
+	if json.Unmarshal(raw, &entries) != nil {
+		return false
+	}
+	for _, entry := range entries {
+		var name string
+		if json.Unmarshal(entry, &name) != nil {
+			var role struct {
+				Value string `json:"value"`
+			}
+			if json.Unmarshal(entry, &role) != nil {
+				continue
+			}
+			name = role.Value
+		}
+		if name == AdminAppRole {
+			return true
+		}
+	}
+	return false
 }

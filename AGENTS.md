@@ -130,7 +130,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   alias; migration `0017_sso_directory.sql` commits replay admission and durable
   issuer/subject revisions with account changes, credential revocation and audit.
   Apply audits retain the subject in object_id and revision/activity/event ID in
-  reason_code independently of subsequent revisions or replay pruning.
+  reason_code independently of subsequent revisions or replay pruning (including
+  the mapped app role).
   Bare versioned SCIM replaces the legacy envelope; inactive delivery preserves
   accounts and keys, and SQL guards prevent activation through an inactive fence.
   A retained login-proof cutoff blocks pre-disable callbacks after re-enablement;
@@ -141,7 +142,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   automation remains unsupported. Configuration storage errors return 500;
   only a successful probe proving changed settings returns 422. Deactivation
   revokes sessions/device credentials; existing share links retain their expiry.
-  Preserve local roles until explicit app-role mapping. `docs/SSO.md` owns the
+  `docs/SSO.md` owns the
   wire/upgrade contract; verify `TestDirectory*`. Tests cover real TLS/JWKS signatures,
   forged claims, metadata tampering, concurrent/restarted replay, and rollback.
 - Migration `0016_sso_logout.sql` binds users by issuer/subject and SSO sessions
@@ -211,3 +212,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   malformed suffixes fall back to the socket peer. Preserve IPv6 /64 grouping and
   existing authenticated-user bucket overrides. Verify direct/proxied flood isolation
   and spoofed/malformed/multiple-header cases in the HTTP API tests.
+
+- Migration `0018_sso_app_roles.sql` removes unproven linked-account admin roles,
+  except active local grants when no unlinked active admin exists; retention is audited.
+  It revokes old SSO sessions once and audits each affected identity. Keep an unlinked
+  local administrator through upgrade; resync explicit `kynotes.admin` assignments.
+  OIDC ignores singular/global role claims and stores a verified app-admin ceiling
+  on each session. `auth.SessionRole` is shared by admin guards and session responses;
+  SSO admin needs both that ceiling and local account permission. Directory roles
+  map only exact `kynotes.admin` from strings or SCIM value objects to admin;
+  unrelated/missing/malformed role data grants nothing, never blocks login or deactivation.
+  Active demotion retains the last active admin's local grant with `admin_retained=true`
+  in the audit, but still revokes credentials and requires the OIDC ceiling. Inactive
+  events always disable/revoke, and never preserve an active administrator.
+  Changes revoke sessions/devices and advance the callback cutoff atomically with
+  audit. Readback includes the local role. Verify `TestSSOAppRoles*`,
+  `TestDirectoryAppRoleShapes`, `TestDirectoryDeactivationIgnoresRoles`,
+  `TestDirectoryRetainsLastActiveAdminGrant`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
+  and existing directory race/rollback checks. Action-bound OIDC step-up remains
+  a separate stage; do not claim current password step-up meets it.

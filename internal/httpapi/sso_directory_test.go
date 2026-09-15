@@ -197,7 +197,7 @@ func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *test
 	}
 	send("enable", 2, true, 200)
 	var subject, reason string
-	if err := f.db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.apply' ORDER BY rowid LIMIT 1`).Scan(&subject, &reason); err != nil || subject != "alice" || reason != "revision=1,active=false,event=disable" {
+	if err := f.db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.apply' ORDER BY rowid LIMIT 1`).Scan(&subject, &reason); err != nil || subject != "alice" || reason != "revision=1,active=false,role=user,event=disable" {
 		t.Fatalf("deactivation attribution lost after re-enable: subject=%q reason=%q err=%v", subject, reason, err)
 	}
 
