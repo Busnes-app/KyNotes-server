@@ -18,9 +18,9 @@ days and coordinate a fix and disclosure.
   membership metadata. It must not receive plaintext note or attachment data,
   private encryption keys, or recovery codes.
 - Device keys and container keys are wrapped for authorized devices. Explicit
-  device revocation removes server-side envelopes. SSO logout and the SSO upgrade
-  instead revoke authentication while preserving envelopes for re-pairing; neither
-  path recalls plaintext already downloaded or guarantees client-storage wiping.
+  device revocation removes server-side envelopes. SSO logout, directory deactivation and the SSO upgrade
+  instead revoke authentication while preserving envelopes for re-pairing; none of these
+  paths recalls plaintext already downloaded or guarantees client-storage wiping.
 - SSO logout ends scoped browser sessions and credentials derived from them.
   Independent local password authentication remains available. Devices paired
   through SSO must re-pair after their parent session ends, including expiry.
@@ -30,6 +30,18 @@ days and coordinate a fix and disclosure.
   discovery/JWKS caches; session mutations still honor request cancellation.
   See [SSO setup and upgrade](docs/SSO.md) for migration
   effects and the staged directory/role/reauthentication acceptance boundary.
+- Trusted signed directory delivery may link an unbound local username. It preserves
+  the existing local role and ignores SCIM role claims until explicit application
+  role mapping is implemented. Directory deactivation revokes the account’s
+  sessions and device credentials and preserves encrypted data; a higher active revision requires
+  fresh credentials. Previously issued share links remain valid until expiry or
+  separate revocation; directory deactivation does not revoke them. A persistent
+  login-proof cutoff rejects callbacks carrying
+  pre-disable ID tokens after re-enablement. Durable issuer/subject revision fences survive replay expiry
+  and user deletion. Local administrators cannot override an inactive directory
+  fence by editing status. Unversioned senders must upgrade before this receiver.
+  Readback requires a signed purpose/subject and an atomic successful audit
+  identifying the probed subject and signed event ID.
 - Team membership changes rotate keys for future content. Removed members may
   retain content they already downloaded.
 - Deterministic attachment encryption may reveal that two ciphertexts are

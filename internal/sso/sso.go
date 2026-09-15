@@ -477,13 +477,3 @@ func PairWithKySignOn(ctx context.Context, issuerURL, pairingToken, callbackURL 
 
 	return &pairResp, nil
 }
-
-// SyncUser represents a synchronized user account payload from KySignOn.
-type SyncUser struct {
-	ID          string `json:"id"`
-	Username    string `json:"username"`
-	Email       string `json:"email"`
-	DisplayName string `json:"displayName,omitempty"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
-}

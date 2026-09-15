@@ -127,8 +127,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `oidcverify` with issuer/audience/nonce binding and a one-use server-side PKCE transaction.
   Login never adopts an existing username; trusted directory sync can link an unbound
   local account but refuses a conflicting issuer/subject. `syncauth` verifies every webhook
-  alias; migration `0014_sso_sync_events.sql` commits replay admission with account
-  changes so a failed application remains retryable. Tests cover real TLS/JWKS signatures,
+  alias; migration `0017_sso_directory.sql` commits replay admission and durable
+  issuer/subject revisions with account changes, credential revocation and audit.
+  Apply audits retain the subject in object_id and revision/activity/event ID in
+  reason_code independently of subsequent revisions or replay pruning.
+  Bare versioned SCIM replaces the legacy envelope; inactive delivery preserves
+  accounts and keys, and SQL guards prevent activation through an inactive fence.
+  A retained login-proof cutoff blocks pre-disable callbacks after re-enablement;
+  session admission checks verified issuance time under the writer lock.
+  Identical retries acknowledge without reapplying; stale/conflicting writes return
+  422 because the sender treats create/409 as success. Signed `user.readback`
+  binds purpose and subject in the body and audits the subject/event ID; sender
+  automation remains unsupported. Configuration storage errors return 500;
+  only a successful probe proving changed settings returns 422. Deactivation
+  revokes sessions/device credentials; existing share links retain their expiry.
+  Preserve local roles until explicit app-role mapping. `docs/SSO.md` owns the
+  wire/upgrade contract; verify `TestDirectory*`. Tests cover real TLS/JWKS signatures,
   forged claims, metadata tampering, concurrent/restarted replay, and rollback.
 - Migration `0016_sso_logout.sql` binds users by issuer/subject and SSO sessions
   by issuer/client/subject/sid/issued-at. The canonical back-channel logout POST

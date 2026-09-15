@@ -79,8 +79,9 @@ OIDC login verifies signed ID tokens using `ky-primitives/oidcverify`, binding t
 configured issuer, client audience and a one-use login nonce. Existing local usernames
 are adopted only by trusted directory provisioning; the login callback never silently
 links them. Directory events use `ky-primitives/syncauth` signatures and a durable event
-ID admitted in the same SQLite transaction as account changes. Failed applications can
-retry; applied events are refused during the signature-validity window.
+ID and resource revision admitted in the same SQLite transaction as account changes,
+credential revocation and audit. Failed applications can retry; identical deliveries
+acknowledge the committed revision without repeating account changes.
 
 ### Encryption
 
@@ -353,10 +354,50 @@ Existing linked-account credentials have no reliable origin and are revoked
 once on upgrade; ciphertext and wrapped-key envelopes survive, and users re-pair
 without replacing encryption keys. Independent local authentication remains
 available. Issuer/client changes or disabling SSO revoke bound sessions and
-commit their audit atomically. Identity lookup and trusted legacy directory
+commit their audit atomically. Identity lookup and trusted directory
 linking are issuer-scoped.
 
 This extends the frozen schema and pairing token with origin metadata; it does
 not change client cryptography. See `docs/SSO.md` for the operator contract,
-upgrade effects, replay response semantics and the remaining directory/role/
+upgrade effects, replay response semantics and the remaining role/
 reauthentication stages. Live deployment acceptance is still required.
+
+## Versioned directory extension (issue 13, second stage)
+
+Migration 0017 retains the highest applied revision and signed-body digest per
+issuer/subject independently of the local user row. The signed bare SCIM User
+receiver accepts `user.created`, `user.updated` and inactive `user.deleted`, with
+`meta.version` formatted as `W/"N"` for a positive signed 64-bit integer. The
+legacy unversioned envelope and batch resync are refused. Resync uses versioned
+per-user events. Exact same-version/type/body retries return 200 without another
+mutation; stale or conflicting revisions and reused event IDs return 422.
+
+Inactive delivery disables a matching account and permanently revokes all its
+current sessions/device credentials, including locally authenticated ones, in the
+same transaction as revision, replay and audit. It preserves the user, ciphertext,
+memberships and wrapped keys. Existing share links remain valid until expiry or
+separate revocation; deactivation does not revoke them. An unknown inactive subject
+needs only a tombstone.
+SQL triggers prevent local activation or OIDC auto-provisioning through a retained
+inactive tombstone. A higher active revision permits a fresh login; it never
+clears credential revocation. Existing local roles are preserved and new users
+receive `user`; SCIM roles are not mapped in this stage. Trusted directory
+provisioning retains its explicit authority to link an unbound local username.
+
+`POST /api/v1/sync/readback` authenticates a signed `user.readback` request whose
+body names the subject. Signing the purpose and subject prevents cross-route or
+cross-subject reuse because syncauth does not sign the URL. The audited response
+reports actual local presence/activity and the last applied version from one
+transaction; its audit identifies the probed subject and signed event ID. The
+KySignOn suite sender currently reports readback unsupported;
+this receiver endpoint requires a future sender adapter or signed operator probe.
+See `docs/SSO.md` for wire fields, upgrade and acknowledgment limits. Client
+cryptography and the remaining role/reauthentication and live acceptance gates
+are unchanged.
+
+Directory deactivation also retains a per-identity login-proof cutoff. Session
+admission rejects ID tokens issued at or before that cutoff even after a higher
+active revision, preventing a pending callback from reviving access. Issuance
+and disablement in the same second are conservatively ordered as disabled;
+restart login in a later second. The cutoff and session admission serialize with
+account/revision changes under SQLite's writer lock.

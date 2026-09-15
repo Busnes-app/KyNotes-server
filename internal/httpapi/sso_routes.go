@@ -1,21 +1,17 @@
 package httpapi
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/syncauth"
 	"github.com/Busness-app/kynotes-server/internal/auth"
 	"github.com/Busness-app/kynotes-server/internal/config"
 	"github.com/Busness-app/kynotes-server/internal/ids"
@@ -23,8 +19,6 @@ import (
 )
 
 const ssoCookieName = "kynotes_sso_state"
-
-type syncSettingsKey struct{}
 
 func isRequestSecure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
@@ -246,108 +240,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 	mux.HandleFunc("GET /api/auth/oidc/callback", handleOIDCCallback)
 	mux.HandleFunc("GET /auth/oidc/callback", handleOIDCCallback)
 
-	// Directory Sync Webhook from KySignOn
-	handleSyncEvents := func(w http.ResponseWriter, r *http.Request) {
-		syncSettings := r.Context().Value(syncSettingsKey{}).(sso.SSOSettings)
-		verified, ok := syncauth.EventFromContext(r)
-		if !ok {
-			WriteError(w, r, 401, "invalid_signature", "unverified event")
-			return
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			WriteError(w, r, 400, "invalid_request", "failed to read event")
-			return
-		}
-
-		var event struct {
-			EventID   string         `json:"eventId"`
-			EventType string         `json:"eventType"`
-			Timestamp string         `json:"timestamp"`
-			User      *sso.SyncUser  `json:"user,omitempty"`
-			Users     []sso.SyncUser `json:"users,omitempty"`
-		}
-
-		if err := json.Unmarshal(body, &event); err != nil {
-			WriteError(w, r, http.StatusBadRequest, "invalid_json", "failed to decode sync payload")
-			return
-		}
-
-		if event.EventID != verified.ID || event.EventType != verified.Type {
-			WriteError(w, r, 400, "invalid_event", "event metadata mismatch")
-			return
-		}
-		tx, err := db.BeginTx(r.Context(), nil)
-		if err != nil {
-			WriteError(w, r, 500, "sync_failed", "event transaction failed")
-			return
-		}
-		defer tx.Rollback()
-		var current int
-		if err = tx.QueryRow(`SELECT count(*) FROM server_settings WHERE key='sso_hmac_secret' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)`, syncSettings.HMACSecret, syncSettings.IssuerURL).Scan(&current); err != nil || current != 1 {
-			WriteError(w, r, 409, "sync_configuration_changed", "directory configuration changed")
-			return
-		}
-		// Replay admission and account mutations commit together; failed events remain retryable.
-		if _, err = tx.Exec(`DELETE FROM sso_sync_events WHERE expires_at < ?`, time.Now().Unix()); err == nil {
-			var result sql.Result
-			result, err = tx.Exec(`INSERT INTO sso_sync_events(event_id,expires_at) VALUES(?,?) ON CONFLICT(event_id) DO NOTHING`, verified.ID, verified.At.Add(syncauth.DefaultWindow).Unix())
-			if err == nil {
-				var n int64
-				n, err = result.RowsAffected()
-				if err == nil && n == 0 {
-					WriteError(w, r, 409, "event_replayed", "event already applied")
-					return
-				}
-			}
-		}
-		if err != nil {
-			WriteError(w, r, 500, "sync_failed", "event admission failed")
-			return
-		}
-		switch verified.Type {
-		case "user.created", "user.updated", "user.status_changed", "user.disabled", "user.enabled":
-			if event.User == nil {
-				err = errors.New("missing user")
-			} else {
-				err = syncSingleUser(tx, cfg, syncSettings.IssuerURL, event.User)
-			}
-		case "user.deleted":
-			if event.User == nil || event.User.ID == "" {
-				err = errors.New("missing subject")
-			} else {
-				_, err = tx.Exec(`DELETE FROM users WHERE sso_subject=? AND sso_issuer=?`, event.User.ID, syncSettings.IssuerURL)
-			}
-		case "directory.resync":
-			for _, u := range event.Users {
-				if err = syncSingleUser(tx, cfg, syncSettings.IssuerURL, &u); err != nil {
-					break
-				}
-			}
-		default:
-			WriteError(w, r, 400, "invalid_event", "unsupported event type")
-			return
-		}
-		if err == nil {
-			err = tx.Commit()
-		}
-		if err != nil {
-			WriteError(w, r, 500, "sync_failed", "directory event was not applied")
-			return
-		}
-
-		writeJSON(w, map[string]any{"status": "applied", "eventId": event.EventID})
-	}
-	verify := syncauth.Middleware(func(r *http.Request) ([]byte, error) {
-		return []byte(r.Context().Value(syncSettingsKey{}).(sso.SSOSettings).HMACSecret), nil
-	}, syncauth.Options{}, cfg.Server.MaxRequestBytes, nil)
-	handler := verify(http.HandlerFunc(handleSyncEvents))
-	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
-		mux.Handle("POST "+path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r = r.WithContext(context.WithValue(r.Context(), syncSettingsKey{}, ssoStore.Load()))
-			handler.ServeHTTP(&syncAuthWriter{ResponseWriter: w, request: r}, r)
-		}))
-	}
+	registerDirectorySync(mux, db, cfg, ssoStore)
 }
 
 // Keep the product's error envelope at the library middleware boundary.
@@ -410,77 +303,4 @@ func (s *ssoTransactions) take(state string) (ssoTransaction, bool) {
 	tx, ok := s.pending[state]
 	delete(s.pending, state)
 	return tx, ok && time.Now().Before(tx.Expires)
-}
-
-func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *sso.SyncUser) error {
-	if u.ID == "" {
-		return errors.New("missing directory subject")
-	}
-	var existingID, existingUsername, existingRole, existingStatus, existingSubject, existingIssuer string
-	err := db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE sso_subject=? AND sso_issuer=?`, u.ID, issuer).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject, &existingIssuer)
-	if errors.Is(err, sql.ErrNoRows) && u.Username != "" {
-		err = db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE username=?`, strings.ToLower(u.Username)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject, &existingIssuer)
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if err == nil && existingSubject != "" && (existingSubject != u.ID || existingIssuer != issuer) {
-		return errors.New("directory subject conflict")
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	username := strings.ToLower(u.Username)
-	if username == "" {
-		username = existingUsername
-	}
-	role := existingRole
-	if role == "" {
-		role = "user"
-	}
-	if u.Role != "" {
-		if u.Role == "admin" {
-			role = "admin"
-		} else {
-			role = "user"
-		}
-	}
-	status := existingStatus
-	if status == "" {
-		status = "active"
-	}
-	if u.Status != "" {
-		if u.Status == "disabled" {
-			status = "disabled"
-		} else {
-			status = "active"
-		}
-	}
-
-	if err != nil {
-		// Insert new user
-		if username == "" {
-			username = u.ID
-		}
-		newID, mintErr := ids.Mint("usr")
-		if mintErr != nil {
-			return mintErr
-		}
-		dummyBytes := make([]byte, 32)
-		_, _ = rand.Read(dummyBytes)
-		dummySecret := hex.EncodeToString(dummyBytes)
-		dummyHash, hashErr := auth.HashAuthSecret(dummySecret)
-		if hashErr != nil {
-			return hashErr
-		}
-		loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
-
-		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?, ?)`,
-			newID, username, dummyHash, loginSalt, role, status, u.ID, issuer, now, now)
-		return err
-	}
-
-	// Update existing user
-	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, sso_issuer=?, updated_at=? WHERE id=?`,
-		username, role, status, u.ID, issuer, now, existingID)
-	return err
 }

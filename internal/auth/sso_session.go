@@ -39,6 +39,7 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
 	}
 	var allowed int
 	err = tx.QueryRow(`SELECT count(*) FROM users WHERE id=? AND status='active' AND sso_issuer=? AND sso_subject=?
+ AND NOT EXISTS(SELECT 1 FROM sso_directory_state WHERE issuer=? AND subject=? AND revoked_before>=?)
  AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_enabled' AND value IN ('true','1'))
  AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)
  AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_client_id' AND value=?)
@@ -46,7 +47,7 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
  AND ((sid<>'' AND sid=? AND (subject='' OR subject=?))
  OR (?='' AND subject<>'' AND subject=? AND issued_at>=?)
  OR (sid='' AND subject=? AND issued_at>=?)))`,
-		userID, identity.Issuer, identity.Subject, identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
+		userID, identity.Issuer, identity.Subject, identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
 	if err != nil {
 		return Session{}, err
 	}
