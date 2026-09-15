@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -107,7 +108,7 @@ func TestDirectoryVersionsReadbackAndRestart(t *testing.T) {
 	send("fresh", "user.created", directoryPayload("subject", "alice", 4, true), 200)
 }
 
-func TestDirectoryDisablePreservesDataAndRevokesAllCredentials(t *testing.T) {
+func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *testing.T) {
 	f := newLogoutFixture(t)
 	settings := f.settings.Load()
 	settings.HMACSecret = strings.Repeat("s", 32)
@@ -115,6 +116,15 @@ func TestDirectoryDisablePreservesDataAndRevokesAllCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookies := f.login("alice", "sid-a")
+	ShareLinkRoutes(f.router.(*http.ServeMux), f.db, nil)
+	sealed := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	shareBody, _ := json.Marshal(map[string]string{"ciphertext": sealed, "expiresAt": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)})
+	shared := f.send(withCookies(httptest.NewRequest("POST", "/api/v1/share-links", bytes.NewReader(shareBody)), cookies))
+	var link struct{ Token string }
+	if shared.Code != 200 || json.Unmarshal(shared.Body.Bytes(), &link) != nil || link.Token == "" {
+		t.Fatalf("create share: %d %s", shared.Code, shared.Body.String())
+	}
+
 	other := f.login("bob", "sid-b")
 	var uid string
 	if err := f.db.QueryRow(`SELECT id FROM users WHERE username='alice'`).Scan(&uid); err != nil {
@@ -171,6 +181,11 @@ func TestDirectoryDisablePreservesDataAndRevokesAllCredentials(t *testing.T) {
 	}
 	oldCallback := f.beginLogin("alice", "pending-before-disable", time.Now().Add(-time.Second))
 	send("disable", 1, false, 200)
+	// Share links are independent bearer access to ciphertext, not account sessions.
+	if res := f.send(httptest.NewRequest("GET", "/api/v1/share-links/"+link.Token, nil)); res.Code != 200 {
+		t.Fatalf("share link after deactivation: %d %s", res.Code, res.Body.String())
+	}
+
 	if f.protected(cookies) == 204 || f.protected(local.Result().Cookies()) == 204 || f.protected(other) != 204 {
 		t.Fatal("disable scope wrong")
 	}
@@ -261,6 +276,14 @@ func TestDirectoryRejectsMalformedAndChangedConfiguration(t *testing.T) {
 	if res.Code != 422 {
 		t.Fatalf("stale cached settings applied: %d", res.Code)
 	}
+	if _, err := db.Exec(`ALTER TABLE server_settings RENAME TO server_settings_missing`); err != nil {
+		t.Fatal(err)
+	}
+	res = sendDirectory(t, router, "/sync/events", secret, "storage-failure", "user.updated", directoryPayload("subject", "alice", 2, false))
+	if res.Code != 500 {
+		t.Fatalf("configuration storage failure: %d %s", res.Code, res.Body.String())
+	}
+
 }
 
 func TestDirectoryReadbackAuthenticationAndAudit(t *testing.T) {
@@ -283,6 +306,15 @@ func TestDirectoryReadbackAuthenticationAndAudit(t *testing.T) {
 		if res.Code != 401 {
 			t.Fatalf("%s readback=%d", mode, res.Code)
 		}
+	}
+
+	success := sendDirectory(t, router, "/api/v1/sync/readback", secret, "probe-event", "user.readback", map[string]string{"subject": "alice"})
+	if success.Code != 200 {
+		t.Fatalf("readback: %d %s", success.Code, success.Body.String())
+	}
+	var subject, eventID string
+	if err := db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.readback'`).Scan(&subject, &eventID); err != nil || subject != "alice" || eventID != "probe-event" {
+		t.Fatalf("unidentifiable readback: %q %q %v", subject, eventID, err)
 	}
 	if _, err := db.Exec(`CREATE TRIGGER fail_readback_audit BEFORE INSERT ON audit_events WHEN NEW.event='directory.readback' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
 		t.Fatal(err)

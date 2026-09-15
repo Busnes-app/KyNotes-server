@@ -123,7 +123,11 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 	}
 	defer tx.Rollback()
 	var current int
-	if err = tx.QueryRow(`SELECT count(*) FROM server_settings WHERE key='sso_hmac_secret' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)`, settings.HMACSecret, settings.IssuerURL).Scan(&current); err != nil || current != 1 {
+	if err = tx.QueryRow(`SELECT count(*) FROM server_settings WHERE key='sso_hmac_secret' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)`, settings.HMACSecret, settings.IssuerURL).Scan(&current); err != nil {
+		WriteError(w, r, 500, "sync_failed", "configuration lookup failed")
+		return
+	}
+	if current != 1 {
 		WriteError(w, r, 422, "sync_configuration_changed", "directory configuration changed")
 		return
 	}
@@ -145,7 +149,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		if prior > 0 {
 			observed["version"] = fmt.Sprintf(`W/"%d"`, prior)
 		}
-		if err = storage.RecordAuditOutcomeTx(tx, "", "directory.readback", "", "", "success", "", RequestID(r)); err == nil {
+		if err = storage.RecordAuditOutcomeTx(tx, "", "directory.readback", "", u.ID, "success", event.ID, RequestID(r)); err == nil {
 			err = tx.Commit()
 		}
 		if err != nil {

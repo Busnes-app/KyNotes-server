@@ -155,7 +155,10 @@ those originally obtained with a local password. Re-enabling requires a higher
 active revision and fresh login/device pairing; it never revives those credentials.
 Unknown inactive subjects retain a tombstone without creating a user. Local
 status edits and OIDC auto-provisioning cannot override an inactive tombstone.
-Downloaded plaintext and client-held keys cannot be recalled by the server.
+Previously issued share links remain valid until expiry or separate revocation;
+directory deactivation does not revoke them. These links continue to provide
+server-mediated access to their ciphertext. Downloaded plaintext and client-held
+keys cannot be recalled by the server.
 
 Directory deactivation also retains a per-identity login-proof cutoff. Session
 admission rejects ID tokens issued at or before that cutoff even after a higher
@@ -172,7 +175,8 @@ purpose must be signed because syncauth does not bind method or URL. Mutation
 signatures cannot authorize a readback and readback signatures cannot mutate users.
 
 The no-store response reports `subject`, `present`, `active` and `version` from
-one audited transaction. Version is empty when no versioned event has applied;
+one audited transaction. The `directory.readback` audit records the probed subject
+in `object_id` and the signed event ID in `reason_code`. Version is empty when no versioned event has applied;
 a deleted local account may report absent with a retained version. Missing and
 inactive accounts never imply ciphertext deletion. Invalid signatures return 401,
 malformed probes 400, and unavailable audit/storage 500 without an observation.

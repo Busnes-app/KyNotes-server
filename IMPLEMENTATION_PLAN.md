@@ -31,8 +31,9 @@ this stage does not satisfy live deployment acceptance.
 Lifecycle extension for issue 13, second stage: migration 0017 adds durable
 issuer/subject revision fences, body digests and inactive-account SQL guards.
 A persistent issuance cutoff also blocks pre-disable OIDC callbacks after re-enable.
-Signed bare SCIM User events atomically apply status, revoke all credentials on
-deactivation, and persist audit/replay/revision. Deletion preserves encrypted
+Signed bare SCIM User events atomically apply status, revoke sessions/device
+credentials on deactivation, and persist audit/replay/revision. Existing share
+links remain valid until expiry or separate revocation. Deletion preserves encrypted
 accounts; stale activation cannot bypass restart or local user deletion. Identical
 retries acknowledge the committed version. Signed `user.readback` probes expose
 audited observed state; sender automation remains a follow-up. Unversioned

@@ -32,13 +32,16 @@ days and coordinate a fix and disclosure.
   effects and the staged directory/role/reauthentication acceptance boundary.
 - Trusted signed directory delivery may link an unbound local username. It preserves
   the existing local role and ignores SCIM role claims until explicit application
-  role mapping is implemented. Directory deactivation revokes every credential of
-  that account and preserves encrypted data; a higher active revision requires
-  fresh credentials. A persistent login-proof cutoff rejects callbacks carrying
+  role mapping is implemented. Directory deactivation revokes the account’s
+  sessions and device credentials and preserves encrypted data; a higher active revision requires
+  fresh credentials. Previously issued share links remain valid until expiry or
+  separate revocation; directory deactivation does not revoke them. A persistent
+  login-proof cutoff rejects callbacks carrying
   pre-disable ID tokens after re-enablement. Durable issuer/subject revision fences survive replay expiry
   and user deletion. Local administrators cannot override an inactive directory
   fence by editing status. Unversioned senders must upgrade before this receiver.
-  Readback requires a signed purpose/subject and an atomic successful audit.
+  Readback requires a signed purpose/subject and an atomic successful audit
+  identifying the probed subject and signed event ID.
 - Team membership changes rotate keys for future content. Removed members may
   retain content they already downloaded.
 - Deterministic attachment encryption may reveal that two ciphertexts are

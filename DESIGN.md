@@ -375,7 +375,9 @@ mutation; stale or conflicting revisions and reused event IDs return 422.
 Inactive delivery disables a matching account and permanently revokes all its
 current sessions/device credentials, including locally authenticated ones, in the
 same transaction as revision, replay and audit. It preserves the user, ciphertext,
-memberships and wrapped keys. An unknown inactive subject needs only a tombstone.
+memberships and wrapped keys. Existing share links remain valid until expiry or
+separate revocation; deactivation does not revoke them. An unknown inactive subject
+needs only a tombstone.
 SQL triggers prevent local activation or OIDC auto-provisioning through a retained
 inactive tombstone. A higher active revision permits a fresh login; it never
 clears credential revocation. Existing local roles are preserved and new users
@@ -386,7 +388,8 @@ provisioning retains its explicit authority to link an unbound local username.
 body names the subject. Signing the purpose and subject prevents cross-route or
 cross-subject reuse because syncauth does not sign the URL. The audited response
 reports actual local presence/activity and the last applied version from one
-transaction. The KySignOn suite sender currently reports readback unsupported;
+transaction; its audit identifies the probed subject and signed event ID. The
+KySignOn suite sender currently reports readback unsupported;
 this receiver endpoint requires a future sender adapter or signed operator probe.
 See `docs/SSO.md` for wire fields, upgrade and acknowledgment limits. Client
 cryptography and the remaining role/reauthentication and live acceptance gates
