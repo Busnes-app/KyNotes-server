@@ -219,8 +219,14 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 
 	handleSession := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
-		var role, username string
-		_ = db.QueryRow(`SELECT role, username FROM users WHERE id=?`, s.UserID).Scan(&role, &username)
+		var username string
+		_ = db.QueryRow(`SELECT username FROM users WHERE id=?`, s.UserID).Scan(&username)
+		role, err := auth.SessionRole(db, s)
+		if err != nil {
+			WriteError(w, r, 401, "unauthenticated", "session no longer active")
+			return
+		}
+
 		writeJSON(w, map[string]any{"user": map[string]string{"id": s.UserID, "role": role, "username": username}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	}))
 	mux.Handle("GET /api/v1/auth/session", handleSession)

@@ -30,10 +30,11 @@ days and coordinate a fix and disclosure.
   discovery/JWKS caches; session mutations still honor request cancellation.
   See [SSO setup and upgrade](docs/SSO.md) for migration
   effects and the staged directory/role/reauthentication acceptance boundary.
-- Trusted signed directory delivery may link an unbound local username. It preserves
-  the existing local role and ignores SCIM role claims until explicit application
-  role mapping is implemented. Directory deactivation revokes the account’s
-  sessions and device credentials and preserves encrypted data; a higher active revision requires
+- Trusted signed directory delivery may link an unbound local username. It maps only the explicit application
+  role `kynotes.admin` to product administration; directory role sets replace local
+  permission. SSO admin requests also require that role in the session’s verified
+  OIDC claims; global role claims and auto-provisioning never elevate an account. Directory deactivation or a role change revokes the account’s
+  sessions and device credentials and preserves encrypted data; a higher active revision or role re-grant requires
   fresh credentials. Previously issued share links remain valid until expiry or
   separate revocation; directory deactivation does not revoke them. A persistent
   login-proof cutoff rejects callbacks carrying

@@ -26,12 +26,17 @@ import (
 
 type syncSettingsKey struct{}
 
+type directoryRole struct {
+	Value string `json:"value"`
+}
+
 type directoryUser struct {
-	Schemas    []string `json:"schemas"`
-	ID         string   `json:"id"`
-	ExternalID string   `json:"externalId"`
-	UserName   string   `json:"userName"`
-	Active     *bool    `json:"active"`
+	Schemas    []string         `json:"schemas"`
+	Roles      *[]directoryRole `json:"roles"`
+	ID         string           `json:"id"`
+	ExternalID string           `json:"externalId"`
+	UserName   string           `json:"userName"`
+	Active     *bool            `json:"active"`
 	Meta       struct {
 		Version string `json:"version"`
 	} `json:"meta"`
@@ -46,6 +51,14 @@ func (u directoryUser) revision(kind string) (int64, error) {
 	if err != nil || n <= 0 || u.Meta.Version != fmt.Sprintf(`W/"%d"`, n) || !directoryIdentifier(u.ID) || u.ExternalID != u.ID || u.Active == nil || (u.UserName != "" && !directoryIdentifier(u.UserName)) || (u.Active != nil && *u.Active && u.UserName == "") || len(u.Schemas) != 1 || u.Schemas[0] != "urn:ietf:params:scim:schemas:core:2.0:User" {
 		return 0, errors.New("invalid versioned user")
 	}
+	if u.Roles == nil || len(*u.Roles) > 64 {
+		return 0, errors.New("invalid directory roles")
+	}
+	for _, role := range *u.Roles {
+		if !sso.ValidAppRole(role.Value) {
+			return 0, errors.New("invalid directory role")
+		}
+	}
 	switch kind {
 	case "user.created", "user.updated":
 	case "user.deleted":
@@ -56,6 +69,17 @@ func (u directoryUser) revision(kind string) (int64, error) {
 		return 0, errors.New("unsupported event")
 	}
 	return n, nil
+}
+
+func (u directoryUser) localRole() string {
+	if u.Active != nil && *u.Active && u.Roles != nil {
+		for _, role := range *u.Roles {
+			if role.Value == sso.AdminAppRole {
+				return "admin"
+			}
+		}
+	}
+	return "user"
 }
 
 func registerDirectorySync(mux *http.ServeMux, db *sql.DB, cfg config.Config, settings *sso.Store) {
@@ -139,13 +163,13 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		return
 	}
 	if readback {
-		var status string
-		err = tx.QueryRow(`SELECT status FROM users WHERE sso_issuer=? AND sso_subject=?`, settings.IssuerURL, u.ID).Scan(&status)
+		var status, role string
+		err = tx.QueryRow(`SELECT status,role FROM users WHERE sso_issuer=? AND sso_subject=?`, settings.IssuerURL, u.ID).Scan(&status, &role)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 500, "sync_failed", "account lookup failed")
 			return
 		}
-		observed := map[string]any{"subject": u.ID, "present": err == nil, "active": status == "active", "version": ""}
+		observed := map[string]any{"subject": u.ID, "present": err == nil, "active": status == "active", "role": role, "version": ""}
 		if prior > 0 {
 			observed["version"] = fmt.Sprintf(`W/"%d"`, prior)
 		}
@@ -204,7 +228,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 			}
 		}
 		if err == nil {
-			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,event=%s", revision, *u.Active, event.ID), RequestID(r))
+			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,role=%s,event=%s", revision, *u.Active, u.localRole(), event.ID), RequestID(r))
 		}
 	}
 	if err == nil {
@@ -238,10 +262,7 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 	if username == "" {
 		username = existingUsername
 	}
-	role := existingRole
-	if role == "" {
-		role = "user"
-	}
+	role := u.localRole()
 	status := "disabled"
 	if *u.Active {
 		status = "active"
@@ -274,6 +295,17 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 		return err
 	}
 
+	if role != existingRole {
+		if _, err := db.Exec(`UPDATE sso_directory_state SET revoked_before=max(revoked_before,?) WHERE issuer=? AND subject=?`, time.Now().Unix(), issuer, u.ID); err != nil {
+			return err
+		}
+		// Both promotion and demotion require fresh sessions and device pairing.
+		for _, table := range []string{"sessions", "devices"} {
+			if _, err := db.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, existingID); err != nil {
+				return err
+			}
+		}
+	}
 	// Update existing user
 	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, sso_issuer=?, updated_at=? WHERE id=?`,
 		username, role, status, u.ID, issuer, now, existingID)

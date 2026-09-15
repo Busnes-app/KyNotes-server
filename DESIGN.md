@@ -380,8 +380,8 @@ separate revocation; deactivation does not revoke them. An unknown inactive subj
 needs only a tombstone.
 SQL triggers prevent local activation or OIDC auto-provisioning through a retained
 inactive tombstone. A higher active revision permits a fresh login; it never
-clears credential revocation. Existing local roles are preserved and new users
-receive `user`; SCIM roles are not mapped in this stage. Trusted directory
+clears credential revocation. Directory role sets explicitly replace the local account role; only the app role
+`kynotes.admin` maps to admin, and every other set maps to user. Trusted directory
 provisioning retains its explicit authority to link an unbound local username.
 
 `POST /api/v1/sync/readback` authenticates a signed `user.readback` request whose
@@ -401,3 +401,22 @@ active revision, preventing a pending callback from reviving access. Issuance
 and disablement in the same second are conservatively ordered as disabled;
 restart login in a later second. The cutoff and session admission serialize with
 account/revision changes under SQLite's writer lock.
+
+## Application-role extension (issue 13)
+
+Migration 0018 adds `sessions.sso_app_admin`, removes legacy linked-account admin
+roles without guessing provenance, and ends old SSO sessions once, with per-subject
+upgrade audit. Unlinked local admins and ciphertext survive. OIDC validates the
+plural roles array, ignores singular/global role, and never elevates an account
+at auto-provision. `auth.SessionRole` intersects local account permission with the
+verified OIDC ceiling for every SSO admin guard and session response. Local password
+sessions use the local role. An explicit local grant can supply account permission
+for OIDC-only deployments; otherwise versioned directory provisioning supplies it.
+
+The fixed `kynotes.admin` role cannot collide with the sender's legacy SCIM global
+admin/user fallback. Every role transition clears existing session/device credentials
+and advances the persisted login-proof cutoff, in the same writer transaction as
+role replacement, revision and attributed audit. Re-grants do not revive old proofs.
+Readback includes the actual local role. Client encryption and workspace membership
+roles are unaffected. See `docs/SSO.md` for setup, upgrade and the remaining fresh
+OIDC authorization stage.

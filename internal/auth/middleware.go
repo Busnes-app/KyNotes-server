@@ -44,13 +44,22 @@ func RequireFresh(db *sql.DB, next http.Handler) http.Handler {
 func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
 	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
-		var role string
-		if db.QueryRow(`SELECT role FROM users WHERE id=?`, s.UserID).Scan(&role) != nil || role != "admin" {
+		role, err := SessionRole(db, s)
+		if err != nil || role != "admin" {
 			WriteAuthError(w, "forbidden", "administrator access required")
 			return
 		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+// SessionRole applies the verified OIDC role ceiling to every SSO admin request.
+// A local role edit or another login cannot turn a user-scoped SSO token into admin.
+func SessionRole(db *sql.DB, s Session) (string, error) {
+	var role string
+	err := db.QueryRow(`SELECT CASE WHEN u.role='admin' AND (s.sso_issuer='' OR s.sso_app_admin=1) THEN 'admin' ELSE 'user' END
+ FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.id=? AND u.id=? AND s.revoked_at='' AND u.status='active'`, s.ID, s.UserID).Scan(&role)
+	return role, err
 }
 
 // StepUpWindow is how long a re-proof of the login secret grants access to

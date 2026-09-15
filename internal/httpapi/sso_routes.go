@@ -154,9 +154,9 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			return
 		}
 
-		var userID, userStatus, userRole string
+		var userID, userStatus string
 		// 1. Try finding user by sso_subject
-		err = db.QueryRow(`SELECT id, status, role FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus, &userRole)
+		err = db.QueryRow(`SELECT id, status FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 500, "internal", "account lookup failed")
 			return
@@ -185,11 +185,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			}
 
 			role := "user"
-			if claims.Role == "admin" {
-				role = "admin"
-			}
 			userStatus = "active"
-			userRole = role
 
 			dummyBytes := make([]byte, 32)
 			_, _ = rand.Read(dummyBytes)
@@ -224,7 +220,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		if claims.ValidUntil.Before(deadline) {
 			deadline = claims.ValidUntil
 		}
-		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, IssuedAt: claims.IssuedAt, LoginExpires: deadline}, cfg.Server.DevInsecureCookies, RequestID(r))
+		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, AppAdmin: claims.AppAdmin, IssuedAt: claims.IssuedAt, LoginExpires: deadline}, cfg.Server.DevInsecureCookies, RequestID(r))
 		if err != nil {
 			if errors.Is(err, auth.ErrSSOLoginRejected) {
 				WriteError(w, r, 403, "sso_login_rejected", "restart Single Sign-On login")

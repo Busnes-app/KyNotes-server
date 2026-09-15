@@ -24,8 +24,8 @@ Pairing tokens add optional signed
 The migration revokes old linked-account sessions/devices once, preserving
 ciphertext and envelopes. See DESIGN.md and `docs/SSO.md` for the complete
 contract. Verification includes TLS/JWKS integration, writer races, audit
-rollback, restart and migration 1–15 upgrade coverage. Follow-up stages retain
-app roles and action-bound reauthentication;
+rollback, restart and migration 1–15 upgrade coverage. The following role extension implements app roles; action-bound reauthentication
+remains outstanding;
 this stage does not satisfy live deployment acceptance.
 
 Lifecycle extension for issue 13, second stage: migration 0017 adds durable
@@ -41,6 +41,16 @@ legacy events are refused. Verify `TestDirectory*` and
 `TestSyncSignaturesAndAtomicReplay`, including audit rollback, concurrent retries,
 restart, malformed resources, configuration changes and credential/data survival.
 This extends the frozen schema and webhook contract as described in DESIGN.md.
+
+Lifecycle extension for issue 13, application-role stage: migration 0018 removes
+unproven linked-account admin grants and stores a verified per-session app-admin
+ceiling. KyNotes maps only `kynotes.admin`; global role never grants administration.
+SSO admin access intersects the session ceiling and current local permission.
+Directory role changes revoke credentials and fence old callbacks atomically with
+revision and attributed audit. The setup/upgrade path and OIDC-only explicit local
+grant option are in docs/SSO.md. Verify role claims, versioned loss/re-grant,
+rollback and pre-0018 upgrade in the app-role tests. Action-bound fresh OIDC
+reauthentication remains next; this does not complete live acceptance.
 
 Recovery extension for Myslop #290: sealed capsule collection and restore live in
 `internal/backup`, using `ky-primitives/recoveryclient@v0.5.1`; see DESIGN.md and
