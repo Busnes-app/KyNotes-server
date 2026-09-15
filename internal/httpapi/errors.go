@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/Busness-app/kynotes-server/internal/reqid"
 )
 
 type ErrorBody struct {
@@ -20,8 +22,5 @@ func WriteError(w http.ResponseWriter, r *http.Request, status int, code, messag
 	_ = json.NewEncoder(w).Encode(ErrorBody{Error: ErrorDetail{Code: code, Message: message, RequestID: RequestID(r)}})
 }
 func RequestID(r *http.Request) string {
-	if v, ok := r.Context().Value(requestIDKey{}).(string); ok {
-		return v
-	}
-	return ""
+	return reqid.FromContext(r.Context())
 }

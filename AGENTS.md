@@ -240,3 +240,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestDirectoryRetainsLastActiveAdminGrant`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
   and existing directory race/rollback checks. OIDC step-up uses the separate
   action-bound proof path above; local password step-up never authorizes an SSO action.
+
+- `internal/reqid` carries only the middleware-established request ID through context.
+  `httpapi.RequestID` and SSO step-up start/consume audits read it without falling back
+  to raw headers. Verify `TestSSOStepUpAuditUsesTrustedRequestID` and request-ID contracts.
+  The SSO sign-in popup clears its own opener before navigation while retaining the
+  parent's handle for polling/cleanup; `web/src/reauth.test.ts` checks that ordering.

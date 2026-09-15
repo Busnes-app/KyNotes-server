@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busness-app/kynotes-server/internal/logging"
 	"github.com/Busness-app/kynotes-server/internal/sso"
 )
 
@@ -320,5 +322,31 @@ func TestSSOStepUpAdmissionFailures(t *testing.T) {
 				t.Fatal("expired/cancelled grant", r.Code)
 			}
 		})
+	}
+}
+
+func TestSSOStepUpAuditUsesTrustedRequestID(t *testing.T) {
+	f, cookies := reauthFixture(t)
+	wrapped := Middleware(logging.New(io.Discard, "info", "json"), 1<<20)(f.router)
+	f.router = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.RemoteAddr = "192.0.2.1:1234"
+		r.Header.Set("X-Request-Id", "forged")
+		wrapped.ServeHTTP(w, r)
+	})
+	id, callback := reauthStart(f, cookies)
+	if r := f.send(callback); r.Code != 200 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	if r := reauthAction(f, cookies, id, "/action", `{"target":1}`); r.Code != 204 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	for _, event := range []string{"auth.sso_step_up.start", "auth.sso_step_up.consume"} {
+		var requestID string
+		if err := f.db.QueryRow(`SELECT request_id FROM audit_events WHERE event=?`, event).Scan(&requestID); err != nil {
+			t.Fatal(err)
+		}
+		if requestID == "" || requestID == "forged" {
+			t.Errorf("%s trusted correlation lost: %q", event, requestID)
+		}
 	}
 }

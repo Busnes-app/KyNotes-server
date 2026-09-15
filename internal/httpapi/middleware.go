@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,9 +10,8 @@ import (
 
 	"github.com/Busness-app/kynotes-server/internal/ids"
 	"github.com/Busness-app/kynotes-server/internal/logging"
+	"github.com/Busness-app/kynotes-server/internal/reqid"
 )
-
-type requestIDKey struct{}
 
 func Middleware(log *logging.Logger, max int64) func(http.Handler) http.Handler {
 	return MiddlewareWithProxies(log, max, nil)
@@ -28,7 +26,7 @@ func MiddlewareWithProxies(log *logging.Logger, max int64, proxies []*net.IPNet)
 			if id == "" {
 				id, _ = ids.Mint("req")
 			}
-			ctx := context.WithValue(r.Context(), requestIDKey{}, id)
+			ctx := reqid.With(r.Context(), id)
 			w.Header().Set("X-Request-Id", id)
 			w = &responseWriter{ResponseWriter: w}
 			rw := w.(*responseWriter)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busness-app/kynotes-server/internal/reqid"
 	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
@@ -43,7 +44,7 @@ func requireSSOStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseW
 	}
 	grant := r.Header.Get("X-Kynotes-Step-Up")
 	if grant != "" {
-		if err = consumeSSOStepUp(r.Context(), db, s, grant, action, r.Header.Get("X-Request-Id")); err != nil {
+		if err = consumeSSOStepUp(r.Context(), db, s, grant, action, reqid.FromContext(r.Context())); err != nil {
 			if errors.Is(err, sql.ErrNoRows) || errors.Is(err, ErrSSOLoginRejected) {
 				WriteAuthError(w, "forbidden", "reauthentication grant is expired, revoked or does not match this action")
 			} else {
@@ -71,7 +72,7 @@ func requireSSOStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseW
 		_, err = tx.Exec(`INSERT INTO sso_stepup(id,session_id,action,created_at,expires_at) VALUES(?,?,?,?,?)`, id, s.ID, action, now.Unix(), now.Add(SSOLoginLifetime).Unix())
 	}
 	if err == nil {
-		err = storage.RecordAuditOutcomeTx(tx, s.UserID, "auth.sso_step_up.start", "", id, "success", r.Method+" "+r.URL.Path, r.Header.Get("X-Request-Id"))
+		err = storage.RecordAuditOutcomeTx(tx, s.UserID, "auth.sso_step_up.start", "", id, "success", r.Method+" "+r.URL.Path, reqid.FromContext(r.Context()))
 	}
 	if err == nil {
 		err = tx.Commit()

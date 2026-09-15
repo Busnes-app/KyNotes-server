@@ -265,7 +265,7 @@ method, exact request URI, Content-Type and body (at most 64 KiB), storing no bo
 Only one challenge may exist per session; starting another action cancels the old
 one. Pending challenges expire in five minutes. The browser keeps the attempted
 request only in memory and opens a native confirmation dialog. Continue opens
-KySignOn in a separate window; cancellation burns the challenge, including a
+KySignOn in a separate window with its opener detached; cancellation burns the challenge, including a
 callback that races cancellation. Reloading abandons the in-memory request.
 
 `POST /api/v1/auth/oidc/step-up` takes `{ "challenge": "rea_..." }`, requires
@@ -295,7 +295,8 @@ a new proof. `DELETE` of the challenge requires its session and CSRF.
 
 Migration 0019 adds the challenge table. Challenge creation, verification,
 cancellation and consumption have atomic audits. Verification records the actual
-`auth_time`, accepted `acr` and original session ID. Restart loses pending PKCE state;
+`auth_time`, accepted `acr` and original session ID. Audit correlation uses the
+middleware-established request ID, never an untrusted caller header. Restart loses pending PKCE state;
 restart the action. Verified grants remain bounded by their persisted expiry and
 parent-session revocation. Restoring a database revokes the parent sessions through
 the existing restore procedure. Older receiver binaries do not enforce this policy.

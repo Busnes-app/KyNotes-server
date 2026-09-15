@@ -26,6 +26,7 @@ export async function confirmSSOAction(challenge: string, csrf: string): Promise
       proceed.onclick = () => {
         opened.popup = window.open("about:blank", "_blank", "popup,width=600,height=750");
         if (!opened.popup) { reject(new Error("Allow the KySignOn sign-in window to confirm this action")); return; }
+        opened.popup.opener = null;
         proceed.disabled = true;
         explanation.textContent = "Complete sign-in in the KySignOn window. You can cancel here at any time.";
         resolve();

@@ -32,3 +32,35 @@ describe("action-bound SSO retry", () => {
     expect(confirmSSOAction).not.toHaveBeenCalled();
   });
 });
+
+it("detaches the popup opener before navigating to the issuer", async () => {
+  const { confirmSSOAction: confirm } = await vi.importActual<typeof import("./reauth")>("./reauth");
+  class Element {
+    textContent = "";
+    onclick: (() => void) | null = null;
+    append() {}
+    setAttribute() {}
+    addEventListener() {}
+    showModal() {}
+    close() {}
+    remove() {}
+  }
+  const elements: Element[] = [];
+  vi.stubGlobal("document", { createElement: () => { const element = new Element(); elements.push(element); return element; }, body: { append() {} } });
+  let navigated = false;
+  const popup = {
+    opener: {}, closed: false, close: vi.fn(),
+    location: { set href(value: string) { expect(popup.opener).toBeNull(); expect(value).toBe("https://issuer.example/authorize"); navigated = true; } },
+  };
+  vi.stubGlobal("window", { open: vi.fn(() => popup) });
+  vi.stubGlobal("fetch", vi.fn()
+    .mockResolvedValueOnce(new Response('{"url":"https://issuer.example/authorize"}'))
+    .mockResolvedValueOnce(new Response('{"verified":true}')));
+  const pending = confirm("rea_popup", "csrf");
+  const proceed = elements.find(element => element.textContent === "Continue to KySignOn");
+  expect(proceed?.onclick).toBeTypeOf("function");
+  proceed?.onclick?.();
+  await pending;
+  expect(navigated).toBe(true);
+  expect(popup.close).toHaveBeenCalledOnce();
+});
