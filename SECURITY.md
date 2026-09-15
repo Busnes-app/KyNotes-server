@@ -80,3 +80,12 @@ the relevant failure or attack path. Review the verification strategy in
 - [DESIGN.md](DESIGN.md) — architecture, encryption, storage, and deployment
 - [LOGGING.md](LOGGING.md) — privacy-safe logging rules
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution and review requirements
+
+### SSO last-administrator recovery grant
+
+Active directory-role demotion preserves the last active administrator's local
+account grant, and migration 0018 preserves active linked grants when no unlinked
+active administrator exists. These exceptions are audited as `admin_retained=true`.
+Runtime retention revokes sessions/devices; the upgrade revokes old SSO sessions.
+Neither bypasses the verified `kynotes.admin` OIDC session ceiling. Deactivation remains authoritative, including for the last admin.
+Keep an unlinked local administrator available for recovery; see [SSO roles](docs/SSO.md#application-roles).

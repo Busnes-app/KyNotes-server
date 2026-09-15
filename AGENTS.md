@@ -214,14 +214,20 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   and spoofed/malformed/multiple-header cases in the HTTP API tests.
 
 - Migration `0018_sso_app_roles.sql` removes unproven linked-account admin roles,
-  revokes old SSO sessions once and audits each affected identity. Keep an unlinked
+  except active local grants when no unlinked active admin exists; retention is audited.
+  It revokes old SSO sessions once and audits each affected identity. Keep an unlinked
   local administrator through upgrade; resync explicit `kynotes.admin` assignments.
   OIDC ignores singular/global role claims and stores a verified app-admin ceiling
   on each session. `auth.SessionRole` is shared by admin guards and session responses;
   SSO admin needs both that ceiling and local account permission. Directory roles
-  map only `kynotes.admin` to admin; absent/malformed role arrays fail closed.
+  map only exact `kynotes.admin` from strings or SCIM value objects to admin;
+  unrelated/missing/malformed role data grants nothing, never blocks login or deactivation.
+  Active demotion retains the last active admin's local grant with `admin_retained=true`
+  in the audit, but still revokes credentials and requires the OIDC ceiling. Inactive
+  events always disable/revoke, and never preserve an active administrator.
   Changes revoke sessions/devices and advance the callback cutoff atomically with
   audit. Readback includes the local role. Verify `TestSSOAppRoles*`,
-  `TestDirectoryAppRoleShapes`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
+  `TestDirectoryAppRoleShapes`, `TestDirectoryDeactivationIgnoresRoles`,
+  `TestDirectoryRetainsLastActiveAdminGrant`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
   and existing directory race/rollback checks. Action-bound OIDC step-up remains
   a separate stage; do not claim current password step-up meets it.

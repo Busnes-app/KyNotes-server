@@ -1,8 +1,8 @@
 package httpapi
 
 import (
-	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,6 +45,9 @@ func TestSSOAppRolesRequireExplicitTokenAndAccountPermission(t *testing.T) {
 		if r.Code != want {
 			t.Fatalf("provision %d %s", r.Code, r.Body.String())
 		}
+	}
+	if _, err := f.db.Exec(`INSERT INTO users(id,username,role,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('fallback','fallback','admin','hash','salt',1,'now','now')`); err != nil {
+		t.Fatal(err)
 	}
 	// A legacy global administrator claim never grants product administration.
 	legacy := roleCallback(f, "alice", nil, "admin")
@@ -136,12 +139,121 @@ func TestSSOAppRolesRequireExplicitTokenAndAccountPermission(t *testing.T) {
 	}
 }
 
-func TestSSOAppRolesRejectMalformedClaims(t *testing.T) {
+func TestSSOAppRolesIgnoreUnrelatedClaims(t *testing.T) {
 	f := newLogoutFixture(t)
-	for _, roles := range []any{"kynotes.admin", []any{1}, []string{"bad role"}, []string{strings.Repeat("x", 65)}, make([]string, 65), json.RawMessage("null")} {
-		if r := roleCallback(f, "alice", roles, "admin"); r.Code == 302 {
-			t.Fatalf("accepted malformed roles %#v", roles)
+	f.router.(*http.ServeMux).Handle("GET /admin-protected", auth.RequireAdmin(f.db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
+	roleCallback(f, "alice", nil, "admin")
+	if _, err := f.db.Exec(`UPDATE users SET role='admin' WHERE username='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	many := make([]string, 100)
+	many[99] = sso.AdminAppRole
+	for _, tc := range []struct {
+		roles any
+		want  int
+	}{
+		{[]string{"Finance Team", sso.AdminAppRole}, 204}, {many, 204}, {[]any{map[string]any{"value": sso.AdminAppRole}}, 204},
+		{"kynotes.admin", 403}, {[]any{1}, 403}, {[]string{"bad role"}, 403}, {json.RawMessage("null"), 403}, {[]string{"kynotes.admin.extra"}, 403},
+	} {
+		r := roleCallback(f, "alice", tc.roles, "admin")
+		if r.Code != 302 {
+			t.Fatalf("roles %#v login: %d %s", tc.roles, r.Code, r.Body.String())
 		}
+		if got := f.send(withCookies(httptest.NewRequest("GET", "/admin-protected", nil), r.Result().Cookies())).Code; got != tc.want {
+			t.Fatalf("roles %#v permission: %d want %d", tc.roles, got, tc.want)
+		}
+	}
+}
+
+func TestDirectoryDeactivationIgnoresRoles(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind string
+		roles      any
+	}{
+		{"missing", "user.updated", nil}, {"unrelated", "user.deleted", []any{map[string]any{"value": "Finance Team"}}}, {"wrong-shape", "user.updated", 42},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newLogoutFixture(t)
+			settings := f.settings.Load()
+			settings.HMACSecret = strings.Repeat("s", 32)
+			if err := f.settings.Save(settings); err != nil {
+				t.Fatal(err)
+			}
+			login := roleCallback(f, "alice", nil, "")
+			if login.Code != 302 {
+				t.Fatal(login.Code)
+			}
+			if r := f.register(f.pairing(login.Result().Cookies())); r.Code != 200 {
+				t.Fatal(r.Body.String())
+			}
+			if _, err := f.db.Exec(`UPDATE users SET role='admin' WHERE username='alice'`); err != nil {
+				t.Fatal(err)
+			}
+			p := directoryPayload("alice", "alice", 1, false)
+			delete(p, "roles")
+			if tc.roles != nil {
+				p["roles"] = tc.roles
+			}
+			r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "disable", ""+tc.kind, p)
+			if r.Code != 200 {
+				t.Fatalf("deactivate: %d %s", r.Code, r.Body.String())
+			}
+			var status string
+			var sessions, devices int
+			if err := f.db.QueryRow(`SELECT status FROM users WHERE username='alice'`).Scan(&status); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.QueryRow(`SELECT count(*) FROM sessions WHERE revoked_at=''`).Scan(&sessions); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.db.QueryRow(`SELECT count(*) FROM devices WHERE revoked_at=''`).Scan(&devices); err != nil {
+				t.Fatal(err)
+			}
+			if status != "disabled" || sessions != 0 || devices != 0 {
+				t.Fatalf("status=%s sessions=%d devices=%d", status, sessions, devices)
+			}
+		})
+	}
+}
+
+func TestDirectoryRetainsLastActiveAdminGrant(t *testing.T) {
+	f := newLogoutFixture(t)
+	settings := f.settings.Load()
+	settings.HMACSecret = strings.Repeat("s", 32)
+	if err := f.settings.Save(settings); err != nil {
+		t.Fatal(err)
+	}
+	login := roleCallback(f, "alice", nil, "")
+	if login.Code != 302 {
+		t.Fatal(login.Code)
+	}
+	if _, err := f.db.Exec(`UPDATE users SET role='admin' WHERE username='alice'`); err != nil {
+		t.Fatal(err)
+	}
+	p := directoryPayload("alice", "alice", 1, true)
+	p["roles"] = []any{}
+	r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "demote", "user.updated", p)
+	if r.Code != 200 {
+		t.Fatalf("demote %d %s", r.Code, r.Body.String())
+	}
+	var admins, sessions int
+	var reason string
+	if err := f.db.QueryRow(`SELECT count(*) FROM users WHERE status='active' AND role='admin'`).Scan(&admins); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.QueryRow(`SELECT count(*) FROM sessions WHERE revoked_at=''`).Scan(&sessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='directory.apply'`).Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if admins != 1 || sessions != 0 || !strings.Contains(reason, "admin_retained=true") {
+		t.Fatalf("admins=%d sessions=%d audit=%s", admins, sessions, reason)
+	}
+	f.router.(*http.ServeMux).Handle("GET /admin-protected", auth.RequireAdmin(f.db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
+	fresh := roleCallback(f, "alice", []string{}, "admin")
+	if fresh.Code != 302 || f.send(withCookies(httptest.NewRequest("GET", "/admin-protected", nil), fresh.Result().Cookies())).Code != 403 {
+		t.Fatal("retained grant bypassed verified app role")
 	}
 }
 
@@ -154,22 +266,28 @@ func TestDirectoryAppRoleShapes(t *testing.T) {
 	}
 	router := http.NewServeMux()
 	SSORoutes(router, db, cfg, store)
-	for _, roles := range []any{nil, "admin", []any{map[string]any{"value": 1}}, []any{map[string]any{"value": "bad role"}}, make([]any, 65)} {
-		p := directoryPayload("alice", "alice", 1, true)
-		p["roles"] = roles
-		if r := sendDirectory(t, router, "/sync/events", secret, "bad", "user.updated", p); r.Code != 400 {
-			t.Fatalf("bad roles accepted %d %s", r.Code, r.Body.String())
+	many := make([]any, 100)
+	many[99] = map[string]any{"value": sso.AdminAppRole}
+	for i, tc := range []struct {
+		roles any
+		want  string
+	}{
+		{nil, "user"}, {42, "user"}, {[]any{map[string]any{"value": 1}}, "user"},
+		{[]any{"Finance Team", map[string]any{"value": sso.AdminAppRole}}, "admin"}, {many, "admin"},
+	} {
+		subject := fmt.Sprintf("shape-%d", i)
+		p := directoryPayload(subject, subject, 1, true)
+		delete(p, "roles")
+		if tc.roles != nil {
+			p["roles"] = tc.roles
 		}
-	}
-	// Omission is not an assertion of an empty set.
-	p := directoryPayload("alice", "alice", 1, true)
-	delete(p, "roles")
-	body, _ := json.Marshal(p)
-	req := httptest.NewRequest("POST", "/sync/events", bytes.NewReader(body))
-	signSync(t, req, secret, "missing", "user.updated", body)
-	r := httptest.NewRecorder()
-	router.ServeHTTP(r, req)
-	if r.Code != 400 {
-		t.Fatalf("missing roles accepted %d", r.Code)
+		r := sendDirectory(t, router, "/sync/events", secret, subject, "user.updated", p)
+		if r.Code != 200 {
+			t.Fatalf("roles %#v: %d %s", tc.roles, r.Code, r.Body.String())
+		}
+		var role string
+		if err := db.QueryRow(`SELECT role FROM users WHERE username=?`, subject).Scan(&role); err != nil || role != tc.want {
+			t.Fatalf("role=%s want=%s err=%v", role, tc.want, err)
+		}
 	}
 }

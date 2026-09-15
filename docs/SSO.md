@@ -127,19 +127,19 @@ username; inactive resources may omit it. Version is a canonical positive signed
 `user.updated`, and `user.deleted`; deletion must carry `active:false`.
 Other events, including `user.mfa_reset`, and unversioned legacy envelopes/batch
 resyncs return 400. KySignOn resync sends individual versioned user events.
-Extra profile fields are accepted. `roles` must be an explicit array with at most
-64 objects, each with a nonempty `value` of at most 64 ASCII letters, digits,
-underscore, dot, colon or hyphen. `kynotes.admin` maps to the local admin role
-for active accounts; every other role set maps to user. Global `admin` and `user`
-values do not grant administration. See Application roles below.
+Extra profile fields are accepted. `roles` accepts string entries or SCIM objects
+with a string `value`; only exact `kynotes.admin` requests local administration for
+active accounts. Other names, absent roles and unfamiliar shapes request user
+permission. Global `admin` and `user` never grant administration. Inactive events
+ignore roles entirely. The last-active-admin retention exception is described under
+Application roles below.
 
 A 200 `status:applied` acknowledges that the revision, signed-body digest, replay
 record, account changes, credential revocation and `directory.apply` audit have
 committed. Each apply audit retains the affected subject in `object_id`, with
 revision, active state, mapped role and signed event ID in `reason_code`; later resource
 updates and replay pruning do not erase that attribution. It does not acknowledge
-client data erasure, role mapping or live
-suite acceptance. A same-version, identical event type and body returns 200
+client data erasure or live suite acceptance. A same-version, identical event type and body returns 200
 `status:already_applied`, including a re-signed delivery with a new event ID;
 it never repeats the mutation. This acknowledges historical application, not
 current account state after a local administrator's later edit. The version
@@ -211,11 +211,12 @@ after verifying the migration. A KySignOn global administrator receives no autom
 KyNotes administration. The distinct role name also prevents SCIM's legacy global
 `admin` fallback from granting product access when upstream app roles are removed.
 
-OIDC login reads only the signed, issuer/client-bound `roles` string array, bounded
-to 64 names of at most 64 ASCII letters, digits, underscore, dot, colon or hyphen.
-Missing roles allow ordinary login; explicit null, wrong types and invalid names
-fail verification. The old singular `role` claim is ignored. Automatic account
-creation always starts with the local user role.
+OIDC login reads the signed, issuer/client-bound `roles` array. Both string entries
+and SCIM objects with a string `value` are recognized; only exact `kynotes.admin`
+grants the session ceiling. Unrelated names, unfamiliar entries, missing roles and
+wrong-shaped role data grant nothing and do not prevent ordinary login. The old
+singular `role` claim is ignored. Automatic account creation starts as a local user.
+Directory events use the same role interpretation; deactivation ignores roles entirely.
 
 SSO administration requires **both** local account permission and `kynotes.admin`
 in that session's verified ID token. Directory provisioning normally sets the local
@@ -226,18 +227,25 @@ Every admin request and the session response use the same intersection. Existing
 ordinary SSO sessions cannot acquire admin rights from a later local role edit or
 another login. Local password sessions use the local account role.
 
-Versioned directory role changes replace the local role, revoke all existing
+Versioned directory role changes normally replace the local role, revoke all existing
 sessions/device credentials, and advance the login-proof cutoff in the same
 transaction as the attributed audit. Both promotion and demotion require fresh
 login/device pairing, and a later re-grant cannot revive a revoked credential or
 pre-change callback. A stale token cannot overwrite newer directory permissions.
 Readback reports the current local role, not a particular session's token ceiling.
+An active-role demotion retains the last active administrator's local grant, with
+`admin_retained=true` in the application audit. It still revokes credentials and
+advances the proof cutoff. This recovery grant does not bypass the verified OIDC
+role ceiling. Deactivation/deletion always disables the account, even the last admin;
+disabled accounts never receive the retention exception.
 Workspace/team membership roles and client encryption remain independent.
 
 Migration 0018 removes existing linked-account administrator roles because their
-origin may be the old global claim, revokes existing SSO sessions once, and audits
-each linked subject with its previous role. It leaves unlinked local administrators
-and encrypted data intact. **Before upgrade, keep an unlinked local administrator
+origin may be the old global claim. If no unlinked active administrator exists, it
+retains active linked local admin grants and records `admin_retained=true` in their
+upgrade audits. It always revokes old SSO sessions once and audits each linked subject
+with its previous role. Retention does not restore SSO administration without a new
+verified `kynotes.admin` claim. Unlinked administrators and encrypted data stay intact. **Before upgrade, keep an unlinked local administrator
 available** (the server CLI supports `user add --username <name> --admin`). After
 upgrade, configure/assign `kynotes.admin`, request a new versioned resync and sign
 in again. Replaying an old acknowledged revision does not reapply its roles. Do not
