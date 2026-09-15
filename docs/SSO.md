@@ -133,7 +133,10 @@ OIDC role mapping remains a separate follow-up.
 
 A 200 `status:applied` acknowledges that the revision, signed-body digest, replay
 record, account changes, credential revocation and `directory.apply` audit have
-committed. It does not acknowledge client data erasure, role mapping or live
+committed. Each apply audit retains the affected subject in `object_id`, with
+revision, active state and signed event ID in `reason_code`; later resource
+updates and replay pruning do not erase that attribution. It does not acknowledge
+client data erasure, role mapping or live
 suite acceptance. A same-version, identical event type and body returns 200
 `status:already_applied`, including a re-signed delivery with a new event ID;
 it never repeats the mutation. This acknowledges historical application, not

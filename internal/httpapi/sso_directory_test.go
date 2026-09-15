@@ -196,6 +196,11 @@ func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *test
 		t.Fatal("disabled login succeeded")
 	}
 	send("enable", 2, true, 200)
+	var subject, reason string
+	if err := f.db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.apply' ORDER BY rowid LIMIT 1`).Scan(&subject, &reason); err != nil || subject != "alice" || reason != "revision=1,active=false,event=disable" {
+		t.Fatalf("deactivation attribution lost after re-enable: subject=%q reason=%q err=%v", subject, reason, err)
+	}
+
 	if res := f.send(oldCallback); res.Code != 403 {
 		t.Fatalf("reenable revived old callback: %d %s", res.Code, res.Body.String())
 	}

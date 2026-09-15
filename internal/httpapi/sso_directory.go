@@ -204,7 +204,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 			}
 		}
 		if err == nil {
-			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", event.ID, "success", fmt.Sprintf("revision=%d,active=%t", revision, *u.Active), RequestID(r))
+			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,event=%s", revision, *u.Active, event.ID), RequestID(r))
 		}
 	}
 	if err == nil {
