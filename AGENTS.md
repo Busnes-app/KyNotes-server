@@ -192,7 +192,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
   with fresh signed auth_time and ordinary assurance through the existing PKCE callback.
   Migration 0019 stores one expiring challenge per session; creation, verification,
-  cancellation and consumption are audited atomically. Grant admission rechecks local
+  cancellation and consumption are audited atomically. Cancellation requires admin and CSRF,
+  validates the rea ID before SQL, and audits only an owned row actually deleted;
+  absent/foreign/repeated valid IDs are unaudited 204 no-ops. Grant admission rechecks local
   admin/token ceiling, session/configuration and directory/logout fences, including the
   proof sid. The operation follows committed admission. `web/src/reauth.ts` keeps the
   request in memory, uses a native dialog/sign-in window, and cancels abandoned challenges;

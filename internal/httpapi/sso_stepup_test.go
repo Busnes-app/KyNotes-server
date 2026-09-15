@@ -350,3 +350,60 @@ func TestSSOStepUpAuditUsesTrustedRequestID(t *testing.T) {
 		}
 	}
 }
+
+func TestSSOStepUpCancellationAuditsOnlyOwnedDeletion(t *testing.T) {
+	f, cookies := reauthFixture(t)
+	missing := "rea_00000000000000000000000000"
+	cancel := func(id string, cookies []*http.Cookie) int {
+		return f.send(withCookies(httptest.NewRequest("DELETE", "/api/v1/auth/oidc/step-up/"+id, nil), cookies)).Code
+	}
+	assertCounts := func(audits, challenges int) {
+		t.Helper()
+		var gotAudits, gotChallenges int
+		if err := f.db.QueryRow(`SELECT count(*) FROM audit_events WHERE event='auth.sso_step_up.cancel'`).Scan(&gotAudits); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.db.QueryRow(`SELECT count(*) FROM sso_stepup`).Scan(&gotChallenges); err != nil {
+			t.Fatal(err)
+		}
+		if gotAudits != audits || gotChallenges != challenges {
+			t.Errorf("cancellation audits=%d challenges=%d; want %d,%d", gotAudits, gotChallenges, audits, challenges)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if code := cancel(missing, cookies); code != 204 {
+			t.Errorf("idempotent miss: %d", code)
+		}
+	}
+	if code := cancel(strings.Repeat("x", 1<<20), cookies); code != 400 {
+		t.Errorf("oversized ID: %d", code)
+	}
+	assertCounts(0, 0)
+	ordinary := f.login("bob", "ordinary")
+	if code := cancel(missing, ordinary); code != 403 {
+		t.Errorf("non-admin cancellation: %d", code)
+	}
+	id, _ := reauthStart(f, cookies)
+	other := roleCallback(f, "alice", []string{sso.AdminAppRole}, "")
+	if code := cancel(id, other.Result().Cookies()); code != 204 {
+		t.Errorf("foreign session: %d", code)
+	}
+	assertCounts(0, 1)
+	if _, err := f.db.Exec(`CREATE TRIGGER reject_cancel BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.cancel' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if code := cancel(id, cookies); code != 500 {
+		t.Errorf("failed audit: %d", code)
+	}
+	assertCounts(0, 1)
+	if _, err := f.db.Exec(`DROP TRIGGER reject_cancel`); err != nil {
+		t.Fatal(err)
+	}
+	if code := cancel(id, cookies); code != 204 {
+		t.Errorf("owned cancellation: %d", code)
+	}
+	if code := cancel(id, cookies); code != 204 {
+		t.Errorf("repeated cancellation: %d", code)
+	}
+	assertCounts(1, 0)
+}

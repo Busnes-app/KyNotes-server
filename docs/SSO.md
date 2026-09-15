@@ -291,7 +291,9 @@ configuration and directory/logout fences, including logout of the fresh proof's
 `sid`, then deletes the grant with an audit in the same writer transaction. One
 concurrent request wins. The protected operation follows that committed admission;
 a later logout cannot undo an already admitted operation. A failed operation needs
-a new proof. `DELETE` of the challenge requires its session and CSRF.
+a new proof. `DELETE` requires admin access, the owning session and CSRF, and validates
+the `rea_` ID format before database access. A well-formed absent, foreign-session or
+repeated ID returns 204 without an audit write; only actual deletion is audited.
 
 Migration 0019 adds the challenge table. Challenge creation, verification,
 cancellation and consumption have atomic audits. Verification records the actual

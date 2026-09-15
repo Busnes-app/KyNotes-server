@@ -148,13 +148,18 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 		writeJSON(w, map[string]bool{"verified": verified})
 	})))
-	mux.Handle("DELETE /api/v1/auth/oidc/step-up/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("DELETE /api/v1/auth/oidc/step-up/{id}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "CSRF validation failed")
 			return
 		}
+		id := r.PathValue("id")
+		if ids.Validate("rea", id) != nil {
+			WriteError(w, r, 400, "invalid_challenge", "invalid challenge ID")
+			return
+		}
 		session, _ := auth.SessionFromContext(r)
-		if err := auth.CancelSSOStepUp(r.Context(), db, session, r.PathValue("id"), RequestID(r)); err != nil {
+		if err := auth.CancelSSOStepUp(r.Context(), db, session, id, RequestID(r)); err != nil {
 			WriteError(w, r, 500, "internal", "cancellation failed")
 			return
 		}

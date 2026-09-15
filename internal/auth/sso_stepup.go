@@ -99,8 +99,15 @@ func CancelSSOStepUp(ctx context.Context, db *sql.DB, s Session, id, requestID s
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`DELETE FROM sso_stepup WHERE id=? AND session_id=?`, id, s.ID)
-	if err == nil {
+	result, err := tx.Exec(`DELETE FROM sso_stepup WHERE id=? AND session_id=?`, id, s.ID)
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted == 1 {
 		err = storage.RecordAuditOutcomeTx(tx, s.UserID, "auth.sso_step_up.cancel", "", id, "success", "", requestID)
 	}
 	if err == nil {
