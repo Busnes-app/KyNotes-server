@@ -1,5 +1,6 @@
+import { confirmSSOAction } from "./reauth";
 export type User = { id: string; role: string; username?: string };
-export type Session = { user: User; expiresAt: string; hardExpiresAt: string };
+export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
@@ -14,13 +15,27 @@ export function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
 }
 
+// Both JSON operations and capsule downloads use this one bounded retry path.
+export async function actionFetch(path: string, init: RequestInit = {}): Promise<Response> {
+ const response = await fetch(path, init);
+ if (response.status !== 403) return response;
+ let detail: unknown;
+ try { detail = await response.clone().json(); } catch { return response; }
+ if (typeof detail !== "object" || detail === null || !("error" in detail) || typeof detail.error !== "object" || detail.error === null) return response;
+ const error = detail.error;
+ if (!("code" in error) || error.code !== "sso_step_up_required" || !("challenge" in error) || typeof error.challenge !== "string") return response;
+ await confirmSSOAction(error.challenge, csrfToken());
+ const headers = new Headers(init.headers); headers.set("X-Kynotes-Step-Up", error.challenge);
+ return fetch(path, { ...init, headers });
+}
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) headers.set("X-CSRF-Token", csrfToken());
-  const response = await fetch(path, { ...init, headers, credentials: "include" });
+  const response = await actionFetch(path, { ...init, headers, credentials: "include" });
   if (!response.ok) {
     let detail: APIError = {};
     try { detail = await response.json() as APIError; } catch { /* opaque server error */ }

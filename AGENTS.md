@@ -187,9 +187,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
   The login dummy verifier retries a failed mint; it must never cache or use an empty hash.
-- Destructive admin routes sit behind `auth.RequireStepUp`: the browser re-proves the
-  derived login secret at `POST /api/v1/auth/step-up` (`web/src/stepup.ts`) and the
-  grant lasts `auth.StepUpWindow`. Routes answer `403 step_up_required` until then.
+- Backup/recovery mutations use `auth.RequireStepUp`. Local sessions re-prove their
+  derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
+  SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
+  with fresh signed auth_time and ordinary assurance through the existing PKCE callback.
+  Migration 0019 stores one expiring challenge per session; creation, verification,
+  cancellation and consumption are audited atomically. Grant admission rechecks local
+  admin/token ceiling, session/configuration and directory/logout fences, including the
+  proof sid. The operation follows committed admission. `web/src/reauth.ts` keeps the
+  request in memory, uses a native dialog/sign-in window, and cancels abandoned challenges;
+  `actionFetch` retries JSON and capsule requests once. No SSO callback replaces the session.
+  Other admin routes keep their existing guards. `docs/SSO.md` owns the protocol and limits.
+  Verify `TestSSOStepUp*`, `web/src/reauth.test.ts`, npm test/build, and the real browser dialog.
 
 - `internal/mirror/AGENTS.md` owns streaming ciphertext replication and recovery over
   `ky-primitives/offsite@v0.1.0`. Migration `0015_blob_replicas.sql` tracks the single
@@ -229,5 +238,5 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   audit. Readback includes the local role. Verify `TestSSOAppRoles*`,
   `TestDirectoryAppRoleShapes`, `TestDirectoryDeactivationIgnoresRoles`,
   `TestDirectoryRetainsLastActiveAdminGrant`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
-  and existing directory race/rollback checks. Action-bound OIDC step-up remains
-  a separate stage; do not claim current password step-up meets it.
+  and existing directory race/rollback checks. OIDC step-up uses the separate
+  action-bound proof path above; local password step-up never authorizes an SSO action.

@@ -38,23 +38,10 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
 	if identity.Issuer == "" || identity.ClientID == "" || identity.Subject == "" || identity.IssuedAt.IsZero() || !now.Before(identity.LoginExpires) {
 		return Session{}, ErrSSOLoginRejected
 	}
-	var allowed int
-	err = tx.QueryRow(`SELECT count(*) FROM users WHERE id=? AND status='active' AND sso_issuer=? AND sso_subject=?
- AND NOT EXISTS(SELECT 1 FROM sso_directory_state WHERE issuer=? AND subject=? AND revoked_before>=?)
- AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_enabled' AND value IN ('true','1'))
- AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)
- AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_client_id' AND value=?)
- AND NOT EXISTS(SELECT 1 FROM sso_logout_events WHERE issuer=? AND client_id=? AND retain_until>=?
- AND ((sid<>'' AND sid=? AND (subject='' OR subject=?))
- OR (?='' AND subject<>'' AND subject=? AND issued_at>=?)
- OR (sid='' AND subject=? AND issued_at>=?)))`,
-		userID, identity.Issuer, identity.Subject, identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
-	if err != nil {
+	if err := checkSSOIdentityTx(tx, userID, identity, now); err != nil {
 		return Session{}, err
 	}
-	if allowed != 1 {
-		return Session{}, ErrSSOLoginRejected
-	}
+
 	s := c.session
 	_, err = tx.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at,sso_issuer,sso_client_id,sso_subject,sso_sid,sso_issued_at,sso_app_admin) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, s.ID, userID, c.tokenHash, c.csrfHash, s.CreatedAt.Format(time.RFC3339), s.ExpiresAt.Format(time.RFC3339), s.HardExpiresAt.Format(time.RFC3339), identity.Issuer, identity.ClientID, identity.Subject, identity.SessionID, identity.IssuedAt.Unix(), identity.AppAdmin)
 	if err != nil {
@@ -68,4 +55,26 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
 	}
 	c.setCookies(w, insecure)
 	return s, nil
+}
+
+// checkSSOIdentityTx rechecks the issuer configuration and revocation fences under the writer lock.
+func checkSSOIdentityTx(tx *sql.Tx, userID string, identity SSOIdentity, now time.Time) error {
+	var allowed int
+	err := tx.QueryRow(`SELECT count(*) FROM users WHERE id=? AND status='active' AND sso_issuer=? AND sso_subject=?
+ AND NOT EXISTS(SELECT 1 FROM sso_directory_state WHERE issuer=? AND subject=? AND revoked_before>=?)
+ AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_enabled' AND value IN ('true','1'))
+ AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)
+ AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_client_id' AND value=?)
+ AND NOT EXISTS(SELECT 1 FROM sso_logout_events WHERE issuer=? AND client_id=? AND retain_until>=?
+ AND ((sid<>'' AND sid=? AND (subject='' OR subject=?))
+ OR (?='' AND subject<>'' AND subject=? AND issued_at>=?)
+ OR (sid='' AND subject=? AND issued_at>=?)))`,
+		userID, identity.Issuer, identity.Subject, identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
+	if err != nil {
+		return err
+	}
+	if allowed != 1 {
+		return ErrSSOLoginRejected
+	}
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,6 +49,31 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 	// Initiates OpenID Connect authorization code flow with PKCE
 	handleOIDCFlow := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		var reauthSession auth.Session
+		var challengeID string
+		var started time.Time
+		if r.Method == "POST" {
+			if auth.CheckCSRF(r) != nil {
+				WriteError(w, r, 403, "csrf_failed", "CSRF validation failed")
+				return
+			}
+			reauthSession, _ = auth.SessionFromContext(r)
+			var in struct {
+				Challenge string `json:"challenge"`
+			}
+			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) != nil || len(in.Challenge) > 128 || reauthSession.SSOIssuer == "" {
+				WriteError(w, r, 400, "invalid_request", "invalid SSO challenge")
+				return
+			}
+			var err error
+			challengeID = in.Challenge
+			started, err = auth.BeginSSOStepUp(r.Context(), db, reauthSession, challengeID)
+			if err != nil {
+				WriteError(w, r, 403, "invalid_challenge", "restart the action")
+				return
+			}
+		}
 		settings := ssoStore.Load()
 		if !settings.Enabled || settings.IssuerURL == "" {
 			WriteError(w, r, http.StatusServiceUnavailable, "sso_disabled", "Single Sign-On is not configured or disabled")
@@ -72,11 +98,15 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 		redirectURI := settings.RedirectURI
 		if redirectURI == "" {
-			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), strings.Replace(r.URL.Path, "/login", "/callback", 1))
+			callbackPath := strings.Replace(r.URL.Path, "/login", "/callback", 1)
+			if challengeID != "" {
+				callbackPath = "/api/v1/auth/oidc/callback"
+			}
+			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), callbackPath)
 		}
 
 		state, nonce := sso.GenerateState(), sso.GenerateState()
-		transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, Expires: time.Now().Add(auth.SSOLoginLifetime)})
+		transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, ReauthSession: reauthSession, Challenge: challengeID, Started: started, Expires: time.Now().Add(auth.SSOLoginLifetime)})
 		http.SetCookie(w, &http.Cookie{Name: ssoCookieName, Value: state, Path: "/", HttpOnly: true, Secure: !cfg.Server.DevInsecureCookies && isRequestSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: 300})
 
 		authURL, err := url.Parse(disc.AuthorizationEndpoint)
@@ -93,16 +123,50 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		q.Set("nonce", nonce)
 		q.Set("code_challenge", challenge)
 		q.Set("code_challenge_method", "S256")
+		if challengeID != "" {
+			q.Set("prompt", "login")
+			q.Set("max_age", "0")
+			q.Set("acr_values", "urn:kysignon:acr:password")
+		}
 		authURL.RawQuery = q.Encode()
+		if challengeID != "" {
+			writeJSON(w, map[string]string{"url": authURL.String()})
+			return
+		}
 
 		http.Redirect(w, r, authURL.String(), http.StatusFound)
 	}
+	mux.Handle("POST /api/v1/auth/oidc/step-up", auth.RequireAdmin(db, http.HandlerFunc(handleOIDCFlow)))
+	mux.Handle("GET /api/v1/auth/oidc/step-up/{id}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		session, _ := auth.SessionFromContext(r)
+		var verified bool
+		err := db.QueryRow(`SELECT verified FROM sso_stepup WHERE id=? AND session_id=? AND expires_at>?`, r.PathValue("id"), session.ID, time.Now().Unix()).Scan(&verified)
+		if err != nil {
+			WriteError(w, r, 403, "invalid_challenge", "restart the action")
+			return
+		}
+		writeJSON(w, map[string]bool{"verified": verified})
+	})))
+	mux.Handle("DELETE /api/v1/auth/oidc/step-up/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "CSRF validation failed")
+			return
+		}
+		session, _ := auth.SessionFromContext(r)
+		if err := auth.CancelSSOStepUp(r.Context(), db, session, r.PathValue("id"), RequestID(r)); err != nil {
+			WriteError(w, r, 500, "internal", "cancellation failed")
+			return
+		}
+		w.WriteHeader(204)
+	})))
 	mux.HandleFunc("GET /api/v1/auth/oidc/login", handleOIDCFlow)
 	mux.HandleFunc("GET /api/auth/oidc/login", handleOIDCFlow)
 	mux.HandleFunc("GET /auth/oidc/login", handleOIDCFlow)
 
 	// Handles OAuth redirect callback, verifies PKCE, exchanges code for token, mints session
 	handleOIDCCallback := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		settings := ssoStore.Load()
 		if !settings.Enabled || settings.IssuerURL == "" {
 			WriteError(w, r, http.StatusServiceUnavailable, "sso_disabled", "Single Sign-On is not configured or disabled")
@@ -111,7 +175,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
-		if code == "" || state == "" {
+		if state == "" {
 			WriteError(w, r, http.StatusBadRequest, "invalid_request", "missing code or state")
 			return
 		}
@@ -132,6 +196,17 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 			WriteError(w, r, http.StatusBadRequest, "invalid_state", "expired or changed SSO login")
 			return
 		}
+		if code == "" {
+			WriteError(w, r, 400, "authorization_cancelled", "authorization was cancelled; return to KyNotes")
+			return
+		}
+		if transaction.Challenge != "" {
+			current, err := auth.ResolveSession(db, r, time.Now())
+			if err != nil || current.ID != transaction.ReauthSession.ID {
+				WriteError(w, r, 403, "session_changed", "original session is no longer available")
+				return
+			}
+		}
 		codeVerifier := transaction.Verifier
 
 		disc, err := sso.DiscoverEndpoints(r.Context(), settings.IssuerURL)
@@ -151,6 +226,31 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		claims, err := ssoStore.VerifyClaims(r.Context(), settings, disc, tok.IDToken, transaction.Nonce)
 		if err != nil {
 			WriteError(w, r, http.StatusBadGateway, "invalid_claims", "ID token verification failed")
+			return
+		}
+
+		if transaction.Challenge != "" {
+			now := time.Now().UTC()
+			if !claims.FreshProof(transaction.Started, now) {
+				WriteError(w, r, 403, "fresh_proof_required", "fresh ordinary authentication evidence required")
+				return
+			}
+			deadline := transaction.Expires
+			if claims.ValidUntil.Before(deadline) {
+				deadline = claims.ValidUntil
+			}
+			identity := auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, IssuedAt: claims.IssuedAt, AppAdmin: claims.AppAdmin, LoginExpires: deadline}
+			err := auth.CompleteSSOStepUp(r.Context(), db, transaction.ReauthSession, transaction.Challenge, identity, claims.AuthTime, claims.Assurance, RequestID(r))
+			if err != nil {
+				if errors.Is(err, auth.ErrSSOLoginRejected) {
+					WriteError(w, r, 403, "reauthentication_rejected", "session, account or authorization changed; restart the action")
+				} else {
+					WriteError(w, r, 500, "internal", "reauthentication unavailable")
+				}
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<!doctype html><html lang=en><meta charset=utf-8><title>KyNotes confirmation</title><p>Identity confirmed. Return to KyNotes to finish the action.</p></html>"))
 			return
 		}
 
@@ -262,6 +362,9 @@ func (w *syncAuthWriter) Write(b []byte) (int, error) {
 }
 
 type ssoTransaction struct {
+	ReauthSession                auth.Session
+	Challenge                    string
+	Started                      time.Time
 	Verifier, Nonce, RedirectURI string
 	Settings                     sso.SSOSettings
 	Expires                      time.Time
