@@ -125,7 +125,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		recordAudit(db, s.UserID, "admin.team.member_remove", r.PathValue("id"), r.PathValue("userID"), r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	mux.Handle("POST /api/v1/admin/users", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/admin/users", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -237,7 +237,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		recordAudit(db, s.UserID, "admin.user.update", "", id, r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	mux.Handle("POST /api/v1/admin/users/{id}/password", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/admin/users/{id}/password", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return

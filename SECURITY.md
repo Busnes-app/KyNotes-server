@@ -92,7 +92,7 @@ Keep an unlinked local administrator available for recovery; see [SSO roles](doc
 
 ## Action-bound OIDC step-up
 
-Existing backup/recovery step-up routes require a one-use OIDC proof for SSO
+Backup/recovery step-up routes, local user creation and password reset require a one-use OIDC proof for SSO
 sessions. Migration 0019 binds the exact request digest to the original session;
 fresh signed auth_time and ordinary assurance, identity and app-admin permission
 are required. Issuance time is never substituted for authentication time. Creation,

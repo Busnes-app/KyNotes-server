@@ -254,7 +254,8 @@ reuse an old receiver binary after migration; it does not enforce these controls
 ## Fresh authorization for backup and recovery actions
 
 The existing `RequireStepUp` routes (backup key pinning, pairing/unpairing,
-schedule changes, deposit, export, mirror and restore drill) require a fresh,
+schedule changes, deposit, export, mirror and restore drill) and the local
+credential routes (user creation and password reset) require a fresh,
 one-use OIDC proof for SSO sessions. Local-password sessions retain the existing
 ten-minute password step-up. Other administrator routes retain their current
 admin/CSRF requirements; this extension does not add step-up to every mutation.

@@ -1,4 +1,5 @@
 import { AdminBackup } from "./components/AdminBackup";
+import { ConfirmPassword } from "./components/ConfirmPassword";
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -2321,6 +2322,7 @@ function SettingsView({
  <AdminBackup username={username} />
             <section id="users" className="config-card">
               <h2>Users</h2>
+              <ConfirmPassword username={username} what="User creation and password resets" />
               <AdminCreateUser
                 onCreated={() => void adminUsers().then(setUsers)}
               />
