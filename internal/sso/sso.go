@@ -281,6 +281,9 @@ func ExchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, co
 
 // Claims represents standard OpenID Connect claims.
 type Claims struct {
+	AuthTime      time.Time
+	Assurance     string
+	Methods       []string
 	Subject       string    `json:"sub"`
 	SessionID     string    `json:"sid"`
 	IssuedAt      time.Time `json:"-"`
@@ -318,6 +321,15 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 	}
 	claims := &Claims{Subject: verified.Subject, IssuedAt: verified.IssuedAt, ValidUntil: verified.ExpiresAt.Add(time.Minute), Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username")}
 	claims.AppAdmin = HasAdminRole(verified.Raw["roles"])
+	var authTime int64
+	if json.Unmarshal(verified.Raw["auth_time"], &authTime) == nil && authTime > 0 {
+		claims.AuthTime = time.Unix(authTime, 0)
+	}
+	_ = json.Unmarshal(verified.Raw["acr"], &claims.Assurance)
+	var methods []string
+	if json.Unmarshal(verified.Raw["amr"], &methods) == nil {
+		claims.Methods = methods
+	}
 	if verified.IssuedAt.IsZero() {
 		return nil, errors.New("missing ID token issuance time")
 	}
@@ -505,4 +517,25 @@ func HasAdminRole(raw json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+// FreshProof validates actual authentication evidence, never token issuance as a substitute.
+func (c Claims) FreshProof(start, now time.Time) bool {
+	if c.AuthTime.IsZero() || c.AuthTime.Before(start) || c.AuthTime.After(now) || c.AuthTime.After(c.IssuedAt) {
+		return false
+	}
+	pwd, mfa, factor := false, false, false
+	for _, method := range c.Methods {
+		switch method {
+		case "pwd":
+			pwd = true
+		case "mfa":
+			mfa = true
+		case "otp", "urn:kysignon:amr:push", "urn:kysignon:amr:webauthn":
+			factor = true
+		case "urn:kysignon:amr:recovery":
+			return false
+		}
+	}
+	return pwd && (c.Assurance == "urn:kysignon:acr:password" || c.Assurance == "urn:kysignon:acr:mfa" && mfa && factor)
 }

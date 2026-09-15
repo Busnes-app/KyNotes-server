@@ -18,6 +18,7 @@ const csrfCookie = "csrf_token"
 
 type Session struct {
 	ID, UserID, CSRF                    string
+	SSOIssuer, SSOClientID, SSOSubject  string
 	CreatedAt, ExpiresAt, HardExpiresAt time.Time
 	StepUpAt                            time.Time // zero until the login secret was re-proven
 }
@@ -83,7 +84,7 @@ func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error)
 	h := sha256.Sum256(raw)
 	var s Session
 	var created, expires, hard, revoked, status, stepup string
-	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status)
+	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject)
 	if err != nil || revoked != "" || status != "active" {
 		return Session{}, errors.New("unauthenticated")
 	}

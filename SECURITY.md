@@ -89,3 +89,17 @@ active administrator exists. These exceptions are audited as `admin_retained=tru
 Runtime retention revokes sessions/devices; the upgrade revokes old SSO sessions.
 Neither bypasses the verified `kynotes.admin` OIDC session ceiling. Deactivation remains authoritative, including for the last admin.
 Keep an unlinked local administrator available for recovery; see [SSO roles](docs/SSO.md#application-roles).
+
+## Action-bound OIDC step-up
+
+Existing backup/recovery step-up routes require a one-use OIDC proof for SSO
+sessions. Migration 0019 binds the exact request digest to the original session;
+fresh signed auth_time and ordinary assurance, identity and app-admin permission
+are required. Issuance time is never substituted for authentication time. Creation,
+verification, cancellation and consumption are audited atomically. Admission
+rechecks parent-session and fresh-proof revocation and consumes before the operation;
+a subsequent logout cannot undo an admitted operation. Local-password sessions keep
+the existing password proof window. Other admin routes retain existing guards.
+The browser retains the request only in memory while a separate sign-in window
+completes the proof. See [SSO authorization](docs/SSO.md#fresh-authorization-for-backup-and-recovery-actions)
+for freshness, expiry, cancellation, restart and live-acceptance limits.

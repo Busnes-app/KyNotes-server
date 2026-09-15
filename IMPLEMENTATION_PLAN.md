@@ -24,8 +24,7 @@ Pairing tokens add optional signed
 The migration revokes old linked-account sessions/devices once, preserving
 ciphertext and envelopes. See DESIGN.md and `docs/SSO.md` for the complete
 contract. Verification includes TLS/JWKS integration, writer races, audit
-rollback, restart and migration 1–15 upgrade coverage. The following role extension implements app roles; action-bound reauthentication
-remains outstanding;
+rollback, restart and migration 1–15 upgrade coverage. The following role extension implements app roles; action-bound reauthentication is implemented below;
 this stage does not satisfy live deployment acceptance.
 
 Lifecycle extension for issue 13, second stage: migration 0017 adds durable
@@ -50,7 +49,18 @@ Directory role changes revoke credentials and fence old callbacks atomically wit
 revision and attributed audit. The setup/upgrade path and OIDC-only explicit local
 grant option are in docs/SSO.md. Verify role claims, versioned loss/re-grant,
 rollback and pre-0018 upgrade in the app-role tests. Action-bound fresh OIDC
-reauthentication remains next; this does not complete live acceptance.
+reauthentication for existing backup/recovery guards is described below; live acceptance is open.
+
+
+Lifecycle extension for issue 13, fresh-authorization stage: migration 0019 binds
+one-use OIDC proofs to the original session and exact backup/recovery request.
+The callback requires signed fresh auth_time, ordinary assurance, matching identity
+and app-admin claim; it never mints a replacement session. Grant admission rechecks
+revocation and permission and consumes with audit. The browser uses a confirmation
+dialog and separate sign-in window, retaining the request only in memory. Existing
+local-password behavior and other admin-route guards remain unchanged. Protocol,
+expiry, cancellation, restart and acceptance boundaries: docs/SSO.md. Verify
+TestSSOStepUp*, web retry tests and full race/build checks.
 
 Recovery extension for Myslop #290: sealed capsule collection and restore live in
 `internal/backup`, using `ky-primitives/recoveryclient@v0.5.1`; see DESIGN.md and

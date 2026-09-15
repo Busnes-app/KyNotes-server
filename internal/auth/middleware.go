@@ -72,6 +72,10 @@ const StepUpWindow = 10 * time.Minute
 func RequireStepUp(db *sql.DB, next http.Handler) http.Handler {
 	return RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
+		if s.SSOIssuer != "" {
+			requireSSOStepUp(db, s, next, w, r)
+			return
+		}
 		if s.StepUpAt.IsZero() || time.Since(s.StepUpAt) > StepUpWindow {
 			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return

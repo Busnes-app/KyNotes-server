@@ -1,8 +1,11 @@
+import { session } from "../api";
 import { useEffect, useState } from "react";
 import { backupAction, backupStatus, downloadCapsule, runBackup, runDrill, runMirror, type BackupStatus } from "../backup";
 import { isStepUpRequired, stepUpWithPassword } from "../stepup";
 
 export function AdminBackup({ username }: { username: string }) {
+  const [sso, setSSO] = useState<boolean | null>(null);
+  useEffect(() => { void session().then(value => setSSO(value.sso === true)).catch(() => setSSO(null)); }, []);
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -45,10 +48,11 @@ export function AdminBackup({ username }: { username: string }) {
       <button disabled={busy} onClick={() => void act(refresh)}>Refresh status</button>
     </div>
     <p aria-live="polite">{busy ? "Working…" : message}</p>
-    <form onSubmit={event => { event.preventDefault(); const entered = password; setPassword(""); void act(async () => { await stepUpWithPassword(username, entered); return "Password confirmed for ten minutes."; }); }}>
+    {sso === true && <p>Backup changes require confirmation with KySignOn for each action.</p>}
+    {sso === false && <form onSubmit={event => { event.preventDefault(); const entered = password; setPassword(""); void act(async () => { await stepUpWithPassword(username, entered); return "Password confirmed for ten minutes."; }); }}>
       <label>Confirm your password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label>
       <button disabled={busy}>Authorize backup changes</button>
-    </form>
+    </form>}
     <form onSubmit={event => { event.preventDefault(); void act(async () => { await backupAction("schedule", { interval_seconds: Number(minutes) * 60 }); }); }}>
       <label>Backup interval in minutes (0 turns it off; otherwise at least 15)<input type="number" min="0" max="527040" step="1" value={minutes} onChange={event => setMinutes(event.target.value)} required /></label>
       <button disabled={busy}>Save schedule</button>

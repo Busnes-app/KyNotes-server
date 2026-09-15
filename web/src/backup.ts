@@ -1,4 +1,4 @@
-import { APIRequestError, csrfToken, request } from "./api";
+import { APIRequestError, actionFetch, csrfToken, request } from "./api";
 
 export type BackupStatus = {
   keyID: string; keyError: string; paired: boolean; remoteURL: string;
@@ -56,7 +56,7 @@ export async function runDrill(): Promise<string> {
   return "Synthetic restore drill passed. Ciphertext blobs and real custodian cards require separate recovery proof.";
 }
 export async function downloadCapsule(): Promise<void> {
-  const response = await fetch("/api/v1/admin/backup/export-capsule", { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrfToken() } });
+  const response = await actionFetch("/api/v1/admin/backup/export-capsule", { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrfToken() } });
   if (!response.ok) {
     const value: unknown = await response.json();
     if (record(value) && record(value.error)) throw new APIRequestError(text(value.error.message), { error: { code: text(value.error.code) } });

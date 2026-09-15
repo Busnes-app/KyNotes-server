@@ -251,24 +251,73 @@ upgrade, configure/assign `kynotes.admin`, request a new versioned resync and si
 in again. Replaying an old acknowledged revision does not reapply its roles. Do not
 reuse an old receiver binary after migration; it does not enforce these controls.
 
-These roles authorize access to administrative routes. The existing local-password
-step-up remains required where configured; it is not fresh OIDC authorization.
-SSO-only accounts cannot satisfy password step-up using an invented or dummy
-password. Action-bound OIDC reauthentication is the next adoption stage.
+## Fresh authorization for backup and recovery actions
+
+The existing `RequireStepUp` routes (backup key pinning, pairing/unpairing,
+schedule changes, deposit, export, mirror and restore drill) require a fresh,
+one-use OIDC proof for SSO sessions. Local-password sessions retain the existing
+ten-minute password step-up. Other administrator routes retain their current
+admin/CSRF requirements; this extension does not add step-up to every mutation.
+
+A blocked action returns `403 sso_step_up_required` and a challenge ID. The server
+binds that challenge to the original local session and a SHA-256 digest of the
+method, exact request URI, Content-Type and body (at most 64 KiB), storing no body.
+Only one challenge may exist per session; starting another action cancels the old
+one. Pending challenges expire in five minutes. The browser keeps the attempted
+request only in memory and opens a native confirmation dialog. Continue opens
+KySignOn in a separate window with its opener detached; cancellation burns the challenge, including a
+callback that races cancellation. Reloading abandons the in-memory request.
+
+`POST /api/v1/auth/oidc/step-up` takes `{ "challenge": "rea_..." }`, requires
+current admin and CSRF, and returns an authorization URL using PKCE, state, nonce,
+`prompt=login`, `max_age=0`, and `acr_values=urn:kysignon:acr:password`. It uses the
+same registered callback as ordinary login. The callback must arrive with the
+original live local session, authenticate the same issuer/client/subject, and
+include verified `kynotes.admin`. It never creates or replaces a local session.
+
+The signed integer `auth_time` must be at or after challenge creation (epoch-second
+precision), no later than now or `iat`. Issuance time alone proves nothing.
+Accepted assurance is `urn:kysignon:acr:password` with `pwd`, or
+`urn:kysignon:acr:mfa` with `pwd`, `mfa`, and a recognized ordinary second factor
+(`otp`, KySignOn push or WebAuthn). Recovery, missing/unknown assurance, malformed
+methods, stale authentication and a changed account fail closed. Configure stronger
+MFA requirements in the KySignOn app policy; the receiver requests password as the
+minimum and accepts ordinary MFA when the issuer requires it.
+
+The browser polls `GET /api/v1/auth/oidc/step-up/{id}` and retries the identical
+request once with `X-Kynotes-Step-Up: <id>`. A verified grant expires after at most
+one minute. Consumption checks current admin permission, session lifetimes,
+configuration and directory/logout fences, including logout of the fresh proof's
+`sid`, then deletes the grant with an audit in the same writer transaction. One
+concurrent request wins. The protected operation follows that committed admission;
+a later logout cannot undo an already admitted operation. A failed operation needs
+a new proof. `DELETE` requires admin access, the owning session and CSRF, and validates
+the `rea_` ID format before database access. A well-formed absent, foreign-session or
+repeated ID returns 204 without an audit write; only actual deletion is audited.
+
+Migration 0019 adds the challenge table. Challenge creation, verification,
+cancellation and consumption have atomic audits. Verification records the actual
+`auth_time`, accepted `acr` and original session ID. Audit correlation uses the
+middleware-established request ID, never an untrusted caller header. Restart loses pending PKCE state;
+restart the action. Verified grants remain bounded by their persisted expiry and
+parent-session revocation. Restoring a database revokes the parent sessions through
+the existing restore procedure. Older receiver binaries do not enforce this policy.
 
 ## Adoption boundary and verification
 
 This completes the session/logout and versioned-directory implementation stages of
 [issue 13](https://github.com/Busness-app/kynotes-server/issues/13).
 It does not complete KyNotes adoption of the KySignOn access lifecycle plan.
-Application-role enforcement is also implemented. Action-bound fresh OIDC
-reauthentication remains follow-up work.
+Application roles and action-bound OIDC reauthentication for the existing backup/recovery
+step-up routes are implemented. Live acceptance remains outstanding.
 
 `go test -race ./...` covers real signed TLS/JWKS login/logout, wrong scope and
 invalid tokens, concurrent replay, restart, audit rollback, callback and device
 enrollment races, configuration revocation, valid bursts after invalid traffic,
 sid-less compatibility, audit counts, JWKS endpoint rotation, migration and
-versioned directory ordering/data-preservation tests. These are local fixtures.
+versioned directory ordering/data-preservation tests. `TestSSOStepUp*` adds proof freshness,
+action binding, concurrent consumption, cancellation, revocation and audit failure
+checks. Browser tests cover the identical one-use retry and cancellation. These are local fixtures.
 Live KySignOn/KyNotes deployment, other suite products, external relying parties,
 upstream-directory integration, role-aware consumers and the combined custodian
 recovery run remain separate acceptance gates.
