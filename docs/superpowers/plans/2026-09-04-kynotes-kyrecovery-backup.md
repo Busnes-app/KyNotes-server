@@ -2,13 +2,13 @@
 
 > Implementation is governed by [the #290 execution plan](2026-09-05-kynotes-myslop-290-execution.md). The historical sketches below are task references; current code and tagged APIs control signatures.
 
-**Goal:** Bring kynotes-server to the KySignOn backup spec (all fourteen rows) as a thin adapter over `github.com/Busnes-app/ky-primitives/recoveryclient`, with Plan A's adapters underneath.
+**Goal:** Bring kynotes-server to the KySignOn backup spec (all fourteen rows) as a thin adapter over `github.com/Busness-app/ky-primitives/recoveryclient`, with Plan A's adapters underneath.
 
 **Architecture:** One small product package, `internal/backup`, holds only what the library cannot know: what to seal (`Collect`: database, secrets, recovery key, config manifest; never attachments), the token sealer, the drill checks, and a `Service` struct that binds config, store and library into the operations the routes, CLI and scheduler call. Each caller records the result through `recordAuditOutcome`. The frontend gets one `AdminBackup.tsx` lifted from kysignon.
 
 **Tech Stack:** Go 1.26.6, `ky-primitives` **v0.5.1** (tagged 2026-09-05), React + Vite. kysignon's adapter over the lib is PR kysignon-server #21 (`internal/backup/{adapter,payload,drill}.go`, `nodecrypt_test.go`): copy that shape, not the pre-lib handlers.
 
-**Spec:** Board folders `kynotes-kyrecovery-deposit` and `ky-primitives-kyrecovery-package` (myslop); durable copies `ky_server_base/docs/superpowers/plans/2026-09-04-bring-suite-to-kysignon-spec.md` (the fourteen rows, hazards, proof steps) and `.../2026-09-04-kynotes-kyrecovery-deposit.md`. Library reference: `ky-primitives/README.md` section "recoveryclient" and `go doc github.com/Busnes-app/ky-primitives/recoveryclient`. Product reference: `kysignon-server` master handlers, `web/src/components/AdminBackup.tsx`, `docs/RESTORE.md`, and, once it lands, the kysignon first-consumer swap (the pattern for handlers over the library).
+**Spec:** Board folders `kynotes-kyrecovery-deposit` and `ky-primitives-kyrecovery-package` (myslop); durable copies `ky_server_base/docs/superpowers/plans/2026-09-04-bring-suite-to-kysignon-spec.md` (the fourteen rows, hazards, proof steps) and `.../2026-09-04-kynotes-kyrecovery-deposit.md`. Library reference: `ky-primitives/README.md` section "recoveryclient" and `go doc github.com/Busness-app/ky-primitives/recoveryclient`. Product reference: `kysignon-server` master handlers, `web/src/components/AdminBackup.tsx`, `docs/RESTORE.md`, and, once it lands, the kysignon first-consumer swap (the pattern for handlers over the library).
 
 ## Global Constraints
 
@@ -111,8 +111,8 @@ func NoDecryptOutside(t testing.TB, repoRoot string, allowed map[string][]string
 
 ### Task 0: Pin the tag and reconcile
 
-- [ ] **Step 1:** `go get github.com/Busnes-app/ky-primitives@v0.5.1 && go mod tidy`. If the tag does not exist yet, stop: post to `ky-primitives-kyrecovery-package` asking for it rather than pinning a pseudo-version in a product.
-- [ ] **Step 2:** `go doc -all github.com/Busnes-app/ky-primitives/recoveryclient` and `.../recoveryclient/guardtest`; diff against the block above. Edit this plan where they differ; commit `docs(plan): reconcile against ky-primitives v0.5.0`.
+- [ ] **Step 1:** `go get github.com/Busness-app/ky-primitives@v0.5.1 && go mod tidy`. If the tag does not exist yet, stop: post to `ky-primitives-kyrecovery-package` asking for it rather than pinning a pseudo-version in a product.
+- [ ] **Step 2:** `go doc -all github.com/Busness-app/ky-primitives/recoveryclient` and `.../recoveryclient/guardtest`; diff against the block above. Edit this plan where they differ; commit `docs(plan): reconcile against ky-primitives v0.5.0`.
 - [ ] **Step 3:** Read `ky-primitives/README.md` "recoveryclient" (the invariant list) and, if merged by then, kysignon's first-consumer PR: its handlers over the library are the pattern for Task 4.
 
 ---
@@ -171,9 +171,9 @@ package backup
 import (
 	"errors"
 
-	"github.com/Busnes-app/ky-primitives/recoveryclient"
-	"github.com/Busnes-app/kynotes-server/internal/config"
-	"github.com/Busnes-app/kynotes-server/internal/storage"
+	"github.com/Busness-app/ky-primitives/recoveryclient"
+	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 type settingsAdapter struct{ s *storage.Store }
@@ -469,7 +469,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Busnes-app/ky-primitives/recoveryclient/guardtest"
+	"github.com/Busness-app/ky-primitives/recoveryclient/guardtest"
 )
 
 func TestNothingInTheServerDecrypts(t *testing.T) {

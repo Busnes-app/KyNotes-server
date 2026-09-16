@@ -26,3 +26,7 @@ Ciphertext blobs have their own mirror: configure `KYNOTES_BLOB_TARGET`, then us
 `test-blob-target` verifies connectivity; `fetch-blobs` restores missing/corrupt ciphertext
 after capsule restore. See [deployment](docs/DEPLOYMENT.md#ciphertext-blob-mirror) for
 S3, pinned SFTP, SMB and local-mount settings and [restore](docs/RESTORE.md) for the order.
+
+## Upgrading from ghcr.io/busness-app
+
+The image namespace moved from `ghcr.io/busness-app` to `ghcr.io/busnes-app` on 2026-09-16 when the GitHub organisation was renamed. `:latest` under the old namespace is no longer published and GHCR does not redirect it. Re-pin any `KYNOTES_IMAGE` that names the old namespace, using the digest procedure in `docs/RESTORE.md`, then `docker compose pull`.
