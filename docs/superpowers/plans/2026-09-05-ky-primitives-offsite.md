@@ -12,7 +12,7 @@ Hand-off, 2026-09-05. Board folder `ky-primitives-offsite`. Written before any c
 
 ## Shape: a nested module
 
-ky-primitives is stdlib-only, enforced by `TestModuleDependenciesAreAllowlisted`, bent once for Argon2. SFTP needs `github.com/pkg/sftp` and `golang.org/x/crypto/ssh`; SMB needs `github.com/hirochachacha/go-smb2`. So `offsite` gets its own `go.mod` at `ky-primitives/offsite/go.mod`, module path `github.com/Busnes-app/ky-primitives/offsite`. The root module's dependency test keeps passing; the nested module carries the three pins kyrecovery already uses (`pkg/sftp v1.13.11`, `go-smb2 v1.1.0`, `x/crypto` current). Tags are `offsite/v0.1.0`. Root `nodeps_test.go` must skip the nested module's directory (check how it walks; a nested `go.mod` is normally invisible to `./...` from the root, so this may already hold).
+ky-primitives is stdlib-only, enforced by `TestModuleDependenciesAreAllowlisted`, bent once for Argon2. SFTP needs `github.com/pkg/sftp` and `golang.org/x/crypto/ssh`; SMB needs `github.com/hirochachacha/go-smb2`. So `offsite` gets its own `go.mod` at `ky-primitives/offsite/go.mod`, module path `github.com/Busness-app/ky-primitives/offsite`. The root module's dependency test keeps passing; the nested module carries the three pins kyrecovery already uses (`pkg/sftp v1.13.11`, `go-smb2 v1.1.0`, `x/crypto` current). Tags are `offsite/v0.1.0`. Root `nodeps_test.go` must skip the nested module's directory (check how it walks; a nested `go.mod` is normally invisible to `./...` from the root, so this may already hold).
 
 If Yoshi prefers no non-stdlib code anywhere in the repo: ship S3 and local only, in the root module, and leave SFTP and SMB per product. S3 plus a host-mounted directory still covers every cloud bucket and a NAS.
 
@@ -55,7 +55,7 @@ Not in the lib: target tables, sync logs, audit rows, schedulers, what to send. 
 ## Consumers, in order
 
 1. **kyrecovery-server**: `internal/replication/manager.go` keeps the target table, sync log and ledger rows; the four client files go, `SyncCapsule` builds a `Target` via `offsite.Parse` from the stored record and calls `Put`. Its live replication targets must keep working: the settings columns are unchanged, only the client bodies move. Prove with the existing manager test and one live sync from the dashboard.
-2. **kynotes-server**: Plan C (`kynotes-server/docs/superpowers/plans/2026-09-05-kynotes-blob-mirror.md`) Task 2 becomes `go get github.com/Busnes-app/ky-primitives/offsite@offsite/v0.1.0`; the rest of Plan C stands.
+2. **kynotes-server**: Plan C (`kynotes-server/docs/superpowers/plans/2026-09-05-kynotes-blob-mirror.md`) Task 2 becomes `go get github.com/Busness-app/ky-primitives/offsite@offsite/v0.1.0`; the rest of Plan C stands.
 3. **kypost-server**: mail-body mirror, its own folder later.
 
 ## Proving it
