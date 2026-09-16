@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/sso"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 func directoryPayload(subject, username string, version int64, active bool) map[string]any {

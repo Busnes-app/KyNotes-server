@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 func TestEnsureBootstrapAdminNoPass(t *testing.T) {

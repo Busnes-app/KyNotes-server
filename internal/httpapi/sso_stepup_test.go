@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/logging"
-	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 func reauthFixture(t *testing.T) (*logoutFixture, []*http.Cookie) {

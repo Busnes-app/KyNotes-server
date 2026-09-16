@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/logging"
 )
 
 func TestServeRefusesToStartOnInvalidConfig(t *testing.T) {

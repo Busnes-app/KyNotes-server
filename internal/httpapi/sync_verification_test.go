@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/syncauth"
-	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/ky-primitives/syncauth"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 func TestSyncSignaturesAndAtomicReplay(t *testing.T) {

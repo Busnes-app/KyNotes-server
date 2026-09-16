@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 )
 
 var dummyMu sync.Mutex

@@ -307,7 +307,7 @@ the existing restore procedure. Older receiver binaries do not enforce this poli
 ## Adoption boundary and verification
 
 This completes the session/logout and versioned-directory implementation stages of
-[issue 13](https://github.com/Busness-app/kynotes-server/issues/13).
+[issue 13](https://github.com/Busnes-app/kynotes-server/issues/13).
 It does not complete KyNotes adoption of the KySignOn access lifecycle plan.
 Application roles and action-bound OIDC reauthentication for the existing backup/recovery
 step-up routes are implemented. Live acceptance remains outstanding.

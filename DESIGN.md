@@ -306,7 +306,7 @@ publishing, and desktop clients.
 
 ## Ciphertext mirror extension (Myslop #290)
 
-`internal/mirror` uses the nested `github.com/Busness-app/ky-primitives/offsite@v0.1.0`
+`internal/mirror` uses the nested `github.com/Busnes-app/ky-primitives/offsite@v0.1.0`
 module for file, S3, pinned SFTP and SMB transports. It streams all note-version and
 attachment blobs, stores success acknowledgements in migration 0015, and fetches against
 the restored database inventory. Credentials live in protected config and encrypted

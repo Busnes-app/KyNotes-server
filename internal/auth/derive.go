@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"github.com/Busness-app/ky-primitives/derive"
+	"github.com/Busnes-app/ky-primitives/derive"
 )
 
 const MinLoginIterations = derive.MinIterations

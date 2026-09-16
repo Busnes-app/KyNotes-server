@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Busness-app/kynotes-server/internal/backup"
-	"github.com/Busness-app/kynotes-server/internal/blobstore"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/logging"
-	"github.com/Busness-app/kynotes-server/internal/sso"
-	"github.com/Busness-app/kynotes-server/internal/web"
+	"github.com/Busnes-app/kynotes-server/internal/backup"
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/web"
 )
 
 func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any) http.Handler {

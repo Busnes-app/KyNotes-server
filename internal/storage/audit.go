@@ -2,7 +2,7 @@ package storage
 
 import (
 	"database/sql"
-	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"time"
 )
 

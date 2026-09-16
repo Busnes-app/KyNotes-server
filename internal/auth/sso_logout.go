@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/oidcverify"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/ky-primitives/oidcverify"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 var ErrSSOLogoutRejected = errors.New("invalid or repeated SSO logout")

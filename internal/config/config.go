@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/keyfile"
-	"github.com/Busness-app/ky-primitives/offsite"
+	"github.com/Busnes-app/ky-primitives/keyfile"
+	"github.com/Busnes-app/ky-primitives/offsite"
 	"gopkg.in/yaml.v3"
 )
 

@@ -13,9 +13,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/ids"
-	"github.com/Busness-app/kynotes-server/internal/reqid"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/reqid"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // The digest binds the exact attempted operation without storing its potentially secret body.

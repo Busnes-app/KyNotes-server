@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/oidcverify"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/ky-primitives/oidcverify"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // SSOSettings holds the OpenID Connect and KySignOn sync configuration.

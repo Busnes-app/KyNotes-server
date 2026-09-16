@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/offsite"
-	"github.com/Busness-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/ky-primitives/offsite"
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 )
 
 type Object struct {

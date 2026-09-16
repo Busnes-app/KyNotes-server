@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/blobstore"
-	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 )
 
 func ShareLinkRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store) {

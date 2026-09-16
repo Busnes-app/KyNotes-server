@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 type sessionFixture struct {

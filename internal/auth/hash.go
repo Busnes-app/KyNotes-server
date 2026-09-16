@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Busness-app/ky-primitives/derive"
-	"github.com/Busness-app/ky-primitives/password"
+	"github.com/Busnes-app/ky-primitives/derive"
+	"github.com/Busnes-app/ky-primitives/password"
 )
 
 var errInvalidSecret = errors.New("invalid secret")

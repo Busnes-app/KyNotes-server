@@ -6,10 +6,10 @@ import (
 	"errors"
 	"net/url"
 
-	"github.com/Busness-app/ky-primitives/offsite"
-	"github.com/Busness-app/kynotes-server/internal/blobstore"
-	"github.com/Busness-app/kynotes-server/internal/mirror"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/ky-primitives/offsite"
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/mirror"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 var ErrNoBlobTarget = errors.New("no ciphertext blob mirror target configured")

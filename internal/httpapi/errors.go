@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Busness-app/kynotes-server/internal/reqid"
+	"github.com/Busnes-app/kynotes-server/internal/reqid"
 )
 
 type ErrorBody struct {

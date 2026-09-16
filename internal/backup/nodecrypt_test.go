@@ -1,7 +1,7 @@
 package backup
 
 import (
-	"github.com/Busness-app/ky-primitives/recoveryclient/guardtest"
+	"github.com/Busnes-app/ky-primitives/recoveryclient/guardtest"
 	"path/filepath"
 	"runtime"
 	"testing"

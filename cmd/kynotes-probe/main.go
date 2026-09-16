@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 )
 
 const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"

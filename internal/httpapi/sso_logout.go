@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 func registerSSOLogout(mux *http.ServeMux, db *sql.DB, store *sso.Store, cfg config.Config) {
