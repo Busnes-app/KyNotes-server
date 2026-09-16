@@ -1,7 +1,7 @@
-github.com/Busness-app/ky-primitives v0.7.0 h1:b2cTLgd2QsAy+CLeJIhi7WZ6FHJ1ZXffj+gg4CMJdDU=
-github.com/Busness-app/ky-primitives v0.7.0/go.mod h1:cNU4XVPbGf9Dxx8WCB6gDNJj8NdQZI5c6Lr2V8Hp09M=
-github.com/Busness-app/ky-primitives/offsite v0.1.0 h1:3jZ72woG++tjkgH0G+V3Zx+k+G6hoYzkhfsb48YIgaw=
-github.com/Busness-app/ky-primitives/offsite v0.1.0/go.mod h1:ahkOIu+3C1o6PnQeSiotjOG5iKGMAjYqazEotaoqYvM=
+github.com/Busnes-app/ky-primitives v0.8.0 h1:MV1UsqC9Vcf5vhDy4vC9nvLVqXpGRaZYoYhA5YEzBGw=
+github.com/Busnes-app/ky-primitives v0.8.0/go.mod h1:SOeb+4v8vakifKC9mPJZn+n83Zj8ktX5qqfKgpSWLPc=
+github.com/Busnes-app/ky-primitives/offsite v0.2.0 h1:XIz1ZPRhwbNHCcZz7wPnihCquSiNJl2HuINEfiTf2RA=
+github.com/Busnes-app/ky-primitives/offsite v0.2.0/go.mod h1:fDTbAbr2eMVSRiNomIBWwO6rYysOpvLc0kx0Bm7+af0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=

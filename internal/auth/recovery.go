@@ -1,6 +1,6 @@
 package auth
 
-import "github.com/Busness-app/ky-primitives/recoverycode"
+import "github.com/Busnes-app/ky-primitives/recoverycode"
 
 // NewRecoveryCode mints one single-use code and the verifier to store for it.
 // The code is shown to the operator once; only the hash is kept.

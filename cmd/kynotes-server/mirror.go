@@ -9,12 +9,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Busnes-app/ky-primitives/offsite"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/mirror"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
-	"github.com/Busness-app/ky-primitives/offsite"
 )
 
 func mirrorCommand(command string, args []string) error {

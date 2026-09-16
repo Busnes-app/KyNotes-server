@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/ky-primitives/offsite"
+	"github.com/Busnes-app/ky-primitives/offsite"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )

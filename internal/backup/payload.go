@@ -13,10 +13,10 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/kynotes-server/internal/config"
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoveryclient"
-	"github.com/Busness-app/ky-primitives/recoverykey"
 	"gopkg.in/yaml.v3"
 )
 

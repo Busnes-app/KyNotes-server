@@ -170,7 +170,7 @@ sites). The package is `httpapi`.
 ### 1.2 Dependency allowlist (complete)
 
 ```
-github.com/Busness-app/ky-primitives # shared auth, OIDC and sync contracts
+github.com/Busnes-app/ky-primitives # shared auth, OIDC and sync contracts
 modernc.org/sqlite          # pure-Go SQLite driver; required for CGO_ENABLED=0
 golang.org/x/crypto         # pbkdf2, hkdf, scrypt
 gopkg.in/yaml.v3            # config file
@@ -1732,7 +1732,7 @@ None block Phases 1 and 2. Raise these before the phase that needs them.
 
 ## Ciphertext mirror extension (Myslop #290)
 
-`internal/mirror` uses the nested `github.com/Busness-app/ky-primitives/offsite@v0.1.0`
+`internal/mirror` uses the nested `github.com/Busnes-app/ky-primitives/offsite@v0.1.0`
 module for file, S3, pinned SFTP and SMB transports. It streams all note-version and
 attachment blobs, stores success acknowledgements in migration 0015, and fetches against
 the restored database inventory. Credentials live in protected config and encrypted

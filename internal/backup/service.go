@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/mirror"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/recoveryclient"
 )
 
 const TokenLabel = "kynotes:setting:kyrecovery_token"

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/Busness-app/ky-primitives/syncauth"
+	"github.com/Busnes-app/ky-primitives/syncauth"
 	"io"
 	"net/http"
 	"net/http/httptest"

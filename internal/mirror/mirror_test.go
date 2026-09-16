@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/ky-primitives/offsite"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
-	"github.com/Busness-app/ky-primitives/capsule"
-	"github.com/Busness-app/ky-primitives/offsite"
 )
 
 func fixture(t *testing.T) (*storage.Store, *blobstore.Store, offsite.Target, string) {
