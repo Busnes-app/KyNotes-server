@@ -35,7 +35,7 @@ backup handlers, and `docs/RESTORE.md` are the reference adapter and runbook.
   existing plans and locked worktrees. Carry this plan into the implementation branch.
 - [x] Read current owning docs and the shared-library handoff's reviewer findings.
   Resolve APIs against the tagged sources with `go doc`, not sibling working-tree HEAD.
-  Use `github.com/Busness-app/ky-primitives@v0.5.1`; local tags include this release.
+  Use `github.com/Busnes-app/ky-primitives@v0.5.1`; local tags include this release.
 - [x] Establish the existing test baseline and record the source SHA. Keep existing
   issuer configuration, accounts, device data, deployment keys and token formats.
 
@@ -139,7 +139,7 @@ separately from live deposit and custodian-card proof.
 Start after the capsule/restore contract is stable. Reconcile Plan C's stale library
 installation and remove its copied-transport fallback and obsolete parallel build order.
 
-- [x] Add `github.com/Busness-app/ky-primitives/offsite@v0.1.0` (repository tag
+- [x] Add `github.com/Busnes-app/ky-primitives/offsite@v0.1.0` (repository tag
   `offsite/v0.1.0`). Map product config onto `offsite.Config`; reuse `Parse`, `Key`,
   `Put`, `Get`, `Test`. Product config owns credentials; status and audits redact them.
 - [x] Add the next unused migration for replica inventory, with digest foreign key and
