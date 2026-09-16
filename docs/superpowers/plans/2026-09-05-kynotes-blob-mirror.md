@@ -4,7 +4,7 @@ This plan supersedes the original copied-transport sketches. The binding executi
 is [Myslop 290 execution](2026-09-05-kynotes-myslop-290-execution.md): auth, capsules,
 then this mirror. Both note-version and attachment ciphertext require replication.
 
-- Reuse `github.com/Busnes-app/ky-primitives/offsite@v0.1.0` (nested repository tag
+- Reuse `github.com/Busness-app/ky-primitives/offsite@v0.1.0` (nested repository tag
   `offsite/v0.1.0`); no transport fallback copies or new transport interfaces.
 - Map `backup.blob_target` and six environment settings onto shared `offsite.Config`.
   Production requires a verified SFTP fingerprint; the rejecting CLI probe can discover it.
