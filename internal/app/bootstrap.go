@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 )
 
 // EnsureBootstrapAdmin seeds initial admin credentials if BOOTSTRAP_ADMIN_PASS is set and no users exist.

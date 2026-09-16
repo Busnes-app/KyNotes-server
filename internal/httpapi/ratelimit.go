@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"database/sql"
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 )
 
 type bucket struct {

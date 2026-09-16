@@ -7,7 +7,7 @@ container keys.
 ## Reporting vulnerabilities
 
 Report security vulnerabilities privately to the maintainer through GitHub
-Security Advisories: <https://github.com/Busness-app/kynotes-server/security/advisories>.
+Security Advisories: <https://github.com/Busnes-app/kynotes-server/security/advisories>.
 Do not open a public issue. Include the affected area, reproduction steps,
 impact, and affected versions. We will acknowledge reports within two business
 days and coordinate a fix and disclosure.

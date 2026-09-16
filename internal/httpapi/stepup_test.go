@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 )
 
 // A stolen admin cookie is the whole threat: step-up costs the login secret,

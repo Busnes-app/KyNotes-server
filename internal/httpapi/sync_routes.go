@@ -3,8 +3,8 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/base64"
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"net/http"
 	"strconv"
 )

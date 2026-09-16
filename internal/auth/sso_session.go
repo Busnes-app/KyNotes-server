@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // SSOLoginLifetime bounds a callback even when token exchange outlives its admission.

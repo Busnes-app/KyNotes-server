@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/backup"
-	"github.com/Busness-app/kynotes-server/internal/blobstore"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/health"
-	"github.com/Busness-app/kynotes-server/internal/httpapi"
-	"github.com/Busness-app/kynotes-server/internal/logging"
-	"github.com/Busness-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/backup"
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/health"
+	"github.com/Busnes-app/kynotes-server/internal/httpapi"
+	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 func Serve(ctx context.Context, c config.Config, log *logging.Logger) error {

@@ -42,7 +42,7 @@ For Docker, use the image you run (see the note at the top) and a writable targe
 invoking user:
 
 ```bash
-IMAGE=kynotes-server:local   # or ghcr.io/busness-app/kynotes-server@sha256:<verified digest>
+IMAGE=kynotes-server:local   # or ghcr.io/busnes-app/kynotes-server@sha256:<verified digest>
 mkdir -m 700 "$PWD/recovery-work"
 docker run --rm -i --user "$(id -u):$(id -g)" \
   -v /absolute/path/KyNotes.kycap:/input/capsule.kycap:ro \

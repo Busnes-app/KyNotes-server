@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 )
 
 func TestRecoverRotatesCodeAndRevokesSessions(t *testing.T) {

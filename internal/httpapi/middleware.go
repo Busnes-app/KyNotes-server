@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/ids"
-	"github.com/Busness-app/kynotes-server/internal/logging"
-	"github.com/Busness-app/kynotes-server/internal/reqid"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/reqid"
 )
 
 func Middleware(log *logging.Logger, max int64) func(http.Handler) http.Handler {

@@ -16,12 +16,12 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"github.com/Busness-app/ky-primitives/syncauth"
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/ids"
-	"github.com/Busness-app/kynotes-server/internal/sso"
-	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 type syncSettingsKey struct{}

@@ -136,7 +136,7 @@ this plan; see §14.
 
 | Item | Frozen value |
 |---|---|
-| Module path | `github.com/Busness-app/kynotes-server` |
+| Module path | `github.com/Busnes-app/kynotes-server` |
 | Go version | `1.26.6` (`go.mod`: `go 1.26.6`) |
 | `go.mod` location | repository root (this repo is server-only) |
 | Binary | `kynotes-server` |

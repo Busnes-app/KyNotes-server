@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/Busness-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"github.com/Busness-app/ky-primitives/capsule"
 	"github.com/Busness-app/ky-primitives/recoveryclient"
 	"github.com/Busness-app/ky-primitives/recoverykey"
-	"github.com/Busness-app/kynotes-server/internal/config"
-	"github.com/Busness-app/kynotes-server/internal/storage"
 )
 
 func fixture(t *testing.T) (*Service, recoverykey.PrivateKey) {

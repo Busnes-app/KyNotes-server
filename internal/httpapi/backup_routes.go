@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/backup"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/backup"
 )
 
 func BackupRoutes(mux *http.ServeMux, db *sql.DB, service *backup.Service) {

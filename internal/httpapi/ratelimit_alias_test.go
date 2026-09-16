@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Busness-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 )
 
 // TestRateLimitCoversUnversionedAliases guards the fact that every /api/v1/…

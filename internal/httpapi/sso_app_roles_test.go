@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/auth"
-	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 func roleCallback(f *logoutFixture, subject string, roles any, legacy string) *httptest.ResponseRecorder {

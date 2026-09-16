@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Busness-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 // A real TLS issuer signs the ID token; no security path accepts fixture signatures.

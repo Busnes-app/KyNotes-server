@@ -1,4 +1,4 @@
-module github.com/Busness-app/kynotes-server
+module github.com/Busnes-app/kynotes-server
 
 go 1.26.6
 
