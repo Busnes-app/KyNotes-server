@@ -252,3 +252,5 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   to raw headers. Verify `TestSSOStepUpAuditUsesTrustedRequestID` and request-ID contracts.
   The SSO sign-in popup clears its own opener before navigation while retaining the
   parent's handle for polling/cleanup; `web/src/reauth.test.ts` checks that ordering.
+
+- Product PNGs (`/favicon.png`, `/app-icon.png`, `/app-icon-192.png`, `/app-icon-512.png`) must pass the router allowlist to reach the embedded files. `TestProductIconsReachEmbeddedFiles` checks the public response type and dimensions.
