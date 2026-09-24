@@ -41,7 +41,6 @@ import {
   resetAdminPassword,
   saveAdminSSO,
   saveObject,
-  serverTheme,
   serviceStatus,
   session,
   setupInit,
@@ -95,7 +94,6 @@ import {
   applyStoredTheme,
   applyTheme,
   getStoredTheme,
-  hasStoredTheme,
   THEME_OPTIONS,
   type ThemeName,
 } from "./theme";
@@ -130,13 +128,7 @@ function App() {
   const [checking, setChecking] = useState(true);
   useEffect(() => {
     applyStoredTheme();
-    if (!hasStoredTheme())
-      void serverTheme()
-        .then((value) => {
-          if (THEME_OPTIONS.includes(value.defaultTheme as ThemeName))
-            applyTheme(value.defaultTheme as ThemeName);
-        })
-        .catch(() => {});
+
     session()
       .then(async (res) => {
         setSessionUser(res.user);
@@ -219,6 +211,7 @@ function SharedNote() {
     return (
       <main className="center">
         <section className="auth-card">
+          <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
           <h2>Encrypted link unavailable</h2>
           <p className="error">{state.error}</p>
         </section>
@@ -347,6 +340,7 @@ function Login({
     return (
       <main className="auth-page">
         <section className="auth-card">
+          <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
           <div className="eyebrow">INITIAL SETUP</div>
           <h1>Create Admin Account</h1>
           <p className="lede">
@@ -401,6 +395,7 @@ function Login({
   return (
     <main className="auth-page">
       <section className="auth-card">
+          <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
         <div className="eyebrow">PRIVATE NOTES</div>
         <h1>Keep the thread.</h1>
         <p className="lede">
@@ -1378,7 +1373,7 @@ function Workspace({
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">K</span>
+          <img src="/app-icon.png" width={29} height={29} alt="" />
           <span>KyNotes</span>
         </div>
         <div className="top-actions">

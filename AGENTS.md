@@ -31,6 +31,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## User Preferences
 
+- Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
+
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
 
