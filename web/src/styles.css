@@ -209,3 +209,53 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 
 .settings-content { min-width: 0; }
 #backups input, #backups textarea { min-width: 0; max-width: 100%; }
+
+/* Keep the editor's existing three-column layout, but let the shared theme
+   tokens own its surfaces. The previous hard-coded cream values made every
+   alternate palette look like Busnes Light. */
+body { color: var(--ink-strong); background: var(--bg); }
+.app-shell, .topbar, .editor-actions { background: var(--panel); border-color: var(--line); }
+.sidebar { background: linear-gradient(150deg, var(--sidebar-start), var(--sidebar-end)); border-color: var(--line); }
+.nav-item { color: var(--ink); border-left: 3px solid transparent; }
+.nav-item.selected { color: var(--ink-strong); background: var(--accent-soft); border-left-color: var(--accent); }
+.nav-item:hover { color: var(--ink-strong); background: var(--accent-soft); }
+.note-list { background: var(--panel); border-color: var(--line); }
+.note-row { color: var(--ink); border-left-color: transparent; }
+.note-row strong { color: var(--ink-strong); }
+.note-row.selected { color: var(--ink-strong); background: var(--accent-soft); border-left-color: var(--accent); }
+.editor, .body-input, .title-input { color: var(--ink-strong); background: var(--panel); }
+.body-input { color: var(--ink); }
+.brand-mark, .icon-button { background: var(--accent-soft); color: var(--accent); }
+.sync-dot, .encrypted { color: var(--success, #267442); }
+
+/* Busnes.app fallback before the stored palette is applied. */
+:root {
+  --bg: #f8f6f0;
+  --panel: #ffffff;
+  --ink: #566461;
+  --ink-strong: #182326;
+  --accent: #bf3f18;
+  --accent-soft: #fbf0ec;
+  --line: rgba(24, 35, 38, 0.22);
+  --glow: transparent;
+  --sidebar-start: #f2efe7;
+  --sidebar-end: #f2efe7;
+  --button-text: #ffffff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+:root {
+  --bg: #182326;
+  --panel: #1f2b2e;
+  --ink: #b3bcb8;
+  --ink-strong: #f2efe8;
+  --accent: #f5865f;
+  --accent-soft: #2b2622;
+  --line: rgba(242, 239, 232, 0.24);
+  --glow: transparent;
+  --sidebar-start: #1f2b2e;
+  --sidebar-end: #1f2b2e;
+  --button-text: #182326;
+  color-scheme: dark;
+}
+}
