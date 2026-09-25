@@ -1,12 +1,40 @@
 package web
 
 import (
+	"bytes"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestEmbeddedAssetsContainNoMergeConflictMarkers(t *testing.T) {
+	markers := [][]byte{
+		[]byte("<<<<<<<"),
+		[]byte("======="),
+		[]byte(">>>>>>>"),
+	}
+
+	err := fs.WalkDir(dist, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		body, readErr := fs.ReadFile(dist, path)
+		if readErr != nil {
+			return readErr
+		}
+		for _, marker := range markers {
+			if bytes.Contains(body, marker) {
+				t.Errorf("embedded asset %q contains merge-conflict marker %q", path, marker)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestHandlerServesAppAndSPAPaths(t *testing.T) {
 	asset := ""

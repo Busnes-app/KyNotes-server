@@ -171,7 +171,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   token compatibility and authenticated restore checks. Cross-server workspace migration
   remains deferred to v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;
-  update the checked-in embed after frontend bundle changes.
+  update the checked-in embed after frontend bundle changes. The embed test rejects
+  merge-conflict markers so generated chunks are never hand-merged into a broken bundle.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
 - Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,
