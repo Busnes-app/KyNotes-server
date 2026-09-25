@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Put kynotes-server on `github.com/Busness-app/ky-primitives` for passwords, login-secret derivation, key files and recovery codes, and lay every adapter the KyRecovery backup port (Plan B) needs. It does not depend on `ky-primitives/recoveryclient` (v0.5.0, tagged 2026-09-05), so it can run while that tag and the kysignon first-consumer swap land.
+**Goal:** Put kynotes-server on `github.com/Busnes-app/ky-primitives` for passwords, login-secret derivation, key files and recovery codes, and lay every adapter the KyRecovery backup port (Plan B) needs. It does not depend on `ky-primitives/recoveryclient` (v0.5.0, tagged 2026-09-05), so it can run while that tag and the kysignon first-consumer swap land.
 
 **Architecture:** kynotes is not a scaffold fork. Nothing here copies a backup package; every task replaces one hand-rolled primitive with the library call, or adds one small adapter (settings, snapshot, audit outcome, step-up, config) that Plan B's thin wiring will call. Each task leaves the repo green and shippable on its own.
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- `go 1.26.6`; `github.com/Busness-app/ky-primitives v0.5.0` (tagged 2026-09-05). Nothing in Plan A imports `recoveryclient`.
+- `go 1.26.6`; `github.com/Busnes-app/ky-primitives v0.5.0` (tagged 2026-09-05). Nothing in Plan A imports `recoveryclient`.
 - Audit stays a flat `audit_events` table (suite decision 6). Do not add `auditchain`.
 - Passwords: scrypt is dropped outright, no dual-verify. Nothing is in the wild (HANDOFF.md: "This product has never gone live"). Existing dev databases must be recreated.
 - Every env var is `KYNOTES_*`. Config file keys stay snake_case under the existing sections.
@@ -55,10 +55,10 @@
 - [ ] **Step 1: Add the dependency**
 
 ```bash
-go get github.com/Busness-app/ky-primitives@v0.5.0
+go get github.com/Busnes-app/ky-primitives@v0.5.0
 go mod tidy
 ```
-Expected: `go.mod` lists `github.com/Busness-app/ky-primitives v0.5.0`. `golang.org/x/crypto` stays (argon2 and, until Task 2, pbkdf2/hkdf).
+Expected: `go.mod` lists `github.com/Busnes-app/ky-primitives v0.5.0`. `golang.org/x/crypto` stays (argon2 and, until Task 2, pbkdf2/hkdf).
 
 - [ ] **Step 2: Write the failing test**
 
@@ -107,7 +107,7 @@ package auth
 import (
 	"errors"
 
-	"github.com/Busness-app/ky-primitives/password"
+	"github.com/Busnes-app/ky-primitives/password"
 )
 
 var errInvalidSecret = errors.New("invalid secret")
@@ -164,7 +164,7 @@ package auth
 import (
 	"errors"
 
-	"github.com/Busness-app/ky-primitives/derive"
+	"github.com/Busnes-app/ky-primitives/derive"
 )
 
 const MinLoginIterations = derive.MinIterations
@@ -284,7 +284,7 @@ Expected: `TestLoadSecretsRefusesUndecodableKeyFile` FAILS (returns nil today).
 	}
 	return nil
 ```
-Add `"github.com/Busness-app/ky-primitives/keyfile"` to imports; remove `crypto/rand`, `encoding/base64` and `strings` from `config.go` if nothing else uses them. Existing files written by the old code are base64 of 32 bytes with a trailing newline; confirm `keyfile.Base64` trims whitespace (run `go doc github.com/Busness-app/ky-primitives/keyfile Base64`); if not, keep a one-line `strings.TrimSpace` shim is impossible with this API, so instead test against a fixture written by the old code (`testdata/config-good` has none; write one in the test with `base64 + "\n"`).
+Add `"github.com/Busnes-app/ky-primitives/keyfile"` to imports; remove `crypto/rand`, `encoding/base64` and `strings` from `config.go` if nothing else uses them. Existing files written by the old code are base64 of 32 bytes with a trailing newline; confirm `keyfile.Base64` trims whitespace (run `go doc github.com/Busnes-app/ky-primitives/keyfile Base64`); if not, keep a one-line `strings.TrimSpace` shim is impossible with this API, so instead test against a fixture written by the old code (`testdata/config-good` has none; write one in the test with `base64 + "\n"`).
 
 - [ ] **Step 4: Run tests, then the Docker probe locally**
 
@@ -352,7 +352,7 @@ Expected: compile error, `NewRecoveryCode` undefined.
 ```go
 package auth
 
-import "github.com/Busness-app/ky-primitives/recoverycode"
+import "github.com/Busnes-app/ky-primitives/recoverycode"
 
 // NewRecoveryCode mints one single-use code and the verifier to store for it.
 // The code is shown to the operator once; only the hash is kept.

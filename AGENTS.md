@@ -31,6 +31,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## User Preferences
 
+- Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
+
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
 
@@ -250,3 +252,5 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   to raw headers. Verify `TestSSOStepUpAuditUsesTrustedRequestID` and request-ID contracts.
   The SSO sign-in popup clears its own opener before navigation while retaining the
   parent's handle for polling/cleanup; `web/src/reauth.test.ts` checks that ordering.
+
+- Product PNGs (`/favicon.png`, `/app-icon.png`, `/app-icon-192.png`, `/app-icon-512.png`) must pass the router allowlist to reach the embedded files. `TestProductIconsReachEmbeddedFiles` checks the public response type and dimensions.

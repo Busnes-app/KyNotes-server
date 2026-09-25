@@ -71,7 +71,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	})
 	static := web.Handler()
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/favicon.svg" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") && !strings.HasPrefix(r.URL.Path, "/auth/") {
+		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.png" && r.URL.Path != "/app-icon.png" && r.URL.Path != "/app-icon-192.png" && r.URL.Path != "/app-icon-512.png" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") && !strings.HasPrefix(r.URL.Path, "/auth/") {
 			WriteError(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}
