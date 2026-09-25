@@ -1410,7 +1410,8 @@ function Workspace({
           <aside className="sidebar">
             <div className="section-label">FOCUS</div>
             <button
-              className={`nav-item ${queueMode ? "selected" : ""}`}
+              className={`ky-nav-item nav-item ${queueMode ? "selected" : ""}`}
+              aria-current={queueMode ? "page" : undefined}
               disabled={busy}
               onClick={() => void openWorkQueue()}
             >
@@ -1420,7 +1421,8 @@ function Workspace({
             <div className="section-label">PERSONAL</div>
             {personalWorkspaces.map((container) => (
               <button
-                className={`nav-item ${selected?.id === container.id ? "selected" : ""}`}
+                className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
+                aria-current={selected?.id === container.id ? "page" : undefined}
                 key={container.id}
                 onClick={() => void selectContainer(container)}
               >
@@ -1432,7 +1434,8 @@ function Workspace({
             {teams.map((container) => (
               <React.Fragment key={container.id}>
                 <button
-                  className={`nav-item ${selected?.id === container.id ? "selected" : ""}`}
+                  className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
+                  aria-current={selected?.id === container.id ? "page" : undefined}
                   onClick={() => void selectContainer(container)}
                 >
                   <span className="nav-icon">◇</span>
@@ -1440,7 +1443,8 @@ function Workspace({
                 </button>
                 {teamWorkspaces(container.id).map((workspace) => (
                   <button
-                    className={`nav-item nested-nav-item ${selected?.id === workspace.id ? "selected" : ""}`}
+                    className={`ky-nav-item nav-item nested-nav-item ${selected?.id === workspace.id ? "selected" : ""}`}
+                    aria-current={selected?.id === workspace.id ? "page" : undefined}
                     key={workspace.id}
                     onClick={() => void selectContainer(workspace)}
                   >
