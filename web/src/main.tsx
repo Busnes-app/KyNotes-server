@@ -102,6 +102,8 @@ import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocumen
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import type { Block } from "@blocknote/core";
 import "./styles.css";
+import "./ky-ui/tokens.css";
+import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
 
