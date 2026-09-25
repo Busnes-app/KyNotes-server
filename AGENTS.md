@@ -52,6 +52,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
+## Shared browser UI
+
+- `web/src/ky-ui/` is generated from Busnes-app/ky-ui, pinned by `VERSION` file hashes. Change shared colors, navigation states and storage helpers upstream, then run its consumer sync with an explicit worktree map; do not hand-edit vendored files.
+- Products own layout, routes, saved choice keys and named palettes. Busnes aliases consume shared tokens; mark primary navigation with `ky-nav-item` while preserving current-page semantics.
+- Verify vendored files with `node web/src/ky-ui/check-vendor.mjs` from this document's directory. Builds/CI run that check. Rendered evidence and capture limitations are recorded in the repository-root `UI-VERIFICATION.md`.
+
 ## Child DOX Index
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
@@ -173,6 +179,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/web` embeds the production `web/dist` bundle into the server image;
   update the checked-in embed after frontend bundle changes. The embed test rejects
   merge-conflict markers so generated chunks are never hand-merged into a broken bundle.
+  After `npm run build --prefix web`, synchronize the complete generated asset set
+  into `internal/web/dist`; CI runs frontend tests/build and `diff -qr web/dist internal/web/dist`
+  to reject missing, stale or extra assets.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
 - Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,

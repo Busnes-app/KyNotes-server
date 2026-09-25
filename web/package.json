@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prebuild": "node src/ky-ui/check-vendor.mjs",
+    "pretest": "node src/ky-ui/check-vendor.mjs"
   },
   "dependencies": {
     "@blocknote/core": "^0.54.0",

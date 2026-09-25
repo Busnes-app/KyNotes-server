@@ -1,11 +1,13 @@
+import { readChoice, saveChoice, watchChoice } from './ky-ui/theme';
+import { busnesPalettes } from './ky-ui/palettes';
 export const THEME_STORAGE_KEY = "kynotes-theme";
 export const THEME_OPTIONS = ["Busnes Light", "Busnes Dark", "Dark Matter", "Light Matter", "Tropics", "Tropic Night", "Ocean", "Coffee", "White Cliffs", "Cyber Punk", "Neon Purple", "Space", "Sky", "Forest", "Sun", "Patina Ky", "Polished Ky"] as const;
 export type ThemeName = (typeof THEME_OPTIONS)[number];
 type Theme = { bg: string; panel: string; ink: string; inkStrong: string; accent: string; accentSoft: string; line: string; glow: string; sidebarStart: string; sidebarEnd: string; buttonText: string };
 
 const palette: Record<ThemeName, Theme> = {
-  "Busnes Light": {"bg": "#f8f6f0", "panel": "#ffffff", "ink": "#566461", "inkStrong": "#182326", "accent": "#bf3f18", "accentSoft": "#fbf0ec", "line": "rgba(24, 35, 38, 0.22)", "glow": "transparent", "sidebarStart": "#f2efe7", "sidebarEnd": "#f2efe7", "buttonText": "#ffffff"},
-  "Busnes Dark": {"bg": "#182326", "panel": "#1f2b2e", "ink": "#b3bcb8", "inkStrong": "#f2efe8", "accent": "#f5865f", "accentSoft": "#2b2622", "line": "rgba(242, 239, 232, 0.24)", "glow": "transparent", "sidebarStart": "#1f2b2e", "sidebarEnd": "#1f2b2e", "buttonText": "#182326"},
+  "Busnes Light": busnesPalettes["Busnes Light"],
+  "Busnes Dark": busnesPalettes["Busnes Dark"],
   "Dark Matter": { bg: "#1a1a1e", panel: "#252530", ink: "#d4c5e2", inkStrong: "#e8ddf5", accent: "#c29a72", accentSoft: "#5a3f31", line: "#404050", glow: "rgba(107,74,66,.25)", sidebarStart: "#1f1f24", sidebarEnd: "#2a2530", buttonText: "#24170f" },
   "Light Matter": { bg: "#f5efe5", panel: "#fff8ee", ink: "#4c3d32", inkStrong: "#2d1f15", accent: "#c29a72", accentSoft: "#e6d2be", line: "#c5b29d", glow: "rgba(175,126,92,.2)", sidebarStart: "#ede2d2", sidebarEnd: "#e4d6c3", buttonText: "#24170f" },
   Tropics: { bg: "#f4f1eb", panel: "#fffaf0", ink: "#43362d", inkStrong: "#241a14", accent: "#9bc400", accentSoft: "#d4e3a0", line: "#c4b7a3", glow: "rgba(123,165,31,.2)", sidebarStart: "#ece5d8", sidebarEnd: "#e3dacb", buttonText: "#243100" },
@@ -24,9 +26,9 @@ const palette: Record<ThemeName, Theme> = {
 };
 
 function defaultTheme(): ThemeName { return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "Busnes Dark" : "Busnes Light"; }
-export function getStoredTheme(): ThemeName { try { const value = localStorage.getItem(THEME_STORAGE_KEY); return THEME_OPTIONS.includes(value as ThemeName) ? value as ThemeName : defaultTheme(); } catch { return defaultTheme(); } }
-export function hasStoredTheme() { try { return THEME_OPTIONS.some(name => name === localStorage.getItem(THEME_STORAGE_KEY)); } catch { return false; } }
-export function applyTheme(name: ThemeName, persist = true) { const root = document.documentElement; for (const key of Object.keys(palette["Busnes Light"])) root.style.removeProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`); if (name === "Busnes Light" || name === "Busnes Dark") { root.dataset.theme = name === "Busnes Light" ? "busnes-light" : "busnes-dark"; root.style.colorScheme = name === "Busnes Dark" ? "dark" : "light"; } else { delete root.dataset.theme; for (const [key, value] of Object.entries(palette[name])) root.style.setProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`, value); root.style.colorScheme = ["Light Matter", "Tropics", "White Cliffs", "Sky", "Sun", "Polished Ky"].includes(name) ? "light" : "dark"; } if (persist) try { localStorage.setItem(THEME_STORAGE_KEY, name); } catch { /* browser storage is optional */ } }
+export function getStoredTheme(): ThemeName { try { const value = readChoice(THEME_STORAGE_KEY); return THEME_OPTIONS.includes(value as ThemeName) ? value as ThemeName : defaultTheme(); } catch { return defaultTheme(); } }
+export function hasStoredTheme() { try { return THEME_OPTIONS.some(name => name === readChoice(THEME_STORAGE_KEY)); } catch { return false; } }
+export function applyTheme(name: ThemeName, persist = true) { const root = document.documentElement; for (const key of Object.keys(palette["Busnes Light"])) root.style.removeProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`); if (name === "Busnes Light" || name === "Busnes Dark") { root.dataset.theme = name === "Busnes Light" ? "busnes-light" : "busnes-dark"; root.style.colorScheme = name === "Busnes Dark" ? "dark" : "light"; } else { delete root.dataset.theme; for (const [key, value] of Object.entries(palette[name])) root.style.setProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`, value); root.style.colorScheme = ["Light Matter", "Tropics", "White Cliffs", "Sky", "Sun", "Polished Ky"].includes(name) ? "light" : "dark"; } if (persist) try { saveChoice(THEME_STORAGE_KEY, name); } catch { /* browser storage is optional */ } }
 export function applyStoredTheme() { applyTheme(getStoredTheme(), false); }
 
-if (typeof window !== "undefined") window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!hasStoredTheme()) applyStoredTheme(); });
+if (typeof window !== 'undefined') watchChoice(THEME_STORAGE_KEY, applyStoredTheme, hasStoredTheme);
