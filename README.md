@@ -1,5 +1,15 @@
 # KyNotes Server
 
+## Health probes
+
+`GET /healthz` is public `ky.health/1` JSON. It returns 200 when startup is
+ready and SQLite responds to a ping, or 503 when either check fails. The
+shared handler caches each evaluation for five seconds and bounds each check
+to two seconds. Its response exposes fixed check names and statuses, never
+database errors or user data. `GET /livez` preserves the former alive-only
+`200 {"status":"ok"}` response. `GET /readyz` retains its startup-readiness
+response. A router created without a database checks startup only.
+
 KyNotes stores encrypted notes and attachments; browsers own content decryption.
 See [deployment](docs/DEPLOYMENT.md) for setup and configuration, including the `COMPOSE_FILE`
 line a source build must set so `docker compose` never swaps in the published image.

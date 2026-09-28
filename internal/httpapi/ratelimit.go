@@ -88,7 +88,7 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			refill = float64(rate) / 3600
 		}
 		identity := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)
-		if label != "login" && label != "oidc" && db != nil {
+		if label != "" && label != "login" && label != "oidc" && db != nil {
 			if s, err := auth.ResolveSession(db, r, time.Now().UTC()); err == nil {
 				identity = s.UserID
 			}

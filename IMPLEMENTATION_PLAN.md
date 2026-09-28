@@ -306,8 +306,8 @@ returned in an error message.
 
 ### 1.7 API contract
 
-* Base path: `/api/v1`. Unversioned paths do not exist except `/healthz` and
-  `/readyz`.
+* Base path: `/api/v1`. Unversioned paths do not exist except `/healthz`,
+  `/livez`, and `/readyz`.
 * Request and response bodies are `application/json; charset=utf-8`, except
   ciphertext transfer routes which are `application/octet-stream`.
 * Ciphertext larger than 4 KiB is **never** base64-in-JSON. Key envelopes and
@@ -635,8 +635,13 @@ kynotes.example.yaml
 * Shutdown: `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`, then
   `srv.Shutdown(ctxWithTimeout(server.shutdown_grace))`. In-flight requests
   finish; new ones get connection refusal from the closed listener.
-* `GET /healthz` → `200 {"status":"ok"}` whenever the process is alive. Never
-  touches the database. No authentication.
+* `GET /healthz` → public `ky.health/1` JSON; `200` when startup is ready and
+  SQLite responds to `PingContext`, otherwise `503`. One shared handler caches
+  the result for five seconds and bounds checks to two seconds. It exposes
+  fixed check names and statuses, not errors or user data. A router without a
+  database checks startup only.
+* `GET /livez` → `200 {"status":"ok"}` whenever the process is alive. It does
+  not touch the database or depend on readiness. No authentication.
 * `GET /readyz` → `200 {"status":"ready"}` only when: config validated, data
   directory writable, database open and `PRAGMA quick_check` clean at startup,
   migrations applied, blob root writable. Otherwise `503` with
@@ -654,7 +659,7 @@ kynotes.example.yaml
   5. `securityHeaders` — `X-Content-Type-Options: nosniff`,
      `Referrer-Policy: no-referrer`, `Cache-Control: no-store` on every API
      response, `Content-Security-Policy: default-src 'none'`.
-* The router registers **only** `/healthz` and `/readyz` in this phase. Any
+* The router registers **only** `/healthz`, `/livez`, and `/readyz` in this phase. Any
   other path answers `404 not_found` through the standard error envelope.
 
 ### 2.3 Logging
@@ -715,12 +720,12 @@ by classification only.
 - `TestOversizedJSONBodyIsRejected`
 
 `internal/app`:
-- `TestHealthzIgnoresDatabaseState`
+- `TestLivezIgnoresDatabaseState`
 - `TestReadyzFailsBeforeMigrations`
 - `TestGracefulShutdownDrainsInFlightRequest`
 - `TestServeRefusesToStartOnInvalidConfig`
 - `TestNoUserDataRouteIsRegistered` — enumerates the router's registered
-  patterns and asserts the set is exactly `{"GET /healthz", "GET /readyz"}`.
+  patterns and asserts the set is exactly `{"GET /healthz", "GET /livez", "GET /readyz"}`.
 
 `internal/ids`:
 - `TestMintHasPrefixAndFixedLength`

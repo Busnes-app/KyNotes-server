@@ -3,7 +3,7 @@ module github.com/Busnes-app/kynotes-server
 go 1.26.6
 
 require (
-	github.com/Busnes-app/ky-primitives v0.8.0
+	github.com/Busnes-app/ky-primitives v0.9.0
 	github.com/Busnes-app/ky-primitives/offsite v0.2.0
 	github.com/pkg/sftp v1.13.11
 	golang.org/x/crypto v0.56.0

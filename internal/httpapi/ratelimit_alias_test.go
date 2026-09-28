@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 )
 
@@ -64,5 +66,34 @@ func TestRateLimitDoesNotOverreach(t *testing.T) {
 	}
 	if got := call("/healthz"); got != http.StatusOK {
 		t.Fatalf("/healthz returned %d, want 200", got)
+	}
+}
+
+func TestRateLimitStillUsesAuthenticatedUserAcrossIPs(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	cfg.RateLimit.PairingPerHour = 1
+	userID, _ := createAdminUser(t, db)
+	cookies := httptest.NewRecorder()
+	if _, err := auth.MintSession(db, cookies, userID, true, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	h := rateLimitMiddleware(cfg, db, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for i, ip := range []string{"203.0.113.1:1234", "203.0.113.2:1234"} {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/devices/pairing-token", nil)
+		r.RemoteAddr = ip
+		for _, c := range cookies.Result().Cookies() {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		want := http.StatusOK
+		if i == 1 {
+			want = http.StatusTooManyRequests
+		}
+		if w.Code != want {
+			t.Fatalf("request from %s returned %d, want %d", ip, w.Code, want)
+		}
 	}
 }

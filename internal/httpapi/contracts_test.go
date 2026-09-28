@@ -84,11 +84,11 @@ func TestOversizedJSONBodyIsRejected(t *testing.T) {
 	}
 }
 
-func TestHealthzIgnoresDatabaseState(t *testing.T) {
+func TestLivezIgnoresDatabaseState(t *testing.T) {
 	w := httptest.NewRecorder()
-	NewRouter(logging.New(io.Discard, "info", "json"), 1024, func() bool { return false }).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d", w.Code)
+	NewRouter(logging.New(io.Discard, "info", "json"), 1024, func() bool { return false }).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/livez", nil))
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"status":"ok"}` {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body)
 	}
 }
 

@@ -10,6 +10,12 @@ The server is a Go application distributed in a Docker container. It stores
 metadata and ciphertext, but it must never need plaintext note content,
 attachment content, or private encryption keys.
 
+The public `GET /healthz` returns cached `ky.health/1` dependency health for
+startup readiness and SQLite connectivity: 200 when both pass, 503 otherwise.
+Responses contain fixed check names and statuses, without error details or
+user data. `GET /livez` retains the alive-only response; `GET /readyz` retains
+its existing startup-readiness response.
+
 ## 2. Initial scope
 
 The first release includes:
