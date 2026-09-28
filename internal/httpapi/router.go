@@ -51,7 +51,8 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 			UploadRoutes(mux, db, blobs, cfg)
 		}
 	}
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /healthz", healthHandler(ready, db))
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
