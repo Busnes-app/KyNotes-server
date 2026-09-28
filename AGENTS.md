@@ -188,7 +188,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   readiness and SQLite ping determine 200/503; the response exposes fixed check
   names and statuses only. `GET /livez` keeps the alive-only 200 response, and
   `/readyz` keeps its existing startup-readiness response. A router without a
-  database checks startup only.
+  database checks startup only. Unlabelled routes, including probes, bypass
+  session resolution in the rate-limit middleware even when sent a cookie.
 - Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,
   CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
   owns the same data-directory lock as the server; `restore --in --to` is the only

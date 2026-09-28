@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -94,6 +96,50 @@ func TestHealthzFailsWhenStartupNotReady(t *testing.T) {
 		}
 		if w.Code != want {
 			t.Fatalf("%s=%d, want %d", path, w.Code, want)
+		}
+	}
+}
+
+func TestCookieBearingProbesBypassSessionLookup(t *testing.T) {
+	s, err := storage.Open(filepath.Join(t.TempDir(), "notes.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.DB().SetMaxOpenConns(1)
+	h := NewRouter(logging.New(io.Discard, "info", "json"), 1024, func() bool { return true }, s.DB())
+	if code, got := probeHealth(t, h); code != 200 || got.Status != "ok" {
+		t.Fatalf("prime health cache: %d %+v", code, got)
+	}
+	cookie := &http.Cookie{Name: "kynotes_session", Value: base64.RawURLEncoding.EncodeToString(make([]byte, 32))}
+	for _, path := range []string{"/livez", "/healthz"} {
+		conn, err := s.DB().Conn(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan int, 1)
+		go func() {
+			r := httptest.NewRequest(http.MethodGet, path, nil)
+			r.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			done <- w.Code
+		}()
+		blocked := false
+		select {
+		case code := <-done:
+			if code != 200 {
+				t.Errorf("%s returned %d, want 200", path, code)
+			}
+		case <-time.After(200 * time.Millisecond):
+			t.Errorf("%s waited for an unrelated SQLite session lookup", path)
+			blocked = true
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			<-done
 		}
 	}
 }
