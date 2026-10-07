@@ -25,6 +25,9 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "apply-setup" {
+		os.Exit(applySetupCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if e := healthcheckCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
