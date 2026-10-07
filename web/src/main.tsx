@@ -80,6 +80,7 @@ import {
   encryptNote,
   encryptSharePayload,
   fromBase64,
+  legacyKeyRef,
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
@@ -596,6 +597,8 @@ function Workspace({
   // Leave sites read dirtiness synchronously; a closure's `dirty` lags a save that just finished.
   const dirtyRef = useRef(false);
   const markDirty = (value: boolean) => { dirtyRef.current = value; setDirty(value); };
+  // The login-derived content key: legacy rows, personal notebooks, and (until team keys) everything.
+  const legacy = useMemo(() => legacyKeyRef(auth.authSecret), [auth.authSecret]);
   // Bumped to remount the open page's editor on content it did not produce.
   const [editorRevision, setEditorRevision] = useState(0);
   // The page a conflict recovery is rewriting; it stays read-only until the run ends.
@@ -663,7 +666,7 @@ function Workspace({
         .map(async (attachment) => {
           try {
             const encrypted = await downloadAttachment(attachment.id);
-            const plaintext = await decryptAttachment(auth.authSecret, selected?.id ?? "", encrypted);
+            const plaintext = await decryptAttachment(legacy, selected?.id ?? "", encrypted);
             const url = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
             urls.push(url);
             return [attachment.id, url] as const;
@@ -879,7 +882,7 @@ function Workspace({
           if (item.metaCiphertext)
             nextNames[item.id] = (
               await decryptContainerMeta(
-                auth.authSecret,
+                legacy,
                 item.id,
                 fromBase64(item.metaCiphertext),
               )
@@ -917,13 +920,13 @@ function Workspace({
           const object = await readObject(change.id);
           const cached = await getNote(change.id);
           const useCache = Boolean(cached && cached.version >= object.version);
-          const payload = await decryptObject(auth.authSecret, container.id, useCache ? cached!.payload : object.bytes);
+          const payload = await decryptObject(legacy, container.id, useCache ? cached!.payload : object.bytes);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
         } catch {
           const cached = await getNote(change.id);
           if (cached) {
             try {
-              add(change.id, await decryptObject(auth.authSecret, container.id, cached.payload), cached.version, cached.updatedAt);
+              add(change.id, await decryptObject(legacy, container.id, cached.payload), cached.version, cached.updatedAt);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -1040,7 +1043,7 @@ function Workspace({
       for (const item of remote) {
         try {
           const decrypted = await decryptComment(
-            auth.authSecret,
+            legacy,
             containerID ?? "",
             fromBase64(item.bodyCiphertext),
           );
@@ -1064,7 +1067,7 @@ function Workspace({
       const decoded: PlainAttachment[] = [];
       for (const item of remote) {
         try {
-          const metadata = await decryptAttachmentMetadata(auth.authSecret, containerID ?? "", fromBase64(item.metadataCiphertext));
+          const metadata = await decryptAttachmentMetadata(legacy, containerID ?? "", fromBase64(item.metadataCiphertext));
           decoded.push({ id: item.id, ...metadata });
         } catch { /* Ignore metadata encrypted for another key. */ }
       }
@@ -1081,7 +1084,7 @@ function Workspace({
     try {
       const container = await createContainer("workbook");
       const encrypted = await encryptContainerMeta(
-        auth.authSecret,
+        legacy,
         container.id,
         name,
       );
@@ -1114,7 +1117,7 @@ function Workspace({
     setBusy(true);
     try {
       const container = await createContainer("workbook", "", teamContainer.id);
-      const encrypted = await encryptContainerMeta(auth.authSecret, container.id, name);
+      const encrypted = await encryptContainerMeta(legacy, container.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
       const result = await updateContainer(container.id, encoded, container.metaVersion);
       const named = { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
@@ -1134,7 +1137,7 @@ function Workspace({
     setBusy(true);
     try {
       const encrypted = await encryptContainerMeta(
-        auth.authSecret,
+        legacy,
         selected.id,
         name,
       );
@@ -1200,7 +1203,7 @@ function Workspace({
     try {
       const payload = notePayload(note);
       const encrypted = await encryptNote(
-        auth.authSecret,
+        legacy,
         selected.id,
         payload,
       );
@@ -1341,14 +1344,14 @@ function Workspace({
       id: note.id,
       containerID,
       version: note.version,
-      payload: await encryptNote(auth.authSecret, containerID, notePayload(note)),
+      payload: await encryptNote(legacy, containerID, notePayload(note)),
       updatedAt: new Date().toISOString(),
     })).catch(() => {});
   }
   /** Encrypted write for an object that is not the open page (sections, moved pages). */
   async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
     if (!selected) return null;
-    const encrypted = await encryptNote(auth.authSecret, selected.id, payload);
+    const encrypted = await encryptNote(legacy, selected.id, payload);
     const updatedAt = new Date().toISOString();
     const containerID = selected.id;
     await cacheWrite(() => putNote({ id, containerID, version, payload: encrypted, updatedAt }));
@@ -1392,7 +1395,7 @@ function Workspace({
     if (!selected) return undefined;
     const cached = await getNote(id).catch(() => undefined);
     if (!cached) return undefined;
-    const payload = await decryptObject(auth.authSecret, selected.id, cached.payload).catch(() => undefined);
+    const payload = await decryptObject(legacy, selected.id, cached.payload).catch(() => undefined);
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
@@ -1582,7 +1585,7 @@ function Workspace({
       // Reload before placing copies: they belong next to the server's placement, and a
       // renumber may have to write the original at its server version.
       const server = await readObject(open.id);
-      const payload = await decryptObject(auth.authSecret, containerID, server.bytes);
+      const payload = await decryptObject(legacy, containerID, server.bytes);
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
       const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
@@ -1599,7 +1602,7 @@ function Workspace({
       const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
       for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
         try {
-          const decrypted = await decryptObject(auth.authSecret, containerID, await conflictCiphertext(conflict.id)).catch(() => undefined);
+          const decrypted = await decryptObject(legacy, containerID, await conflictCiphertext(conflict.id)).catch(() => undefined);
           if (decrypted?.type === "page") rejected.push({ id: conflict.id, createdAt: conflict.createdAt, payload: decrypted });
           else unreadable += 1;
         } catch (error) {
@@ -1715,10 +1718,10 @@ function Workspace({
   }
   async function uploadAttachment(file: File): Promise<PlainAttachment> {
     if (!selected || !selectedNote) throw new Error("Select a note first");
-      const encrypted = await encryptAttachment(auth.authSecret, selected.id, new Uint8Array(await file.arrayBuffer()));
+      const encrypted = await encryptAttachment(legacy, selected.id, new Uint8Array(await file.arrayBuffer()));
       const digest = await digestSha256Hex(encrypted);
       const upload = await createUpload(selected.id, encrypted.byteLength, digest);
-      const metadata = await encryptAttachmentMetadata(auth.authSecret, selected.id, { name: file.name, type: file.type, size: file.size });
+      const metadata = await encryptAttachmentMetadata(legacy, selected.id, { name: file.name, type: file.type, size: file.size });
       const job = { uploadId: upload.uploadId, containerID: selected.id, objectID: selectedNote.id, objectVersion: selectedNote.version, keyGeneration: selected.keyGeneration, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, payload: encrypted, metadataCiphertext: btoa(String.fromCharCode(...metadata)), name: file.name, type: file.type, size: file.size };
       await putUpload(job);
       const attachmentID = await uploadPending(job);
@@ -1750,14 +1753,14 @@ function Workspace({
     const attachment = attachmentsForNote.find((value) => value.id === attachmentID);
     if (!attachment) return url;
     const encrypted = await downloadAttachment(attachment.id);
-    const plaintext = await decryptAttachment(auth.authSecret, selected.id, encrypted);
+    const plaintext = await decryptAttachment(legacy, selected.id, encrypted);
     return URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
   }
   async function openAttachment(attachment: PlainAttachment) {
     if (!selected) return;
     try {
       const encrypted = await downloadAttachment(attachment.id);
-      const plaintext = await decryptAttachment(auth.authSecret, selected.id, encrypted);
+      const plaintext = await decryptAttachment(legacy, selected.id, encrypted);
       const url = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type || "application/octet-stream" }));
       const link = document.createElement("a");
       link.href = url; link.download = attachment.name; link.click();
@@ -1771,7 +1774,7 @@ function Workspace({
     setBusy(true);
     try {
       const encrypted = await encryptComment(
-        auth.authSecret,
+        legacy,
         selected.id,
         commentText.trim(),
         commentSection.trim(),
@@ -2501,6 +2504,8 @@ function AdminUserActions({
 }
 
 function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: string }) {
+  // Admin pages hold no team keys: only names still under this account's legacy key are readable here.
+  const legacy = legacyKeyRef(authSecret);
   const [teams, setTeams] = useState<AdminTeam[]>([]);
   const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [team, setTeam] = useState("");
@@ -2514,7 +2519,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
         if (!entry.metaCiphertext) continue;
         try {
           nextNames[entry.id] = (
-            await decryptContainerMeta(authSecret, entry.id, fromBase64(entry.metaCiphertext))
+            await decryptContainerMeta(legacy, entry.id, fromBase64(entry.metaCiphertext))
           ).name;
         } catch {
           /* Metadata encrypted by another account remains opaque. */
@@ -2536,7 +2541,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
       // The server mints the container ID, which is part of the metadata key.
       // Create first, then immediately replace the empty metadata with ciphertext.
       const created = await createAdminTeam("");
-      const encrypted = await encryptContainerMeta(authSecret, created.id, name);
+      const encrypted = await encryptContainerMeta(legacy, created.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
       await updateContainer(created.id, encoded, created.metaVersion ?? 0);
       setTeam(created.id);
@@ -2551,7 +2556,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
     const name = prompt("Team name", teamNames[selected.id] ?? "Team")?.trim();
     if (!name) return;
     try {
-      const encrypted = await encryptContainerMeta(authSecret, selected.id, name);
+      const encrypted = await encryptContainerMeta(legacy, selected.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
       await updateContainer(selected.id, encoded, selected.metaVersion ?? 0);
       await reload();
