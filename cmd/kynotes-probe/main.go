@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -17,12 +19,15 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
 const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
 
 type client struct {
 	base, user, password, config  string
+	authSecret                    string
+	deviceKey                     *ecdh.PrivateKey
 	server                        string
 	hc                            *http.Client
 	cookies                       []*http.Cookie
@@ -126,11 +131,10 @@ func (p *client) login() error {
 	if err = decode(res, &params); err != nil {
 		return err
 	}
-	secret, err := auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations)
-	if err != nil {
+	if p.authSecret, err = auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations); err != nil {
 		return err
 	}
-	res, err = p.request(http.MethodPost, "/api/v1/auth/login", []byte(fmt.Sprintf(`{"username":%q,"authSecret":%q}`, p.user, secret)), nil, false)
+	res, err = p.request(http.MethodPost, "/api/v1/auth/login", []byte(fmt.Sprintf(`{"username":%q,"authSecret":%q}`, p.user, p.authSecret)), nil, false)
 	if err != nil {
 		return err
 	}
@@ -164,7 +168,10 @@ func (p *client) pair() error {
 	if err = decode(res, &token); err != nil {
 		return err
 	}
-	publicKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	if p.deviceKey, err = ecdh.X25519().GenerateKey(rand.Reader); err != nil {
+		return err
+	}
+	publicKey := base64.StdEncoding.EncodeToString(p.deviceKey.PublicKey().Bytes())
 	body := []byte(fmt.Sprintf(`{"pairingToken":%q,"publicKey":%q,"platform":"unknown","labelCiphertext":""}`, token.Token, publicKey))
 	res, err = p.request(http.MethodPost, "/api/v1/devices/register", body, nil, false)
 	if err != nil {
@@ -184,25 +191,57 @@ func (p *client) pair() error {
 	return nil
 }
 
+// envelope steps up, installs a real envelope for the paired device, proves the
+// device opens it, and proves a second envelope for that recipient is refused.
 func (p *client) envelope() error {
-	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":1,"alg":%q,"envelope":%q}]}`, p.deviceID, envelopeAlg, base64.StdEncoding.EncodeToString([]byte("encrypted-envelope"))))
-	res, err := p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false)
+	res, err := p.request(http.MethodPost, "/api/v1/auth/step-up", []byte(fmt.Sprintf(`{"authSecret":%q}`, p.authSecret)), nil, false)
 	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("step-up status %d", res.StatusCode)
+	}
+	contentKey := make([]byte, 32)
+	if _, err = rand.Read(contentKey); err != nil {
+		return err
+	}
+	sealed, err := teamkeys.SealEnvelope(contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, 1, p.deviceID)
+	if err != nil {
+		return err
+	}
+	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":1,"alg":%q,"envelope":%q}]}`, p.deviceID, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false); err != nil {
 		return err
 	}
 	if err = requireStatus(res, http.StatusNoContent); err != nil {
 		return err
 	}
-	res, err = p.request(http.MethodGet, "/api/v1/containers/"+p.containerID+"/envelopes", nil, nil, true)
-	if err != nil {
+	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false); err != nil {
 		return err
 	}
-	var envelopes []map[string]any
+	if err = requireStatus(res, http.StatusConflict); err != nil {
+		return fmt.Errorf("second envelope for one recipient: %w", err)
+	}
+	if res, err = p.request(http.MethodGet, "/api/v1/containers/"+p.containerID+"/envelopes", nil, nil, true); err != nil {
+		return err
+	}
+	var envelopes []struct {
+		Envelope string `json:"envelope"`
+	}
 	if err = decode(res, &envelopes); err != nil {
 		return err
 	}
 	if len(envelopes) != 1 {
 		return fmt.Errorf("device read returned %d envelopes", len(envelopes))
+	}
+	raw, err := base64.StdEncoding.DecodeString(envelopes[0].Envelope)
+	if err != nil {
+		return err
+	}
+	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, 1, p.deviceID)
+	if err != nil || !bytes.Equal(opened, contentKey) {
+		return fmt.Errorf("device could not open its envelope: %v", err)
 	}
 	return nil
 }
