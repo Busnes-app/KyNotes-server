@@ -269,6 +269,10 @@ func TestMemberMayWriteOnlyOwnEnvelopes(t *testing.T) {
 	put := func(body []byte) (int, string) {
 		return status(t, ed.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", body, true, false))
 	}
+	// The first identity envelope comes from a steward; the member may then re-wrap it.
+	if code, body := status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(envJSON(tm.editorID, 1, 1)), true, false)); code != http.StatusNoContent {
+		t.Fatalf("steward wrap for editor=%d %s", code, body)
+	}
 	if code, body := put(envelopesBody(envJSON(tm.editorID, 1, 1), envJSON(ed.deviceID, 1, 1))); code != http.StatusNoContent {
 		t.Fatalf("own identity and phone=%d %s", code, body)
 	}
@@ -277,5 +281,106 @@ func TestMemberMayWriteOnlyOwnEnvelopes(t *testing.T) {
 	}
 	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 2 {
 		t.Fatalf("envelopes=%d, want 2", n)
+	}
+}
+
+func TestOwnIdentityWriteIsRewrapOnly(t *testing.T) {
+	tm := newTeam(t)
+	ed := tm.editor
+	ed.stepUp(t)
+	path := "/api/v1/containers/" + tm.id + "/envelopes"
+	if code, body := status(t, ed.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false)); code != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+		t.Fatalf("member minted its own first identity envelope: %d %s", code, body)
+	}
+	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 0 {
+		t.Fatalf("envelopes=%d, want 0", n)
+	}
+	if code, body := status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false)); code != http.StatusNoContent {
+		t.Fatalf("steward wrap=%d %s", code, body)
+	}
+	if code, body := status(t, ed.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 2)), true, false)); code != http.StatusNoContent {
+		t.Fatalf("member re-wrap=%d %s", code, body)
+	}
+	var fill []byte
+	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.editorID).Scan(&fill); err != nil || fill[0] != 2 {
+		t.Fatalf("re-wrap not stored: %x %v", fill, err)
+	}
+}
+
+func TestEnvelopeWriteRefusals(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, tm team, path string) (int, string)
+		code int
+		want string
+	}{
+		{"non-member caller", func(t *testing.T, tm team, path string) (int, string) {
+			out := tm.owner.addUser(t, "outsider")
+			out.stepUp(t)
+			return status(t, out.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.ownerID, 1, 1)), true, false))
+		}, http.StatusNotFound, "not_found"},
+		{"revoked caller membership", func(t *testing.T, tm team, path string) (int, string) {
+			tm.admin.stepUp(t)
+			if _, err := tm.owner.db.Exec(`UPDATE memberships SET revoked_at='now' WHERE container_id=? AND user_id=?`, tm.id, tm.admin.id); err != nil {
+				t.Fatal(err)
+			}
+			return status(t, tm.admin.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false))
+		}, http.StatusNotFound, "not_found"},
+		{"revoked recipient device", func(t *testing.T, tm team, path string) (int, string) {
+			if _, err := tm.owner.db.Exec(`UPDATE devices SET revoked_at='now' WHERE id=?`, tm.editorID); err != nil {
+				t.Fatal(err)
+			}
+			return status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false))
+		}, http.StatusBadRequest, "invalid_request"},
+		{"non-member recipient", func(t *testing.T, tm team, path string) (int, string) {
+			outsiderID := tm.owner.addUser(t, "outsider").createIdentity(t)
+			return status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(outsiderID, 1, 1)), true, false))
+		}, http.StatusBadRequest, "invalid_request"},
+		{"inactive recipient user", func(t *testing.T, tm team, path string) (int, string) {
+			if _, err := tm.owner.db.Exec(`UPDATE users SET status='disabled' WHERE id=?`, tm.editor.id); err != nil {
+				t.Fatal(err)
+			}
+			return status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false))
+		}, http.StatusBadRequest, "invalid_request"},
+		{"stale generation", func(t *testing.T, tm team, path string) (int, string) {
+			return status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 2, 1)), true, false))
+		}, http.StatusConflict, "already_exists"},
+		{"SSO session", func(t *testing.T, tm team, path string) (int, string) {
+			if _, err := tm.owner.db.Exec(`UPDATE sessions SET sso_issuer='https://idp.example' WHERE user_id=?`, pairUser); err != nil {
+				t.Fatal(err)
+			}
+			return status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false))
+		}, http.StatusForbidden, "step_up_required"},
+		{"device credential", func(t *testing.T, tm team, path string) (int, string) {
+			p := tm.owner
+			p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{7}, 32))
+			return status(t, p.doDeviceOnly(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1))))
+		}, http.StatusUnauthorized, "unauthenticated"},
+		{"password change after middleware", func(t *testing.T, tm team, path string) (int, string) {
+			changed := 0
+			code, body := tm.owner.sendRacing(t, http.MethodPut, path, map[string]string{"Content-Type": "application/json"}, envelopesBody(envJSON(tm.editorID, 1, 1)), func() {
+				change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))) + `,"identityDeviceId":` + quote(tm.ownerID) + `}`
+				changed, _ = tm.owner.send(http.MethodPost, "/api/v1/auth/password", []byte(change))
+			})
+			if changed != http.StatusNoContent {
+				t.Fatalf("password change=%d", changed)
+			}
+			return code, body
+		}, http.StatusForbidden, "step_up_required"},
+		{"non-steward for another member", func(t *testing.T, tm team, path string) (int, string) {
+			tm.editor.stepUp(t)
+			return status(t, tm.editor.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.adminID, 1, 1)), true, false))
+		}, http.StatusForbidden, "forbidden"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tm := newTeam(t)
+			if code, body := c.run(t, tm, "/api/v1/containers/"+tm.id+"/envelopes"); code != c.code || !strings.Contains(body, `"`+c.want+`"`) {
+				t.Fatalf("got %d %s, want %d %s", code, body, c.code, c.want)
+			}
+			if n := countEnvelopes(t, tm.owner, tm.id, 1) + countEnvelopes(t, tm.owner, tm.id, 2); n != 0 {
+				t.Fatalf("refused write stored %d envelopes", n)
+			}
+		})
 	}
 }

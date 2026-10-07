@@ -75,7 +75,8 @@ func isSteward(role string) bool { return role == "owner" || role == "admin" }
 // role there). The recipient must be a live device or identity of an active
 // member; non-stewards may write only for their own. Insert-only: an existing
 // (container, recipient, generation) row is errEnvelopeExists, except the
-// caller's own identity, which is replaced.
+// caller's own identity, which may be re-wrapped but never first-written by a
+// non-steward (a steward or an invitation supplies the first one).
 func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role string, v envelopeIn, now string) error {
 	env, ok := v.bytes()
 	if !ok {
@@ -85,7 +86,7 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 		return errGenerationMoved
 	}
 	var owner, platform string
-	err := tx.QueryRow(`SELECT d.user_id,d.platform FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.id=? AND d.revoked_at=''`, cid, v.DeviceID).Scan(&owner, &platform)
+	err := tx.QueryRow(`SELECT d.user_id,d.platform FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.id=? AND d.revoked_at=''`, cid, v.DeviceID).Scan(&owner, &platform)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errEnvelopeInvalid
 	}
@@ -95,15 +96,23 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 	if owner != caller && !isSteward(role) {
 		return errInsufficientRole
 	}
+	if owner == caller && platform == "identity" {
+		res, err := tx.Exec(`UPDATE key_envelopes SET alg=?,envelope=?,created_at=? WHERE container_id=? AND device_id=? AND key_generation=?`, v.Alg, env, now, cid, v.DeviceID, generation)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			return nil
+		}
+		if !isSteward(role) {
+			return errInsufficientRole
+		}
+	}
 	id, err := ids.Mint("env")
 	if err != nil {
 		return err
 	}
-	onConflict := `DO NOTHING`
-	if owner == caller && platform == "identity" {
-		onConflict = `DO UPDATE SET alg=excluded.alg,envelope=excluded.envelope,created_at=excluded.created_at`
-	}
-	res, err := tx.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(container_id,device_id,key_generation) `+onConflict, id, cid, v.DeviceID, generation, v.Alg, env, now)
+	res, err := tx.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(container_id,device_id,key_generation) DO NOTHING`, id, cid, v.DeviceID, generation, v.Alg, env, now)
 	if err != nil {
 		return err
 	}

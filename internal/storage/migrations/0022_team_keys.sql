@@ -13,3 +13,4 @@ CREATE TABLE invitation_envelopes (
  envelope BLOB NOT NULL,
  PRIMARY KEY(invitation_id, container_id)
 );
+CREATE INDEX idx_invitation_envelopes_device ON invitation_envelopes(device_id);
