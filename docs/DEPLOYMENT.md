@@ -192,3 +192,10 @@ address identifies the client; untrusted peers and malformed suffixes fall back 
 socket address. Trusted proxies must append the observed peer address or replace the
 header with the observed client, never blindly pass client-supplied headers. Configure
 only actual proxy networks, not all Internet addresses. IPv6 identities retain /64 grouping.
+
+## Trusted proxy addresses
+
+For compatibility, the compose file defaults `TRUSTED_PROXY_CIDRS` to loopback plus all
+RFC1918 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). Any host on those networks
+can then set the client address seen by IP-keyed rate limits. Set `TRUSTED_PROXY_CIDRS` to the
+reverse proxy's own address (for example `172.20.0.5/32`). An installer must supply it.

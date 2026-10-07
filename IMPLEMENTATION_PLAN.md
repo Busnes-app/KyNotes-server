@@ -687,8 +687,8 @@ by classification only.
 * Runtime stage `gcr.io/distroless/static-debian12:nonroot`, also digest-pinned.
   There is no shell and no package manager in the runtime image.
 * `USER nonroot`, `EXPOSE 8080`, `VOLUME /data`.
-* `HEALTHCHECK CMD ["/kynotes-server","--check-config"]` — works without a shell
-  or curl.
+* `HEALTHCHECK CMD ["/kynotes-server","healthcheck"]` — probes `/healthz` on
+  loopback; works without a shell or curl.
 * Build: `RUN CGO_ENABLED=0 go build -trimpath -o /kynotes-server ./cmd/kynotes-server`.
 
 ### 2.5 Tests (exact names)

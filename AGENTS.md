@@ -67,8 +67,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
-- `internal/app` owns the `.kynotes.lock` data-directory lock and automatic first-run
-  admin bootstrap (`first-run-password.txt` or `BOOTSTRAP_ADMIN_PASS`/`BOOTSTRAP_ADMIN_USER`);
+- `internal/app` owns the `.kynotes.lock` data-directory lock and first-run
+  admin bootstrap (`BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the admin only when
+  no users exist; otherwise the web UI prompts, or use `user add`);
   maintenance backup refuses to copy a live data directory and restore runs an integrity
   check after replacement.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
@@ -217,6 +218,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   After `npm run build --prefix web`, synchronize the complete generated asset set
   into `internal/web/dist`; CI runs frontend tests/build and `diff -qr web/dist internal/web/dist`
   to reject missing, stale or extra assets. The app CSP (`embed.go`) allows `img-src 'self' data: blob:` so decrypted images render.
+- `kynotes-server healthcheck [--config PATH] [--url URL]` is the container HEALTHCHECK
+  (distroless has no curl): GET `/healthz` on the configured bind port, 3 s timeout, exit 0
+  only on 200, loopback hosts only, no redirects. `version` is set by
+  `-ldflags "-X main.version=..."`; the Dockerfile takes `ARG VERSION` (CI passes the commit SHA).
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
 - `internal/httpapi` serves public `GET /healthz` as cached `ky.health/1`: startup

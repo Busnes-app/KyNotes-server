@@ -21,3 +21,12 @@ func TestUnknownSubcommandIsRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestVersionLineUsesVariable(t *testing.T) {
+	old := version
+	defer func() { version = old }()
+	version = "abc123"
+	if got := versionLine(); got != "kynotes-server abc123" {
+		t.Fatal(got)
+	}
+}

@@ -68,7 +68,7 @@ jobs:
       - run: |
           set -eu
           image=kynotes-server:ci
-          docker build -t "$image" .
+          docker build --build-arg "VERSION=${GITHUB_SHA}" -t "$image" .
           auth='{"authSecret":"b9eb85992f985b432a3feaf4f5ea0b7b7960a5da42c640a3b9d93a83fc5bef1d","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000}'
           printf '%s' "$auth" | docker run -i --rm --user "$(id -u):$(id -g)" -v "$PWD/testdata/config-good:/data" "$image" user add --config /data/kynotes.yaml --username probe
           docker run -d --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
