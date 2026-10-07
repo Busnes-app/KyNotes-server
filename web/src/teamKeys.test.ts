@@ -127,3 +127,11 @@ describe("binding", () => {
     expect(bytesToHex(unwrapEnvelope(one, a.privateKey, v.containerId, 1, v.recipientDeviceId))).toBe(bytesToHex(ck));
   });
 });
+
+describe("vector-only exports", () => {
+  it("are imported by tests only (caller-chosen nonces and ephemeral keys)", () => {
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./teamKeys.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    expect(Object.keys(sources)).toContain("./main.tsx");
+    expect(Object.entries(sources).filter(([, text]) => text.includes("ForVector")).map(([name]) => name)).toEqual([]);
+  });
+});

@@ -61,6 +61,7 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type IdentityRecord } from "./identity";
+import { PASSWORD_CHANGE_WARNING, passwordChangeProblem } from "./passwordChange";
 import {
   decryptComment,
   decryptAttachment,
@@ -108,7 +109,7 @@ import {
 /** Loads or creates the identity after a password sign-in. P1 has no consumer, so failures stay silent. */
 function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord) {
   void ensureIdentity(identityAPI, userID, keys, fromLogin)
-    .then((identity) => storeIdentityKey(username, userID, identity))
+    .then((identity) => identity && storeIdentityKey(username, userID, identity))
     .catch(() => undefined);
 }
 import {
@@ -2319,6 +2320,7 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
   const [next, setNext] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const confirmation = (
@@ -2326,8 +2328,9 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
         "confirm",
       ) as HTMLInputElement
     )?.value;
-    if (!next || next !== confirmation) {
-      setStatus("New passwords do not match.");
+    const problem = passwordChangeProblem(next, confirmation, acknowledged);
+    if (problem) {
+      setStatus(problem);
       return;
     }
     setBusy(true);
@@ -2348,11 +2351,12 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
         identityDeviceId: rewrapped?.identityDeviceId,
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
       }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
+      // No identity yet (e.g. an administrator set the old password): create it under the new one.
+      if (!rewrapped) settleIdentity(name, userID, newKeys);
       setCurrent("");
       setNext("");
-      setStatus(
-        "Password changed. Existing encrypted notes may require the device re-key flow.",
-      );
+      setAcknowledged(false);
+      setStatus("Password changed.");
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Unable to change password",
@@ -2391,7 +2395,18 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
           <span>Confirm new password</span>
           <input name="confirm" type="password" required />
         </label>
-        <button disabled={busy}>
+        <p className="config-muted" role="alert">{PASSWORD_CHANGE_WARNING}</p>
+        <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+            style={{ width: "18px", height: "18px" }}
+            required
+          />
+          <span>I understand my existing notes will become unreadable.</span>
+        </label>
+        <button disabled={busy || !acknowledged}>
           {busy ? "Changing…" : "Change password"}
         </button>
       </form>

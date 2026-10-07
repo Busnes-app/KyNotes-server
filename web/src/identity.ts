@@ -28,9 +28,10 @@ export function openIdentity(record: IdentityRecord, userKEK: Uint8Array, userID
 /**
  * Opens the identity from the login response, or creates it on first password sign-in.
  * PUT needs a fresh step-up, which also returns an identity another tab created meanwhile.
- * Never replaces an identity it cannot open.
+ * Never replaces an identity it cannot open. Undefined while an administrator knows the
+ * password: the user's own password change creates it.
  */
-export async function ensureIdentity(api: IdentityAPI, userID: string, keys: LoginKeys, fromLogin: IdentityRecord | undefined): Promise<HeldIdentity> {
+export async function ensureIdentity(api: IdentityAPI, userID: string, keys: LoginKeys, fromLogin: IdentityRecord | undefined): Promise<HeldIdentity | undefined> {
   if (fromLogin) return openIdentity(fromLogin, keys.userKEK, userID);
   const existing = await api.stepUp(keys.authSecret);
   if (existing) return openIdentity(existing, keys.userKEK, userID);
@@ -40,8 +41,10 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
     const { deviceId } = await api.putMyIdentity(upload);
     return { ...identity, deviceId };
   } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "password_change_required") return undefined;
     // Another tab won the create race: use its identity, not ours.
-    const winner = (error as { code?: string }).code === "identity_exists" ? await api.stepUp(keys.authSecret) : undefined;
+    const winner = code === "identity_exists" ? await api.stepUp(keys.authSecret) : undefined;
     if (!winner) throw error;
     return openIdentity(winner, keys.userKEK, userID);
   }
