@@ -1,3 +1,4 @@
+import { parseObjectPayload, type ObjectPayload } from "./pages";
 import {
   aes256GcmDecrypt,
   aes256GcmEncrypt,
@@ -191,7 +192,7 @@ async function decryptWithInfo(authSecret: string, containerID: string, info: st
 
 export type NotePayload = { title: string; body: string };
 
-export async function encryptNote(authSecret: string, containerID: string, note: NotePayload): Promise<Uint8Array> {
+export async function encryptNote(authSecret: string, containerID: string, note: NotePayload | ObjectPayload): Promise<Uint8Array> {
   const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/object/v1");
   return encryptWithKey(key, encoder.encode(JSON.stringify(note)));
 }
@@ -201,6 +202,11 @@ export async function decryptNote(authSecret: string, containerID: string, bytes
   const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/object/v1");
   const plaintext = await decryptWithKey(key, bytes);
   return JSON.parse(decoder.decode(plaintext)) as NotePayload;
+}
+
+/** Decrypts any object (page or section); undefined when the plaintext is not a valid payload. */
+export async function decryptObject(authSecret: string, containerID: string, bytes: Uint8Array): Promise<ObjectPayload | undefined> {
+  return parseObjectPayload(await decryptWithInfo(authSecret, containerID, "kynotes/object/v1", bytes));
 }
 
 export async function encryptSharePayload(note: NotePayload): Promise<{ ciphertext: Uint8Array; key: string }> {

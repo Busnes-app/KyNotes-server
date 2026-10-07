@@ -62,7 +62,7 @@ import {
   decryptAttachment,
   decryptAttachmentMetadata,
   decryptContainerMeta,
-  decryptNote,
+  decryptObject,
   decryptSharePayload,
   deriveAuthSecret,
   digestSha256Hex,
@@ -76,6 +76,7 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
+import { QUICK_NOTES, endOrder, pagesInSection, resolveSection, type ObjectPayload, type PagePayload, type Route, type Section } from "./pages";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -106,6 +107,8 @@ import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
+const notePayload = (note: Note): PagePayload =>
+  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
 const BlockNoteEditor = lazy(() => import("./BlockNoteEditor").then((module) => ({ default: module.BlockNoteEditor })));
 
@@ -515,6 +518,14 @@ function Workspace({
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const sectionsRef = useRef<Section[]>([]);
+  // Writes read sectionsRef synchronously, so every change goes through here.
+  const patchSections = (update: (value: Section[]) => Section[]) => {
+    sectionsRef.current = update(sectionsRef.current);
+    setSections(sectionsRef.current);
+  };
+  const [sectionID, setSectionID] = useState<string>(QUICK_NOTES);
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
@@ -764,8 +775,14 @@ function Workspace({
       );
     }
   }
-  async function readContainerNotes(container: Container): Promise<Note[]> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[] }> {
     const loaded: Note[] = [];
+    const found: Section[] = [];
+    const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
+      if (!payload) return;
+      if (payload.type === "section") found.push({ ...payload, id, version });
+      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, version, updatedAt });
+    };
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
       const result = await changes(container.id, since);
@@ -773,23 +790,14 @@ function Workspace({
         try {
           const object = await readObject(change.id);
           const cached = await getNote(change.id);
-          const payload =
-            cached && cached.version >= object.version
-              ? await decryptNote(auth.authSecret, container.id, cached.payload)
-              : await decryptNote(auth.authSecret, container.id, object.bytes);
-          loaded.push({
-            id: change.id,
-            ...payload,
-            body: payload.body,
-            version: cached && cached.version >= object.version ? cached.version : object.version,
-            updatedAt: cached && cached.version >= object.version ? cached.updatedAt : new Date().toISOString(),
-          });
+          const useCache = Boolean(cached && cached.version >= object.version);
+          const payload = await decryptObject(auth.authSecret, container.id, useCache ? cached!.payload : object.bytes);
+          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
         } catch {
           const cached = await getNote(change.id);
           if (cached) {
             try {
-              const payload = await decryptNote(auth.authSecret, container.id, cached.payload);
-              loaded.push({ id: change.id, ...payload, body: payload.body, version: cached.version, updatedAt: cached.updatedAt });
+              add(change.id, await decryptObject(auth.authSecret, container.id, cached.payload), cached.version, cached.updatedAt);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -801,9 +809,9 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return loaded;
+    return { notes: loaded, sections: found };
   }
-  async function selectContainer(container: Container): Promise<Note[]> {
+  async function selectContainer(container: Container, route?: Route): Promise<Note[]> {
     const previousContainer = selected;
     const previousNote = selectedNoteRef.current;
     if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
@@ -819,8 +827,13 @@ function Workspace({
     setAttachmentsForNote([]);
     let loaded: Note[] = [];
     try {
-      loaded = await readContainerNotes(container);
+      const objects = await readContainerObjects(container);
+      loaded = objects.notes;
       setNotes(loaded);
+      patchSections(() => objects.sections);
+      setSectionID(resolveSection(route?.section, objects.sections));
+      const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
+      if (routed) await selectNote(routed, container.id);
       if (container.kind === "team")
         setMembersForTeam(await members(container.id));
       else setMembersForTeam([]);
@@ -839,7 +852,7 @@ function Workspace({
       const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
       const results = await Promise.allSettled(personalContainers.map(async (container) => ({
         container,
-        notes: await readContainerNotes(container),
+        notes: (await readContainerObjects(container)).notes,
       })));
       if (results.some((result) => result.status === "rejected")) {
         setError("Some personal workspaces could not be loaded; the work queue may be incomplete.");
@@ -861,6 +874,8 @@ function Workspace({
     setQueueMode(true);
   }
   async function selectNote(note: Note, containerID = selected?.id) {
+    const previous = selectedNoteRef.current;
+    if (previous && previous.id !== note.id && dirty) await save(previous, true);
     setSelectedNote(note);
     setDirty(false);
     setLastSavedAt(note.version > 0 ? note.updatedAt : "");
@@ -1004,10 +1019,12 @@ function Workspace({
     setBusy(true);
     try {
       const object = await createObject(selected.id);
-      const note = {
+      const note: Note = {
         id: object.id,
-        title: "Untitled note",
+        title: "Untitled page",
         body: stringifyNoteDocument(emptyNoteDocument().document),
+        section: sectionID === QUICK_NOTES ? undefined : sectionID,
+        order: endOrder(pagesInSection(notes, sections, sectionID)),
         version: 0,
         updatedAt: new Date().toISOString(),
       };
@@ -1028,7 +1045,7 @@ function Workspace({
     if (!selected) return;
     if (!automatic) setBusy(true);
     try {
-      const payload: NotePayload = { title: note.title, body: note.body };
+      const payload = notePayload(note);
       const encrypted = await encryptNote(
         auth.authSecret,
         selected.id,
@@ -1058,7 +1075,8 @@ function Workspace({
         setSyncStatus("saved");
         setNotes((value) =>
           value.map((entry) =>
-            entry.id === saved.id && entry.body === note.body && entry.title === note.title
+            entry.id === saved.id && entry.body === note.body && entry.title === note.title &&
+              entry.section === note.section && entry.order === note.order
               ? saved
               : entry,
           ),
@@ -1131,6 +1149,7 @@ function Workspace({
           const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration ?? 1);
           await clearQueuedSave(item.id);
           setNotes((value) => value.map((note) => note.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note));
+          patchSections((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
           if (selectedNoteRef.current?.id === item.id) {
             setSelectedNote((note) => note?.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note);
             setLastSavedAt(item.updatedAt);
@@ -1168,10 +1187,7 @@ function Workspace({
   }
   function persistDraft(note: Note) {
     if (!selected) return;
-    void encryptNote(auth.authSecret, selected.id, {
-      title: note.title,
-      body: note.body,
-    })
+    void encryptNote(auth.authSecret, selected.id, notePayload(note))
       .then((payload) =>
         putNote({
           id: note.id,
