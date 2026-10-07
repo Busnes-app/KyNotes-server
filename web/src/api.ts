@@ -1,16 +1,20 @@
 import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
+import type { Envelope } from "./keyring";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
-export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
+export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
-export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number };
+export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number; sharedGeneration?: number };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
 
 type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
 export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }
+
+/** Marks writes from a bundle that seals shared containers with their container key; the server refuses shared-container writes without it. */
+export const KEY_SCHEME = "shared-v1";
 
 export function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
@@ -35,7 +39,10 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) headers.set("X-CSRF-Token", csrfToken());
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    headers.set("X-CSRF-Token", csrfToken());
+    headers.set("X-Kynotes-Key-Scheme", KEY_SCHEME);
+  }
   const response = await actionFetch(path, { ...init, headers, credentials: "include" });
   if (!response.ok) {
     let detail: APIError = {};
@@ -131,6 +138,14 @@ export async function myIdentity(): Promise<PublicIdentity | undefined> {
 }
 export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
 export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: async (authSecret) => (await stepUp(authSecret))?.identity };
+export const containerEnvelopes = (containerID: string) => request<Envelope[]>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`);
+export const putEnvelopes = (containerID: string, envelopes: Envelope[]) => request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`, { method: "PUT", body: JSON.stringify({ envelopes }) });
+export const rotateKeys = (containerID: string, expectedGeneration: number, envelopes: Envelope[]) => request<{ keyGeneration: number }>(`/api/v1/containers/${encodeURIComponent(containerID)}/key-rotations`, { method: "POST", body: JSON.stringify({ expectedGeneration, envelopes }) });
+/** A colleague's public identity; undefined when they have none or the server will not show it. */
+export async function userIdentity(userID: string): Promise<PublicIdentity | undefined> {
+  try { return await request<PublicIdentity>(`/api/v1/users/${encodeURIComponent(userID)}/identity`); }
+  catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
+}
 export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
@@ -159,7 +174,7 @@ export async function readObject(objectID: string, version?: number) {
     credentials: "include", headers: { Accept: "application/octet-stream" },
   });
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
-  return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0) };
+  return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration: Number(response.headers.get("X-Kynotes-Key-Generation") ?? 0) };
 }
 
 export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration = 1) {
