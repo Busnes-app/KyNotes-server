@@ -524,7 +524,7 @@ function Workspace({
   // Chained writes read notesRef before React renders, so they patch it directly.
   const patchNotes = (update: (value: Note[]) => Note[]) => {
     notesRef.current = update(notesRef.current);
-    setNotes(notesRef.current);
+    setNotes((value) => update(value));
   };
   const [sections, setSections] = useState<Section[]>([]);
   const sectionsRef = useRef<Section[]>([]);
