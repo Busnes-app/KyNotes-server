@@ -80,7 +80,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, editOpenEntry, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, flushRound, newestCopy, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -110,6 +110,7 @@ import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
+const FLUSH_ROUNDS = 5;
 const notePayload = (note: Note): PagePayload =>
   ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
@@ -687,7 +688,7 @@ function Workspace({
       const page = notes.find((note) => note.id === route.page);
       if (page) await selectNote(page);
       else {
-        if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
+        if (dirty && !(await flushOpenPage())) return;
         if (!parseRoute(location.hash).page) setSelectedNote(null);
       }
     })();
@@ -870,13 +871,10 @@ function Workspace({
     }
   }
   async function loadContainer(container: Container, route?: Route): Promise<Note[]> {
-    const previousNote = selectedNoteRef.current;
-    if (previousNote && dirty) {
-      // Workspace navigation destroys the current editor. Finish its latest
-      // encrypted save before replacing the note list so the next load cannot
-      // fall back to an older plain document.
-      await save(previousNote, true);
-    }
+    // Workspace navigation destroys the current editor. Finish its latest
+    // encrypted save before replacing the note list so the next load cannot
+    // fall back to an older plain document.
+    if (dirty && !(await flushOpenPage())) return [];
     // Another switch started meanwhile: its results win.
     const superseded = () => loadingContainerID.current !== container.id;
     if (superseded()) return [];
@@ -939,7 +937,7 @@ function Workspace({
   }
   async function selectNote(selection: Note, containerID = selected?.id) {
     const previous = selectedNoteRef.current;
-    if (previous && previous.id !== selection.id && dirty) await save(previous, true);
+    if (previous && previous.id !== selection.id && dirty && !(await flushOpenPage())) return;
     // Search and resurfacing rows hold deferred copies; open the live entry.
     const note = notesRef.current.find((entry) => entry.id === selection.id) ?? selection;
     selectedNoteRef.current = note;
@@ -1107,8 +1105,9 @@ function Workspace({
       setBusy(false);
     }
   }
-  async function saveNow(note: Note, automatic = false) {
-    if (!selected) return;
+  /** Returns the page it sent (saved, queued or kept as a conflict draft); undefined if nothing was. */
+  async function saveNow(note: Note, automatic = false): Promise<Note | undefined> {
+    if (!selected) return undefined;
     if (!automatic) setBusy(true);
     try {
       const payload = notePayload(note);
@@ -1160,8 +1159,10 @@ function Workspace({
           setError("Saved locally; encrypted change queued for the server.");
         }
       }
+      return note;
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to save note");
+      return undefined;
     } finally {
       if (!automatic) setBusy(false);
     }
@@ -1176,8 +1177,23 @@ function Workspace({
       // document currently shown in the editor.
       return saveNow(current, automatic);
     });
-    saveChain.current = queued.catch(() => {});
+    saveChain.current = queued.then(() => {}, () => {});
     return queued;
+  }
+
+  /**
+   * Leaving the open page: saves it again while edits typed during the save are unsent.
+   * False keeps it open and dirty for the normal autosave; callers must not switch away then.
+   */
+  async function flushOpenPage(): Promise<boolean> {
+    const id = selectedNoteRef.current?.id;
+    if (!id) return true;
+    for (let round = 0; round < FLUSH_ROUNDS; round++) {
+      const sent = await save(selectedNoteRef.current!, true);
+      const state = flushRound(selectedNoteRef.current, id, sent);
+      if (state !== "again") return state === "done";
+    }
+    return false;
   }
 
   async function drainQueue() {
@@ -1789,7 +1805,7 @@ function Workspace({
               onSelect={(id) => void (async () => {
                 // Leaving the open page: finish its save first, as selectNote does.
                 if (id === sectionID) return;
-                if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
+                if (dirty && !(await flushOpenPage())) return;
                 setSectionID(id);
                 setSelectedNote(null);
               })()}

@@ -42,3 +42,13 @@ export function newestCopy(entry: Note, cached: { version: number; title: string
 export function carryAll(notes: Note[], carried: Map<string, { version: number; updatedAt?: string }>): Note[] {
   return [...carried].reduce((value, [id, saved]) => carrySaved(value, id, saved), notes);
 }
+
+/**
+ * One round of flushing open page `id` before leaving it: done once it closed or matches what
+ * was sent, failed when nothing was sent, otherwise edits landed during the save.
+ */
+export function flushRound(open: Note | null, id: string, sent: Note | undefined): "done" | "again" | "failed" {
+  if (open?.id !== id) return "done";
+  if (!sent) return "failed";
+  return samePayload(open, sent) ? "done" : "again";
+}

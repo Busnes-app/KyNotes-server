@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carryAll, carrySaved, editEntry, editOpenEntry, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, flushRound, newestCopy, samePayload } from "./notes";
 
 const A = "obj_a";
 const B = "obj_b";
@@ -92,5 +92,29 @@ describe("open page edits", () => {
     const moved = { ...open, section: "obj_s", order: "r" };
     const notes = editOpenEntry([moved], open, { ...open, body: "new" }, { body: "new" });
     expect(find(notes, A)).toEqual({ ...moved, body: "new" });
+  });
+});
+
+describe("flushing the open page before leaving it", () => {
+  it("is done when what was sent is what is open", () => {
+    const open = page(A, "typed");
+    expect(flushRound(open, A, { ...open, version: 2 })).toBe("done");
+  });
+
+  it("goes again when keystrokes landed during the save", () => {
+    expect(flushRound(page(A, "typed more"), A, page(A, "typed"))).toBe("again");
+  });
+
+  it("goes again when the open page moved during the save", () => {
+    expect(flushRound({ ...page(A, "typed"), order: "r" }, A, page(A, "typed"))).toBe("again");
+  });
+
+  it("fails when nothing was sent, so the page stays open and dirty", () => {
+    expect(flushRound(page(A, "typed"), A, undefined)).toBe("failed");
+  });
+
+  it("is done when another selection closed the page meanwhile", () => {
+    expect(flushRound(page(B, "other"), A, undefined)).toBe("done");
+    expect(flushRound(null, A, undefined)).toBe("done");
   });
 });
