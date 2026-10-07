@@ -563,6 +563,8 @@ function Workspace({
     "workspace",
   );
   const [queueMode, setQueueMode] = useState(false);
+  const [loadingContainer, setLoadingContainer] = useState(false);
+  const loadingContainerID = useRef<string | undefined>(undefined);
   const [query, setQuery] = useState("");
   const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
   const [, setCommitToastTick] = useState(0);
@@ -644,23 +646,26 @@ function Workspace({
     };
   }, []);
   useEffect(() => {
-    if (queueMode || !selected) return;
+    if (queueMode || loadingContainer || !selected) return;
     const next = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
-    if (location.hash !== next) location.hash = next;
-  }, [queueMode, selected?.id, sectionID, selectedNote?.id]);
+    if (location.hash === next) return;
+    // Normalizing an empty or unparseable hash must not add a history entry.
+    if (parseRoute(location.hash).container) location.hash = next;
+    else history.replaceState(null, "", next);
+  }, [queueMode, loadingContainer, selected?.id, sectionID, selectedNote?.id]);
   useEffect(() => {
     const follow = () => void (async () => {
       const route = parseRoute(location.hash);
       const container = items.find((item) => item.id === route.container);
       // Our own hash writes match the current state and stop here.
-      if (!container || (container.id === selected?.id && route.section === sectionID && route.page === selectedNote?.id)) return;
+      if (!container || route.container === loadingContainerID.current || (container.id === selected?.id && route.section === sectionID && route.page === selectedNote?.id)) return;
       if (container.id !== selected?.id) { await selectContainer(container, route); return; }
       setSectionID(resolveSection(route.section, sections));
       const page = notes.find((note) => note.id === route.page);
       if (page) await selectNote(page);
       else {
         if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
-        setSelectedNote(null);
+        if (!parseRoute(location.hash).page) setSelectedNote(null);
       }
     })();
     window.addEventListener("hashchange", follow);
@@ -829,6 +834,16 @@ function Workspace({
     return { notes: loaded, sections: found };
   }
   async function selectContainer(container: Container, route?: Route): Promise<Note[]> {
+    loadingContainerID.current = container.id;
+    setLoadingContainer(true);
+    try {
+      return await loadContainer(container, route);
+    } finally {
+      loadingContainerID.current = undefined;
+      setLoadingContainer(false);
+    }
+  }
+  async function loadContainer(container: Container, route?: Route): Promise<Note[]> {
     const previousContainer = selected;
     const previousNote = selectedNoteRef.current;
     if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
