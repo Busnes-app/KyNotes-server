@@ -22,6 +22,7 @@ var (
 	errEnvelopeExists        = errors.New("envelope exists")
 	errGenerationMoved       = errors.New("key generation changed")
 	errKeyRotationIncomplete = errors.New("key rotation incomplete")
+	errMembershipExists      = errors.New("membership exists")
 )
 
 type envelopeIn struct {
@@ -186,6 +187,9 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 					return err
 				}
 			}
+			if _, err := tx.Exec(`DELETE FROM invitation_envelopes WHERE container_id=? AND key_generation<?`, cid, next); err != nil {
+				return err
+			}
 			var uncovered int
 			var own bool
 			if err := tx.QueryRow(uncoveredIdentitiesSQL, cid, next).Scan(&uncovered); err != nil {
@@ -249,9 +253,9 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	// Visible to the user, to anyone sharing a live container with them, and to
-	// any container owner or admin (who could invite them). Public keys are not
-	// secret; integrity comes from client-side fingerprint pins.
+	// Visible to the user, to anyone sharing a live container with them, and to a
+	// team or project owner/admin holding a pending invitation for them. Everyone
+	// else gets the same 404, so the route is no liveness oracle for strangers.
 	mux.Handle("GET /api/v1/users/{id}/identity", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		target := r.PathValue("id")
@@ -262,7 +266,7 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		var deviceID, publicKey, fingerprint string
 		err := db.QueryRow(`SELECT d.id,d.public_key,d.fingerprint FROM devices d JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.user_id=?1 AND d.platform='identity' AND d.revoked_at='' AND (?1=?2
  OR EXISTS(SELECT 1 FROM memberships a JOIN memberships b ON b.container_id=a.container_id AND b.user_id=?1 AND b.revoked_at='' JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.user_id=?2 AND a.revoked_at='')
- OR EXISTS(SELECT 1 FROM memberships a JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.user_id=?2 AND a.revoked_at='' AND a.role IN ('owner','admin')))`, target, s.UserID).Scan(&deviceID, &publicKey, &fingerprint)
+ OR EXISTS(SELECT 1 FROM invitations i JOIN containers c ON c.id=i.container_id AND c.deleted_at='' AND c.kind IN ('team','project') JOIN memberships a ON a.container_id=i.container_id AND a.user_id=?2 AND a.revoked_at='' AND a.role IN ('owner','admin') WHERE i.invitee_id=?1 AND i.inviter_id=?2 AND i.status='pending' AND i.expires_at>?3))`, target, s.UserID, time.Now().UTC().Format(time.RFC3339)).Scan(&deviceID, &publicKey, &fingerprint)
 		if errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
@@ -335,6 +339,9 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?3 WHERE id=?1 OR (team_id=?1 AND deleted_at='')`,
 		`DELETE FROM key_envelopes WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
 		`DELETE FROM device_containers WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
+		// The removed steward's pending invitations die with them (envelopes cascade).
+		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND inviter_id=?2 AND status='pending'`,
+		`DELETE FROM invitation_envelopes WHERE container_id IN ` + scope + ` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`,
 	} {
 		if _, err := tx.Exec(q, cid, target, now); err != nil {
 			return err

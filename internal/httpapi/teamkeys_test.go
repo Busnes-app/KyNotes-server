@@ -791,6 +791,10 @@ func TestInvitationEnvelopesMoveOnlyAtTheirGeneration(t *testing.T) {
 	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusOK {
 		t.Fatalf("rotate team=%d %s", code, out)
 	}
+	var pending int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM invitation_envelopes WHERE invitation_id=?`, staleInv).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("rotation left stale invitation envelopes: %d %v", pending, err)
+	}
 	if code, body := status(t, stale.do(t, http.MethodPost, "/api/v1/invitations/"+staleInv+"/accept", []byte(`{"token":`+quote(staleTok)+`}`), true, false)); code != http.StatusNoContent {
 		t.Fatalf("accept stale=%d %s", code, body)
 	}
@@ -819,8 +823,32 @@ func TestUserIdentityVisibility(t *testing.T) {
 	if code, _ := get(tm.editor.pairClient, stranger.id); code != http.StatusNotFound {
 		t.Fatalf("editor saw a stranger: %d", code)
 	}
+	if code, _ := get(tm.owner, stranger.id); code != http.StatusNotFound {
+		t.Fatalf("steward resolved a stranger before inviting them: %d", code)
+	}
+	// A fresh workbook owner is a steward of a solo container: still no lookup, even after inviting.
+	loner := tm.owner.addUser(t, "loner")
+	if code, out := status(t, loner.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), true, false)); code != http.StatusOK {
+		t.Fatalf("create workbook=%d %s", code, out)
+	}
+	var book string
+	if err := tm.owner.db.QueryRow(`SELECT id FROM containers WHERE owner_user_id=?`, loner.id).Scan(&book); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := invite(t, loner.pairClient, book, stranger.id); code != http.StatusOK {
+		t.Fatalf("workbook invite=%d", code)
+	}
+	if code, _ := get(loner.pairClient, stranger.id); code != http.StatusNotFound {
+		t.Fatalf("workbook owner resolved a stranger: %d", code)
+	}
+	if _, code := invite(t, tm.owner, tm.id, stranger.id); code != http.StatusOK {
+		t.Fatalf("team invite=%d", code)
+	}
 	if code, _ := get(tm.owner, stranger.id); code != http.StatusOK {
-		t.Fatalf("steward could not resolve an invite target: %d", code)
+		t.Fatalf("inviting steward could not resolve the invitee: %d", code)
+	}
+	if code, _ := get(tm.admin.pairClient, stranger.id); code != http.StatusNotFound {
+		t.Fatalf("another steward resolved someone else's invitee: %d", code)
 	}
 	if code, _ := get(stranger.pairClient, tm.editor.id); code != http.StatusNotFound {
 		t.Fatalf("stranger without a container saw a user: %d", code)
@@ -843,5 +871,93 @@ func TestUserIdentityVisibility(t *testing.T) {
 	tm.viewer.deviceID, tm.viewer.deviceSecret, _ = tm.viewer.register(t, tm.viewer.mintToken(t), bytes.Repeat([]byte{6}, 32))
 	if res := tm.viewer.doDeviceOnly(t, http.MethodGet, "/api/v1/users/"+tm.admin.id+"/identity", nil); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("device credential=%d", res.StatusCode)
+	}
+}
+
+// invite creates an admin invitation without envelopes and returns its ID and token.
+func invite(t *testing.T, p *pairClient, cid, invitee string) ([2]string, int) {
+	t.Helper()
+	res := p.do(t, http.MethodPost, "/api/v1/containers/"+cid+"/invitations", []byte(`{"inviteeId":`+quote(invitee)+`,"role":"admin"}`), true, false)
+	var out struct{ ID, Token string }
+	data, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	_ = json.Unmarshal(data, &out)
+	return [2]string{out.ID, out.Token}, res.StatusCode
+}
+
+func accept(t *testing.T, p *pairClient, inv [2]string) int {
+	t.Helper()
+	code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/invitations/"+inv[0]+"/accept", []byte(`{"token":`+quote(inv[1])+`}`), true, false))
+	return code
+}
+
+func TestInvitationsDieWithTheirStewardship(t *testing.T) {
+	tm := newTeam(t)
+	removed, demoted := tm.owner.addUser(t, "removed"), tm.owner.addUser(t, "demoted")
+	removedID := removed.createIdentity(t)
+	inv, code := invite(t, tm.admin.pairClient, tm.id, removed.id)
+	if code != http.StatusOK {
+		t.Fatalf("invite=%d", code)
+	}
+	if _, err := tm.owner.db.Exec(`INSERT INTO invitation_envelopes(invitation_id,container_id,device_id,key_generation,alg,envelope) VALUES(?,?,?,1,?,x'01')`, inv[0], tm.id, removedID, envelopeAlg); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.admin.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d %s", code, out)
+	}
+	var invitations, envelopes int
+	if err := tm.owner.db.QueryRow(`SELECT (SELECT COUNT(*) FROM invitations WHERE inviter_id=?),(SELECT COUNT(*) FROM invitation_envelopes)`, tm.admin.id).Scan(&invitations, &envelopes); err != nil || invitations != 0 || envelopes != 0 {
+		t.Fatalf("removed steward's invitations=%d envelopes=%d %v", invitations, envelopes, err)
+	}
+	if code := accept(t, removed.pairClient, inv); code != http.StatusNotFound {
+		t.Fatalf("accepted a removed steward's invitation: %d", code)
+	}
+	inv, _ = invite(t, tm.editor.pairClient, tm.id, demoted.id)
+	if inv[0] != "" {
+		t.Fatal("editor invited")
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='admin' WHERE container_id=? AND user_id=?`, tm.id, tm.editor.id); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ = invite(t, tm.editor.pairClient, tm.id, demoted.id)
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='editor' WHERE container_id=? AND user_id=?`, tm.id, tm.editor.id); err != nil {
+		t.Fatal(err)
+	}
+	if code := accept(t, demoted.pairClient, inv); code != http.StatusNotFound {
+		t.Fatalf("accepted a demoted steward's invitation: %d", code)
+	}
+	var members int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id IN (?,?)`, removed.id, demoted.id).Scan(&members); err != nil || members != 0 {
+		t.Fatalf("memberships=%d %v", members, err)
+	}
+}
+
+func TestCollaboratorRemovalRulesAndAcceptOutcomes(t *testing.T) {
+	tm := newTeam(t)
+	other := tm.owner.addUser(t, "admin3")
+	if _, err := tm.owner.db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,'admin','2026-10-07T00:00:00Z')`, mint(t, "mem"), tm.id, other.id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := status(t, tm.admin.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+other.id, nil, true, false)); code != http.StatusForbidden {
+		t.Fatalf("admin removed an admin: %d", code)
+	}
+	if code, out := status(t, tm.admin.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.viewer.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("admin removed a viewer: %d %s", code, out)
+	}
+	var audits int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='container.member_remove' AND object_id=? AND actor_user_id=?`, tm.viewer.id, tm.admin.id).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("audits=%d %v", audits, err)
+	}
+	guest := tm.owner.addUser(t, "guest")
+	inv, _ := invite(t, tm.owner, tm.id, guest.id)
+	if code := accept(t, guest.pairClient, inv); code != http.StatusNoContent {
+		t.Fatalf("accept=%d", code)
+	}
+	if code := accept(t, guest.pairClient, inv); code != http.StatusNotFound {
+		t.Fatalf("second accept=%d", code)
+	}
+	again, _ := invite(t, tm.owner, tm.id, tm.viewer.id)
+	if code := accept(t, tm.viewer.pairClient, again); code != http.StatusConflict {
+		t.Fatalf("re-invited former member=%d", code)
 	}
 }

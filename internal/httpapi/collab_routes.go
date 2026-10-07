@@ -7,8 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"time"
 )
@@ -64,12 +66,20 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var targetRole string
-		if db.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, target).Scan(&targetRole) != nil || targetRole == "owner" || (role == "admin" && targetRole == "admin") {
-			WriteError(w, r, 403, "forbidden", "insufficient role")
-			return
-		}
-		if writeTeamKeyError(w, r, dbTx(db, func(tx *sql.Tx) error { return removeMemberTx(tx, cid, target) })) {
+		err := dbTx(db, func(tx *sql.Tx) error {
+			var role, targetRole string
+			if tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil || !isSteward(role) {
+				return errInsufficientRole
+			}
+			if tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, target).Scan(&targetRole) != nil || targetRole == "owner" || (role == "admin" && targetRole == "admin") {
+				return errInsufficientRole
+			}
+			if err := removeMemberTx(tx, cid, target); err != nil {
+				return err
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.member_remove", cid, target, "success", "", RequestID(r))
+		})
+		if writeTeamKeyError(w, r, err) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -146,8 +156,8 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		sum := sha256.Sum256([]byte(in.Token))
-		var cid, invitee, role, status, expires string
-		if e := db.QueryRow(`SELECT container_id,invitee_id,role,status,expires_at FROM invitations WHERE id=? AND token_hash=?`, r.PathValue("id"), hex.EncodeToString(sum[:])).Scan(&cid, &invitee, &role, &status, &expires); e != nil || invitee != s.UserID || status != "pending" || time.Now().After(parseTime(expires)) {
+		var cid, inviter, invitee, role, status, expires string
+		if e := db.QueryRow(`SELECT container_id,inviter_id,invitee_id,role,status,expires_at FROM invitations WHERE id=? AND token_hash=?`, r.PathValue("id"), hex.EncodeToString(sum[:])).Scan(&cid, &inviter, &invitee, &role, &status, &expires); e != nil || invitee != s.UserID || status != "pending" || time.Now().After(parseTime(expires)) {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -161,6 +171,20 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			if n, _ := result.RowsAffected(); n != 1 {
 				return sql.ErrNoRows
 			}
+			// The inviter must still be a live steward of a live container.
+			var steward, existing int
+			if e = tx.QueryRow(`SELECT COUNT(*) FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' JOIN users u ON u.id=m.user_id AND u.status='active' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND m.role IN ('owner','admin')`, cid, inviter).Scan(&steward); e != nil {
+				return e
+			}
+			if steward == 0 {
+				return sql.ErrNoRows
+			}
+			if e = tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, s.UserID, cid).Scan(&existing); e != nil {
+				return e
+			}
+			if existing > 0 {
+				return errMembershipExists
+			}
 			if _, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, cid, s.UserID, role, now); e != nil {
 				return e
 			}
@@ -169,8 +193,11 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			}
 			return moveInvitationEnvelopesTx(tx, r.PathValue("id"), s.UserID, now)
 		})
-		if e != nil {
+		if errors.Is(e, errMembershipExists) {
 			WriteError(w, r, 409, "already_exists", "membership already exists")
+			return
+		}
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
