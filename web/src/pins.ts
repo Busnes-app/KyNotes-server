@@ -24,6 +24,21 @@ export function sameKey(a: string, b: string): boolean {
   }
 }
 
+/** A recipient's identity key differs from its pin; wrap only after the user confirms (confirmFingerprintChange). */
+export class FingerprintChangedError extends Error {
+  constructor(readonly member: MemberKey, readonly pinned: string) {
+    super(`${member.username}'s identity key changed`);
+    this.name = "FingerprintChangedError";
+  }
+}
+
+/** The user compared the new fingerprint out of band and accepts it: pin the member's current key. */
+export function confirmFingerprintChange(pins: Pins, member: MemberKey): Pins {
+  const key = member.identity?.publicKey;
+  if (!key || !validKey(key)) throw new Error("invalid identity public key");
+  return { ...pins, [member.userId]: key };
+}
+
 /** Splits keyed members into first-seen and changed; unchanged pins are neither. */
 export function comparePins(pins: Pins, members: MemberKey[]): { fresh: MemberKey[]; changed: PinChange[] } {
   const fresh: MemberKey[] = [];

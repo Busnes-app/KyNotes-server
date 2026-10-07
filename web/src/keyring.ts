@@ -1,7 +1,7 @@
 import { randomBytes } from "@noble/ciphers/utils.js";
 import { base64, fromBase64, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
+import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
@@ -122,10 +122,24 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
   return grants.length ? { kind: "wrap", grants } : { kind: "idle" };
 }
 
+/**
+ * Wraps key for member, signed by this browser's identity. Wrapping for this user
+ * only ever targets this browser's own identity. A first-seen recipient is pinned
+ * (persist the returned pins); a changed key throws FingerprintChangedError.
+ */
 export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, me: Me, pins: Pins): { envelope: Envelope; pins: Pins } {
   const identity = member.identity!;
-  const envelope = base64(wrapEnvelope(key, publicKeyBytes(identity.publicKey), containerID, generation, identity.deviceId, me));
-  return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins };
+  const recipient = publicKeyBytes(identity.publicKey);
+  let next = pins;
+  if (member.userId === me.userId) {
+    if (identity.deviceId !== me.deviceId || !sameKey(identity.publicKey, base64(me.publicKey))) throw new Error("own identity mismatch");
+  } else if (pins[member.userId] === undefined) {
+    next = { ...pins, [member.userId]: identity.publicKey };
+  } else if (!sameKey(pins[member.userId], identity.publicKey)) {
+    throw new FingerprintChangedError(member, pins[member.userId]);
+  }
+  const envelope = base64(wrapEnvelope(key, recipient, containerID, generation, identity.deviceId, me));
+  return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins: next };
 }
 
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */
