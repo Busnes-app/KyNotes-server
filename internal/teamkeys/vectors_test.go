@@ -56,6 +56,9 @@ type envelopeVector struct {
 	RecipientDeviceID   string `json:"recipientDeviceId"`
 	RecipientPrivateKey string `json:"recipientPrivateKey"`
 	RecipientPublicKey  string `json:"recipientPublicKey"`
+	SenderDeviceID      string `json:"senderDeviceId"`
+	SenderPrivateKey    string `json:"senderPrivateKey"`
+	SenderPublicKey     string `json:"senderPublicKey"`
 	EphemeralPrivateKey string `json:"ephemeralPrivateKey"`
 	Nonce               string `json:"nonce"`
 	ContentKey          string `json:"contentKey"`
@@ -120,51 +123,60 @@ func identity(t *testing.T, userID, kek, priv, nonce string) identityVector {
 	return identityVector{userID, kek, priv, hex.EncodeToString(pub), nonce, hex.EncodeToString(wrapped)}
 }
 
-func envelope(t *testing.T, containerID string, generation uint32, deviceID, recipientPriv, ephPriv, nonce, contentKey string) envelopeVector {
+func envelope(t *testing.T, containerID string, generation uint32, deviceID, recipientPriv, senderDeviceID, senderPriv, ephPriv, nonce, contentKey string) envelopeVector {
 	mustID(t, "cnt", containerID)
 	mustID(t, "dev", deviceID)
+	mustID(t, "dev", senderDeviceID)
 	if generation == 0 {
 		t.Fatal("key generation must be >= 1")
 	}
+	const label = "kynotes/envelope/v2"
 	recipientPub := x25519(t, unhex(t, recipientPriv), curve25519.Basepoint)
+	senderPub := x25519(t, unhex(t, senderPriv), curve25519.Basepoint)
 	ephPub := x25519(t, unhex(t, ephPriv), curve25519.Basepoint)
-	shared := x25519(t, unhex(t, ephPriv), recipientPub)
-	key := hkdf32(t, shared, append(bytes.Clone(ephPub), recipientPub...), "kynotes/envelope/v1")
-	aad := append([]byte("kynotes/envelope/v1"), containerID...)
+	salt := append(append(bytes.Clone(ephPub), recipientPub...), senderPub...)
+	ikm := append(x25519(t, unhex(t, ephPriv), recipientPub), x25519(t, unhex(t, senderPriv), recipientPub)...)
+	key := hkdf32(t, ikm, salt, label)
+	aad := append([]byte(label), containerID...)
 	aad = binary.BigEndian.AppendUint32(aad, generation)
 	aad = append(aad, deviceID...)
+	aad = append(aad, senderDeviceID...)
 	aead, err := chacha20poly1305.New(key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := unhex(t, nonce)
-	env := append([]byte{0x01}, ephPub...)
+	env := append([]byte{0x02}, senderDeviceID...)
+	env = append(env, ephPub...)
 	env = append(env, n...)
 	env = aead.Seal(env, n, unhex(t, contentKey), aad)
-	if len(env) != 93 {
-		t.Fatalf("envelope is %d bytes, want 93", len(env))
+	if len(env) != 123 {
+		t.Fatalf("envelope is %d bytes, want 123", len(env))
 	}
 	// The recipient side must open what the sender side sealed.
-	back := hkdf32(t, x25519(t, unhex(t, recipientPriv), ephPub), append(bytes.Clone(ephPub), recipientPub...), "kynotes/envelope/v1")
-	open, _ := chacha20poly1305.New(back)
-	if pt, err := open.Open(nil, n, env[45:], aad); err != nil || hex.EncodeToString(pt) != contentKey {
+	back := append(x25519(t, unhex(t, recipientPriv), ephPub), x25519(t, unhex(t, recipientPriv), senderPub)...)
+	open, _ := chacha20poly1305.New(hkdf32(t, back, salt, label))
+	if pt, err := open.Open(nil, n, env[75:], aad); err != nil || hex.EncodeToString(pt) != contentKey {
 		t.Fatalf("round trip failed: %v", err)
 	}
-	return envelopeVector{containerID, generation, deviceID, recipientPriv, hex.EncodeToString(recipientPub), ephPriv, nonce, contentKey, hex.EncodeToString(env)}
+	return envelopeVector{containerID, generation, deviceID, recipientPriv, hex.EncodeToString(recipientPub), senderDeviceID, senderPriv, hex.EncodeToString(senderPub), ephPriv, nonce, contentKey, hex.EncodeToString(env)}
 }
 
-// Fixed scalars are the RFC 7748 §6.1 Alice/Bob keys; the password matches
+// Fixed recipient and ephemeral scalars are the RFC 7748 §6.1 Alice/Bob keys; the password matches
 // testdata/protocol/auth_vectors.json so authSecret is pinned twice.
 func generate(t *testing.T) vectors {
 	alice := "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"
 	bob := "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb"
+	// Senders are the RFC 7748 §5.2 scalars.
+	carol := "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4"
+	dave := "4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d"
 	l := login(t, "correct horse battery staple", "MDEyMzQ1Njc4OWFiY2RlZg==", 100000)
 	return vectors{
 		Login:    []loginVector{l},
 		Identity: []identityVector{identity(t, "usr_0123456789abcdefghjkmnpqrs", l.UserKEK, bob, "a0a1a2a3a4a5a6a7a8a9aaab")},
 		Envelopes: []envelopeVector{
-			envelope(t, "cnt_00000000000000000000000000", 1, "dev_00000000000000000000000000", bob, alice, "000102030405060708090a0b", "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"),
-			envelope(t, "cnt_tvwxyz0123456789abcdefghjk", 4294967295, "dev_mnpqrstvwxyz0123456789abcd", alice, bob, "0c0d0e0f1011121314151617", "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f"),
+			envelope(t, "cnt_00000000000000000000000000", 1, "dev_00000000000000000000000000", bob, "dev_11111111111111111111111111", carol, alice, "000102030405060708090a0b", "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"),
+			envelope(t, "cnt_tvwxyz0123456789abcdefghjk", 4294967295, "dev_mnpqrstvwxyz0123456789abcd", alice, "dev_zyxwvtsrqpnmkjhgfedcba9876", dave, bob, "0c0d0e0f1011121314151617", "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f"),
 		},
 	}
 }
