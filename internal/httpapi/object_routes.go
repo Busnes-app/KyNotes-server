@@ -206,11 +206,8 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		var generation int64
-		_ = db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation)
-		requested, _ := strconv.ParseInt(r.Header.Get("X-Kynotes-Key-Generation"), 10, 64)
-		if requested != generation {
-			WriteError(w, r, 409, "already_exists", "key rotation incomplete")
+		generation, _ := strconv.ParseInt(r.Header.Get("X-Kynotes-Key-Generation"), 10, 64)
+		if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, generation)) {
 			return
 		}
 		routing := []byte{}
@@ -221,12 +218,6 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return
 			}
-		}
-		var missing int
-		_ = db.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing)
-		if missing > 0 {
-			WriteError(w, r, 409, "already_exists", "key rotation incomplete")
-			return
 		}
 		idemKey := r.Header.Get("Idempotency-Key")
 		idemHash := ""
@@ -287,6 +278,12 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		// A removal or rotation may have committed while the body streamed.
+		if e = checkWriteGate(tx, cid, s.UserID, generation); e != nil {
+			_ = tx.Rollback()
+			writeTeamKeyError(w, r, e)
+			return
+		}
 		var live int64
 		_ = tx.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&live)
 		var changeSeq int64
@@ -324,7 +321,7 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			_, e = tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now)
 		}
 		if e == nil {
-			_, e = tx.Exec(`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,base_version,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?)`, oid, next, digest, size, generation, base, changeSeq, now)
+			_, e = tx.Exec(`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,base_version,change_seq,created_at,author_user_id) VALUES(?,?,?,?,?,?,?,?,?)`, oid, next, digest, size, generation, base, changeSeq, now, s.UserID)
 		}
 		if e == nil {
 			_, e = tx.Exec(`UPDATE objects SET current_version=?,change_seq=?,routing_ciphertext=?,updated_at=? WHERE id=?`, next, changeSeq, routing, now, oid)

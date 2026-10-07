@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-// missingEnvelopesSQL is the save gate: members' devices lacking an envelope at
-// the current generation. Identity rows are excluded until phase 2 replaces it.
-const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
-
 func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.Handle("GET /api/v1/devices/{id}/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)

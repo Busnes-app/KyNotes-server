@@ -221,14 +221,7 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var generation int
-		if db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation) != nil || in.KeyGeneration != generation {
-			WriteError(w, r, 409, "already_exists", "key rotation incomplete")
-			return
-		}
-		var missing int
-		if db.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing) != nil || missing > 0 {
-			WriteError(w, r, 409, "already_exists", "key rotation incomplete")
+		if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, int64(in.KeyGeneration))) {
 			return
 		}
 		body, e := base64.StdEncoding.DecodeString(in.BodyCiphertext)
@@ -239,6 +232,9 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 		id, _ := ids.Mint("cmt")
 		now := time.Now().UTC().Format(time.RFC3339)
 		e = dbTx(db, func(tx *sql.Tx) error {
+			if e := checkWriteGate(tx, cid, s.UserID, int64(in.KeyGeneration)); e != nil {
+				return e
+			}
 			var seq int64
 			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); e != nil {
 				return e
@@ -253,8 +249,7 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			}
 			return nil
 		})
-		if e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		writeJSON(w, map[string]string{"id": id})

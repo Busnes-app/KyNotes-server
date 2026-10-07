@@ -204,4 +204,91 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		writeJSON(w, map[string]any{"keyGeneration": next})
 	})))
+	mux.Handle("PUT /api/v1/comments/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		id := r.PathValue("id")
+		var in struct {
+			BodyCiphertext string `json:"bodyCiphertext"`
+			KeyGeneration  int64  `json:"keyGeneration"`
+		}
+		if ids.Validate("cmt", id) != nil || json.NewDecoder(r.Body).Decode(&in) != nil || in.KeyGeneration < 1 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		body, err := base64.StdEncoding.DecodeString(in.BodyCiphertext)
+		if err != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		err = dbTx(db, func(tx *sql.Tx) error {
+			var cid, author, role string
+			err := tx.QueryRow(`SELECT c.container_id,c.author_user_id,m.role FROM comments c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, s.UserID, id).Scan(&cid, &author, &role)
+			if err != nil {
+				return err
+			}
+			if author != s.UserID || role == "viewer" {
+				return errInsufficientRole
+			}
+			if err := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration); err != nil {
+				return err
+			}
+			now := time.Now().UTC().Format(time.RFC3339)
+			var seq int64
+			if err := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); err != nil {
+				return err
+			}
+			_, err = tx.Exec(`UPDATE comments SET body_ciphertext=?,key_generation=?,change_seq=? WHERE id=?`, body, in.KeyGeneration, seq, id)
+			return err
+		})
+		if writeTeamKeyError(w, r, err) {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+}
+
+// missingEnvelopesSQL is the legacy save gate for containers that never rotated
+// (shared_generation=0): members' paired devices lacking an envelope at the
+// current generation. Identity rows are excluded.
+const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
+
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// checkWriteGate admits a content write by userID into cid at generation
+// requested. Containers that never rotated keep the legacy device rule; once
+// rotated, the writer's own identity needs an envelope at the current generation.
+// Call it before streaming a body and again inside the write transaction.
+func checkWriteGate(q rowQuerier, cid, userID string, requested int64) error {
+	var generation, shared int64
+	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errNotMember
+	}
+	if err != nil {
+		return err
+	}
+	if requested != generation {
+		return errKeyRotationIncomplete
+	}
+	admitted := false
+	if shared == 0 {
+		var missing int
+		err = q.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing)
+		admitted = missing == 0
+	} else {
+		err = q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted)
+	}
+	if err != nil {
+		return err
+	}
+	if !admitted {
+		return errKeyRotationIncomplete
+	}
+	return nil
 }

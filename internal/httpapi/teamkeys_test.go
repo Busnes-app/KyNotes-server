@@ -520,3 +520,142 @@ func TestEnvelopeWritesRecheckStepUpInTransaction(t *testing.T) {
 		t.Fatalf("stale step-up wrote: generation=%d", g)
 	}
 }
+
+func TestLegacyContainersKeepTheDeviceGate(t *testing.T) {
+	tm := newTeam(t)
+	// Identities without envelopes never block a container that has not rotated.
+	oid, code := tm.editor.save(t, tm.id, "", 1)
+	if code != http.StatusOK {
+		t.Fatalf("legacy save=%d", code)
+	}
+	if _, code := tm.editor.comment(t, oid, 1); code != http.StatusOK {
+		t.Fatalf("legacy comment=%d", code)
+	}
+	if code := tm.editor.attach(t, tm.id, 1); code != http.StatusOK {
+		t.Fatalf("legacy upload=%d", code)
+	}
+	// A removal bumps the generation but leaves the container legacy.
+	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.viewer.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d %s", code, body)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
+		t.Fatalf("legacy save after removal=%d", code)
+	}
+	// The legacy rule still holds: a member's paired phone without an envelope blocks.
+	tm.editor.deviceID, _, _ = tm.editor.register(t, tm.editor.mintToken(t), bytes.Repeat([]byte{8}, 32))
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusConflict {
+		t.Fatalf("legacy save with an unwrapped phone=%d", code)
+	}
+}
+
+func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.id, "", 1)
+	cmt, _ := tm.editor.comment(t, oid, 1)
+	tm.rotate(t, tm.id, 1)
+	if _, code := tm.editor.save(t, tm.id, oid, 1); code != http.StatusConflict {
+		t.Fatalf("save at the old generation=%d", code)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
+		t.Fatalf("enveloped writer=%d", code)
+	}
+	// The removal bumps to 3 with no envelopes: no one writes until a steward rotates.
+	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.admin.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d %s", code, body)
+	}
+	for name, code := range map[string]int{
+		"save":    func() int { _, c := tm.editor.save(t, tm.id, oid, 3); return c }(),
+		"comment": func() int { _, c := tm.editor.comment(t, oid, 3); return c }(),
+		"upload":  func() int { return tm.editor.attach(t, tm.id, 3) }(),
+		"comment rewrite": func() int {
+			c, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":3}`), true, false))
+			return c
+		}(),
+	} {
+		if code != http.StatusConflict {
+			t.Fatalf("%s without an envelope=%d", name, code)
+		}
+	}
+	body := rotationBody(3, envJSON(tm.ownerID, 4, 1), envJSON(tm.editorID, 4, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusOK {
+		t.Fatalf("rotate after removal=%d %s", code, out)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 4); code != http.StatusOK {
+		t.Fatalf("save after re-wrap=%d", code)
+	}
+	if code := tm.editor.attach(t, tm.id, 4); code != http.StatusOK {
+		t.Fatalf("upload after re-wrap=%d", code)
+	}
+	var author string
+	if err := tm.owner.db.QueryRow(`SELECT author_user_id FROM object_versions WHERE object_id=? ORDER BY version DESC LIMIT 1`, oid).Scan(&author); err != nil || author != tm.editor.id {
+		t.Fatalf("author=%q %v", author, err)
+	}
+}
+
+func TestCommentRewriteIsAuthorOnly(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.id, "", 1)
+	cmt, _ := tm.editor.comment(t, oid, 1)
+	path := "/api/v1/comments/" + cmt
+	body := []byte(`{"bodyCiphertext":"bmV3","keyGeneration":1}`)
+	if code, _ := status(t, tm.owner.do(t, http.MethodPut, path, body, true, false)); code != http.StatusForbidden {
+		t.Fatalf("owner rewrote another author's comment: %d", code)
+	}
+	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, body, false, false)); code != http.StatusForbidden {
+		t.Fatalf("without CSRF: %d", code)
+	}
+	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, []byte(`{"bodyCiphertext":"bmV3","keyGeneration":2}`), true, false)); code != http.StatusConflict {
+		t.Fatalf("future generation: %d", code)
+	}
+	if code, out := status(t, tm.editor.do(t, http.MethodPut, path, body, true, false)); code != http.StatusNoContent {
+		t.Fatalf("author rewrite=%d %s", code, out)
+	}
+	var stored []byte
+	if err := tm.owner.db.QueryRow(`SELECT body_ciphertext FROM comments WHERE id=?`, cmt).Scan(&stored); err != nil || string(stored) != "new" {
+		t.Fatalf("stored=%q %v", stored, err)
+	}
+	if code, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/cmt_bad", body, true, false)); code != http.StatusBadRequest {
+		t.Fatalf("invalid ID: %d", code)
+	}
+}
+
+func TestSaveRacingRemovalOrRotationIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.id, "", 1)
+	tm.rotate(t, tm.id, 1)
+	rotated := 0
+	if code := tm.editor.saveRacing(t, oid, 2, func() {
+		rotated, _ = tm.owner.send(http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", rotationBody(2, envJSON(tm.ownerID, 3, 1), envJSON(tm.adminID, 3, 1), envJSON(tm.editorID, 3, 1)))
+	}); rotated != http.StatusOK || code != http.StatusConflict {
+		t.Fatalf("save racing a rotation: rotate=%d save=%d", rotated, code)
+	}
+	removed := 0
+	if code := tm.editor.saveRacing(t, oid, 3, func() {
+		removed, _ = tm.owner.send(http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil)
+	}); removed != http.StatusNoContent || code != http.StatusNotFound {
+		t.Fatalf("save racing a removal: remove=%d save=%d", removed, code)
+	}
+	var versions int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id=?`, oid).Scan(&versions); err != nil || versions != 1 {
+		t.Fatalf("versions=%d %v", versions, err)
+	}
+}
+
+// attach uploads a 4-byte attachment into cid and finalizes it at generation.
+func (p *pairClient) attach(t *testing.T, cid string, generation int64) int {
+	t.Helper()
+	res := p.do(t, http.MethodPost, "/api/v1/containers/"+cid+"/uploads", []byte(`{"declaredBytes":4,"kind":"attachment"}`), true, false)
+	var up struct {
+		ID string `json:"uploadId"`
+	}
+	data, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || json.Unmarshal(data, &up) != nil {
+		t.Fatalf("upload create=%d %s", res.StatusCode, data)
+	}
+	if code, body := p.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+up.ID, map[string]string{"X-Kynotes-Chunk-Index": "0"}, []byte("abcd"), func() {}); code != http.StatusOK {
+		t.Fatalf("chunk=%d %s", code, body)
+	}
+	code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/uploads/"+up.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(generation, 10)+`}`), true, false))
+	return code
+}
