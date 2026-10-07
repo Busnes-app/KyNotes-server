@@ -136,6 +136,34 @@ export function groupPath(groupID: string | undefined, parents: Map<string, stri
   return path;
 }
 
+/** Levels of groups in the subtree headed by `id`, itself included. */
+function subtreeHeight(id: string, parents: Map<string, string | undefined>): number {
+  let height = 0;
+  for (const [child, parent] of parents) if (parent === id) height = Math.max(height, subtreeHeight(child, parents));
+  return height + 1;
+}
+
+/** Whether group `id` may move into `target` (undefined = root): not into its own subtree, not past MAX_GROUP_DEPTH. */
+export function groupMoveAllowed(id: string, target: string | undefined, parents: Map<string, string | undefined>): boolean {
+  const path = groupPath(target, parents);
+  return !path.includes(id) && path.length + subtreeHeight(id, parents) <= MAX_GROUP_DEPTH;
+}
+
+/** "Move into group…" choices labelled "A › B", sorted by label; `moving` (a group) skips targets it may not enter. */
+export function groupTargets(groups: Array<{ id: string; title: string }>, parents: Map<string, string | undefined>, moving?: string) {
+  const titles = new Map(groups.map((group) => [group.id, group.title]));
+  return groups
+    .filter((group) => moving === undefined || groupMoveAllowed(moving, group.id, parents))
+    .map((group) => ({ id: group.id, label: groupPath(group.id, parents).map((id) => titles.get(id)).join(" › ") }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Group holding section `id`; Quick Notes and unknown sections are at the root. */
+export function groupOfSection(id: string, sections: Grouped[], parents: Map<string, string | undefined>): string | undefined {
+  const section = sections.find((entry) => entry.id === id);
+  return section ? sectionGroup(section, parents) : undefined;
+}
+
 /** Alt+Arrow: index of the page to move the block at `index` before (list length = end), or undefined without a sibling that way. */
 export function siblingMove(levels: number[], index: number, delta: 1 | -1): number | undefined {
   const level = levels[index];

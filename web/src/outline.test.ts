@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupParents, groupPath, parseCollapsed, placeBlock, sectionGroup, shiftLevel, siblingMove, visibleRows } from "./outline";
+import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, shiftLevel, siblingMove, visibleRows } from "./outline";
 
 const page = (id: string, level?: number, order?: string) => ({ id, level, order });
 
@@ -126,5 +126,38 @@ describe("parseCollapsed", () => {
     expect(parseCollapsed("{").size).toBe(0);
     expect(parseCollapsed('{"a":1}').size).toBe(0);
     expect(parseCollapsed(null).size).toBe(0);
+  });
+});
+
+describe("group moves", () => {
+  const id = (n: number) => `obj_${String(n).padStart(26, "0")}`;
+  it("refuses moving a group into itself, its subtree or past the depth cap", () => {
+    const parents = groupParents([{ id: id(1) }, { id: id(2), group: id(1) }, { id: id(3), group: id(2) }, { id: id(4) }]);
+    expect(groupMoveAllowed(id(1), undefined, parents)).toBe(true);
+    expect(groupMoveAllowed(id(1), id(1), parents)).toBe(false);
+    expect(groupMoveAllowed(id(1), id(3), parents)).toBe(false);
+    expect(groupMoveAllowed(id(4), id(3), parents)).toBe(true); // depth 4
+    expect(groupMoveAllowed(id(1), id(4), parents)).toBe(true); // 1 + height 3
+    const deep = groupParents([{ id: id(1) }, { id: id(2), group: id(1) }, { id: id(3), group: id(2) }, { id: id(4), group: id(3) }, { id: id(5) }, { id: id(6), group: id(5) }]);
+    expect(groupMoveAllowed(id(5), id(4), deep)).toBe(false);
+    expect(groupMoveAllowed(id(6), id(3), deep)).toBe(true);
+    expect(groupMoveAllowed(id(5), id(3), deep)).toBe(false);
+  });
+  it("lists move targets labelled by path, without the moving group's subtree", () => {
+    const groups = [{ id: id(1), title: "Work" }, { id: id(2), title: "Q4", group: id(1) }, { id: id(3), title: "Home" }];
+    const parents = groupParents(groups);
+    expect(groupTargets(groups, parents)).toEqual([
+      { id: id(3), label: "Home" },
+      { id: id(1), label: "Work" },
+      { id: id(2), label: "Work › Q4" },
+    ]);
+    expect(groupTargets(groups, parents, id(1))).toEqual([{ id: id(3), label: "Home" }]);
+  });
+  it("finds the group of a routed section", () => {
+    const parents = groupParents([{ id: id(1) }]);
+    const sections = [{ id: id(8), group: id(1) }, { id: id(9), group: id(42) }];
+    expect(groupOfSection(id(8), sections, parents)).toBe(id(1));
+    expect(groupOfSection(id(9), sections, parents)).toBeUndefined();
+    expect(groupOfSection("quick", sections, parents)).toBeUndefined();
   });
 });

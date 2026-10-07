@@ -78,10 +78,10 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
-import { ancestors, blockRange, displayLevels, dropBefore, parseCollapsed, placeBlock, shiftLevel, siblingMove, visibleRows } from "./outline";
+import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
 import {
   clearDeviceKey,
@@ -536,7 +536,20 @@ function Workspace({
     sectionsRef.current = update(sectionsRef.current);
     setSections(sectionsRef.current);
   };
+  const [groups, setGroups] = useState<Group[]>([]);
+  const groupsRef = useRef<Group[]>([]);
+  const patchGroups = (update: (value: Group[]) => Group[]) => {
+    groupsRef.current = update(groupsRef.current);
+    setGroups(groupsRef.current);
+  };
+  const parents = useMemo(() => groupParents(groups), [groups]);
   const [sectionID, setSectionID] = useState<string>(QUICK_NOTES);
+  // The group whose tabs are shown; undefined is the notebook root.
+  const [groupID, setGroupID] = useState<string | undefined>(undefined);
+  const showSection = (id: string) => {
+    setSectionID(id);
+    setGroupID(groupOfSection(id, sectionsRef.current, groupParents(groupsRef.current)));
+  };
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
@@ -719,7 +732,7 @@ function Workspace({
       if (container.id !== selected?.id) { if (!(await selectContainer(container, route))) stay(); return; }
       const page = notes.find((note) => note.id === route.page);
       if (route.page !== selectedNoteRef.current?.id && !(await flushOpenPage())) { stay(); return; }
-      setSectionID(resolveSection(route.section, sections));
+      showSection(resolveSection(route.section, sections));
       if (page) { if (!(await selectNote(page))) stay(); }
       else if (!parseRoute(location.hash).page) setSelectedNote(null);
     })();
@@ -852,13 +865,14 @@ function Workspace({
       );
     }
   }
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[] }> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[] }> {
     const loaded: Note[] = [];
     const found: Section[] = [];
+    const foundGroups: Group[] = [];
     const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
       if (!payload) return;
       if (payload.type === "section") found.push({ ...payload, id, version });
-      else if (payload.type === "group") return; // Task 4 handles groups properly.
+      else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
     };
     let since = 0;
@@ -887,7 +901,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return { notes: loaded, sections: found };
+    return { notes: loaded, sections: found, groups: foundGroups };
   }
   /** Null when the open page could not be flushed and stays open. */
   async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
@@ -918,6 +932,8 @@ function Workspace({
     setSelectedNote(null);
     patchNotes(() => []);
     patchSections(() => []);
+    patchGroups(() => []);
+    setGroupID(undefined);
     setCommentsForNote([]);
     setAttachmentsForNote([]);
     loadCarried.current.clear();
@@ -928,7 +944,8 @@ function Workspace({
       loadCarried.current.clear();
       patchNotes(() => loaded);
       patchSections(() => objects.sections);
-      setSectionID(resolveSection(route?.section, objects.sections));
+      patchGroups(() => objects.groups);
+      showSection(resolveSection(route?.section, objects.sections));
       const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, container.id);
       const team = container.kind === "team" ? await members(container.id) : [];
@@ -1243,6 +1260,7 @@ function Workspace({
           patchNotes((value) => carrySaved(value, item.id, saved));
           carryDuringLoad(item.id, saved);
           patchSections((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
+          patchGroups((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
           const open = selectedNoteRef.current;
           // The open page may hold newer edits than the queued payload, so it stays dirty.
           if (open?.id === item.id) {
@@ -1317,16 +1335,19 @@ function Workspace({
     }
   }
 
-  function updateSection(id: string, change: Partial<SectionPayload>) {
-    patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
+  /** Chained encrypted write of a section or group, from its newest local copy; resolves true once saved. */
+  function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>) {
+    const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
+    patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
     const queued = saveChain.current.then(async () => {
-      const current = sectionsRef.current.find((entry) => entry.id === id);
-      if (!current) return;
+      const current = kind === "section" ? sectionsRef.current.find((entry) => entry.id === id) : groupsRef.current.find((entry) => entry.id === id);
+      if (!current) return false;
       const { id: _id, version, ...payload } = current;
       const saved = await writeObject(id, version, payload);
-      if (saved !== null) patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
+      if (saved !== null) patch((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
+      return saved !== null;
     });
-    saveChain.current = queued.catch(() => {});
+    saveChain.current = queued.then(() => {}, () => {});
     return queued;
   }
 
@@ -1363,29 +1384,40 @@ function Workspace({
     if (saved !== null) patchNotes((value) => carrySaved(value, id, { version: saved }));
   }
   const orderedSections = useMemo(() => sortedSections(sections), [sections]);
-  async function newSection() {
+  const groupSections = useMemo(() => orderedSections.filter((entry) => sectionGroup(entry, parents) === groupID), [orderedSections, parents, groupID]);
+  const childGroups = useMemo(() => groups.filter((entry) => parents.get(entry.id) === groupID).sort(compareOrdered), [groups, parents, groupID]);
+  /** Sorted sections or groups directly inside `parent`, read at run time. */
+  function siblings(kind: "section" | "group", parent: string | undefined): Array<Section | Group> {
+    const current = groupParents(groupsRef.current);
+    return kind === "section"
+      ? sortedSections(sectionsRef.current).filter((entry) => sectionGroup(entry, current) === parent)
+      : groupsRef.current.filter((entry) => current.get(entry.id) === parent).sort(compareOrdered);
+  }
+  async function newStructure(kind: "section" | "group") {
     if (!selected) return;
     setBusy(true);
     try {
-      const order = endOrder(sectionsRef.current);
+      const parent = groupID;
+      const order = endOrder(siblings(kind, parent));
       const object = await createObject(selected.id, "folder");
-      const section: Section = {
-        id: object.id, version: object.version, type: "section", title: "New section",
-        color: SECTION_COLORS[sections.length % SECTION_COLORS.length], order,
-      };
-      patchSections((value) => [...value, section]);
-      setSectionID(section.id);
-      await updateSection(section.id, {});
+      const base = { id: object.id, version: object.version, order, group: parent };
+      if (kind === "section") {
+        patchSections((value) => [...value, { ...base, type: "section", title: "New section", color: SECTION_COLORS[value.length % SECTION_COLORS.length] }]);
+        showSection(object.id);
+      } else {
+        patchGroups((value) => [...value, { ...base, type: "group", title: "New group", color: SECTION_COLORS[value.length % SECTION_COLORS.length] }]);
+      }
+      await updateStructure(kind, object.id, {});
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to create section");
+      setError(error instanceof Error ? error.message : `Unable to create ${kind}`);
     } finally {
       setBusy(false);
     }
   }
   const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section");
-  function renameSection(section: Section) {
-    const title = prompt("Section name", section.title)?.trim();
-    if (title) void updateSection(section.id, { title }).catch(reportSection);
+  function renameStructure(kind: "section" | "group", entry: Section | Group) {
+    const title = prompt(kind === "section" ? "Section name" : "Group name", entry.title)?.trim();
+    if (title) void updateStructure(kind, entry.id, { title }).catch(reportSection);
   }
   async function removeSection(section: Section) {
     const count = pagesInSection(notes, sections, section.id).length;
@@ -1394,14 +1426,63 @@ function Workspace({
       await deleteObject(section.id);
       await deleteCachedNote(section.id);
       patchSections((value) => value.filter((entry) => entry.id !== section.id));
-      setSectionID(QUICK_NOTES);
+      showSection(QUICK_NOTES);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to delete section");
     }
   }
-  async function moveSection(id: string, index: number) {
-    for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order }).catch(reportSection);
+  /** Children move up one level first; a failed write stops before the delete, so nothing is lost. */
+  async function removeGroup(group: Group) {
+    if (!confirm(`Delete group "${group.title}"? Its sections and groups move up one level.`)) return;
+    const parent = parents.get(group.id);
+    try {
+      for (const kind of ["section", "group"] as const) {
+        for (const child of siblings(kind, group.id)) {
+          if (!(await updateStructure(kind, child.id, { group: parent }))) {
+            setError((value) => value || "Could not move everything out of the group, so it was kept. Try again.");
+            return;
+          }
+        }
+      }
+      await deleteObject(group.id);
+      await deleteCachedNote(group.id);
+      patchGroups((value) => value.filter((entry) => entry.id !== group.id));
+      setGroupID((value) => (value === group.id ? parent : value));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to delete group");
+    }
   }
+  async function moveStructure(kind: "section" | "group", id: string, index: number) {
+    const entry = kind === "section" ? sectionsRef.current.find((item) => item.id === id) : groupsRef.current.find((item) => item.id === id);
+    if (!entry) return;
+    const parent = kind === "section" ? sectionGroup(entry, parents) : parents.get(id);
+    for (const update of reorder(siblings(kind, parent), id, index)) await updateStructure(kind, update.id, { order: update.order }).catch(reportSection);
+  }
+  async function moveIntoGroup(kind: "section" | "group", id: string, target: string | undefined) {
+    if (kind === "group" && !groupMoveAllowed(id, target, groupParents(groupsRef.current))) {
+      setError(`A group cannot move into itself or its own groups, or nest deeper than ${MAX_GROUP_DEPTH} levels.`);
+      return;
+    }
+    const order = endOrder(siblings(kind, target).filter((entry) => entry.id !== id));
+    await updateStructure(kind, id, { group: target, order }).catch(reportSection);
+    if (kind === "section" && id === sectionID) setGroupID(target);
+  }
+  async function selectSection(id: string) {
+    // Leaving the open page: finish its save first, as selectNote does.
+    if (id !== sectionID && !(await flushOpenPage())) return;
+    if (id !== sectionID) setSelectedNote(null);
+    showSection(id);
+  }
+  /** Shows a group's tabs and its first section; an empty group keeps the current page list. */
+  function openGroup(id: string | undefined) {
+    if (groupOfSection(sectionID, sections, parents) === id) return setGroupID(id);
+    const first = orderedSections.find((entry) => sectionGroup(entry, parents) === id)?.id ?? (id === undefined ? QUICK_NOTES : undefined);
+    if (first === undefined) setGroupID(id);
+    else void selectSection(first);
+  }
+  const groupTrail = selected
+    ? [{ id: undefined, title: nameOf(selected) }, ...groupPath(groupID, parents).map((id) => ({ id, title: groups.find((entry) => entry.id === id)?.title || "Untitled group" }))]
+    : [];
   const moveChain = useRef(Promise.resolve());
   const pageSection = (page: { section?: string }) =>
     page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
@@ -1514,7 +1595,7 @@ function Workspace({
       // Another device may have moved the page: show the section that now holds it and its copies.
       const placed = notesRef.current.find((note) => note.id === open.id);
       if (placed && sameNotebook() && selectedNoteRef.current?.id === open.id) {
-        setSectionID(pageSection(placed));
+        showSection(pageSection(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
@@ -1856,21 +1937,22 @@ function Workspace({
           </aside>
           {selected && !queueMode && (
             <SectionTabs
-              sections={orderedSections}
+              sections={groupSections}
+              groups={childGroups}
+              path={groupTrail}
               current={sectionID}
               busy={busy}
-              onSelect={(id) => void (async () => {
-                // Leaving the open page: finish its save first, as selectNote does.
-                if (id === sectionID) return;
-                if (!(await flushOpenPage())) return;
-                setSectionID(id);
-                setSelectedNote(null);
-              })()}
-              onCreate={() => void newSection()}
-              onRename={renameSection}
-              onColor={(section, color) => void updateSection(section.id, { color }).catch(reportSection)}
+              canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
+              moveTargets={(kind, id) => groupTargets(groups, parents, kind === "group" ? id : undefined)}
+              onSelect={(id) => void selectSection(id)}
+              onCreate={(kind) => void newStructure(kind)}
+              onRename={renameStructure}
+              onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
               onDelete={(section) => void removeSection(section)}
-              onMove={(id, index) => void moveSection(id, index)}
+              onDeleteGroup={(group) => void removeGroup(group)}
+              onMove={(kind, id, index) => void moveStructure(kind, id, index)}
+              onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
+              onOpenGroup={openGroup}
               onDropPage={(pageID, target) => void movePage(pageID, target, null)}
             />
           )}

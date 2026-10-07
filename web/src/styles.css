@@ -339,3 +339,14 @@ body { color: var(--ink-strong); background: var(--bg); }
 }
 .page-toggle { align-self: center; width: 22px; height: 22px; padding: 0; margin-inline-start: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; line-height: 1; cursor: pointer; }
 .page-toggle:hover, .page-toggle:focus-visible { background: var(--accent-soft); color: var(--ink-strong); }
+
+/* Section groups: folder tabs share .section-tab; the breadcrumb sits above the strip. */
+.section-tabs { display: grid; grid-template-columns: minmax(0, max-content) auto; justify-content: start; column-gap: 6px; }
+.section-breadcrumb { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; margin: 0 0 6px; padding: 0; list-style: none; font-size: 13px; color: var(--ink); }
+.section-breadcrumb li + li::before { content: "›"; padding: 0 4px; color: var(--ink); }
+.section-breadcrumb button { background: transparent; color: inherit; padding: 2px 4px; }
+.section-breadcrumb button[aria-current="page"] { color: var(--ink-strong); font-weight: 600; }
+.section-empty { align-self: center; padding: 7px 10px; color: var(--ink); font-size: 13px; white-space: nowrap; }
+.section-add { anchor-name: --section-add; }
+@supports (anchor-name: --a) { .section-add-menu { position-anchor: --section-add; } }
+.section-menu > select { margin: 4px 8px; }
