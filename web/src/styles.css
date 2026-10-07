@@ -282,6 +282,7 @@ body { color: var(--ink-strong); background: var(--bg); }
 .section-tab-menu { anchor-name: --section-menu; }
 @supports (anchor-name: --a) { .section-menu { position-anchor: --section-menu; inset: auto; top: anchor(bottom); left: anchor(left); margin: 4px 0 0; } }
 .section-menu > button { background: transparent; color: inherit; text-align: left; padding: 8px; }
+.section-menu > .danger { color: #b42318; }
 .section-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; }
 .section-swatch { width: 20px; height: 20px; border-radius: 50%; padding: 0; }
 .section-swatch[aria-pressed="true"] { outline: 2px solid var(--ink-strong); outline-offset: 2px; }

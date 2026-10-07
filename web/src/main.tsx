@@ -896,7 +896,7 @@ function Workspace({
         notes: (await readContainerObjects(container)).notes,
       })));
       if (results.some((result) => result.status === "rejected")) {
-        setError("Some notebooks could not be loaded; the work queue may be incomplete.");
+        setError("Some personal notebooks could not be loaded; the work queue may be incomplete.");
       }
       const entries = results.flatMap((result) => result.status === "fulfilled"
         ? result.value.notes.map((note) => ({ note, container: result.value.container }))
@@ -1684,7 +1684,7 @@ function Workspace({
                   {selected ? nameOf(selected) : "NOTEBOOK"}
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across your notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
+                {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
@@ -1719,12 +1719,16 @@ function Workspace({
               >
                 <button
                   className="note-row"
+                  data-page-id={note.id}
                   draggable={!queueMode}
                   onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
                     if (!reorderable || !event.altKey) return;
-                    if (event.key === "ArrowUp" && index > 0) { event.preventDefault(); void movePage(note.id, sectionID, index - 1); }
-                    if (event.key === "ArrowDown" && index < listEntries.length - 1) { event.preventDefault(); void movePage(note.id, sectionID, index + 1); }
+                    const to = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : -1;
+                    if (to < 0 || to >= listEntries.length) return;
+                    event.preventDefault();
+                    void movePage(note.id, sectionID, to).then(() =>
+                      document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
                   }}
                   aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
