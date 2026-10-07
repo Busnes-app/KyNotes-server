@@ -127,11 +127,11 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 
 // ownIdentityEnvelopeSQL is the shared save gate: the writer's own identity holds
 // an envelope at the generation. Args: user, container, generation.
-const ownIdentityEnvelopeSQL = `SELECT EXISTS(SELECT 1 FROM key_envelopes e JOIN devices d ON d.id=e.device_id AND d.platform='identity' AND d.user_id=? WHERE e.container_id=? AND e.key_generation=?)`
+const ownIdentityEnvelopeSQL = `SELECT EXISTS(SELECT 1 FROM key_envelopes e JOIN devices d ON d.id=e.device_id AND d.platform='identity' AND d.revoked_at='' AND d.user_id=? WHERE e.container_id=? AND e.key_generation=?)`
 
 // uncoveredIdentitiesSQL counts active members' identities without an envelope
 // at the generation. Args: container, generation.
-const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
+const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND d.revoked_at='' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
 
 func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

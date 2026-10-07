@@ -278,8 +278,19 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		// A removal or rotation may have committed while the body streamed.
+		// ponytail: a refused save leaves its finalized blob file behind; deleting it here
+		// races a concurrent writer of the same digest. Upgrade path: an age-gated GC sweep
+		// of blob files with no blobs row.
+		// A removal, demotion or rotation may have committed while the body streamed.
 		if e = checkWriteGate(tx, cid, s.UserID, generation); e != nil {
+			_ = tx.Rollback()
+			writeTeamKeyError(w, r, e)
+			return
+		}
+		if e = tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role); e == nil && role != "owner" && role != "admin" && role != "editor" {
+			e = errInsufficientRole
+		}
+		if e != nil {
 			_ = tx.Rollback()
 			writeTeamKeyError(w, r, e)
 			return

@@ -659,3 +659,35 @@ func (p *pairClient) attach(t *testing.T, cid string, generation int64) int {
 	code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/uploads/"+up.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(generation, 10)+`}`), true, false))
 	return code
 }
+
+func TestRevokedIdentityNeitherWritesNorBlocksRotation(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.id, "", 1)
+	tm.rotate(t, tm.id, 1)
+	if _, err := tm.owner.db.Exec(`UPDATE devices SET revoked_at='2026-10-07T00:00:00Z' WHERE id=?`, tm.editorID); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusConflict {
+		t.Fatalf("revoked identity saved: %d", code)
+	}
+	body := rotationBody(2, envJSON(tm.ownerID, 3, 1), envJSON(tm.adminID, 3, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusOK {
+		t.Fatalf("revoked identity blocked rotation: %d %s", code, out)
+	}
+}
+
+func TestSaveRacingDemotionIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.id, "", 1)
+	if code := tm.editor.saveRacing(t, oid, 1, func() {
+		if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='viewer' WHERE container_id=? AND user_id=?`, tm.id, tm.editor.id); err != nil {
+			t.Error(err)
+		}
+	}); code != http.StatusForbidden {
+		t.Fatalf("save racing a demotion=%d", code)
+	}
+	var versions int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id=?`, oid).Scan(&versions); err != nil || versions != 1 {
+		t.Fatalf("versions=%d %v", versions, err)
+	}
+}
