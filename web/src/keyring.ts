@@ -17,24 +17,47 @@ export type MemberKey = Member & { identity?: Pick<PublicIdentity, "deviceId" | 
 
 /** This browser's identity and the user it belongs to. */
 export type Me = HeldIdentity & { userId: string };
-/** Keys opened, pins to persist, and key holders to surface: fresh were pinned now, changed were refused. */
-export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; changed: PinChange[] };
+/**
+ * Keys opened, pins to persist (only first-contact additions), key holders to surface
+ * (fresh: pinned now; changed: refused), generations whose envelope disagreed with a key
+ * already accepted, and this device's new high-water mark to persist (storeKeyMark).
+ */
+export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; changed: PinChange[]; conflicts: number[]; mark: number };
+export type OpenKeyringInput = {
+  containerID: string; envelopes: Envelope[]; me: Me | undefined; members: MemberKey[]; pins: Pins;
+  /** Highest generation this device accepted from a current steward or itself (getKeyMark); 0 when unknown. */
+  mark: number;
+  /** Keys accepted earlier in this session; they always win. */
+  held?: Keyring;
+};
 
 const isSteward = (role: string) => role === "owner" || role === "admin";
 
 /**
  * Opens this identity's envelopes, accepting only keys a trusted sender sealed:
  * this identity itself, a current owner or admin whose identity key matches its
- * pin, or, for generations older than the current one, any identity already
- * pinned on this device (so a removed or demoted steward's history stays
- * readable). A first-contact steward is pinned once its envelope opens (TOFU);
- * a changed steward key is surfaced and refused until confirmFingerprintChange.
+ * pin, or, below this device's own high-water mark, any identity already pinned
+ * here (so a removed or demoted steward's history stays readable). The mark is
+ * never taken from the server. A first-contact steward is pinned once its envelope
+ * opens (TOFU); a changed steward key is surfaced and refused. The first key
+ * accepted for a generation wins; a different one is reported, never used.
  */
-export function openKeyring(container: Pick<KeyedContainer, "id" | "keyGeneration">, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Pins): OpenedKeyring {
-  const ring = new Map<number, Uint8Array>();
-  const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[] };
+export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
+  const { containerID, envelopes, me, members, pins } = input;
+  const ring = new Map(input.held ?? []);
+  const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[], conflicts: [] as number[], mark: Math.max(0, input.mark) };
   if (!me) return out;
   const pinnedKeys = Object.values(pins).flatMap((key) => { try { return [publicKeyBytes(key)]; } catch { return []; } });
+  const accept = (generation: number, key: Uint8Array) => {
+    const prior = ring.get(generation);
+    if (!prior) ring.set(generation, key);
+    else if (!prior.every((byte, i) => byte === key[i]) && !out.conflicts.includes(generation)) out.conflicts.push(generation);
+  };
+  const open = (envelope: Uint8Array, generation: number, sender: Uint8Array) => {
+    try { return unwrapEnvelope(envelope, me.privateKey, containerID, generation, me.deviceId, sender); } catch { return undefined; }
+  };
+  // Pass 1: self and current stewards; these alone raise the mark.
+  const deferred: Array<{ envelope: Uint8Array; generation: number }> = [];
   for (const row of envelopes) {
     if (row.deviceId !== me.deviceId || row.alg !== ENVELOPE_ALG) continue;
     try {
@@ -45,23 +68,25 @@ export function openKeyring(container: Pick<KeyedContainer, "id" | "keyGeneratio
       if (member?.userId === me.userId) continue;
       const steward = member && isSteward(member.role) ? member : undefined;
       const pinned = steward && out.pins[steward.userId];
-      const trusted = steward && (pinned === undefined || sameKey(pinned, steward.identity!.publicKey));
+      const trusted = self || (steward && (pinned === undefined || sameKey(pinned, steward.identity!.publicKey)));
       if (steward && !trusted && !out.changed.some((change) => change.member.userId === steward.userId)) out.changed.push({ member: steward, pinned: pinned! });
-      const candidates = self ? [me.publicKey]
-        : trusted ? [publicKeyBytes(steward.identity!.publicKey)]
-        : row.keyGeneration < container.keyGeneration ? pinnedKeys
-        : [];
-      const opened = candidates.some((senderPublic) => {
-        try {
-          ring.set(row.keyGeneration, unwrapEnvelope(envelope, me.privateKey, container.id, row.keyGeneration, me.deviceId, senderPublic));
-          return true;
-        } catch { return false; }
-      });
-      if (opened && trusted && pinned === undefined) {
+      const key = trusted ? open(envelope, row.keyGeneration, self ? me.publicKey : publicKeyBytes(steward!.identity!.publicKey)) : undefined;
+      if (!key) { deferred.push({ envelope, generation: row.keyGeneration }); continue; }
+      accept(row.keyGeneration, key);
+      out.mark = Math.max(out.mark, row.keyGeneration);
+      if (steward && pinned === undefined) {
         out.pins[steward.userId] = steward.identity!.publicKey;
         out.fresh.push(steward);
       }
     } catch { /* A row this identity cannot open is someone else's mistake, never a key. */ }
+  }
+  // Pass 2: history from identities pinned before this call, strictly below the device's mark.
+  for (const { envelope, generation } of deferred) {
+    if (generation >= out.mark) continue;
+    for (const sender of pinnedKeys) {
+      const key = open(envelope, generation, sender);
+      if (key) { accept(generation, key); break; }
+    }
   }
   return out;
 }
@@ -133,23 +158,26 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
 }
 
 /**
- * Wraps key for member, signed by this browser's identity. Wrapping for this user
+ * Wraps key for member, sealed by this browser's identity. Wrapping for this user
  * only ever targets this browser's own identity. A first-seen recipient is pinned
- * (persist the returned pins); a changed key throws FingerprintChangedError.
+ * and returned in fresh (persist pins, surface fresh); a changed key throws
+ * FingerprintChangedError.
  */
-export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, me: Me, pins: Pins): { envelope: Envelope; pins: Pins } {
+export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, me: Me, pins: Pins): { envelope: Envelope; pins: Pins; fresh: MemberKey[] } {
   const identity = member.identity!;
   const recipient = publicKeyBytes(identity.publicKey);
   let next = pins;
+  let fresh: MemberKey[] = [];
   if (member.userId === me.userId) {
     if (identity.deviceId !== me.deviceId || !sameKey(identity.publicKey, base64(me.publicKey))) throw new Error("own identity mismatch");
   } else if (pins[member.userId] === undefined) {
     next = { ...pins, [member.userId]: identity.publicKey };
+    fresh = [member];
   } else if (!sameKey(pins[member.userId], identity.publicKey)) {
     throw new FingerprintChangedError(member, pins[member.userId]);
   }
   const envelope = base64(wrapEnvelope(key, recipient, containerID, generation, identity.deviceId, me));
-  return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins: next };
+  return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins: next, fresh };
 }
 
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */

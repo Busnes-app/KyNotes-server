@@ -399,7 +399,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
   (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
   owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,
-  below the container's current generation, an identity already pinned on this device;
+  below this device's vault high-water mark (`getKeyMark`/`storeKeyMark`, never from the server), an
+  identity already pinned here; the first key per generation wins (`conflicts`); pins are only added
+  (`storePins` merges) or replaced after confirmation (`storeConfirmedPin`);
   `sealFor` pins first-seen recipients and throws `FingerprintChangedError` until
   `confirmFingerprintChange`; `readKeys` opens rows at or above `sharedGeneration` only with their own
   generation's CK. Callers persist returned pins with `storePins` and tell the user when it returns

@@ -142,7 +142,7 @@ export async function getDeviceKey(username: string): Promise<string | undefined
   return result?.authSecret;
 }
 
-type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string }; pins?: { userID: string; keys: Pins } };
+type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string }; pins?: { userID: string; keys: Pins }; keyMarks?: { userID: string; byContainer: Record<string, number> } };
 
 /** Adds the unwrapped identity to an existing vault record, so "Forget this device" stays one delete. */
 export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<void> {
@@ -174,8 +174,7 @@ export async function getIdentityKey(username: string, userID: string): Promise<
   return { deviceId, publicKey, privateKey };
 }
 
-/** Colleague key pins live in the vault record, so "Forget this device" clears them too. */
-export async function getPins(username: string, userID: string): Promise<Pins> {
+async function readRecord(username: string): Promise<VaultRecord | undefined> {
   const db = await openDatabase();
   const record = await new Promise<VaultRecord | undefined>((resolve, reject) => {
     const request = db.transaction("keys").objectStore("keys").get(username);
@@ -183,11 +182,11 @@ export async function getPins(username: string, userID: string): Promise<Pins> {
     request.onerror = () => reject(request.error);
   });
   db.close();
-  return record?.pins?.userID === userID ? record.pins.keys : {};
+  return record;
 }
 
-/** Replaces the pins of an existing vault record. False means pins are not kept (no record, no IndexedDB); tell the user. */
-export async function storePins(username: string, userID: string, keys: Pins): Promise<boolean> {
+/** Read-modify-write of an existing vault record in one transaction. False: nothing kept (no record, no IndexedDB). */
+async function updateRecord(username: string, change: (record: VaultRecord) => VaultRecord): Promise<boolean> {
   try {
     const db = await openDatabase();
     const kept = await new Promise<boolean>((resolve, reject) => {
@@ -197,7 +196,7 @@ export async function storePins(username: string, userID: string, keys: Pins): P
       const read = store.get(username);
       read.onsuccess = () => {
         const record = read.result as VaultRecord | undefined;
-        if (record) { found = true; store.put({ ...record, pins: { userID, keys } }); }
+        if (record) { found = true; store.put(change(record)); }
       };
       transaction.oncomplete = () => resolve(found);
       transaction.onerror = () => reject(transaction.error);
@@ -207,6 +206,40 @@ export async function storePins(username: string, userID: string, keys: Pins): P
   } catch {
     return false;
   }
+}
+
+const pinsOf = (record: VaultRecord, userID: string): Pins => (record.pins?.userID === userID ? record.pins.keys : {});
+
+/** Colleague key pins live in the vault record, so "Forget this device" clears them too. */
+export async function getPins(username: string, userID: string): Promise<Pins> {
+  const record = await readRecord(username);
+  return record ? pinsOf(record, userID) : {};
+}
+
+/** Adds first-contact pins; an existing pin is never overwritten here. False means pins are not kept; tell the user. */
+export async function storePins(username: string, userID: string, keys: Pins): Promise<boolean> {
+  return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...keys, ...pinsOf(record, userID) } } }));
+}
+
+/** Replaces one pin after the user confirmed the new fingerprint (confirmFingerprintChange). */
+export async function storeConfirmedPin(username: string, userID: string, memberID: string, key: string): Promise<boolean> {
+  return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...pinsOf(record, userID), [memberID]: key } } }));
+}
+
+const marksOf = (record: VaultRecord, userID: string): Record<string, number> => (record.keyMarks?.userID === userID ? record.keyMarks.byContainer : {});
+
+/** Highest generation this device accepted from a current steward in containerID; 0 when unknown. */
+export async function getKeyMark(username: string, userID: string, containerID: string): Promise<number> {
+  const record = await readRecord(username);
+  return (record && marksOf(record, userID)[containerID]) || 0;
+}
+
+/** Raises the container's mark; it never decreases. False means the mark is not kept. */
+export async function storeKeyMark(username: string, userID: string, containerID: string, generation: number): Promise<boolean> {
+  return updateRecord(username, (record) => {
+    const byContainer = marksOf(record, userID);
+    return { ...record, keyMarks: { userID, byContainer: { ...byContainer, [containerID]: Math.max(byContainer[containerID] ?? 0, generation) } } };
+  });
 }
 
 export async function clearDeviceKey(username: string): Promise<void> {
