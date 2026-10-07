@@ -45,18 +45,21 @@ The server changes for identity rows:
 
 **Phones** keep their own X25519 device keys. When a phone selects a container, the user's browser (which holds `CK` through the identity key) wraps `CK` for that phone, which needs a session, fresh authentication and step-up.
 
-**Envelope byte format** (new, client-only; the server never parses it). These details are not frozen, so they need DESIGN.md and plan text only:
+**Envelope byte format v2** (client-only; the server never parses it). These details are not frozen, so they need DESIGN.md and plan text only. v1 (anonymous sender) never carried content and is gone: no client seals or opens it.
 
 ```
-envelope = 0x01 | ephPub(32) | nonce(12) | ChaCha20-Poly1305(key, nonce, CK(32), aad)   // 93 bytes
-key      = HKDF-SHA256(ikm = X25519(ephPriv, recipientPub), salt = ephPub || recipientPub,
-                       info = "kynotes/envelope/v1", L = 32)
-aad      = "kynotes/envelope/v1" | containerID | u32be(keyGeneration) | recipientDeviceID
+envelope = 0x02 | senderDeviceID(30) | ephPub(32) | nonce(12) | ChaCha20-Poly1305(key, nonce, CK(32), aad)   // 123 bytes
+key      = HKDF-SHA256(ikm  = X25519(ephPriv, recipientPub) || X25519(senderIdentityPriv, recipientPub),
+                       salt = ephPub || recipientPub || senderPub,
+                       info = "kynotes/envelope/v2", L = 32)
+aad      = "kynotes/envelope/v2" | containerID | u32be(keyGeneration) | recipientDeviceID | senderDeviceID
 ```
 
-`containerID`, `recipientDeviceID` and `userID` (identity AAD, §1) are exact 30-byte ASCII IDs matching `^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`, validated before the AAD is built. The fixed length is what makes the unprefixed concatenation unambiguous; every client must reject any other length.
+`containerID`, `recipientDeviceID`, `senderDeviceID` and `userID` (identity AAD, §1) are exact 30-byte ASCII IDs matching `^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`, validated before the AAD is built. The fixed length is what makes the unprefixed concatenation unambiguous; every client must reject any other length. Both X25519 agreements must be non-zero (low-order points are refused).
 
-The AAD binding stops a malicious server from replaying an envelope into a different container, generation or recipient.
+The AAD binding stops a malicious server from replaying an envelope into a different container, generation or recipient. The static sender agreement authenticates the sender: only the holder of the sender's identity private key (or the recipient itself) can seal an envelope that opens under that sender's public key. `internal/teamkeys` is the Go reference and generates `testdata/protocol/envelope_vectors.json`; the web client must match it byte for byte.
+
+**Accepting an envelope.** The recipient reads `senderDeviceID` from the bytes and resolves it against the container's current member list. It opens the envelope only if the sender is its own identity, or a current owner or admin whose identity key matches the local pin (§6). An unpinned sender is first contact: the key is pinned once the envelope opens and the UI shows a "new key holder" notice. A pin mismatch is refused and surfaced; it is accepted only after the user confirms the new fingerprint. Envelopes that fail any check are ignored and never used to read or write.
 
 **Crypto library.** WebCrypto has no ChaCha20-Poly1305, X25519 support varies across browsers, and LAN `http://` deployments already rely on `fallbackCrypto.ts`. Recommendation: add `@noble/curves` (x25519) and `@noble/ciphers` (chacha20poly1305). Both are audited, have no dependencies and work in every context. Do not hand-roll these primitives.
 
@@ -67,7 +70,7 @@ The AAD binding stops a malicious server from replaying an envelope into a diffe
 - `CK[container, generation]` is 32 random bytes, minted per container per generation. The purpose subkeys keep the current derivation with only the input key changed: `HKDF(ikm = CK, salt = containerID, info = <existing label>)`. Ciphertext layout (`iv || ct+tag`) and labels stay as they are, so `encryptNote`, `decryptObject`, `encryptAttachment` and the other helpers keep their shape. Their first argument becomes a `KeyRef` (a CK, or a legacy `authSecret`) instead of a string.
 - **Covered by CK:** container meta, objects and pages (including CanvasPage bodies, which reach the server only through `encryptNote` in `main.tsx`), conflict copies (normal object saves), comments, attachment bytes, attachment metadata and previews, local IndexedDB caches and pending saves, and `X-Kynotes-Routing-Ciphertext`.
 - **Share links:** keep the dedicated random per-link key. Content is decrypted with CK and re-sealed under a fresh key, so links never reveal CK.
-- **Choosing a key on read:** the client takes the row's `keyGeneration`. If its keyring has `CK[g]`, it uses that. Otherwise it tries the legacy derived key from its own `authSecret`. AES-GCM authentication makes this trial safe. Generations that have envelopes are "shared". Generations without any are legacy. This needs no schema flag.
+- **Choosing a key on read:** the client takes the row's `keyGeneration` (required; a row without one is unreadable) and the container's `sharedGeneration`. A row at or above a non-zero `sharedGeneration` opens only with `CK[keyGeneration]`; if the keyring lacks it, the row waits for keys. A row below `sharedGeneration`, or any row of a never-shared container (`sharedGeneration = 0`), opens only with the legacy key derived from the reader's own `authSecret`. No other generation's CK is ever tried, so a server cannot downgrade a shared row to the legacy key or let a removed member's older CK stand in for a newer generation.
 - **Scope: personal workbooks too (recommended), in a later phase.** Using one code path everywhere fixes F2, enables phone pairing (the frozen design intends per-device envelopes for every container), and removes the dependency on `authSecret`. Teams ship first because that is the user-visible bug. Personal workbooks follow once identity recovery is proven.
 
 ## 3. Membership flows
@@ -166,9 +169,13 @@ The migration is lazy, idempotent and never destructive.
 
 - **Plaintext keys:** the server stores wrapped identity keys and envelopes only. `userKEK` and CK never leave browsers. This closes F1 for migrated content. Legacy content remains derivable from `authSecret` until it is re-encrypted.
 - **Public-key substitution by a malicious server:** it could return its own key from `GET /users/{id}/identity` and receive the next CK.
-  - Mitigation now: the client pins (trust on first use) each colleague's identity fingerprint in IndexedDB the first time it wraps for them. It warns and blocks wrapping when a pinned fingerprint changes, unless the user confirms. Each user can see their own fingerprint in Settings and compare it out of band.
+  - Mitigation now: the client pins (trust on first use) each colleague's identity public key in IndexedDB the first time it wraps for them or accepts an envelope from them, comparing decoded 32-byte keys. Wrapping for a changed key throws until the user explicitly confirms the new fingerprint; wrapping for oneself only ever targets the browser's own identity. Each user can see their own fingerprint in Settings and compare it out of band. When pins cannot be stored (no IndexedDB vault record), the UI must say so.
+  - Pins are lost with "Forget this device", and first contact is blind: a key the server substitutes before the first pin is trusted.
   - Mitigation later: a signed membership log (out of scope).
-- **Envelope replay or swapping** is blocked by the AAD binding (container, generation, recipient).
+- **Envelope replay or swapping** is blocked by the AAD binding (container, generation, recipient, sender).
+- **Forged envelopes:** without sender authentication a server could seal its own CK to every member and read what they write. Envelope v2 binds the sender's identity key, and recipients accept only their own envelopes or a current owner's or admin's whose key matches the pin (§1). A changed steward key is refused and surfaced.
+- **Read downgrade:** rows at or above `sharedGeneration` open only with their own generation's CK (§2), so relabelling a row cannot make the client accept legacy-key or older-generation ciphertext.
+- **Residual: fake members.** A malicious server can add an invented member with an owner role and its own identity key; that member's envelopes are first-contact and are pinned. The attack is visible as a new member and a "new key holder" notice with a new fingerprint, not silent. Full prevention needs a signed membership log (future).
 - **Removed members** keep the keys for generations before their removal and any plaintext they already downloaded. Rotation is forward-only, which is the documented limit.
 - **Insider owner or admin** can wrap a wrong or different key for some members. The insert-only rule plus a client-side check that the key decrypts current meta catches accidental splits. A malicious insider is out of scope.
 - **Minting** (rotation, wrapping for others) requires session, CSRF and step-up. Device credentials are never accepted.

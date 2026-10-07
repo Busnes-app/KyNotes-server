@@ -396,3 +396,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
   `TestInvitation*`, `TestCommentRewriteIsAuthorOnly`, `TestUserIdentityVisibility`,
   `TestOpenEnvelopeAgreesWithVectors` and the probe.
+- Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
+  (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
+  owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused);
+  `sealFor` pins first-seen recipients and throws `FingerprintChangedError` until
+  `confirmFingerprintChange`; `readKeys` opens rows at or above `sharedGeneration` only with their own
+  generation's CK. Callers persist returned pins with `storePins` and tell the user when it returns
+  false. Verify `npm test` (`keyring`, `pins`, `teamKeys` suites) and `go test ./internal/teamkeys`.

@@ -143,9 +143,13 @@ gate. No identity is created while someone other than the user knows the
 password (`users.password_admin_known`: admin create and reset, bootstrap,
 `user add`); the user's own password change or recovery clears the flag, and
 the browser then creates the identity under the new password. Envelopes are
-`0x01 | ephPub | nonce | ChaCha20-Poly1305(CK)` (93 bytes), bound by AAD to
-container, key generation and recipient (IDs in the AAD are fixed-length);
-`testdata/protocol/envelope_vectors.json` pins the bytes. A password change
+`0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
+keyed by both an ephemeral and the sender identity's X25519 agreement and bound
+by AAD to container, key generation, recipient and sender (IDs in the AAD are
+fixed-length); `testdata/protocol/envelope_vectors.json` pins the bytes. A
+browser accepts an envelope only from its own identity or from a current owner
+or admin whose identity key matches its local trust-on-first-use pin, and reads
+rows at or above `shared_generation` only with that generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
 password resets delete it and write an audit row. SSO-only users have no
 password, hence no `userKEK` and no identity yet (open question).
