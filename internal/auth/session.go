@@ -74,6 +74,36 @@ func MintSession(db *sql.DB, w http.ResponseWriter, userID string, insecure bool
 	return s, nil
 }
 
+// MintPasswordSession mints a session only if the password verifier is still
+// passwordHash, running within in the same transaction; cookies follow the commit.
+func MintPasswordSession(db *sql.DB, w http.ResponseWriter, userID, passwordHash string, insecure bool, now time.Time, within func(*sql.Tx) error) (Session, error) {
+	c, err := prepareSession(userID, now)
+	if err != nil {
+		return Session{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback()
+	s := c.session
+	result, err := tx.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND auth_secret_hash=?)`, s.ID, userID, c.tokenHash, c.csrfHash, s.CreatedAt.UTC().Format(time.RFC3339), s.ExpiresAt.UTC().Format(time.RFC3339), s.HardExpiresAt.UTC().Format(time.RFC3339), userID, passwordHash)
+	if err != nil {
+		return Session{}, err
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		return Session{}, ErrSessionInvalid
+	}
+	if err = within(tx); err != nil {
+		return Session{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Session{}, err
+	}
+	c.setCookies(w, insecure)
+	return s, nil
+}
+
 func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {

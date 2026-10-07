@@ -39,7 +39,9 @@ func decodeWrappedIdentity(value string) ([]byte, bool) {
 // loadIdentity returns nil when the user has none. The wrapped private key is an
 // offline password-guessing target, so only responses that just verified the
 // password (local login and step-up) may ask for it; a session cookie never can.
-func loadIdentity(db *sql.DB, userID string, withWrapped bool) (map[string]string, error) {
+func loadIdentity(db interface {
+	QueryRow(string, ...any) *sql.Row
+}, userID string, withWrapped bool) (map[string]string, error) {
 	var deviceID, publicKey, fingerprint, alg, created, updated string
 	var wrapped []byte
 	err := db.QueryRow(`SELECT i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, userID).Scan(&deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated)
@@ -166,3 +168,7 @@ func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID string) error {
 	}
 	return storage.RecordAuditOutcomeTx(tx, actor, "identity.delete", "", deviceID, "success", "", requestID)
 }
+
+// afterPasswordVerified lets tests commit a concurrent change between a password
+// verification and the transaction that acts on it. Always nil in production.
+var afterPasswordVerified func()

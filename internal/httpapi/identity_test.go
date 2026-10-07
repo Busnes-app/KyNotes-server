@@ -573,3 +573,57 @@ func TestIdentityCreateRejectsConcurrentPasswordChange(t *testing.T) {
 	}
 	assertNoIdentityRows(t, p)
 }
+
+// changePasswordAfterVerify commits a password change (re-wrapping the identity)
+// between the handler's password verification and its identity load.
+func changePasswordAfterVerify(t *testing.T, p *pairClient, identityID string) *int {
+	t.Helper()
+	changed := 0
+	afterPasswordVerified = func() {
+		afterPasswordVerified = nil
+		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))) + `,"identityDeviceId":` + quote(identityID) + `}`
+		res := p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false)
+		changed = res.StatusCode
+		res.Body.Close()
+	}
+	t.Cleanup(func() { afterPasswordVerified = nil })
+	return &changed
+}
+
+func TestStepUpRejectsConcurrentPasswordChange(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	changed := changePasswordAfterVerify(t, p, p.createIdentity(t))
+	got, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/step-up", []byte(`{"authSecret":"`+strings.Repeat("a", 64)+`"}`), true, false))
+	if *changed != http.StatusNoContent {
+		t.Fatalf("password change=%d", *changed)
+	}
+	if got != http.StatusUnauthorized || strings.Contains(body, "wrappedPrivateKey") {
+		t.Fatalf("step-up proved the old password but got: %d %s", got, body)
+	}
+	var stepUps int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE user_id=? AND stepup_at<>''`, pairUser).Scan(&stepUps); err != nil || stepUps != 0 {
+		t.Fatalf("step-up restored on %d sessions %v", stepUps, err)
+	}
+}
+
+func TestLoginRejectsConcurrentPasswordChange(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	changed := changePasswordAfterVerify(t, p, p.createIdentity(t))
+	var before int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	res := p.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)
+	cookies := res.Header.Values("Set-Cookie")
+	got, body := status(t, res)
+	if *changed != http.StatusNoContent {
+		t.Fatalf("password change=%d", *changed)
+	}
+	if got != http.StatusUnauthorized || strings.Contains(body, "wrappedPrivateKey") || len(cookies) != 0 {
+		t.Fatalf("login with the old password got: %d %s cookies=%v", got, body, cookies)
+	}
+	var after int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&after); err != nil || after != before {
+		t.Fatalf("sessions %d -> %d %v", before, after, err)
+	}
+}

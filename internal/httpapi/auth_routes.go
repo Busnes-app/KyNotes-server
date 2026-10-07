@@ -198,13 +198,19 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		recoveryLockout.Success(key)
-		// Load before minting: a failed load must not leave a session cookie behind.
-		identity, err := loadIdentity(db, id, true)
-		if err != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
+		}
+		// Bound to the verified hash: a password changed since then mints nothing and returns no identity.
+		var identity map[string]string
+		s, err := auth.MintPasswordSession(db, w, id, stored, cfg.Server.DevInsecureCookies, time.Now().UTC(), func(tx *sql.Tx) (err error) {
+			identity, err = loadIdentity(tx, id, true)
+			return err
+		})
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
 		}
-		s, err := auth.MintSession(db, w, id, cfg.Server.DevInsecureCookies, time.Now().UTC())
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -413,20 +419,38 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		loginLockout.Success(key)
-		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err := db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now, s.ID); err != nil {
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
+		}
+		// Step-up and the identity it returns are bound to the hash just verified.
+		var identity map[string]string
+		err = dbTx(db, func(tx *sql.Tx) error {
+			now := time.Now().UTC()
+			current, err := auth.RecheckSessionTx(tx, s, now)
+			if err != nil {
+				return err
+			}
+			if current != stored {
+				return errPasswordChanged
+			}
+			if _, err := tx.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now.Format(time.RFC3339), s.ID); err != nil {
+				return err
+			}
+			// SSO sessions never receive the wrapped identity (none exists for them in P1).
+			if s.SSOIssuer == "" {
+				identity, err = loadIdentity(tx, s.UserID, true)
+			}
+			return err
+		})
+		if errors.Is(err, auth.ErrSessionInvalid) || errors.Is(err, errPasswordChanged) {
+			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		recordAudit(db, s.UserID, "auth.step_up", "", "", RequestID(r))
-		// SSO sessions never receive the wrapped identity (none exists for them in P1).
-		var identity map[string]string
-		if s.SSOIssuer == "" {
-			if identity, err = loadIdentity(db, s.UserID, true); err != nil {
-				WriteError(w, r, 500, "internal", "internal server error")
-				return
-			}
-		}
 		if identity == nil {
 			w.WriteHeader(http.StatusNoContent)
 			return

@@ -348,6 +348,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
   `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
   or a password/step-up changed (403 for `PUT`) after the middleware writes nothing.
+  Login (`auth.MintPasswordSession`) and step-up mint the session or set `stepup_at` and load the
+  wrapped identity in one transaction bound to the hash they verified; a change in between gets
+  401, no cookie, no step-up and no wrapped key (`Test*RejectsConcurrentPasswordChange`).
   `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
   recovery) makes `PUT` answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
