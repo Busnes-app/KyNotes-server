@@ -569,7 +569,7 @@ function Workspace({
   const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
   const [, setCommitToastTick] = useState(0);
   const nameOf = (container: Container) =>
-    names[container.id] || `Workspace ${container.id.slice(4, 10)}`;
+    names[container.id] || `Notebook ${container.id.slice(4, 10)}`;
   const orderedNotes = useMemo(() => [...notes].sort(compareOrdered), [notes]);
   const sectionPages = useMemo(() => pagesInSection(notes, sections, sectionID), [notes, sections, sectionID]);
   const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
@@ -952,7 +952,7 @@ function Workspace({
     }
   }
   async function newWorkspace() {
-    const name = prompt("Personal workspace name", "My personal workspace")?.trim();
+    const name = prompt("Notebook name", "My notebook")?.trim();
     if (!name) return;
     setBusy(true);
     try {
@@ -986,7 +986,7 @@ function Workspace({
     }
   }
   async function newTeamWorkspace(teamContainer: Container) {
-    const name = prompt("Team workspace name", "New workspace")?.trim();
+    const name = prompt("Notebook name", "New notebook")?.trim();
     if (!name) return;
     setBusy(true);
     try {
@@ -1006,7 +1006,7 @@ function Workspace({
   }
   async function renameWorkspace() {
     if (!selected) return;
-    const name = prompt("Workspace name", nameOf(selected))?.trim();
+    const name = prompt("Notebook name", nameOf(selected))?.trim();
     if (!name) return;
     setBusy(true);
     try {
@@ -1198,7 +1198,7 @@ function Workspace({
     }
   }
   async function remove(note: Note) {
-    if (!confirm("Delete this note?")) return;
+    if (!confirm("Delete this page?")) return;
     try {
       await deleteObject(note.id);
       await deleteCachedNote(note.id);
@@ -1573,7 +1573,7 @@ function Workspace({
               <span className="nav-icon">✓</span>
               <span>Work queue</span>
             </button>
-            <div className="section-label">PERSONAL</div>
+            <div className="section-label">NOTEBOOKS</div>
             {personalWorkspaces.map((container) => (
               <button
                 className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
@@ -1585,7 +1585,7 @@ function Workspace({
                 <span>{nameOf(container)}</span>
               </button>
             ))}
-            <div className="section-label team-label">TEAMS</div>
+            <div className="section-label team-label">TEAM NOTEBOOKS</div>
             {teams.map((container) => (
               <React.Fragment key={container.id}>
                 <button
@@ -1609,7 +1609,7 @@ function Workspace({
                 ))}
                 {selected?.id === container.id && (
                   <button className="new-workspace" disabled={busy} onClick={() => void newTeamWorkspace(container)}>
-                    ＋ New team workspace
+                    ＋ New team notebook
                   </button>
                 )}
               </React.Fragment>
@@ -1619,7 +1619,7 @@ function Workspace({
               disabled={busy}
               onClick={() => void newWorkspace()}
             >
-              ＋ New personal workspace
+              ＋ New notebook
             </button>
             {selected && (
               <button
@@ -1627,7 +1627,7 @@ function Workspace({
                 disabled={busy}
                 onClick={() => void renameWorkspace()}
               >
-                ✎ Rename workspace
+                ✎ Rename notebook
               </button>
             )}
             {selected?.kind === "team" && (
@@ -1686,13 +1686,13 @@ function Workspace({
                 <div className="section-label">
                   {selected ? nameOf(selected) : "WORKSPACE"}
                 </div>
-                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a workspace"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team workspace" : "Personal workspace"}</div>}
-                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : "Notes"}</h3>}
+                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
+                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
+                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
                 <input
-                  aria-label="Search notes"
+                  aria-label="Search this notebook"
                   className="note-search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -1739,9 +1739,9 @@ function Workspace({
             ))}
             {selected && listEntries.length === 0 && (
               <div className="empty-list">
-                {queueMode ? "No open tasks here." : "No notes yet."}
+                {queueMode ? "No open tasks here." : "No pages in this section."}
                 <br />
-                {queueMode ? "Tasks from note checklists appear here." : "Create the first one."}
+                {queueMode ? "Tasks from note checklists appear here." : "Add a page with ＋."}
               </div>
             )}
             {relatedNotes.length > 0 && (
@@ -1753,7 +1753,7 @@ function Workspace({
                     key={note.id}
                     onClick={() => void selectNote(note)}
                   >
-                    {note.title || "Untitled note"}
+                    {note.title || "Untitled page"}
                   </button>
                 ))}
               </div>

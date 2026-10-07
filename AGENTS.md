@@ -92,10 +92,15 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   The document loader converts the prior encrypted Tiptap JSON envelope to
   BlockNote blocks on read so existing formatting survives editor remounts.
   The workspace surface
-  labels personal workbooks explicitly, and the admin surface uses tabbed
+  labels notebooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
   seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
+- `web/` presents containers as notebooks with colored section tabs (`folder` objects) and
+  manually ordered pages. Placement lives in each page's encrypted payload
+  (`pages.ts`, `order.ts`); decrypted payloads pass `parseObjectPayload` before use.
+  Deep links use `#/<container>/<section|quick>/<page>`. Verify `order.test.ts`,
+  `pages.test.ts` and the section/page browser checks in `UI-VERIFICATION.md`.
 - `web/` exposes a client-only work queue for open checklist items across
   personal workspaces; task parsing remains browser-side because the server
   never sees plaintext. Inbox folders still require the planned folder-object
