@@ -255,12 +255,18 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		if _, err = db.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
+		s, _ := auth.SessionFromContext(r)
+		// An admin cannot re-wrap the user's identity, so the reset deletes it in the same commit.
+		if err = dbTx(db, func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
+				return err
+			}
+			return deleteIdentityTx(tx, r.PathValue("id"), s.UserID, RequestID(r))
+		}); err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"))
-		s, _ := auth.SessionFromContext(r)
 		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))

@@ -220,3 +220,83 @@ func TestIdentityDoesNotBlockSaves(t *testing.T) {
 		t.Fatalf("identity row trips the save gate: %d %v", missing, err)
 	}
 }
+
+func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	change := func(wrapped string) (int, string) {
+		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000`
+		if wrapped != "" {
+			body += `,"wrappedIdentityKey":` + quote(wrapped)
+		}
+		return status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body+`}`), true, false))
+	}
+	rewrapped := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))
+	if code, _ := change(rewrapped); code != http.StatusConflict {
+		t.Fatalf("rewrap without identity: %d", code)
+	}
+	p.createIdentity(t)
+	if code, body := change(""); code != http.StatusConflict || !strings.Contains(body, "identity_rewrap_required") {
+		t.Fatalf("old client orphaned the identity: %d %s", code, body)
+	}
+	if code, _ := change(base64.StdEncoding.EncodeToString(make([]byte, 59))); code != http.StatusBadRequest {
+		t.Fatalf("short rewrap: %d", code)
+	}
+	var salt string
+	if err := p.db.QueryRow(`SELECT login_salt FROM users WHERE id=?`, pairUser).Scan(&salt); err != nil || salt == "bmV3c2FsdA==" {
+		t.Fatalf("refused change still committed the password: %q %v", salt, err)
+	}
+	if code, body := change(rewrapped); code != http.StatusNoContent {
+		t.Fatalf("change: %d %s", code, body)
+	}
+	var wrapped []byte
+	if err := p.db.QueryRow(`SELECT u.login_salt,i.wrapped_private_key FROM users u JOIN user_identities i ON i.user_id=u.id WHERE u.id=?`, pairUser).Scan(&salt, &wrapped); err != nil || salt != "bmV3c2FsdA==" || !bytes.Equal(wrapped, bytes.Repeat([]byte{5}, wrappedIdentityBytes)) {
+		t.Fatalf("password and identity not committed together: %q %v", salt, err)
+	}
+}
+
+func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
+	for _, path := range []string{"recover", "admin"} {
+		t.Run(path, func(t *testing.T) {
+			p := newPairClient(t, strings.Repeat("p", 32))
+			id := p.createIdentity(t)
+			now := time.Now().UTC().Format(time.RFC3339)
+			if _, err := p.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_00000000000000000000000000','workbook',?,?,?)`, pairUser, now, now); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_00000000000000000000000000','cnt_00000000000000000000000000',?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01',?)`, id, now); err != nil {
+				t.Fatal(err)
+			}
+			salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+			if path == "recover" {
+				code, hash, err := auth.NewRecoveryCode()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := p.db.Exec(`UPDATE users SET recovery_hash=? WHERE id=?`, hash, pairUser); err != nil {
+					t.Fatal(err)
+				}
+				body := `{"username":"pair","recoveryCode":` + quote(code) + `,"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+				if got, b := status(t, p.do(t, http.MethodPost, "/api/v1/auth/recover", []byte(body), false, false)); got != http.StatusOK {
+					t.Fatalf("recover=%d %s", got, b)
+				}
+			} else {
+				if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+					t.Fatal(err)
+				}
+				p.stepUp(t)
+				body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+				if got, b := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); got != http.StatusNoContent {
+					t.Fatalf("admin reset=%d %s", got, b)
+				}
+			}
+			var devices, identities, envelopes int
+			if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE id=?),(SELECT COUNT(*) FROM user_identities),(SELECT COUNT(*) FROM key_envelopes)`, id).Scan(&devices, &identities, &envelopes); err != nil || devices+identities+envelopes != 0 {
+				t.Fatalf("identity survived %s: devices=%d identities=%d envelopes=%d %v", path, devices, identities, envelopes, err)
+			}
+			var audited int
+			if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.delete' AND object_id=? AND outcome='success'`, id).Scan(&audited); err != nil || audited != 1 {
+				t.Fatalf("identity.delete audit=%d %v", audited, err)
+			}
+		})
+	}
+}

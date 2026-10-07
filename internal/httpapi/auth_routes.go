@@ -257,11 +257,20 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		s, _ := auth.SessionFromContext(r)
 		var in struct {
 			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
-			Iterations                                     int `json:"iterations"`
+			WrappedIdentityKey                             string `json:"wrappedIdentityKey"`
+			Iterations                                     int    `json:"iterations"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.CurrentAuthSecret) != 64 || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
+		}
+		var wrapped []byte
+		if in.WrappedIdentityKey != "" {
+			var ok bool
+			if wrapped, ok = decodeWrappedIdentity(in.WrappedIdentityKey); !ok {
+				WriteError(w, r, 400, "invalid_request", "invalid request")
+				return
+			}
 		}
 		var stored string
 		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
@@ -279,7 +288,30 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		if _, err = db.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), s.UserID); err != nil {
+		// The identity is re-wrapped under the new userKEK in the same commit, or the change is refused.
+		now := time.Now().UTC().Format(time.RFC3339)
+		err = dbTx(db, func(tx *sql.Tx) error {
+			var identities int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=?`, s.UserID).Scan(&identities); err != nil {
+				return err
+			}
+			if (identities == 1) != (wrapped != nil) {
+				return errIdentityRewrap
+			}
+			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
+				return err
+			}
+			if wrapped == nil {
+				return nil
+			}
+			_, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=?`, wrapped, now, s.UserID)
+			return err
+		})
+		if errors.Is(err, errIdentityRewrap) {
+			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and change the password again")
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
@@ -403,6 +435,11 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
+				return e
+			}
+			// Without the old password the wrapped identity is unrecoverable; delete it
+			// instead of leaving a revoked row.
+			if e := deleteIdentityTx(tx, uid, uid, RequestID(r)); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {

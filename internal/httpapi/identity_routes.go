@@ -23,7 +23,10 @@ const (
 	wrappedIdentityBytes = 60
 )
 
-var errIdentityExists = errors.New("identity exists")
+var (
+	errIdentityExists = errors.New("identity exists")
+	errIdentityRewrap = errors.New("identity rewrap mismatch")
+)
 
 func decodeWrappedIdentity(value string) ([]byte, bool) {
 	wrapped, err := base64.StdEncoding.DecodeString(value)
@@ -107,4 +110,18 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		writeJSON(w, map[string]string{"deviceId": deviceID, "fingerprint": fingerprint})
 	})))
+}
+
+// deleteIdentityTx deletes the user's identity (cascading to its wrapped key and
+// envelopes) when its wrapping password is gone, and audits the deletion.
+func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID string) error {
+	var deviceID string
+	err := tx.QueryRow(`DELETE FROM devices WHERE user_id=? AND platform='identity' RETURNING id`, userID).Scan(&deviceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return storage.RecordAuditOutcomeTx(tx, actor, "identity.delete", "", deviceID, "success", "", requestID)
 }
