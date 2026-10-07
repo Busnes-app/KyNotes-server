@@ -86,8 +86,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
   `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,
   `canvas.ts` holds pure edits). Legacy bodies open as one box and are not rewritten until
-  edited. Pages reflow to a text column at <=800px. Verify `document.test.ts`,
-  `canvas.test.ts`, `ink.test.ts` and the canvas checks in `UI-VERIFICATION.md`.
+  edited. Pages reflow to a text column at <=800px and never persist a phone-fitted width.
+  `knowledge.ts` caches text/task projections per note object, so note objects must be
+  replaced, never mutated. Verify `document.test.ts`, `canvas.test.ts`, `knowledge.test.ts`,
+  `ink.test.ts` and the canvas checks in `UI-VERIFICATION.md`.
   Encrypted section anchors for comments remain. Attachment payloads and metadata are encrypted in the
   browser, and pending chunked uploads are persisted in the IndexedDB vault for
   reload recovery, with visible progress, retry, and cancel controls. Inline

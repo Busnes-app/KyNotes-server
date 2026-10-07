@@ -3,10 +3,10 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Block, PartialBlock } from "@blocknote/core";
 import { BlockNoteEditor } from "./BlockNoteEditor";
 import {
-  BOX_MIN_WIDTH, DEFAULT_BOX_WIDTH, INK_COLORS, LEGACY_BOX, MAX_STROKE_POINTS, MAX_STROKES, openPage, stringifyCanvasPage,
+  DEFAULT_BOX_WIDTH, INK_COLORS, LEGACY_BOX, MAX_STROKE_POINTS, MAX_STROKES, openPage, stringifyCanvasPage,
   type CanvasBox, type CanvasPage as Page, type CanvasStroke, type InkColor,
 } from "./document";
-import { History, addBox, contentExtent, eraseAt, freeSpot, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
+import { History, addBox, contentExtent, eraseAt, fitBox, freeSpot, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
 import { strokePath } from "./ink";
 
 type Tool = "type" | "pen" | "highlighter" | "eraser";
@@ -25,6 +25,7 @@ type Actions = {
   dragMove: (event: React.PointerEvent<HTMLElement>) => void;
   endDrag: () => void;
   nudge: (event: React.KeyboardEvent, id: string) => void;
+  observe: (element: HTMLElement) => () => void;
   uploadFile: (file: File) => Promise<string>;
   resolveFileUrl: (url: string) => Promise<string>;
 };
@@ -34,13 +35,15 @@ type BoxProps = { pageID: string; box: CanvasBox; rank: number; autoFocus: boole
 // Memoised on the box object: typing in one box re-renders only that box.
 const Box = memo(function Box({ pageID, box, rank, autoFocus, editable, legacyMarkdown, actions }: BoxProps) {
   const act = () => actions.current!;
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => act().observe(ref.current!), []);
   return (
-    <div data-box={box.id} className="canvas-box" style={{ left: box.x, top: box.y, width: box.width, order: rank }}>
+    <div ref={ref} data-box={box.id} className="canvas-box" style={{ left: box.x, top: box.y, width: box.width, order: rank }}>
       <div
         className="canvas-box-handle"
         role="button"
         tabIndex={0}
-        aria-label="Move text box with arrow keys"
+        aria-label={`Move text box ${rank + 1} with arrow keys`}
         onPointerDown={(event) => act().startDrag(event, box.id, "move")}
         onPointerMove={(event) => act().dragMove(event)}
         onPointerUp={() => act().endDrag()}
@@ -104,7 +107,9 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     pageRef.current = next;
     setPage(next);
   };
-  // ponytail: serializes the whole page on every change (per keystroke); upgrade path: debounce serialization or serialize strokes once per ink commit.
+  // ponytail: every keystroke stringifies and encrypts the whole page, and the list/search
+  // index re-parses that one page's boxes (strokes skipped, other pages cached per object).
+  // Upgrade path: debounce serialization or cache the serialized strokes per ink commit.
   /** Shows and emits a change. `guard` refuses growth past the page byte limit (ink only). */
   const commit = (next: Page, guard = false) => {
     if (!editable) return false;
@@ -121,35 +126,48 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     const rect = surfaceRef.current!.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
-  const heights = () => {
-    const result: Record<string, number> = {};
-    surfaceRef.current?.querySelectorAll<HTMLElement>("[data-box]").forEach((element) => {
-      result[element.dataset.box!] = element.offsetHeight;
-    });
-    return result;
+  // Measured box heights size the surface, so ink and clicks reach below long notes.
+  const [heights, setHeights] = useState<Record<string, number>>({});
+  const observer = useRef<ResizeObserver | null>(null);
+  useEffect(() => () => observer.current?.disconnect(), []);
+  const observe = (element: HTMLElement) => {
+    observer.current ??= new ResizeObserver((entries) => setHeights((previous) => {
+      const next = { ...previous };
+      for (const entry of entries) {
+        const target = entry.target as HTMLElement;
+        next[target.dataset.box!] = target.offsetHeight;
+      }
+      return next;
+    }));
+    observer.current.observe(element);
+    return () => observer.current?.unobserve(element);
   };
-  // Width that fits the visible canvas from x, so the resize edge stays reachable.
-  const fitWidth = (x: number, wanted: number) => {
-    const visible = surfaceRef.current?.parentElement?.clientWidth;
-    return visible ? Math.max(BOX_MIN_WIDTH, Math.min(wanted, visible - x - 24)) : wanted;
+  // The visible window in surface pixels. Phone reflow ignores stored widths, so it
+  // never fits (and never persists) a phone-sized width.
+  const view = () => {
+    const scroll = surfaceRef.current?.parentElement;
+    return scroll && !narrow() ? { left: scroll.scrollLeft, width: scroll.clientWidth } : undefined;
   };
   // Narrow an unedited legacy box for display only; never emits a change.
   useLayoutEffect(() => {
     const box = pageRef.current.boxes.find((entry) => entry.id === LEGACY_BOX);
     if (!box) return;
-    const width = fitWidth(box.x, box.width);
+    const { width } = fitBox(box.x, box.width, view());
     if (width < box.width) show(updateBox(pageRef.current, LEGACY_BOX, { width }));
   }, []);
   const placeBox = (x: number, y: number, blocks?: PartialBlock[]) => {
     if (!editable) return;
-    const width = fitWidth(x, DEFAULT_BOX_WIDTH);
-    const visible = surfaceRef.current?.parentElement?.clientWidth ?? 0;
-    const left = visible > 0 ? Math.max(0, Math.min(x, visible - 24 - width)) : x; // keep a min-width box inside the canvas
-    const added = addBox(pruneEmpty(pageRef.current), left, y, blocks, width);
+    const spot = fitBox(x, DEFAULT_BOX_WIDTH, view());
+    const added = addBox(pruneEmpty(pageRef.current), spot.x, y, blocks, spot.width);
     if (!added) return onError("This page has the maximum number of text boxes.");
     setFocusID(added.id);
-    commit(added.page);
+    // An empty text box is saved by its first edit, so a stray click changes nothing.
+    if (blocks) commit(added.page);
+    else show(added.page);
   };
+  // Uploads finish after later renders; place through the latest editable/onChange.
+  const placeLatest = useRef(placeBox);
+  placeLatest.current = placeBox;
 
   const actions = useRef<Actions>(null);
   actions.current = {
@@ -186,6 +204,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
       event.preventDefault();
       commit(updateBox(pageRef.current, id, { x: box.x + delta[0], y: box.y + delta[1] }));
     },
+    observe,
     uploadFile,
     resolveFileUrl,
   };
@@ -202,7 +221,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   };
   const undoKeys = useRef<(event: KeyboardEvent) => void>(() => {});
   undoKeys.current = (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+    if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyZ") return;
     const target = event.target as HTMLElement | null;
     if (target?.closest?.(".bn-container, dialog, input, textarea, select, [contenteditable]:not([contenteditable=false])")) return; // text undo belongs to the editor
     event.preventDefault();
@@ -234,8 +253,8 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     if (event.pointerType === "pen") penSeen.current = true;
     else if (event.pointerType === "touch" && penSeen.current) return; // palm rejection once a pen is in use
     if (event.button !== 0 || activePointer.current !== null) return;
-    activePointer.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
+    activePointer.current = event.pointerId;
     const { x, y } = local(event);
     if (tool === "eraser") {
       eraseStart.current = pageRef.current.strokes;
@@ -295,7 +314,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     for (const [index, file] of files.entries()) {
       try {
         const url = await uploadFile(file);
-        placeBox(x + index * 24, y + index * 24, [{ type: "image", props: { url, name: file.name } }]);
+        placeLatest.current(x + index * 24, y + index * 24, [{ type: "image", props: { url, name: file.name } }]);
       } catch (error) {
         onError(error instanceof Error ? error.message : "Unable to add image");
       }
@@ -310,7 +329,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     return path;
   };
 
-  const extent = contentExtent(page);
+  const extent = contentExtent(page, heights);
   const ranks = readingOrder(page.boxes);
   return (
     <div className={`canvas-page tool-${editable ? tool : "type"}`}>
@@ -332,7 +351,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
         )}
         <button className="quiet ink-tool" disabled={!editable} onClick={undo} aria-keyshortcuts="Control+Z">Undo ink</button>
         <button className="quiet ink-tool" disabled={!editable} onClick={redo} aria-keyshortcuts="Control+Shift+Z">Redo ink</button>
-        <button className="quiet" disabled={!editable} onClick={() => { const spot = freeSpot(pageRef.current, heights()); placeBox(spot.x, spot.y); }}>Add text</button>
+        <button className="quiet" disabled={!editable} onClick={() => { const spot = freeSpot(pageRef.current, heights); placeBox(spot.x, spot.y); }}>Add text</button>
       </div>
       {page.strokes.length > 0 && <p className="canvas-ink-note">This page has ink. Open it on a wider screen to see it.</p>}
       <div className="canvas-scroll">

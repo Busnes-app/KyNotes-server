@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { contextualNotes, graphEdges, indexNotes, noteTags, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { emptyCanvasPage, isStructuredNoteBody, stringifyCanvasPage, stringifyNoteDocument } from "./document";
 
@@ -60,5 +60,29 @@ describe("canvas tasks", () => {
       ],
     });
     expect(noteTasks({ id: "n", title: "", body, updatedAt: "" })).toEqual(["Call Ana"]);
+  });
+});
+
+describe("projection cache", () => {
+  const canvas = stringifyCanvasPage({
+    ...emptyCanvasPage(),
+    boxes: [{ id: "b", x: 0, y: 0, width: 300, blocks: [{ type: "checkListItem", props: { checked: false }, content: "Ink later" }] }],
+    strokes: [{ id: "s", tool: "pen", color: "ink", size: 4, points: [1, 2, 0.5] }],
+  });
+  it("projects each note object once", () => {
+    const note = { id: "c", title: "", body: canvas, updatedAt: "" };
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      const first = indexNotes([note])[0];
+      expect(noteTasks(first)).toEqual(["Ink later"]);
+      expect(parse).toHaveBeenCalledTimes(2); // text once, tasks once
+      expect(indexNotes([note])[0]).toBe(first);
+      expect(noteTasks(first)).toEqual(["Ink later"]);
+      expect(parse).toHaveBeenCalledTimes(2);
+      indexNotes([{ ...note }]);
+      expect(parse).toHaveBeenCalledTimes(3); // an edited page is a new object
+    } finally {
+      parse.mockRestore();
+    }
   });
 });

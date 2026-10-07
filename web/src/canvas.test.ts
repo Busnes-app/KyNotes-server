@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { History, MAX_PAGE_BYTES, addBox, contentExtent, eraseAt, freeSpot, isEmptyBox, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
+import { History, MAX_PAGE_BYTES, addBox, contentExtent, eraseAt, fitBox, freeSpot, isEmptyBox, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
 import { MAX_BOXES, MAX_COORD, emptyCanvasPage, type CanvasBox, type CanvasStroke } from "./document";
 
 const box = (id: string, x: number, y: number, text = ""): CanvasBox => ({ id, x, y, width: 300, blocks: [{ type: "paragraph", content: text }] });
@@ -80,5 +80,32 @@ describe("history and size", () => {
   it("measures UTF-8 bytes against the page limit", () => {
     expect(pageFits("x".repeat(MAX_PAGE_BYTES))).toBe(true);
     expect(pageFits("é".repeat(MAX_PAGE_BYTES / 2 + 1))).toBe(false);
+  });
+});
+
+describe("box placement", () => {
+  const view = (left: number, width: number) => ({ left, width });
+  it("keeps the click point when the box fits the visible window", () => {
+    expect(fitBox(100, 640, view(0, 1200))).toEqual({ x: 100, width: 640 });
+  });
+  it("narrows a box clicked near the right edge, then shifts it left", () => {
+    expect(fitBox(800, 640, view(0, 1200))).toEqual({ x: 800, width: 376 });
+    expect(fitBox(1150, 640, view(0, 1200))).toEqual({ x: 1016, width: 160 });
+  });
+  it("measures the right edge from the scroll offset", () => {
+    // Scrolled 400px right: the visible window is [400, 1575).
+    expect(fitBox(1350, 640, view(400, 1175))).toEqual({ x: 1350, width: 201 });
+    expect(fitBox(1500, 640, view(400, 1175))).toEqual({ x: 1391, width: 160 });
+  });
+  it("keeps the left edge visible on a canvas narrower than a box", () => {
+    expect(fitBox(50, 640, view(0, 150))).toEqual({ x: 0, width: 160 });
+    expect(fitBox(450, 640, view(400, 150))).toEqual({ x: 400, width: 160 });
+  });
+  it("leaves placement alone without a measured window", () => {
+    expect(fitBox(300, 640)).toEqual({ x: 300, width: 640 });
+    expect(fitBox(300, 640, view(0, 0))).toEqual({ x: 300, width: 640 });
+  });
+  it("keeps an off-window spot such as Add text at the page origin", () => {
+    expect(fitBox(0, 640, view(900, 1200))).toEqual({ x: 0, width: 640 });
   });
 });

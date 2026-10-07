@@ -81,6 +81,18 @@ export function freeSpot(page: CanvasPage, heights: Record<string, number>) {
   return { x: 0, y: contentExtent(page, heights).height + GAP };
 }
 
+/**
+ * Fits a box of `wanted` width at x so its resize edge stays inside the visible
+ * window (`left` = scroll offset, `width` = viewport width, surface pixels).
+ * A box clicked inside the window never moves past its left edge.
+ */
+export function fitBox(x: number, wanted: number, view?: { left: number; width: number }) {
+  if (!view || view.width <= 0) return { x, width: wanted };
+  const right = view.left + view.width - GAP;
+  const width = Math.max(BOX_MIN_WIDTH, Math.min(wanted, right - x));
+  return { x: Math.max(0, Math.min(x, view.left), Math.min(x, right - width)), width };
+}
+
 export function readingOrder(boxes: CanvasBox[]): Map<string, number> {
   const sorted = [...boxes].sort((a, b) => a.y - b.y || a.x - b.x);
   return new Map(sorted.map((box, index) => [box.id, index]));

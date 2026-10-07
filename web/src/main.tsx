@@ -1860,7 +1860,7 @@ function Workspace({
                   <strong>{shown.title || "Untitled page"}</strong>
                   <span>
                     {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
-                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : documentText(shown.body).slice(0, 64)) || "Empty page"}
+                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : indexNotes([shown])[0].body.slice(0, 64)) || "Empty page"}
                   </span>
                 </button>
               </div>

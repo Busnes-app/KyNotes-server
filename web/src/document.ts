@@ -61,12 +61,16 @@ function legacyList(nodes: LegacyNode[] = [], type: "bulletListItem" | "numbered
   });
 }
 
+function legacyTiptap(parsed: unknown): PartialBlock[] | undefined {
+  const value = parsed as ({ format?: string; document?: LegacyNode } & LegacyNode) | null;
+  const document = value?.format === "kynotes.tiptap.v1" ? value.document : value;
+  if (document?.type !== "doc") return undefined;
+  return legacyBlocks(document.content);
+}
+
 function legacyTiptapDocument(body: string): PartialBlock[] | undefined {
   try {
-    const value = JSON.parse(body) as { format?: string; document?: LegacyNode } & LegacyNode;
-    const document = value.format === "kynotes.tiptap.v1" ? value.document : value;
-    if (document?.type !== "doc") return undefined;
-    return legacyBlocks(document.content);
+    return legacyTiptap(JSON.parse(body));
   } catch {
     return undefined;
   }
@@ -160,10 +164,22 @@ export function openPage(body: string): CanvasPage & { legacyMarkdown?: string }
 export const stringifyCanvasPage = ({ boxes, strokes }: CanvasPage): string =>
   JSON.stringify({ format: CANVAS_FORMAT, boxes, strokes });
 
-/** All text blocks of a page, top-to-bottom then left-to-right. */
-export function pageBlocks(body: string): PartialBlock[] {
-  return [...openPage(body).boxes].sort((a, b) => a.y - b.y || a.x - b.x).flatMap((box) => box.blocks);
+/**
+ * Text blocks of a structured body (canvas boxes top-to-bottom then left-to-right),
+ * or undefined for plain text. One parse; strokes are never validated.
+ */
+export function structuredBlocks(body: string): PartialBlock[] | undefined {
+  let value: unknown;
+  try { value = JSON.parse(body); } catch { return undefined; }
+  if (isRecord(value) && value.format === CANVAS_FORMAT) {
+    return parseItems(value.boxes, MAX_BOXES, parseBox).sort((a, b) => a.y - b.y || a.x - b.x).flatMap((box) => box.blocks);
+  }
+  if (isRecord(value) && value.format === NOTE_DOCUMENT_FORMAT && Array.isArray(value.document)) return value.document as PartialBlock[];
+  return legacyTiptap(value);
 }
+
+/** All text blocks of a page, top-to-bottom then left-to-right. */
+export const pageBlocks = (body: string): PartialBlock[] => structuredBlocks(body) ?? parseNoteDocument(body).document;
 
 export function parseNoteDocument(body: string): NoteDocument {
   try {
