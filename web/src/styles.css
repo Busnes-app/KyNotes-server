@@ -286,3 +286,6 @@ body { color: var(--ink-strong); background: var(--bg); }
 .section-swatch { width: 20px; height: 20px; border-radius: 50%; padding: 0; }
 .section-swatch[aria-pressed="true"] { outline: 2px solid var(--ink-strong); outline-offset: 2px; }
 @media (max-width: 800px) { .workspace { grid-template-rows: none; grid-template-areas: "nav" "tabs" "pages" "page"; } .section-tabs { padding: 8px 12px 0; } }
+
+.note-row[draggable="true"] { cursor: grab; }
+.page-section { font-style: normal; color: var(--accent); }

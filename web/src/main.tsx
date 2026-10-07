@@ -76,8 +76,8 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, endOrder, pagesInSection, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
-import { SectionTabs } from "./components/SectionTabs";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, endOrder, pagesInSection, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -558,33 +558,14 @@ function Workspace({
     "workspace",
   );
   const [queueMode, setQueueMode] = useState(false);
-  const [sort, setSort] = useState<"updated" | "title">("updated");
   const [query, setQuery] = useState("");
   const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
   const [, setCommitToastTick] = useState(0);
-  const pinsKey = `kynotes-pins-${auth.user.id}`;
-  const pinned = useMemo(() => {
-    try {
-      return new Set(
-        JSON.parse(localStorage.getItem(pinsKey) || "[]") as string[],
-      );
-    } catch {
-      return new Set<string>();
-    }
-  }, [pinsKey, notes]);
   const nameOf = (container: Container) =>
     names[container.id] || `Workspace ${container.id.slice(4, 10)}`;
-  const orderedNotes = useMemo(
-    () =>
-      [...notes].sort((a, b) => {
-        const pinDiff = Number(pinned.has(b.id)) - Number(pinned.has(a.id));
-        if (pinDiff) return pinDiff;
-        return sort === "title"
-          ? a.title.localeCompare(b.title)
-          : b.updatedAt.localeCompare(a.updatedAt);
-      }),
-    [notes, pinned, sort],
-  );
+  const orderedNotes = useMemo(() => [...notes].sort(compareOrdered), [notes]);
+  const sectionPages = useMemo(() => pagesInSection(notes, sections, sectionID), [notes, sections, sectionID]);
+  const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
   const searchableNotes = useMemo(() => indexNotes(orderedNotes), [orderedNotes]);
   useEffect(() => {
     let cancelled = false;
@@ -625,7 +606,10 @@ function Workspace({
   }, [queueEntries, query]);
   const listEntries = queueMode
     ? visibleQueueEntries
-    : visibleNotes.map((note) => ({ note, container: selected })).filter((entry): entry is QueueEntry => Boolean(entry.container));
+    : (query.trim() ? visibleNotes : sectionPages)
+        .map((note) => ({ note, container: selected }))
+        .filter((entry): entry is QueueEntry => Boolean(entry.container));
+  const reorderable = !queueMode && !query.trim();
   const relatedNotes = useMemo(
     () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
     [searchableNotes, selectedNote],
@@ -1010,12 +994,6 @@ function Workspace({
     } finally {
       setBusy(false);
     }
-  }
-  function togglePin(note: Note) {
-    const next = new Set(pinned);
-    next.has(note.id) ? next.delete(note.id) : next.add(note.id);
-    localStorage.setItem(pinsKey, JSON.stringify([...next]));
-    setNotes((value) => [...value]);
   }
   async function newNote() {
     if (!selected) return;
@@ -1671,15 +1649,6 @@ function Workspace({
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search"
                 />
-                <select
-                  value={sort}
-                  onChange={(event) =>
-                    setSort(event.target.value as "updated" | "title")
-                  }
-                >
-                  <option value="updated">Recent</option>
-                  <option value="title">Title</option>
-                </select>
                 <button
                   className="icon-button"
                   disabled={!selected || busy}
@@ -1689,27 +1658,33 @@ function Workspace({
                 </button>
               </div>
             </div>
-            {listEntries.map(({ note, container }) => (
+            {listEntries.map(({ note, container }, index) => (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
                 key={note.id}
+                onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
+                onDrop={(event) => {
+                  const pageID = event.dataTransfer.getData(PAGE_DRAG);
+                  if (reorderable && pageID) void movePage(pageID, sectionID, index);
+                }}
               >
                 <button
                   className="note-row"
+                  draggable={!queueMode}
+                  onDragStart={(event) => event.dataTransfer.setData(PAGE_DRAG, note.id)}
+                  onKeyDown={(event) => {
+                    if (!reorderable || !event.altKey) return;
+                    if (event.key === "ArrowUp" && index > 0) { event.preventDefault(); void movePage(note.id, sectionID, index - 1); }
+                    if (event.key === "ArrowDown" && index < listEntries.length - 1) { event.preventDefault(); void movePage(note.id, sectionID, index + 1); }
+                  }}
+                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
-                  <strong>{note.title || "Untitled note"}</strong>
+                  <strong>{note.title || "Untitled page"}</strong>
                   <span>
-                    {(queueMode ? noteTasks(indexNotes([note])[0]).slice(0, 2).join(" · ") : documentText(note.body).slice(0, 64)) ||
-                      "Empty note"}
+                    {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
+                    {(queueMode ? noteTasks(indexNotes([note])[0]).slice(0, 2).join(" · ") : documentText(note.body).slice(0, 64)) || "Empty page"}
                   </span>
-                </button>
-                <button
-                  className="pin-button"
-                  title={pinned.has(note.id) ? "Unpin note" : "Pin note"}
-                  onClick={() => togglePin(note)}
-                >
-                  {pinned.has(note.id) ? "★" : "☆"}
                 </button>
               </div>
             ))}
@@ -1793,6 +1768,14 @@ function Workspace({
                   </Suspense>
                 </div>
                 <div className="editor-actions">
+                  <select
+                    aria-label="Move page to section"
+                    value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
+                    onChange={(event) => void movePage(selectedNote.id, event.target.value, pagesInSection(notes, sections, event.target.value).length)}
+                  >
+                    {orderedSections.map((entry) => <option key={entry.id} value={entry.id}>{entry.title || "Untitled section"}</option>)}
+                    <option value={QUICK_NOTES}>Quick Notes</option>
+                  </select>
                   <button
                     className="danger quiet"
                     onClick={() => void remove(selectedNote)}
