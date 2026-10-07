@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, groupParents, groupPath, placeBlock, sectionGroup, shiftLevel, visibleRows } from "./outline";
+import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupParents, groupPath, parseCollapsed, placeBlock, sectionGroup, shiftLevel, siblingMove, visibleRows } from "./outline";
 
 const page = (id: string, level?: number, order?: string) => ({ id, level, order });
 
@@ -96,5 +96,35 @@ describe("groups", () => {
     expect(sectionGroup({ id: id(9), group: id(77) }, parents)).toBeUndefined();
     expect(groupPath(id(2), parents)).toEqual([id(1), id(2)]);
     expect(groupPath(undefined, parents)).toEqual([]);
+  });
+});
+
+describe("block moves", () => {
+  // a, b(c), d, e(f)
+  const levels = [0, 1, 2, 1, 0, 1];
+  it("Alt+Arrow moves past the neighbouring sibling block or refuses", () => {
+    expect(siblingMove(levels, 3, -1)).toBe(1);
+    expect(siblingMove(levels, 1, 1)).toBe(4);
+    expect(siblingMove(levels, 0, 1)).toBe(6);
+    expect(siblingMove(levels, 1, -1)).toBeUndefined();
+    expect(siblingMove(levels, 3, 1)).toBeUndefined();
+    expect(siblingMove(levels, 4, 1)).toBeUndefined();
+  });
+  it("drops before the row dragging up and after its block dragging down", () => {
+    expect(dropBefore(levels, 4, 1)).toBe(1);
+    expect(dropBefore(levels, 0, 4)).toBe(6);
+    expect(dropBefore(levels, 1, 3)).toBe(4);
+    expect(dropBefore(levels, 3, 4)).toBe(6);
+    expect(dropBefore(levels, 1, 2)).toBeUndefined();
+    expect(dropBefore(levels, 1, 1)).toBeUndefined();
+  });
+});
+
+describe("parseCollapsed", () => {
+  it("reads an array of ids and treats anything else as empty", () => {
+    expect([...parseCollapsed('["a","b",3]')]).toEqual(["a", "b"]);
+    expect(parseCollapsed("{").size).toBe(0);
+    expect(parseCollapsed('{"a":1}').size).toBe(0);
+    expect(parseCollapsed(null).size).toBe(0);
   });
 });

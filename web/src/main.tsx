@@ -80,7 +80,8 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { ancestors, blockRange, displayLevels, dropBefore, parseCollapsed, placeBlock, shiftLevel, siblingMove, visibleRows } from "./outline";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -111,8 +112,6 @@ import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
 const FLUSH_ROUNDS = 5;
-const notePayload = (note: Note): PagePayload =>
-  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
 const CanvasPage = lazy(() => import("./CanvasPage"));
 
@@ -599,6 +598,27 @@ function Workspace({
   const settledNotes = useDeferredValue(notes);
   const orderedNotes = useMemo(() => [...settledNotes].sort(compareOrdered), [settledNotes]);
   const sectionPages = useMemo(() => pagesInSection(notes, sections, sectionID), [notes, sections, sectionID]);
+  const sectionLevels = useMemo(() => displayLevels(sectionPages), [sectionPages]);
+  const collapsedKey = selected ? `kynotes-collapsed-${auth.user.id}-${selected.id}` : "";
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setCollapsed(parseCollapsed(collapsedKey ? localStorage.getItem(collapsedKey) : null));
+  }, [collapsedKey]);
+  function toggleCollapsed(id: string) {
+    const ids = new Set(notesRef.current.map((note) => note.id));
+    const next = [...collapsed].filter((entry) => entry !== id && ids.has(entry));
+    if (!collapsed.has(id)) next.push(id);
+    if (collapsedKey) localStorage.setItem(collapsedKey, JSON.stringify(next));
+    setCollapsed(new Set(next));
+  }
+  // A page opened from search, resurfacing or a link is never hidden under a collapsed parent.
+  useEffect(() => {
+    const id = selectedNote?.id;
+    if (!id) return;
+    const above = ancestors(sectionPages, id);
+    setCollapsed((value) => above.some((entry) => value.has(entry)) ? new Set([...value].filter((entry) => !above.includes(entry))) : value);
+    // Only on opening a page: collapsing the open page's parent afterwards is allowed.
+  }, [selectedNote?.id, sectionID, collapsedKey]);
   const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
   const searchableNotes = useMemo(() => indexNotes(orderedNotes), [orderedNotes]);
   useEffect(() => {
@@ -644,6 +664,12 @@ function Workspace({
         .map((note) => ({ note, container: selected }))
         .filter((entry): entry is QueueEntry => Boolean(entry.container));
   const reorderable = !queueMode && !query.trim();
+  const listRows = reorderable && selected
+    ? visibleRows(sectionPages, collapsed).map((row) => ({ note: row.item, container: selected, row }))
+    : listEntries.map((entry) => ({ ...entry, row: undefined }));
+  const sectionIndex = (id: string) => sectionPages.findIndex((note) => note.id === id);
+  const canShift = (id: string, delta: 1 | -1) => sectionIndex(id) >= 0 && shiftLevel(sectionLevels, sectionIndex(id), delta) !== undefined;
+  const beforeAt = (index: number | undefined) => index === undefined ? undefined : sectionPages[index]?.id ?? null;
   const relatedNotes = useMemo(
     () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
     [searchableNotes, selectedNote],
@@ -831,7 +857,7 @@ function Workspace({
       if (!payload) return;
       if (payload.type === "section") found.push({ ...payload, id, version });
       else if (payload.type === "group") return; // Task 4 handles groups properly.
-      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, version, updatedAt });
+      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
     };
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
@@ -1311,7 +1337,10 @@ function Workspace({
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
-  async function placePage(id: string, change: { section?: string; order: string }) {
+  async function placePage(id: string, placement: { section?: string; order: string; level?: 0 | 1 | 2 }) {
+    // An undefined level keeps the page's own; an undefined section means Quick Notes.
+    const { level, ...rest } = placement;
+    const change = level === undefined ? rest : placement;
     patchNotes((value) => editEntry(value, id, change));
     const open = selectedNoteRef.current;
     if (open?.id === id) {
@@ -1372,17 +1401,42 @@ function Workspace({
     for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order }).catch(reportSection);
   }
   const moveChain = useRef(Promise.resolve());
-  function movePage(pageID: string, target: string, index: number) {
-    const run = moveChain.current.then(async () => {
-      const list = pagesInSection(notesRef.current, sectionsRef.current, target);
-      const section = target === QUICK_NOTES ? undefined : target;
-      for (const update of reorder(list, pageID, index)) {
-        const entry = notesRef.current.find((note) => note.id === update.id);
-        await placePage(update.id, { section: update.id === pageID ? section : entry?.section, order: update.order });
-      }
-    });
+  const pageSection = (page: { section?: string }) =>
+    page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
+  function onMoveChain(work: () => Promise<void>) {
+    const run = moveChain.current.then(work);
     moveChain.current = run.catch(() => {});
     return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
+  }
+  /** Moves the block headed by `pageID` before page `beforeID` in `target`, or to its end. */
+  function movePage(pageID: string, target: string, beforeID: string | null) {
+    return onMoveChain(async () => {
+      const page = notesRef.current.find((note) => note.id === pageID);
+      if (!page) return;
+      const source = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
+      const levels = displayLevels(source);
+      const [start, end] = blockRange(levels, source.findIndex((note) => note.id === pageID));
+      const block = source.slice(start, end);
+      const inBlock = new Set(block.map((note) => note.id));
+      const list = pagesInSection(notesRef.current, sectionsRef.current, target).filter((note) => !inBlock.has(note.id));
+      const before = beforeID === null ? -1 : list.findIndex((note) => note.id === beforeID);
+      const section = target === QUICK_NOTES ? undefined : target;
+      for (const update of placeBlock(list, block, levels.slice(start, end), before < 0 ? list.length : before)) {
+        const entry = notesRef.current.find((note) => note.id === update.id);
+        await placePage(update.id, inBlock.has(update.id)
+          ? { section, order: update.order, level: update.level as 0 | 1 | 2 }
+          : { section: entry?.section, order: update.order });
+      }
+    });
+  }
+  function indentPage(pageID: string, delta: 1 | -1) {
+    return onMoveChain(async () => {
+      const page = notesRef.current.find((note) => note.id === pageID);
+      if (!page) return;
+      const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
+      const level = shiftLevel(displayLevels(list), list.findIndex((note) => note.id === pageID), delta);
+      if (level !== undefined) await placePage(pageID, { section: page.section, order: page.order ?? endOrder(list), level: level as 0 | 1 | 2 });
+    });
   }
   /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
   async function keepConflictCopies() {
@@ -1393,8 +1447,7 @@ function Workspace({
     const containerID = selected.id;
     // A notebook switch replaces notes[]: copies are on the server and appear on its next load.
     const sameNotebook = () => (loadingContainerID.current ?? selectedRef.current?.id) === containerID;
-    const shownIn = (page: { section?: string }) => page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
-    try {
+        try {
       // Unsent edits become one more rejected version instead of vanishing in the reload.
       if (dirty) await save(open, true);
       const latest = selectedNoteRef.current;
@@ -1404,7 +1457,7 @@ function Workspace({
       const server = await readObject(open.id);
       const payload = await decryptObject(auth.authSecret, containerID, server.bytes);
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
-      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, version: server.version };
+      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
       if (selectedNoteRef.current?.id === open.id) {
         const next = { ...selectedNoteRef.current, ...reloaded };
@@ -1435,7 +1488,7 @@ function Workspace({
         if (!sameNotebook()) { failed += 1; continue; }
         try {
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
-          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, shownIn(current)), current, group.payload);
+          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(current)), current, group.payload);
           const object = await createObject(containerID);
           const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, version: 0, updatedAt: new Date().toISOString() };
           if (sameNotebook()) patchNotes((value) => [...value, copy]);
@@ -1459,7 +1512,7 @@ function Workspace({
       // Another device may have moved the page: show the section that now holds it and its copies.
       const placed = notesRef.current.find((note) => note.id === open.id);
       if (placed && sameNotebook() && selectedNoteRef.current?.id === open.id) {
-        setSectionID(shownIn(placed));
+        setSectionID(pageSection(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
@@ -1816,7 +1869,7 @@ function Workspace({
               onColor={(section, color) => void updateSection(section.id, { color }).catch(reportSection)}
               onDelete={(section) => void removeSection(section)}
               onMove={(id, index) => void moveSection(id, index)}
-              onDropPage={(pageID, target) => void movePage(pageID, target, pagesInSection(notes, sections, target).length)}
+              onDropPage={(pageID, target) => void movePage(pageID, target, null)}
             />
           )}
           <section className="note-list">
@@ -1846,36 +1899,61 @@ function Workspace({
                 </button>
               </div>
             </div>
-            {listEntries.map(({ note, container }, index) => {
+            {listRows.map(({ note, container, row }) => {
               // Work queue rows are a snapshot; show the open page live there.
               const shown = queueMode && selectedNote?.id === note.id ? selectedNote : note;
+              const title = shown.title || "Untitled page";
               return (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
                 key={note.id}
+                style={row ? { paddingInlineStart: row.level * 16 } : undefined}
                 onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
                 onDrop={(event) => {
                   const pageID = event.dataTransfer.getData(PAGE_DRAG);
-                  if (reorderable && pageID) void movePage(pageID, sectionID, index);
+                  const from = sectionIndex(pageID);
+                  if (!reorderable || from < 0) return;
+                  const before = beforeAt(dropBefore(sectionLevels, from, sectionIndex(note.id)));
+                  if (before !== undefined) void movePage(pageID, sectionID, before);
                 }}
               >
+                {row?.hasChildren && (
+                  <button
+                    className="page-toggle quiet"
+                    aria-expanded={!row.collapsed}
+                    aria-label={`${row.collapsed ? "Expand" : "Collapse"} ${title}`}
+                    onClick={() => toggleCollapsed(note.id)}
+                  >
+                    {row.collapsed ? "▸" : "▾"}
+                  </button>
+                )}
                 <button
                   className="note-row"
                   data-page-id={note.id}
                   draggable={!queueMode}
                   onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
-                    if (!reorderable || !event.altKey) return;
-                    const to = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : -1;
-                    if (to < 0 || to >= listEntries.length) return;
+                    if (!reorderable) return;
+                    const index = sectionIndex(note.id);
+                    if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+                      const delta = event.shiftKey ? -1 : 1;
+                      // A refused shift leaves Tab to move focus.
+                      if (!canShift(note.id, delta)) return;
+                      event.preventDefault();
+                      void indentPage(note.id, delta);
+                      return;
+                    }
+                    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                    const before = beforeAt(siblingMove(sectionLevels, index, event.key === "ArrowUp" ? -1 : 1));
+                    if (before === undefined) return;
                     event.preventDefault();
-                    void movePage(note.id, sectionID, to).then(() =>
+                    void movePage(note.id, sectionID, before).then(() =>
                       document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
                   }}
-                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Tab Shift+Tab" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
-                  <strong>{shown.title || "Untitled page"}</strong>
+                  <strong>{title}</strong>
                   <span>
                     {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
                     {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : indexNotes([shown])[0].body.slice(0, 64)) || "Empty page"}
@@ -1967,11 +2045,25 @@ function Workspace({
                   <select
                     aria-label="Move page to section"
                     value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
-                    onChange={(event) => void movePage(selectedNote.id, event.target.value, pagesInSection(notes, sections, event.target.value).length)}
+                    onChange={(event) => void movePage(selectedNote.id, event.target.value, null)}
                   >
                     {orderedSections.map((entry) => <option key={entry.id} value={entry.id}>{entry.title || "Untitled section"}</option>)}
                     <option value={QUICK_NOTES}>Quick Notes</option>
                   </select>
+                  <button
+                    className="quiet"
+                    disabled={!canShift(selectedNote.id, 1)}
+                    onClick={() => void indentPage(selectedNote.id, 1)}
+                  >
+                    Indent page
+                  </button>
+                  <button
+                    className="quiet"
+                    disabled={!canShift(selectedNote.id, -1)}
+                    onClick={() => void indentPage(selectedNote.id, -1)}
+                  >
+                    Outdent page
+                  </button>
                   <button
                     className="danger quiet"
                     onClick={() => void remove(selectedNote)}

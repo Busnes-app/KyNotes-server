@@ -135,3 +135,32 @@ export function groupPath(groupID: string | undefined, parents: Map<string, stri
   }
   return path;
 }
+
+/** Alt+Arrow: index of the page to move the block at `index` before (list length = end), or undefined without a sibling that way. */
+export function siblingMove(levels: number[], index: number, delta: 1 | -1): number | undefined {
+  const level = levels[index];
+  if (delta === -1) {
+    let i = index - 1;
+    while (i >= 0 && levels[i] > level) i -= 1;
+    return i >= 0 && levels[i] === level ? i : undefined;
+  }
+  const next = blockRange(levels, index)[1];
+  return levels[next] === level ? blockRange(levels, next)[1] : undefined;
+}
+
+/** Drop of the block at `from` onto row `at`: before it dragging up, after its block dragging down; undefined inside the dragged block. */
+export function dropBefore(levels: number[], from: number, at: number): number | undefined {
+  const [start, end] = blockRange(levels, from);
+  if (at >= start && at < end) return undefined;
+  return at < from ? at : blockRange(levels, at)[1];
+}
+
+/** Collapsed page ids saved as a JSON array; anything else is empty. */
+export function parseCollapsed(raw: string | null): Set<string> {
+  try {
+    const value: unknown = JSON.parse(raw ?? "[]");
+    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}

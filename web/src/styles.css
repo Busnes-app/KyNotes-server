@@ -337,3 +337,5 @@ body { color: var(--ink-strong); background: var(--bg); }
   .canvas-ink-note { display: block; color: var(--ink); font-size: 13px; }
   .canvas-scroll { height: auto; }
 }
+.page-toggle { align-self: center; width: 22px; height: 22px; padding: 0; margin-inline-start: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; line-height: 1; cursor: pointer; }
+.page-toggle:hover, .page-toggle:focus-visible { background: var(--accent-soft); color: var(--ink-strong); }
