@@ -24,14 +24,17 @@ const isSteward = (role: string) => role === "owner" || role === "admin";
 
 /**
  * Opens this identity's envelopes, accepting only keys a trusted sender sealed:
- * this identity itself, or a current owner or admin whose identity key matches
- * its pin. A first-contact sender is pinned once its envelope opens (TOFU); a
- * changed key is refused until the user confirms it (confirmFingerprintChange).
+ * this identity itself, a current owner or admin whose identity key matches its
+ * pin, or, for generations older than the current one, any identity already
+ * pinned on this device (so a removed or demoted steward's history stays
+ * readable). A first-contact steward is pinned once its envelope opens (TOFU);
+ * a changed steward key is surfaced and refused until confirmFingerprintChange.
  */
-export function openKeyring(containerID: string, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Pins): OpenedKeyring {
+export function openKeyring(container: Pick<KeyedContainer, "id" | "keyGeneration">, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Pins): OpenedKeyring {
   const ring = new Map<number, Uint8Array>();
   const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[] };
   if (!me) return out;
+  const pinnedKeys = Object.values(pins).flatMap((key) => { try { return [publicKeyBytes(key)]; } catch { return []; } });
   for (const row of envelopes) {
     if (row.deviceId !== me.deviceId || row.alg !== ENVELOPE_ALG) continue;
     try {
@@ -39,17 +42,24 @@ export function openKeyring(containerID: string, envelopes: Envelope[], me: Me |
       const sender = envelopeSender(envelope);
       const self = sender === me.deviceId;
       const member = self ? undefined : members.find((entry) => entry.identity?.deviceId === sender);
-      if (!self && (!member || member.userId === me.userId || !isSteward(member.role))) continue;
-      const pinned = member && out.pins[member.userId];
-      if (member && pinned !== undefined && !sameKey(pinned, member.identity!.publicKey)) {
-        if (!out.changed.some((change) => change.member.userId === member.userId)) out.changed.push({ member, pinned });
-        continue;
-      }
-      const senderPublic = member ? publicKeyBytes(member.identity!.publicKey) : me.publicKey;
-      ring.set(row.keyGeneration, unwrapEnvelope(envelope, me.privateKey, containerID, row.keyGeneration, me.deviceId, senderPublic));
-      if (member && pinned === undefined) {
-        out.pins[member.userId] = member.identity!.publicKey;
-        out.fresh.push(member);
+      if (member?.userId === me.userId) continue;
+      const steward = member && isSteward(member.role) ? member : undefined;
+      const pinned = steward && out.pins[steward.userId];
+      const trusted = steward && (pinned === undefined || sameKey(pinned, steward.identity!.publicKey));
+      if (steward && !trusted && !out.changed.some((change) => change.member.userId === steward.userId)) out.changed.push({ member: steward, pinned: pinned! });
+      const candidates = self ? [me.publicKey]
+        : trusted ? [publicKeyBytes(steward.identity!.publicKey)]
+        : row.keyGeneration < container.keyGeneration ? pinnedKeys
+        : [];
+      const opened = candidates.some((senderPublic) => {
+        try {
+          ring.set(row.keyGeneration, unwrapEnvelope(envelope, me.privateKey, container.id, row.keyGeneration, me.deviceId, senderPublic));
+          return true;
+        } catch { return false; }
+      });
+      if (opened && trusted && pinned === undefined) {
+        out.pins[steward.userId] = steward.identity!.publicKey;
+        out.fresh.push(steward);
       }
     } catch { /* A row this identity cannot open is someone else's mistake, never a key. */ }
   }

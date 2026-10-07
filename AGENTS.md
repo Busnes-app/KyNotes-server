@@ -398,7 +398,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestOpenEnvelopeAgreesWithVectors` and the probe.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
   (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
-  owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused);
+  owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,
+  below the container's current generation, an identity already pinned on this device;
   `sealFor` pins first-seen recipients and throws `FingerprintChangedError` until
   `confirmFingerprintChange`; `readKeys` opens rows at or above `sharedGeneration` only with their own
   generation's CK. Callers persist returned pins with `storePins` and tell the user when it returns

@@ -13,6 +13,7 @@ const person = (name: string, c: string, role = "editor") => {
   return { held, member };
 };
 const legacy = legacyKeyRef("5a".repeat(32));
+const at = (keyGeneration: number) => ({ id: cnt, keyGeneration });
 /** An envelope sealed with no pins in play. */
 const seal = (member: MemberKey, generation: number, key: Uint8Array, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
 
@@ -24,12 +25,12 @@ describe("keyring", () => {
     const k3 = newContainerKey();
     const rows: Envelope[] = [seal(owner.member, 2, k2, owner.held), seal(editor.member, 2, k2, owner.held), seal(owner.member, 3, k3, owner.held)];
     const forged = { ...seal(owner.member, 4, k3, owner.held), keyGeneration: 5 }; // AAD binds the generation
-    const opened = openKeyring(cnt, [...rows, forged], owner.held, [owner.member, editor.member], {});
+    const opened = openKeyring(at(3), [...rows, forged], owner.held, [owner.member, editor.member], {});
     expect([...opened.ring.keys()].sort()).toEqual([2, 3]);
     expect(opened.ring.get(3)).toEqual(k3);
     // Self-sealed envelopes need no pin and add none.
     expect(opened).toMatchObject({ pins: {}, fresh: [], changed: [] });
-    expect(openKeyring(cnt, rows, undefined, [owner.member], {}).ring.size).toBe(0);
+    expect(openKeyring(at(3), rows, undefined, [owner.member], {}).ring.size).toBe(0);
   });
 
   describe("sender authentication", () => {
@@ -42,13 +43,13 @@ describe("keyring", () => {
 
     it("accepts a current steward whose key matches its pin", () => {
       const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
-      const opened = openKeyring(cnt, fromOwner, editor.held, members, pins);
+      const opened = openKeyring(at(2), fromOwner, editor.held, members, pins);
       expect(opened.ring.get(2)).toEqual(k2);
       expect(opened).toMatchObject({ pins, fresh: [], changed: [] });
     });
 
     it("pins a first-contact steward and surfaces it as a new key holder", () => {
-      const opened = openKeyring(cnt, fromOwner, editor.held, members, {});
+      const opened = openKeyring(at(2), fromOwner, editor.held, members, {});
       expect(opened.ring.get(2)).toEqual(k2);
       expect(opened.pins).toEqual({ [owner.member.userId]: owner.member.identity!.publicKey });
       expect(opened.fresh).toEqual([owner.member]);
@@ -56,7 +57,7 @@ describe("keyring", () => {
 
     it("rejects and surfaces a steward whose key no longer matches its pin", () => {
       const pinned = admin.member.identity!.publicKey;
-      const opened = openKeyring(cnt, fromOwner, editor.held, members, { [owner.member.userId]: pinned });
+      const opened = openKeyring(at(2), fromOwner, editor.held, members, { [owner.member.userId]: pinned });
       expect(opened.ring.size).toBe(0);
       expect(opened.changed).toEqual([{ member: owner.member, pinned }]);
       expect(opened.pins).toEqual({ [owner.member.userId]: pinned });
@@ -64,15 +65,15 @@ describe("keyring", () => {
 
     it("ignores senders that are not current stewards", () => {
       const fromEditor = [seal(owner.member, 2, k2, editor.held)];
-      expect(openKeyring(cnt, fromEditor, owner.held, members, {}).ring.size).toBe(0);
+      expect(openKeyring(at(2), fromEditor, owner.held, members, {}).ring.size).toBe(0);
       // A removed steward is no longer in the member list.
-      expect(openKeyring(cnt, fromOwner, editor.held, [admin.member, editor.member], {}).ring.size).toBe(0);
+      expect(openKeyring(at(2), fromOwner, editor.held, [admin.member, editor.member], {}).ring.size).toBe(0);
     });
 
     it("ignores an envelope forged in a steward's name and pins nothing", () => {
       const server = generateIdentity();
       const forged = [seal(editor.member, 2, k2, { ...server, deviceId: owner.held.deviceId, userId: owner.held.userId })];
-      const opened = openKeyring(cnt, forged, editor.held, members, {});
+      const opened = openKeyring(at(2), forged, editor.held, members, {});
       expect(opened).toMatchObject({ pins: {}, fresh: [], changed: [] });
       expect(opened.ring.size).toBe(0);
     });
@@ -81,7 +82,27 @@ describe("keyring", () => {
       const impostor = person("editor", "g", "owner");
       const fake: MemberKey = { ...impostor.member, userId: editor.member.userId };
       const rows = [seal(editor.member, 2, k2, impostor.held)];
-      expect(openKeyring(cnt, rows, editor.held, [owner.member, fake], {}).ring.size).toBe(0);
+      expect(openKeyring(at(2), rows, editor.held, [owner.member, fake], {}).ring.size).toBe(0);
+    });
+
+    it("keeps history from a pinned former steward, but never at the current generation", () => {
+      const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
+      const remaining = [admin.member, editor.member]; // owner removed, container re-keyed to 3
+      const old = openKeyring(at(3), fromOwner, editor.held, remaining, pins);
+      expect(old.ring.get(2)).toEqual(k2);
+      expect(old).toMatchObject({ pins, fresh: [], changed: [] });
+      // The same sender at the current generation needs a current steward.
+      expect(openKeyring(at(2), fromOwner, editor.held, remaining, pins).ring.size).toBe(0);
+      // Demoted rather than removed: same rule.
+      const demoted = [{ ...owner.member, role: "editor" }, editor.member];
+      expect(openKeyring(at(3), fromOwner, editor.held, demoted, pins).ring.get(2)).toEqual(k2);
+      expect(openKeyring(at(2), fromOwner, editor.held, demoted, pins).ring.size).toBe(0);
+    });
+
+    it("ignores an unpinned non-steward even for an old generation", () => {
+      const fromEditor = [seal(owner.member, 2, k2, editor.held)];
+      expect(openKeyring(at(3), fromEditor, owner.held, members, {}).ring.size).toBe(0);
+      expect(openKeyring(at(3), fromOwner, editor.held, [admin.member, editor.member], {}).ring.size).toBe(0);
     });
   });
 
