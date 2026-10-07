@@ -12,9 +12,10 @@ type Props = {
   uploadFile: (file: File) => Promise<string>;
   resolveFileUrl: (url: string) => Promise<string>;
   editable?: boolean;
+  autoFocus?: boolean;
 };
 
-export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl, editable = true }: Props) {
+export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl, editable = true, autoFocus }: Props) {
   const hydratedRef = useRef(false);
   const onChangeRef = useRef(onChange);
   const uploadRef = useRef(uploadFile);
@@ -35,8 +36,9 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
     }
     // BlockNote may report its initial/default document while the component
     // is mounting. Do not treat that hydration event as a user edit.
+    if (autoFocus) editor.focus();
     hydratedRef.current = true;
-  }, [editor, legacyMarkdown]);
+  }, [editor, legacyMarkdown, autoFocus]);
 
   return (
     <div className="blocknote-editor">

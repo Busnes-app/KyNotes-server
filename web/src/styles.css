@@ -291,3 +291,42 @@ body { color: var(--ink-strong); background: var(--bg); }
 
 .note-row[draggable="true"] { cursor: grab; }
 .page-section { font-style: normal; color: var(--accent); }
+
+/* Canvas pages: positioned text boxes under an ink layer. */
+.page-canvas { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.canvas-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.canvas-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.canvas-toolbar button { background: transparent; color: var(--ink); padding: 6px 10px; border-radius: 6px; }
+.canvas-toolbar button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink-strong); box-shadow: inset 0 -2px var(--accent); }
+.ink-swatch { width: 26px; height: 26px; padding: 0 !important; border-radius: 50% !important; }
+.canvas-scroll { flex: 1; overflow: auto; height: calc(100vh - 300px); min-height: 420px; }
+.canvas-surface { position: relative; min-width: 100%; min-height: 100%; }
+.canvas-hint { position: absolute; left: 24px; top: 16px; margin: 0; color: var(--ink); pointer-events: none; }
+.canvas-box { position: absolute; }
+.canvas-box .blocknote-editor, .canvas-box .blocknote-editor .bn-container { min-height: 0; }
+.canvas-box .bn-container { border-color: transparent; background: transparent; }
+.canvas-box:hover .bn-container, .canvas-box:focus-within .bn-container { border-color: var(--line); background: var(--panel); }
+.canvas-box-handle { height: 10px; border-radius: 6px 6px 0 0; cursor: grab; opacity: 0; background: var(--accent-soft); }
+.canvas-box:hover .canvas-box-handle, .canvas-box:focus-within .canvas-box-handle, .canvas-box-handle:focus-visible { opacity: 1; }
+.canvas-box-resize { position: absolute; top: 10px; right: -4px; bottom: 0; width: 8px; cursor: ew-resize; }
+.canvas-ink { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; touch-action: none; }
+.canvas-page.tool-type .canvas-ink { pointer-events: none; }
+.canvas-page.tool-pen .canvas-ink, .canvas-page.tool-highlighter .canvas-ink { cursor: crosshair; }
+.canvas-page.tool-eraser .canvas-ink { cursor: cell; }
+.ink { stroke: none; }
+.ink.highlighter { opacity: .35; }
+.ink-ink { fill: var(--ink-strong); background: var(--ink-strong); }
+.ink-blue { fill: var(--section-blue); background: var(--section-blue); }
+.ink-red { fill: var(--section-red); background: var(--section-red); }
+.ink-green { fill: var(--section-green); background: var(--section-green); }
+.ink-orange { fill: var(--section-orange); background: var(--section-orange); }
+.ink-yellow { fill: var(--section-yellow); background: var(--section-yellow); }
+.canvas-ink-note { display: none; }
+/* Phones read pages as a column of text; ink and free placement need a wider screen. */
+@media (max-width: 800px) {
+  .canvas-surface { display: flex; flex-direction: column; gap: 16px; width: auto !important; height: auto !important; }
+  .canvas-box { position: static; width: auto !important; }
+  .canvas-ink, .canvas-box-handle, .canvas-box-resize, .canvas-toolbar .ink-tool { display: none; }
+  .canvas-ink-note { display: block; color: var(--ink); font-size: 13px; }
+  .canvas-scroll { height: auto; }
+}
