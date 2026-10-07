@@ -188,6 +188,7 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .shared-note h1 { font-size: clamp(32px, 7vw, 58px); }
 .shared-note-body { color: var(--ink); font-size: 17px; line-height: 1.8; }
 .conflict-banner { margin-top: 18px; padding: 12px 14px; border: 1px solid color-mix(in srgb, #b42318 35%, var(--line)); border-radius: 14px; color: var(--ink-strong); background: color-mix(in srgb, #b42318 10%, var(--panel)); font-size: 13px; line-height: 1.5; corner-shape: squircle; }
+.conflict-banner button { display: block; margin-top: 8px; }
 @media (max-width: 800px) { .note-search { width: 100%; } .list-actions { flex-wrap: wrap; } }
 .editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
 .editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }

@@ -74,6 +74,24 @@ export function reorder<T extends { id: string; order?: string }>(list: T[], mov
   });
 }
 
+/**
+ * A rejected version kept as a new page right after `original` in `list` (its visible section).
+ * `moves` holds any renumbered neighbours, never the copy itself.
+ */
+export function conflictCopy<T extends Placed>(list: T[], original: T, rejected: { title: string; body: string }) {
+  // Placed before the object exists, so an exhausted key never leaves an empty page behind.
+  const copyID = "";
+  const updates = reorder(list, copyID, list.findIndex((item) => item.id === original.id) + 1);
+  const page: PagePayload = {
+    type: "page",
+    title: `${rejected.title || "Untitled page"} (conflicting copy)`,
+    body: rejected.body,
+    section: original.section,
+    order: updates.find((update) => update.id === copyID)?.order,
+  };
+  return { page, moves: updates.filter((update) => update.id !== copyID) };
+}
+
 export function resolveSection(id: string | undefined, sections: Section[]): string {
   if (id === QUICK_NOTES || (id && sections.some((section) => section.id === id))) return id;
   return sortedSections(sections)[0]?.id ?? QUICK_NOTES;

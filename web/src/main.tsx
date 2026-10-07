@@ -34,6 +34,8 @@ import {
   members,
   notifications,
   objectConflicts,
+  conflictCiphertext,
+  resolveConflict,
   objectAttachments,
   pairAdminSSO,
   readObject,
@@ -76,7 +78,7 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
 import {
@@ -560,6 +562,8 @@ function Workspace({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Bumped to remount the open page's editor on content it did not produce.
+  const [editorRevision, setEditorRevision] = useState(0);
   const [view, setView] = useState<"workspace" | "settings" | "admin">(
     "workspace",
   );
@@ -1358,6 +1362,65 @@ function Workspace({
     moveChain.current = run.catch(() => {});
     return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
   }
+  /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
+  async function keepConflictCopies() {
+    const open = selectedNoteRef.current;
+    if (!selected || !open) return;
+    const containerID = selected.id;
+    setBusy(true);
+    try {
+      // Unsent edits become one more rejected version instead of vanishing in the reload.
+      if (dirty) await save(open, true);
+      // Reload before placing copies: they belong next to the server's placement, and a
+      // renumber may have to write the original at its server version.
+      const server = await readObject(open.id);
+      const payload = await decryptObject(auth.authSecret, containerID, server.bytes);
+      if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
+      const original: Note = { ...open, title: payload.title, body: payload.body, section: payload.section, order: payload.order, version: server.version };
+      patchNotes((value) => value.map((note) => (note.id === open.id ? original : note)));
+      selectedNoteRef.current = original;
+      setSelectedNote(original);
+      setDirty(false);
+      setEditorRevision((value) => value + 1);
+      setError("");
+      let unresolved = 0;
+      for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
+        try {
+          const rejected = await decryptObject(auth.authSecret, containerID, await conflictCiphertext(conflict.id)).catch(() => undefined);
+          if (rejected?.type !== "page") { unresolved += 1; continue; }
+          const current = notesRef.current.find((note) => note.id === open.id) ?? original;
+          const visible = current.section && sectionsRef.current.some((entry) => entry.id === current.section) ? current.section : QUICK_NOTES;
+          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, visible), current, rejected);
+          const object = await createObject(containerID);
+          patchNotes((value) => [...value, { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, version: 0, updatedAt: new Date().toISOString() }]);
+          const saved = await writeObject(object.id, 0, page);
+          if (saved === null) { unresolved += 1; continue; }
+          patchNotes((value) => carrySaved(value, object.id, { version: saved }));
+          const run = moveChain.current.then(async () => {
+            for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order });
+          });
+          moveChain.current = run.catch(() => {});
+          await run;
+          // ponytail: a resolve that fails after the copy saved leaves the record open, so a retry
+          // adds a duplicate copy. Upgrade: record the source conflict ID in the copy and skip it.
+          await resolveConflict(conflict.id);
+        } catch (error) {
+          unresolved += 1;
+          setError(error instanceof Error ? error.message : "Unable to keep a conflicting version");
+        }
+      }
+      if (unresolved) {
+        setError((value) => value || "Some conflicting versions could not be copied; try again.");
+      } else {
+        setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
+        setSyncStatus("saved");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to keep the conflicting version");
+    } finally {
+      setBusy(false);
+    }
+  }
   function editOpen(pageID: string, change: { title?: string; body?: string }) {
     const open = selectedNoteRef.current;
     // A late change from a page's editor after another page opened is dropped.
@@ -1821,7 +1884,8 @@ function Workspace({
               <>
                 {conflicted.has(selectedNote.id) && (
                   <div className="conflict-banner" role="alert">
-                    This note has a newer encrypted version on the server. Your local draft is preserved; reload the note before saving again.
+                    Another device saved this page first. Your version was kept separately; save it as a copy next to this page.
+                    <button disabled={busy} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
                 )}
                 <input
@@ -1832,7 +1896,7 @@ function Workspace({
                 <div className="single-pane-editor">
                   <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
                     <BlockNoteEditor
-                      key={selectedNote.id}
+                      key={`${selectedNote.id}:${editorRevision}`}
                       noteID={selectedNote.id}
                       initialContent={parseNoteDocument(selectedNote.body).document}
                       legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}

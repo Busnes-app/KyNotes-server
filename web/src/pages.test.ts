@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_ORDER_KEY } from "./order";
 import {
   QUICK_NOTES, compareOrdered, endOrder, formatRoute, pagesInSection, parseObjectPayload,
-  parseRoute, reorder, resolveSection, sortedSections, type Section,
+  conflictCopy, parseRoute, reorder, resolveSection, sortedSections, type Section,
 } from "./pages";
 
 const id = (n: number) => `obj_${String(n).padStart(26, "0")}`;
@@ -84,5 +84,39 @@ describe("routes", () => {
     expect(resolveSection(id(7), [section(2, "r"), section(1, "i")])).toBe(id(1));
     expect(resolveSection(undefined, [])).toBe(QUICK_NOTES);
     expect(resolveSection(QUICK_NOTES, [section(1, "i")])).toBe(QUICK_NOTES);
+  });
+});
+
+describe("conflictCopy", () => {
+  const page = (n: number, order?: string, section?: string) => ({ id: id(n), order, section });
+  const rejected = { title: "Plan", body: "mine" };
+
+  it("titles the copy and keeps the rejected body", () => {
+    const { page: copy } = conflictCopy([page(1, "i")], page(1, "i"), rejected);
+    expect(copy).toMatchObject({ type: "page", title: "Plan (conflicting copy)", body: "mine" });
+    expect(conflictCopy([page(1, "i")], page(1, "i"), { title: "", body: "" }).page.title).toBe("Untitled page (conflicting copy)");
+  });
+  it("places the copy strictly between the original and the next page", () => {
+    const list = [page(1, "c"), page(2, "i"), page(3, "p")];
+    const { page: copy, moves } = conflictCopy(list, list[1], rejected);
+    expect(copy.order! > "i" && copy.order! < "p").toBe(true);
+    expect(moves).toEqual([]);
+  });
+  it("appends after the original when it is last", () => {
+    const list = [page(1, "c"), page(2, "i")];
+    expect(conflictCopy(list, list[1], rejected).page.order! > "i").toBe(true);
+  });
+  it("copies the original's section, including none", () => {
+    const sectionID = id(5);
+    const placed = page(1, "i", sectionID);
+    expect(conflictCopy([placed], placed, rejected).page.section).toBe(sectionID);
+    expect(conflictCopy([page(1, "i")], page(1, "i"), rejected).page.section).toBeUndefined();
+  });
+  it("renumbers neighbours when there is no room, returning their moves separately", () => {
+    const list = [page(1, "i"), page(2, "i"), page(3)];
+    const { page: copy, moves } = conflictCopy(list, list[0], rejected);
+    const orders = new Map(moves.map((move) => [move.id, move.order]));
+    expect(orders.has("")).toBe(false);
+    expect(orders.get(id(1))! < copy.order! && copy.order! < orders.get(id(2))!).toBe(true);
   });
 });
