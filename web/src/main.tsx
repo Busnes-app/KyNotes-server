@@ -521,6 +521,11 @@ function Workspace({
   const [notes, setNotes] = useState<Note[]>([]);
   const notesRef = useRef<Note[]>([]);
   notesRef.current = notes;
+  // Chained writes read notesRef before React renders, so they patch it directly.
+  const patchNotes = (update: (value: Note[]) => Note[]) => {
+    notesRef.current = update(notesRef.current);
+    setNotes(notesRef.current);
+  };
   const [sections, setSections] = useState<Section[]>([]);
   const sectionsRef = useRef<Section[]>([]);
   // Writes read sectionsRef synchronously, so every change goes through here.
@@ -1054,7 +1059,7 @@ function Workspace({
         const saved = { ...note, version: result.version, updatedAt: savedAt };
         setLastSavedAt(savedAt);
         setSyncStatus("saved");
-        setNotes((value) =>
+        patchNotes((value) =>
           value.map((entry) =>
             entry.id === saved.id && entry.body === note.body && entry.title === note.title &&
               entry.section === note.section && entry.order === note.order
@@ -1073,16 +1078,15 @@ function Workspace({
           selectedNoteRef.current.title === note.title &&
           selectedNoteRef.current.body === note.body
         ) {
+          selectedNoteRef.current = saved;
           setSelectedNote(saved);
           setDirty(false);
         } else if (selectedNoteRef.current?.id === saved.id) {
           // Carry the server's new version forward without replacing the
           // newer local document that is waiting to be saved next.
-          setSelectedNote((current) =>
-            current?.id === saved.id
-              ? { ...current, version: saved.version, updatedAt: saved.updatedAt }
-              : current,
-          );
+          const carried = { ...selectedNoteRef.current, version: saved.version, updatedAt: saved.updatedAt };
+          selectedNoteRef.current = carried;
+          setSelectedNote(carried);
         }
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1231,16 +1235,16 @@ function Workspace({
       const next = { ...open, ...change };
       selectedNoteRef.current = next;
       setSelectedNote(next);
-      setNotes((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
+      patchNotes((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
       await save(next, true);
       return;
     }
     const entry = notesRef.current.find((note) => note.id === id);
     if (!entry || !selected) return;
     const next = { ...(await latestLocal(entry, selected.id)), ...change };
-    setNotes((value) => value.map((note) => (note.id === id ? next : note)));
+    patchNotes((value) => value.map((note) => (note.id === id ? next : note)));
     const saved = await writeObject(id, next.version, notePayload(next));
-    if (saved !== null) setNotes((value) => value.map((note) => (note.id === id ? { ...note, version: saved } : note)));
+    if (saved !== null) patchNotes((value) => value.map((note) => (note.id === id ? { ...note, version: saved } : note)));
   }
   const orderedSections = useMemo(() => sortedSections(sections), [sections]);
   async function newSection() {
