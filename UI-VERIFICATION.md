@@ -93,3 +93,43 @@ No complete end-to-end product workflow or accessibility audit is claimed.
 | ![Mobile light](docs/onenote-nav-light-mobile.png) | ![Mobile dark](docs/onenote-nav-dark-mobile.png) |
 | ![Section menu](docs/onenote-nav-section-menu.png) | ![Conflict banner](docs/onenote-nav-conflict.png) |
 | ![Conflict copy](docs/onenote-nav-conflict-copy.png) | |
+
+## Canvas pages (2026-10-07)
+
+Scratch server on copied preview data (never production), Playwright MCP, Chromium, 1280x900 in Busnes Light and Dark unless noted. Fixes landed in 3fc6b41..b43135f and the right-edge box fix in 18690ce.
+
+| Check | Result |
+| --- | --- |
+| Legacy page opens as one box, no `PUT` on close | Pass. Caveat: copied legacy pages are plain paragraphs, so heading/list formatting is untested |
+| Typing, two boxes, same positions after reload; empty box pruned | Pass. One empty box remained and was saved; since the final-review fixes an empty box is saved only by its first edit (not re-run in a browser) |
+| Box drag, resize, arrow keys (Shift for larger steps) persist | Pass |
+| Ink: colors, sizes, highlighter, undo/redo, eraser, persistence; undo history per page | Pass after fix (3fc6b41..b43135f: invisible toolbar pressed state and swatches, undo keys dead after mouse drawing) |
+| Dark theme ink strokes are light | Pass |
+| Image drop renders and survives reload | Pass after fix (20a5791: CSP `img-src` allows `blob:`) |
+| Work queue lists a checklist item from a second box; only Work queue is selected in the sidebar | Pass (selection fixed in b43135f) |
+| Touch 1024x768: Type-mode scroll creates no box, Pen-mode one finger draws | Pass |
+| Phone 390x844: boxes stack in reading order, ink tools hidden, ink notice, "Add text" works | Pass |
+| Editing a legacy page saves and keeps formatting | Pass (caveat as above) |
+| Quick strokes are not truncated (10 back to back) | Pass; two early strokes truncated once, not reproduced |
+| Legacy box narrowed to the canvas for display without a `PUT` | Pass |
+| New box at the right edge stays inside the canvas | Fixed after verification (18690ce); not re-run in a browser |
+| Undo keys ignored inside the step-up `<dialog>` | Fixed after verification (18690ce); not re-run in a browser |
+| Ink and click-to-add reach below a long note (surface sized from measured box heights) | Fixed after verification (final-review fixes); not re-run in a browser |
+| Editing on a phone keeps desktop box widths | Fixed after verification (final-review fixes); not re-run in a browser |
+| Right-edge placement while scrolled horizontally lands at the click | Fixed after verification (final-review fixes, `fitBox` unit-tested); not re-run in a browser |
+| Undo keys match the letter Z on Latin layouts (AZERTY, QWERTZ) and the physical Z key on non-Latin layouts | Fixed after verification (final-review fixes, `isUndoKey` unit-tested); not re-run in a browser |
+| Page full: body near 9 MiB shows "page is full", no `PUT` | Not run in a browser; `pageFits` is unit-tested |
+| Real stylus pressure | Unproven: no pen device |
+
+### Open items
+
+- BlockNote/Mantine inline styles still raise CSP `style-src 'self'` console errors on page load. Not introduced by this branch.
+- Already-saved canvas boxes wider than the visible canvas are not narrowed; only legacy boxes are.
+
+### Screenshots
+
+| Light | Dark |
+| --- | --- |
+| ![Desktop light](docs/canvas-light-desktop.png) | ![Desktop dark](docs/canvas-dark-desktop.png) |
+| ![Mobile light](docs/canvas-light-mobile.png) | ![Mobile dark](docs/canvas-dark-mobile.png) |
+| ![Pen toolbar light](docs/canvas-pen-toolbar.png) | ![Pen toolbar dark](docs/canvas-pen-toolbar-dark.png) |

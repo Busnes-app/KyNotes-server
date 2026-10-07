@@ -34,7 +34,7 @@ The first release includes:
 - Push notifications through the existing KyPost model, with pull fallback.
 - A single-directory self-hosted storage and backup model.
 
-Templates, web clipping, freehand drawing, rich media editing, and desktop
+Templates, web clipping, rich media editing, and desktop
 clients are designed as later phases unless required by the client teams.
 
 ## 3. Product model
@@ -64,6 +64,13 @@ Notes are versioned structured documents edited in the client. Markdown and
 HTML are import/export formats only; the encrypted note payload is a versioned
 editor document so formatting, images, and comment anchors do not depend on
 re-parsing text.
+
+Every new or edited page body is `kynotes.canvas.v1`: positioned rich-text boxes
+(BlockNote block arrays) plus ink strokes as flat `[x, y, pressure]` arrays, all inside
+the object ciphertext. Older BlockNote, Tiptap and Markdown bodies open as one box at the
+origin and are rewritten only when edited. Clients clamp and cap decoded canvas input and
+refuse new ink past 9 MiB of serialized body. Decrypted images display from `blob:`
+URLs, so the server CSP allows `img-src 'self' data: blob:`.
 
 The task screen provides:
 
@@ -316,7 +323,7 @@ presence, activity history, and collaboration notifications.
 
 ### Later work
 
-Templates, web clipping, freehand drawing, richer media workflows, public
+Templates, web clipping, richer media workflows, public
 publishing, and desktop clients.
 
 ## Ciphertext mirror extension (Myslop #290)

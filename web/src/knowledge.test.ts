@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { contextualNotes, graphEdges, indexNotes, noteTags, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
-import { isStructuredNoteBody, stringifyNoteDocument } from "./document";
+import { emptyCanvasPage, isStructuredNoteBody, stringifyCanvasPage, stringifyNoteDocument } from "./document";
 
 const notes = [
   { id: "a", title: "Launch", body: "See [[b]] #product\n- [ ] Ship beta", updatedAt: "" },
@@ -47,5 +47,42 @@ describe("local knowledge projections", () => {
 
   it("keeps only notes with open tasks in the work queue", () => {
     expect(openTaskNotes(notes).map((note) => note.id)).toEqual(["a"]);
+  });
+});
+
+describe("canvas tasks", () => {
+  it("finds open checklist items in any box", () => {
+    const body = stringifyCanvasPage({
+      ...emptyCanvasPage(),
+      boxes: [
+        { id: "a", x: 0, y: 0, width: 300, blocks: [{ type: "paragraph", content: "intro" }] },
+        { id: "b", x: 0, y: 200, width: 300, blocks: [{ type: "checkListItem", props: { checked: false }, content: "Call Ana" }] },
+      ],
+    });
+    expect(noteTasks({ id: "n", title: "", body, updatedAt: "" })).toEqual(["Call Ana"]);
+  });
+});
+
+describe("projection cache", () => {
+  const canvas = stringifyCanvasPage({
+    ...emptyCanvasPage(),
+    boxes: [{ id: "b", x: 0, y: 0, width: 300, blocks: [{ type: "checkListItem", props: { checked: false }, content: "Ink later" }] }],
+    strokes: [{ id: "s", tool: "pen", color: "ink", size: 4, points: [1, 2, 0.5] }],
+  });
+  it("projects each note object once", () => {
+    const note = { id: "c", title: "", body: canvas, updatedAt: "" };
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      const first = indexNotes([note])[0];
+      expect(noteTasks(first)).toEqual(["Ink later"]);
+      expect(parse).toHaveBeenCalledTimes(2); // text once, tasks once
+      expect(indexNotes([note])[0]).toBe(first);
+      expect(noteTasks(first)).toEqual(["Ink later"]);
+      expect(parse).toHaveBeenCalledTimes(2);
+      indexNotes([{ ...note }]);
+      expect(parse).toHaveBeenCalledTimes(3); // an edited page is a new object
+    } finally {
+      parse.mockRestore();
+    }
   });
 });

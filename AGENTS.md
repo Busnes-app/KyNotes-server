@@ -83,9 +83,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/` is the browser client; keep plaintext in browser memory only, send
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
 - `web/` also contains the encrypted local save queue, client-only search,
-  contextual resurfacing, graph projections, and a lazy-loaded BlockNote JSON
-  editor with built-in formatting and file controls plus encrypted section
-  anchors for comments. Attachment payloads and metadata are encrypted in the
+  contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
+  `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,
+  `canvas.ts` holds pure edits). Legacy bodies open as one box and are not rewritten until
+  edited. Pages reflow to a text column at <=800px and never persist a phone-fitted width.
+  `knowledge.ts` caches text/task projections per note object, so note objects must be
+  replaced, never mutated. Verify `document.test.ts`, `canvas.test.ts`, `knowledge.test.ts`,
+  `ink.test.ts` and the canvas checks in `UI-VERIFICATION.md`.
+  Encrypted section anchors for comments remain. Attachment payloads and metadata are encrypted in the
   browser, and pending chunked uploads are persisted in the IndexedDB vault for
   reload recovery, with visible progress, retry, and cancel controls. Inline
   images use encrypted attachment payloads and attachment-backed image blocks.
@@ -194,7 +199,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   merge-conflict markers so generated chunks are never hand-merged into a broken bundle.
   After `npm run build --prefix web`, synchronize the complete generated asset set
   into `internal/web/dist`; CI runs frontend tests/build and `diff -qr web/dist internal/web/dist`
-  to reject missing, stale or extra assets.
+  to reject missing, stale or extra assets. The app CSP (`embed.go`) allows `img-src 'self' data: blob:` so decrypted images render.
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
 - `internal/httpapi` serves public `GET /healthz` as cached `ky.health/1`: startup

@@ -1,4 +1,4 @@
-import { documentText } from "./document";
+import { documentText, structuredBlocks } from "./document";
 
 const MAX_TASK_DEPTH = 100;
 
@@ -14,15 +14,20 @@ export type NoteProjection = {
 // projection carries the note it was flattened from.
 export type IndexedNote<T> = NoteProjection & { note: T };
 
+// Note objects are immutable state, so projections are cached per object: an edit
+// creates one new note object and only that page is parsed again.
+const projections = new WeakMap<object, IndexedNote<unknown>>();
+const taskCache = new WeakMap<object, string[]>();
+
 export function indexNotes<T extends NoteProjection>(notes: T[]): IndexedNote<T>[] {
-  return notes.map((note) => ({
-    id: note.id,
-    title: note.title,
-    updatedAt: note.updatedAt,
-    body: documentText(note.body),
-    sourceBody: note.body,
-    note,
-  }));
+  return notes.map((note) => {
+    let indexed = projections.get(note) as IndexedNote<T> | undefined;
+    if (!indexed) {
+      indexed = { id: note.id, title: note.title, updatedAt: note.updatedAt, body: documentText(note.body), sourceBody: note.body, note };
+      projections.set(note, indexed);
+    }
+    return indexed;
+  });
 }
 
 export function noteLinks(note: NoteProjection): string[] {
@@ -34,11 +39,18 @@ export function noteTags(note: NoteProjection): string[] {
 }
 
 export function noteTasks(note: NoteProjection): string[] {
+  let found = taskCache.get(note);
+  if (!found) {
+    found = parseTasks(note.sourceBody ?? note.body);
+    taskCache.set(note, found);
+  }
+  return found;
+}
+
+function parseTasks(source: string): string[] {
   const tasks: string[] = [];
-  const source = note.sourceBody ?? note.body;
-  let document: { format?: string; document?: unknown[] } | undefined;
-  try { document = JSON.parse(source) as typeof document; } catch { /* Legacy text below. */ }
-  if (document?.format === "kynotes.blocknote.v1" && Array.isArray(document.document)) {
+  const blocks = structuredBlocks(source);
+  if (blocks) {
     const text = (content: unknown): string => Array.isArray(content)
       ? content.map((item) => typeof item === "object" && item !== null && "text" in item && typeof item.text === "string" ? item.text : "").join("")
       : typeof content === "string" ? content : "";
@@ -54,7 +66,7 @@ export function noteTasks(note: NoteProjection): string[] {
       }
       if (Array.isArray(block.children)) block.children.forEach((child) => visit(child as typeof block, depth + 1));
     };
-    document.document.forEach((block) => visit(block as Parameters<typeof visit>[0]));
+    blocks.forEach((block) => visit(block as Parameters<typeof visit>[0]));
     return tasks;
   }
   return source.split("\n").filter((line) => /^\s*- \[ \] /.test(line)).map((line) => line.replace(/^\s*- \[ \] /, "").trim());

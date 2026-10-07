@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, newestCopy, samePayload } from "./notes";
 
 const A = "obj_a";
 const B = "obj_b";
@@ -72,5 +72,25 @@ describe("carryAll", () => {
     const loaded = [page(A, "draft", 1), page(B, "b", 4)];
     const carried = new Map([[A, { version: 2, updatedAt: "t1" }], [B, { version: 3 }]]);
     expect(carryAll(loaded, carried)).toEqual([{ ...page(A, "draft", 2), updatedAt: "t1" }, page(B, "b", 4)]);
+  });
+});
+
+describe("open page edits", () => {
+  it("shares the edited object between the open page and its list entry", () => {
+    const open = page(A, "old");
+    const next = { ...open, body: "new" };
+    const notes = editOpenEntry([open, page(B, "other")], open, next, { body: "new" });
+    expect(find(notes, A)).toBe(next);
+    // Equal but separately carried copies share too.
+    const copy = { ...next };
+    expect(find(editOpenEntry([copy], next, { ...next, body: "newer" }, { body: "newer" }), A).body).toBe("newer");
+    const later = { ...next, body: "newer" };
+    expect(find(editOpenEntry([{ ...next }], next, later, { body: "newer" }), A)).toBe(later);
+  });
+  it("keeps a diverged list entry's own fields", () => {
+    const open = page(A, "old");
+    const moved = { ...open, section: "obj_s", order: "r" };
+    const notes = editOpenEntry([moved], open, { ...open, body: "new" }, { body: "new" });
+    expect(find(notes, A)).toEqual({ ...moved, body: "new" });
   });
 });
