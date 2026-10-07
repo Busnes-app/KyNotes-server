@@ -36,14 +36,29 @@ describe("keyring", () => {
     expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 2 }, ring, legacy)).toBeUndefined();
   });
 
-  it("reads with the row's generation first, then newest, then legacy", async () => {
+  it("reads a shared generation only with its own key, and legacy rows only with the legacy key", async () => {
     const [k2, k3, k4] = [newContainerKey(), newContainerKey(), newContainerKey()];
     const ring = new Map([[2, k2], [4, k4], [3, k3]]);
-    expect(readKeys(ring, legacy, 3)).toEqual([k3, k4, k2, legacy]);
-    expect(readKeys(ring, legacy)).toEqual([k4, k3, k2, legacy]);
-    const old = await encryptNote(legacy, cnt, { title: "L", body: "" });
-    await expect(openFirst(readKeys(ring, legacy, 4), (key) => decryptNote(key, cnt, old))).resolves.toEqual({ title: "L", body: "" });
-    await expect(openFirst([k2, k3], (key) => decryptNote(key, cnt, old))).rejects.toThrow();
+    const shared = { sharedGeneration: 2 };
+    expect(readKeys(shared, ring, legacy, 3)).toEqual([k3]);
+    expect(readKeys(shared, ring, legacy, 1)).toEqual([legacy]);
+    expect(readKeys({ sharedGeneration: 0 }, ring, legacy, 5)).toEqual([legacy]);
+    expect(readKeys(shared, ring, legacy, undefined)).toEqual([]);
+    expect(readKeys(shared, ring, legacy, 5)).toEqual([]);
+    const note = { title: "L", body: "" };
+    // Legacy rows below sharedGeneration still decrypt.
+    const old = await encryptNote(legacy, cnt, note);
+    await expect(openFirst(readKeys(shared, ring, legacy, 1), (key) => decryptNote(key, cnt, old))).resolves.toEqual(note);
+    // A server relabelling legacy-key ciphertext as shared cannot downgrade the read.
+    await expect(openFirst(readKeys(shared, ring, legacy, 3), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
+  });
+
+  it("never opens a newer row with a removed member's older key", async () => {
+    const k2 = newContainerKey();
+    const removed = new Map([[2, k2]]); // keys a member held before removal re-keyed to generation 3
+    const forged = await encryptNote(k2, cnt, { title: "F", body: "" });
+    expect(readKeys({ sharedGeneration: 2 }, removed, legacy, 3)).toEqual([]);
+    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, legacy, 3), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
   });
 });
 
