@@ -65,19 +65,19 @@ HTML are import/export formats only; the encrypted note payload is a versioned
 editor document so formatting, images, and comment anchors do not depend on
 re-parsing text.
 
+Every new or edited page body is `kynotes.canvas.v1`: positioned rich-text boxes
+(BlockNote block arrays) plus ink strokes as flat `[x, y, pressure]` arrays, all inside
+the object ciphertext. Older BlockNote, Tiptap and Markdown bodies open as one box at the
+origin and are rewritten only when edited. Clients clamp and cap decoded canvas input and
+refuse new ink past 9 MiB of serialized body. Decrypted images display from `blob:`
+URLs, so the server CSP allows `img-src 'self' data: blob:`.
+
 The task screen provides:
 
 - A global personal view organized by date.
 - Views scoped to a personal workbook.
 - Views scoped to a project or team.
 - Due dates, recurrence, priority, status, assignee, subtasks, and reminders.
-
-- Every page body is `kynotes.canvas.v1`: positioned rich-text boxes (BlockNote block
-  arrays) plus ink strokes as flat `[x, y, pressure]` arrays, all inside the object
-  ciphertext. Older BlockNote, Tiptap and Markdown bodies open as one box at the origin
-  and are rewritten only when edited. Clients clamp and cap decoded canvas input and
-  refuse new ink past 9 MiB of serialized body. Decrypted images display from `blob:`
-  URLs, so the server CSP allows `img-src 'self' data: blob:`.
 
 The personal inbox is a normal encrypted inbox folder. Captured Markdown can
 later be moved into another folder, workbook, or project, or converted into a
