@@ -101,8 +101,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   (`pages.ts`, `order.ts`); decrypted payloads pass `parseObjectPayload` before use.
   Deep links use `#/<container>/<section|quick>/<page>`. The in-memory page list is the
   newest local copy: edits and placement patch it, saves carry only the version forward
-  (`notes.ts`), and moves write from it. A notebook switch clears the previous notebook's
-  state and drops superseded loads. Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
+  (`notes.ts`), and moves write from it, except that another tab's cached draft at an equal or
+  newer version wins (`newestCopy`). Cache writes run in call order. A notebook switch clears
+  the previous notebook's state, drops superseded loads and reapplies versions saved during
+  the read (`carryAll`). Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
   and the section/page browser checks in `UI-VERIFICATION.md`.
 - `web/` exposes a client-only work queue for open checklist items across
   personal notebooks; task parsing remains browser-side because the server
