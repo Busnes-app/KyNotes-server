@@ -80,7 +80,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, editOpenEntry, flushRound, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -564,6 +564,9 @@ function Workspace({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Leave sites read dirtiness synchronously; a closure's `dirty` lags a save that just finished.
+  const dirtyRef = useRef(false);
+  const markDirty = (value: boolean) => { dirtyRef.current = value; setDirty(value); };
   // Bumped to remount the open page's editor on content it did not produce.
   const [editorRevision, setEditorRevision] = useState(0);
   // The page a conflict recovery is rewriting; it stays read-only until the run ends.
@@ -683,18 +686,18 @@ function Workspace({
       const container = items.find((item) => item.id === route.container);
       // Our own hash writes match the current state and stop here.
       if (!container || route.container === loadingContainerID.current || (container.id === selected?.id && route.section === sectionID && route.page === selectedNote?.id)) return;
-      if (container.id !== selected?.id) { await selectContainer(container, route); return; }
-      setSectionID(resolveSection(route.section, sections));
+      // A refused leave keeps the open page, so the URL goes back to it without a history entry.
+      const stay = () => selected && history.replaceState(null, "", formatRoute({ container: selected.id, section: sectionID, page: selectedNoteRef.current?.id }));
+      if (container.id !== selected?.id) { if (!(await selectContainer(container, route))) stay(); return; }
       const page = notes.find((note) => note.id === route.page);
-      if (page) await selectNote(page);
-      else {
-        if (dirty && !(await flushOpenPage())) return;
-        if (!parseRoute(location.hash).page) setSelectedNote(null);
-      }
+      if (route.page !== selectedNoteRef.current?.id && !(await flushOpenPage())) { stay(); return; }
+      setSectionID(resolveSection(route.section, sections));
+      if (page) { if (!(await selectNote(page))) stay(); }
+      else if (!parseRoute(location.hash).page) setSelectedNote(null);
     })();
     window.addEventListener("hashchange", follow);
     return () => window.removeEventListener("hashchange", follow);
-  }, [items, selected?.id, sectionID, selectedNote?.id, notes, sections, dirty]);
+  }, [items, selected?.id, sectionID, selectedNote?.id, notes, sections]);
   useEffect(() => {
     if (!commitToastAt) return;
     const timer = window.setInterval(() => setCommitToastTick((value) => value + 1), 1000);
@@ -857,7 +860,8 @@ function Workspace({
     }
     return { notes: loaded, sections: found };
   }
-  async function selectContainer(container: Container, route?: Route): Promise<Note[]> {
+  /** Null when the open page could not be flushed and stays open. */
+  async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
     loadingContainerID.current = container.id;
     setLoadingContainer(true);
     try {
@@ -870,11 +874,11 @@ function Workspace({
       }
     }
   }
-  async function loadContainer(container: Container, route?: Route): Promise<Note[]> {
+  async function loadContainer(container: Container, route?: Route): Promise<Note[] | null> {
     // Workspace navigation destroys the current editor. Finish its latest
     // encrypted save before replacing the note list so the next load cannot
     // fall back to an older plain document.
-    if (dirty && !(await flushOpenPage())) return [];
+    if (!(await flushOpenPage())) return null;
     // Another switch started meanwhile: its results win.
     const superseded = () => loadingContainerID.current !== container.id;
     if (superseded()) return [];
@@ -931,18 +935,20 @@ function Workspace({
   }
   async function selectQueueNote(entry: QueueEntry) {
     const loaded = await selectContainer(entry.container);
+    if (!loaded) return;
     const note = loaded.find((candidate) => candidate.id === entry.note.id);
     if (note) await selectNote(note, entry.container.id);
     setQueueMode(true);
   }
-  async function selectNote(selection: Note, containerID = selected?.id) {
+  /** False when the open page could not be flushed and stays open. */
+  async function selectNote(selection: Note, containerID = selected?.id): Promise<boolean> {
     const previous = selectedNoteRef.current;
-    if (previous && previous.id !== selection.id && dirty && !(await flushOpenPage())) return;
+    if (previous && previous.id !== selection.id && !(await flushOpenPage())) return false;
     // Search and resurfacing rows hold deferred copies; open the live entry.
     const note = notesRef.current.find((entry) => entry.id === selection.id) ?? selection;
     selectedNoteRef.current = note;
     setSelectedNote(note);
-    setDirty(false);
+    markDirty(false);
     setLastSavedAt(note.version > 0 ? note.updatedAt : "");
     // A later selection or notebook switch owns the panels below.
     const current = () => selectedNoteRef.current?.id === note.id;
@@ -985,6 +991,7 @@ function Workspace({
     } catch {
       if (current()) setAttachmentsForNote([]);
     }
+    return true;
   }
   async function newWorkspace() {
     const name = prompt("Notebook name", "My notebook")?.trim();
@@ -1094,7 +1101,7 @@ function Workspace({
       patchNotes((value) => [note, ...value]);
       selectedNoteRef.current = note;
       setSelectedNote(note);
-      setDirty(true);
+      markDirty(true);
       persistDraft(note);
       await save(note, true);
     } catch (error) {
@@ -1145,7 +1152,7 @@ function Workspace({
           const [carried] = carrySaved([open], saved.id, saved);
           selectedNoteRef.current = carried;
           setSelectedNote(carried);
-          if (samePayload(open, note)) setDirty(false);
+          if (samePayload(open, note)) markDirty(false);
         }
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1181,19 +1188,13 @@ function Workspace({
     return queued;
   }
 
-  /**
-   * Leaving the open page: saves it again while edits typed during the save are unsent.
-   * False keeps it open and dirty for the normal autosave; callers must not switch away then.
-   */
+  /** Leaving the open page. False keeps it open and dirty; callers must not switch away then. */
   async function flushOpenPage(): Promise<boolean> {
-    const id = selectedNoteRef.current?.id;
-    if (!id) return true;
-    for (let round = 0; round < FLUSH_ROUNDS; round++) {
-      const sent = await save(selectedNoteRef.current!, true);
-      const state = flushRound(selectedNoteRef.current, id, sent);
-      if (state !== "again") return state === "done";
-    }
-    return false;
+    if (!dirtyRef.current) return true;
+    const state = await flushUntilStable(() => selectedNoteRef.current, (open) => save(open, true), FLUSH_ROUNDS);
+    // A failed save already reported why.
+    if (state === "busy") setError("This page is still saving. Try again in a moment.");
+    return state === "done";
   }
 
   async function drainQueue() {
@@ -1317,7 +1318,7 @@ function Workspace({
       selectedNoteRef.current = next;
       setSelectedNote(next);
       // Dirty, so leaving the page before the queued save runs still flushes the move.
-      setDirty(true);
+      markDirty(true);
       persistDraft(next);
       await save(next, true);
       return;
@@ -1408,7 +1409,7 @@ function Workspace({
         const next = { ...selectedNoteRef.current, ...reloaded };
         selectedNoteRef.current = next;
         setSelectedNote(next);
-        setDirty(false);
+        markDirty(false);
         setEditorRevision((value) => value + 1);
       }
       setError("");
@@ -1480,7 +1481,7 @@ function Workspace({
     selectedNoteRef.current = next;
     setSelectedNote(next);
     patchNotes((value) => editOpenEntry(value, open, next, change));
-    setDirty(true);
+    markDirty(true);
     persistDraft(next);
   }
   async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
@@ -1805,7 +1806,7 @@ function Workspace({
               onSelect={(id) => void (async () => {
                 // Leaving the open page: finish its save first, as selectNote does.
                 if (id === sectionID) return;
-                if (dirty && !(await flushOpenPage())) return;
+                if (!(await flushOpenPage())) return;
                 setSectionID(id);
                 setSelectedNote(null);
               })()}

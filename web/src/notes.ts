@@ -52,3 +52,22 @@ export function flushRound(open: Note | null, id: string, sent: Note | undefined
   if (!sent) return "failed";
   return samePayload(open, sent) ? "done" : "again";
 }
+
+/**
+ * Saves the open page until what was sent matches it, so edits typed during a save are sent
+ * before leaving. "failed": nothing was sent; "busy": edits kept landing for `maxRounds`.
+ */
+export async function flushUntilStable(
+  getOpen: () => Note | null,
+  save: (open: Note) => Promise<Note | undefined>,
+  maxRounds: number,
+): Promise<"done" | "failed" | "busy"> {
+  const id = getOpen()?.id;
+  if (!id) return "done";
+  for (let round = 0; round < maxRounds; round++) {
+    const sent = await save(getOpen()!);
+    const state = flushRound(getOpen(), id, sent);
+    if (state !== "again") return state;
+  }
+  return "busy";
+}
