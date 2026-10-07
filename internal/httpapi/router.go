@@ -20,6 +20,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 	var blobs *blobstore.Store
 	var cfg config.Config
 	var backups *backup.Service
+	var ssoStore *sso.Store
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case *sql.DB:
@@ -30,10 +31,14 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 			backups = v
 		case config.Config:
 			cfg = v
+		case *sso.Store:
+			ssoStore = v
 		}
 	}
 	if db != nil {
-		ssoStore := sso.NewStore(db)
+		if ssoStore == nil {
+			ssoStore = sso.NewStore(db)
+		}
 		AuthRoutes(mux, db, cfg)
 		SSORoutes(mux, db, cfg, ssoStore)
 		AdminRoutes(mux, db, ssoStore)
