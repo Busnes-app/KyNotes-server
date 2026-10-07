@@ -54,12 +54,13 @@ export function SectionTabs(props: Props) {
               aria-label={choice}
               aria-pressed={entry.color === choice}
               style={{ background: `var(--section-${choice})` }}
+              disabled={busy}
               onClick={() => { close(id); props.onColor(kind, entry, choice); }}
             />
           ))}
         </div>
-        <button className="quiet" disabled={index === 0} onClick={() => { close(id); props.onMove(kind, entry.id, index - 1); }}>Move left</button>
-        <button className="quiet" disabled={index === count - 1} onClick={() => { close(id); props.onMove(kind, entry.id, index + 1); }}>Move right</button>
+        <button className="quiet" disabled={busy || index === 0} onClick={() => { close(id); props.onMove(kind, entry.id, index - 1); }}>Move left</button>
+        <button className="quiet" disabled={busy || index === count - 1} onClick={() => { close(id); props.onMove(kind, entry.id, index + 1); }}>Move right</button>
         <select
           aria-label="Move into group"
           value=""
@@ -70,7 +71,7 @@ export function SectionTabs(props: Props) {
           {!atRoot && <option value={ROOT}>Top level of {path[0].title}</option>}
           {targets.map((target) => <option key={target.id} value={target.id}>{target.label}</option>)}
         </select>
-        <button className="quiet danger" onClick={() => { close(id); remove(); }}>{kind === "section" ? "Delete section" : "Delete group"}</button>
+        <button className="quiet danger" disabled={busy} onClick={() => { close(id); remove(); }}>{kind === "section" ? "Delete section" : "Delete group"}</button>
       </div>
     );
   };
@@ -90,7 +91,7 @@ export function SectionTabs(props: Props) {
       </button>
       {section && current === id && (
         <>
-          <button className="quiet section-tab-menu" popoverTarget={`section-menu-${id}`} aria-label={`Section options for ${title}`}>⋯</button>
+          <button className="quiet section-tab-menu" popoverTarget={`section-menu-${id}`} aria-label={`Section options for ${title || "Untitled section"}`}>⋯</button>
           {menu("section", section, index, sections.length, () => props.onDelete(section))}
         </>
       )}
@@ -111,7 +112,7 @@ export function SectionTabs(props: Props) {
       >
         <span aria-hidden="true">📁 </span>{group.title || "Untitled group"}
       </button>
-      <button className="quiet section-tab-menu" style={{ anchorName: `--group-${group.id}` }} popoverTarget={`group-menu-${group.id}`} aria-label={`Group options for ${group.title}`}>⋯</button>
+      <button className="quiet section-tab-menu" style={{ anchorName: `--group-${group.id}` }} popoverTarget={`group-menu-${group.id}`} aria-label={`Group options for ${group.title || "Untitled group"}`}>⋯</button>
       {menu("group", group, index, groups.length, () => props.onDeleteGroup(group))}
     </li>
   );

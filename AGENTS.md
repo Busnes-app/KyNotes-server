@@ -118,6 +118,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/` subpages: `outline.ts` derives display levels from each page's `level` without
   writing (legacy pages open with no PUT); indent and outdent use Ctrl+Alt+] / Ctrl+Alt+[
   (not Tab, by recorded ruling) or the editor's Indent/Outdent buttons, and reveal the page's collapsed ancestors.
+  Pages never nest under a page from a different stored section, so Quick Notes orphans start at
+  level 0. Rows carry visually hidden subpage-level and collapsed/expanded text.
   A parent moves with its block (drag, Alt+Arrow, section change), all through `moveChain`,
   with levels clamped at the target. Collapse state is browser-local per user and notebook.
 - `web/` section groups are `folder` objects of type `group`; `groupParents` resolves the

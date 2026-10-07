@@ -3,15 +3,21 @@ import { keyBetween } from "./order";
 export const MAX_LEVEL = 2;
 export const MAX_GROUP_DEPTH = 4;
 export type Level = 0 | 1 | 2;
-type Leveled = { id: string; level?: number };
+type Leveled = { id: string; level?: number; section?: string };
 type Ordered = { id: string; order?: string };
 
 const clampLevel = (level: number | undefined) => Math.min(MAX_LEVEL, Math.max(0, level ?? 0)) as Level;
 
-/** Display levels for an ordered page list: the first page is 0, each page at most one deeper than the one before. */
-export function displayLevels(list: Leveled[]): number[] {
-  const levels: number[] = [];
-  list.forEach((page, index) => levels.push(index === 0 ? 0 : Math.min(clampLevel(page.level), levels[index - 1] + 1)));
+/** Pages from different stored sections (Quick Notes orphans of a deleted section) never nest under each other. */
+const nests = (list: Leveled[], index: number) => index > 0 && list[index].section === list[index - 1].section;
+
+/**
+ * Display levels for an ordered page list: each page at most one deeper than the one before;
+ * the first page, and a page whose stored section differs from the one before, are 0.
+ */
+export function displayLevels(list: Leveled[]): Level[] {
+  const levels: Level[] = [];
+  list.forEach((page, index) => levels.push(nests(list, index) ? Math.min(clampLevel(page.level), levels[index - 1] + 1) as Level : 0));
   return levels;
 }
 
@@ -57,10 +63,11 @@ export function ancestors(list: Leveled[], id: string): string[] {
 }
 
 /** The level `list[index]` would get from indent (+1) or outdent (-1), or undefined when not allowed. */
-export function shiftLevel(levels: number[], index: number, delta: 1 | -1): Level | undefined {
+export function shiftLevel(list: Leveled[], index: number, delta: 1 | -1): Level | undefined {
+  const levels = displayLevels(list);
   const next = levels[index] + delta;
   if (next < 0 || next > MAX_LEVEL) return undefined;
-  if (delta === 1 && (index === 0 || next > levels[index - 1] + 1)) return undefined;
+  if (delta === 1 && (!nests(list, index) || next > levels[index - 1] + 1)) return undefined;
   return next as Level;
 }
 

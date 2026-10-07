@@ -97,7 +97,7 @@ export function conflictCopy<T extends Placed>(list: T[], original: T, rejected:
     body: rejected.body,
     section: original.section,
     order: updates.find((update) => update.id === copyID)?.order,
-    level: index < 0 ? undefined : levels[index] as 0 | 1 | 2,
+    level: index < 0 ? undefined : levels[index],
   };
   return { page, moves: updates.filter((update) => update.id !== copyID) };
 }

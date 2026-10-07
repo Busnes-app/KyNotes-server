@@ -54,7 +54,8 @@ clients are designed as later phases unless required by the client teams.
   moves its sections and groups up one level.
 - A **Page** is an encrypted `note` object. Its payload carries `section` (a section
   object ID), a fractional `order` key and an optional subpage `level` (0-2; missing is 0). The
-  client displays each page at most one level below the page before it and writes `level` only
+  client displays each page at most one level below the page before it, never below a page
+  from a different stored section (Quick Notes orphans of a deleted section), and writes `level` only
   when a page is indented, outdented or moved, so each page owns its placement and no shared
   manifest is written. Pages without a live section appear in the client's virtual
   Quick Notes section; deleting a section never deletes pages. The first reorder of a

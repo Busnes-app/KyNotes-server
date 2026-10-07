@@ -38,16 +38,34 @@ describe("blocks and rows", () => {
 });
 
 describe("shiftLevel", () => {
-  const levels = [0, 1, 1, 0];
+  const leveled = (levels: number[]) => levels.map((level, i) => page(String(i), level));
+  const levels = leveled([0, 1, 1, 0]);
   it("indents only under a page one level shallower", () => {
     expect(shiftLevel(levels, 0, 1)).toBeUndefined();
     expect(shiftLevel(levels, 2, 1)).toBe(2);
-    expect(shiftLevel([0, 1, 2], 2, 1)).toBeUndefined();
-    expect(shiftLevel([0, 0], 1, 1)).toBe(1);
+    expect(shiftLevel(leveled([0, 1, 2]), 2, 1)).toBeUndefined();
+    expect(shiftLevel(leveled([0, 0]), 1, 1)).toBe(1);
   });
   it("outdents down to 0", () => {
     expect(shiftLevel(levels, 1, -1)).toBe(0);
     expect(shiftLevel(levels, 0, -1)).toBeUndefined();
+  });
+  it("does not indent a page under one from another stored section", () => {
+    const list = [{ id: "a" }, { id: "b", section: "gone" }];
+    expect(shiftLevel(list, 1, 1)).toBeUndefined();
+  });
+});
+
+describe("Quick Notes orphans", () => {
+  it("never nest under pages from another stored section, but keep their own outline", () => {
+    const list = [
+      { id: "q1" },
+      { id: "o1", section: "gone", level: 1 },
+      { id: "o2", section: "gone", level: 1 },
+      { id: "q2", level: 1 },
+      { id: "p1", section: "other", level: 2 },
+    ];
+    expect(displayLevels(list)).toEqual([0, 0, 1, 0, 0]);
   });
 });
 

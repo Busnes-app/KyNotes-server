@@ -688,7 +688,20 @@ function Workspace({
     ? visibleRows(sectionHidden ? [] : sectionPages, collapsed).map((row) => ({ note: row.item, container: selected, row }))
     : listEntries.map((entry) => ({ ...entry, row: undefined }));
   const sectionIndex = (id: string) => sectionPages.findIndex((note) => note.id === id);
-  const canShift = (id: string, delta: 1 | -1) => sectionIndex(id) >= 0 && shiftLevel(sectionLevels, sectionIndex(id), delta) !== undefined;
+  const canShift = (id: string, delta: 1 | -1) => sectionIndex(id) >= 0 && shiftLevel(sectionPages, sectionIndex(id), delta) !== undefined;
+  // Group menus ask for targets every render; recompute only when the groups change.
+  const moveTargets = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof groupTargets>>();
+    return (kind: "section" | "group", id: string) => {
+      const key = kind === "group" ? id : "";
+      if (!cache.has(key)) cache.set(key, groupTargets(groups, parents, kind === "group" ? id : undefined));
+      return cache.get(key)!;
+    };
+  }, [groups, parents]);
+  const subpageCount = (id: string) => {
+    const [start, end] = blockRange(sectionLevels, sectionIndex(id));
+    return end - start - 1;
+  };
   const beforeAt = (index: number | undefined) => index === undefined ? undefined : sectionPages[index]?.id ?? null;
   const relatedNotes = useMemo(
     () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
@@ -1421,7 +1434,7 @@ function Workspace({
       setBusy(false);
     }
   }
-  const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section");
+  const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section or group");
   function renameStructure(kind: "section" | "group", entry: Section | Group) {
     const title = prompt(kind === "section" ? "Section name" : "Group name", entry.title)?.trim();
     if (title) void updateStructure(kind, entry.id, { title }).catch(reportSection);
@@ -1529,7 +1542,7 @@ function Workspace({
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
-      const level = shiftLevel(displayLevels(list), list.findIndex((note) => note.id === pageID), delta);
+      const level = shiftLevel(list, list.findIndex((note) => note.id === pageID), delta);
       if (level === undefined) return;
       // Indenting under a collapsed parent must not hide the row being worked on.
       revealPage(list.map((note) => (note.id === pageID ? { ...note, level } : note)), pageID);
@@ -1958,7 +1971,7 @@ function Workspace({
               current={sectionID}
               busy={busy}
               canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
-              moveTargets={(kind, id) => groupTargets(groups, parents, kind === "group" ? id : undefined)}
+              moveTargets={moveTargets}
               onSelect={(id) => void selectSection(id)}
               onCreate={(kind) => void newStructure(kind)}
               onRename={renameStructure}
@@ -1968,7 +1981,11 @@ function Workspace({
               onMove={(kind, id, index) => void moveStructure(kind, id, index)}
               onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
               onOpenGroup={(id) => void openGroup(id)}
-              onDropPage={(pageID, target) => void movePage(pageID, target, null)}
+              onDropPage={(pageID, target) => {
+                // A drop on the page's own section tab is not a move.
+                const page = notesRef.current.find((note) => note.id === pageID);
+                if (page && pageSection(page) !== target) void movePage(pageID, target, null);
+              }}
             />
           )}
           <section className="note-list">
@@ -2058,6 +2075,12 @@ function Workspace({
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
                   <strong>{title}</strong>
+                  {row && (row.level > 0 || row.hasChildren) && (
+                    <span className="visually-hidden">
+                      {row.level > 0 ? `, subpage level ${row.level}` : ""}
+                      {row.hasChildren ? (row.collapsed ? `, collapsed, ${subpageCount(note.id)} subpages hidden` : ", expanded") : ""}
+                    </span>
+                  )}
                   <span>
                     {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
                     {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : indexNotes([shown])[0].body.slice(0, 64)) || "Empty page"}
