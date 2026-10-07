@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getPins, rememberAfter, storeDeviceKey, storeIdentityKey, storePins } from "./storage";
+import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyMark, getPins, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyMark, storePins } from "./storage";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const held = { deviceId: "dev_00000000000000000000000000", publicKey: new Uint8Array(32).fill(1), privateKey: new Uint8Array(32).fill(2) };
@@ -73,6 +73,30 @@ describe("vault writes follow the server and never fail it", () => {
     } finally {
       vi.stubGlobal("indexedDB", real);
     }
+  });
+});
+
+describe("pin and key-mark writes never downgrade", () => {
+  beforeEach(clearAllDeviceKeys);
+  const cnt = "cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa";
+  it("adds first-contact pins without overwriting, and replaces one only when confirmed", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    expect(await storePins("alice", userID, { usr_b: "old" })).toBe(true);
+    expect(await storePins("alice", userID, { usr_b: "server", usr_c: "new" })).toBe(true);
+    expect(await getPins("alice", userID)).toEqual({ usr_b: "old", usr_c: "new" });
+    expect(await storeConfirmedPin("alice", userID, "usr_b", "confirmed")).toBe(true);
+    expect(await getPins("alice", userID)).toEqual({ usr_b: "confirmed", usr_c: "new" });
+  });
+  it("keeps the highest key mark per container and reports when it cannot", async () => {
+    expect(await storeKeyMark("alice", userID, cnt, 3)).toBe(false);
+    expect(await getKeyMark("alice", userID, cnt)).toBe(0);
+    await storeDeviceKey("alice", "a".repeat(64));
+    expect(await storeKeyMark("alice", userID, cnt, 3)).toBe(true);
+    expect(await storeKeyMark("alice", userID, cnt, 2)).toBe(true);
+    expect(await getKeyMark("alice", userID, cnt)).toBe(3);
+    expect(await getKeyMark("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz", cnt)).toBe(0);
+    await clearDeviceKey("alice");
+    expect(await getKeyMark("alice", userID, cnt)).toBe(0);
   });
 });
 
