@@ -278,6 +278,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - CLI server mode accepts flags only. Removed `backup` names `copy-data-dir`/`deposit`
   in its error; unknown commands and trailing positional arguments exit before loading
   configuration or starting the server. `TestUnknownSubcommandIsRejected` covers dispatch.
+  `apply-setup` is the one subcommand that needs the server running: it talks to it over
+  `<data_dir>/admin.sock`.
 
 - All IP-keyed rate limits honor X-Forwarded-For only with behind_proxy enabled and
   a trusted immediate peer. Walk the chain from the right to the first untrusted IP;
@@ -311,3 +313,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   parent's handle for polling/cleanup; `web/src/reauth.test.ts` checks that ordering.
 
 - Product PNGs (`/favicon.png`, `/app-icon.png`, `/app-icon-192.png`, `/app-icon-512.png`) must pass the router allowlist to reach the embedded files. `TestProductIconsReachEmbeddedFiles` checks the public response type and dimensions.
+
+- `internal/applysetup` owns the apply-setup contract: bundle (secrets only by file path,
+  unknown fields rejected), socket request, create/present/conflict decisions, report and
+  exit codes 0/3/2/1 (precedence invalid > failed > conflict). `internal/httpapi/apply_setup.go`
+  applies SSO through the router's shared `sso.Store` after a discovery probe, and admins
+  bound by issuer+subject (never by username; a grant revokes credentials through
+  `revokeForRoleChange`). `backup.Service.ApplySetup` compares env-fixed dir/keep, sets the
+  interval only when unset and claims a pairing only when unpaired. `internal/app` owns
+  `admin.sock`: 0600, peer uid or root, created after the data-dir lock, never a network
+  listener; shutdown drains a running apply for up to `backup.OperationTimeout` plus a
+  minute before SQLite closes, then removes the socket (compose `stop_grace_period: 17m`
+  covers it). One audit row per change (actor `system`, request `apply-setup`).
+  `docs/INSTALLER.md` is the installer contract. Verify `go test ./internal/applysetup`,
+  `TestApply*`, `TestSetupHandler*`, `TestAdminSocket*`, `TestServeOwnsAdminSocketLifecycle`,
+  `TestApplySetupTwiceEndToEnd` and `scripts/apply-setup-container-check.sh`.

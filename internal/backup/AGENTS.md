@@ -22,6 +22,10 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   usable secrets, an active admin, recovery pin, and matching blob inventory.
 - Only `cmd/kynotes-server/backup.go:restoreCapsule` may open suite capsules or combine
   shares. Drills use library-generated throwaway keys and protected scratch.
+- `ApplySetup` claims a pairing code only when the instance is not paired (a hand-pinned
+  key alone still claims; a different returned key is a conflict and the code is spent),
+  never re-pins a key, and sets the interval only when no admin setting exists. Dir and
+  keep are env-fixed and only compared.
 
 # Verification
 

@@ -26,9 +26,10 @@ KyQuickStart configures KyNotes end to end without a person at the admin UI. The
 
 The CLI takes the same exclusive data-directory lock as the server, so it cannot run beside the live server. Instead:
 
-- **Socket.** The server listens on a Unix socket, `<data_dir>/admin.sock`, with mode 0600, owned by the server's uid, created at startup and removed at shutdown. It is never bound to a network address.
+- **Socket.** The server listens on a Unix socket, `<data_dir>/admin.sock`, with mode 0600, owned by the server's uid and accepting only that uid or root, created at startup and removed at shutdown. It is never bound to a network address.
+- **Shutdown.** The server drains a running apply for up to the backup operation timeout (16 minutes) plus a minute before SQLite closes. A container or init stop timeout shorter than that cuts it off; `docker-compose.yml` sets `stop_grace_period: 17m`.
 - **Client.** `apply-setup --file F [--config PATH]` reads and validates the bundle, sends it over the socket, and prints the server's JSON report to stdout.
-- **Exit codes.** 0 when everything applied or was already present. 3 when something conflicts with existing settings and was left unchanged. 2 for invalid input. 1 for other errors.
+- **Exit codes.** 0 when everything applied or was already present. 3 when something conflicts with existing settings and was left unchanged. 2 for invalid input. 1 for other errors. Precedence: invalid, then other errors, then conflict.
 - **Server not running.** The command fails with a clear message. The installer runs it after the health check.
 - **Rationale.** The server applies the bundle with its own machinery: audit rows, writer lock, cached settings, the backup service and the pairing client. Nothing races it, and access to the socket already implies container access, so this grants nothing new.
 
@@ -56,7 +57,8 @@ Every section is optional.
 
 - **Secrets** arrive only as file paths inside the container, never inline, and are never echoed in the report.
 - **Validation** happens at the boundary:
-  - URLs must be HTTPS. Loopback and private addresses are refused unless the server's existing allow-private-recovery setting applies.
+  - URLs must be HTTPS. Private address literals are refused unless the server's existing allow-private-recovery setting applies; loopback and link-local are always refused.
+  - Admin issuers must equal the SSO issuer, from the bundle or already configured.
   - Usernames follow the existing rules.
   - Unknown fields are rejected.
 
@@ -69,14 +71,15 @@ Every section is optional.
   - A username taken by an unrelated account is a `conflict`. Bindings are never adopted by username, which is the existing rule.
   - Admin access still also needs the `kynotes.admin` claim at sign-in, so both gates hold.
 - **`backup`.**
-  - Set the local directory, keep count and interval only when they are unset.
+  - The local directory and keep count are deployment settings (`KYNOTES_BACKUP_DIR`, `KYNOTES_BACKUP_KEEP`) fixed at start. They are only compared: equal is `present`, different is `conflict`.
+  - Set the interval only when no admin setting exists.
   - Pair with KyRecovery using the one-time code. This is the existing claim → pin → token flow, unchanged.
-  - If a key is already pinned, `present`. If pinned to a different key, `conflict`; it is never overwritten.
+  - Already paired to the same URL with a pinned key is `present`; paired to another URL is `conflict`. A key pinned by hand without pairing still claims and spends the code: the same key returned succeeds, a different key is `conflict` and the pin is never overwritten.
 
 ### Report
 
 ```json
-{"version":1,"results":[{"section":"sso","status":"created|present|conflict|invalid","detail":"…"}],
+{"version":1,"results":[{"section":"sso","status":"created|present|conflict|invalid|failed","detail":"…"}],
  "handover":{"url":"…","adminUsernames":[…],"recoveryKeyFingerprint":"…","backupDir":"…","version":"…"}}
 ```
 

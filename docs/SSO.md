@@ -7,7 +7,8 @@ allows an OIDC callback to take over an existing account.
 ## Configuration
 
 Configure the issuer, client ID, client secret and callback URL in the existing
-administrator SSO settings, or use KySignOn pairing. Register these HTTPS URLs
+administrator SSO settings, or use KySignOn pairing. The suite installer sets them with
+`apply-setup` (see `docs/INSTALLER.md`), which never overwrites existing settings. Register these HTTPS URLs
 for the KyNotes client at the issuer (replace `notes.example.com`):
 
 - Login callback: `https://notes.example.com/api/v1/auth/oidc/callback`
