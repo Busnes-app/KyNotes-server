@@ -346,3 +346,22 @@ func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestLoginIdentityErrorMintsNoSession(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	if _, err := p.db.Exec(`ALTER TABLE user_identities RENAME TO user_identities_gone`); err != nil {
+		t.Fatal(err)
+	}
+	var before, after int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	res := p.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)
+	res.Body.Close()
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusInternalServerError || len(res.Header.Values("Set-Cookie")) != 0 || after != before {
+		t.Fatalf("login=%d cookies=%v sessions %d->%d", res.StatusCode, res.Header.Values("Set-Cookie"), before, after)
+	}
+}

@@ -206,12 +206,13 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		recoveryLockout.Success(key)
-		s, err := auth.MintSession(db, w, id, cfg.Server.DevInsecureCookies, time.Now().UTC())
+		// Load before minting: a failed load must not leave a session cookie behind.
+		identity, err := loadIdentity(db, id, true)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		identity, err := loadIdentity(db, id, true)
+		s, err := auth.MintSession(db, w, id, cfg.Server.DevInsecureCookies, time.Now().UTC())
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
