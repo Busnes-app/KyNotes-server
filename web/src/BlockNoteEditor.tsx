@@ -33,6 +33,7 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
   }, [noteID]);
 
   useEffect(() => {
+    hydratedRef.current = false;
     if (legacyMarkdown) {
       const blocks = editor.tryParseMarkdownToBlocks(legacyMarkdown);
       if (blocks.length) {

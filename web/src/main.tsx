@@ -103,9 +103,8 @@ import {
   type ThemeName,
 } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
-import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
+import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
-import type { Block } from "@blocknote/core";
 import "./styles.css";
 import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
@@ -114,7 +113,7 @@ const MAX_CHANGE_PAGES = 100;
 const notePayload = (note: Note): PagePayload =>
   ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
-const BlockNoteEditor = lazy(() => import("./BlockNoteEditor").then((module) => ({ default: module.BlockNoteEditor })));
+const CanvasPage = lazy(() => import("./CanvasPage"));
 
 type AuthState = {
   username: string;
@@ -1088,7 +1087,7 @@ function Workspace({
       const note: Note = {
         id: object.id,
         title: "Untitled page",
-        body: stringifyNoteDocument(emptyNoteDocument().document),
+        body: stringifyCanvasPage(emptyCanvasPage()),
         section: sectionID === QUICK_NOTES ? undefined : sectionID,
         order,
         version: 0,
@@ -1932,15 +1931,15 @@ function Workspace({
                   value={selectedNote.title}
                   onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                 />
-                <div className="single-pane-editor">
-                  <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
-                    <BlockNoteEditor
+                <div className="page-canvas">
+                  <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
+                    <CanvasPage
                       key={`${selectedNote.id}:${editorRevision}`}
+                      pageID={selectedNote.id}
+                      body={selectedNote.body}
                       editable={recovering !== selectedNote.id}
-                      noteID={selectedNote.id}
-                      initialContent={parseNoteDocument(selectedNote.body).document}
-                      legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}
-                      onChange={(document: Block[]) => editOpen(selectedNote.id, { body: stringifyNoteDocument(document) })}
+                      onChange={(body) => editOpen(selectedNote.id, { body })}
+                      onError={setError}
                       uploadFile={uploadInlineFile}
                       resolveFileUrl={resolveFileUrl}
                     />
