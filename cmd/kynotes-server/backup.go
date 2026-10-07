@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky-primitives/shamir"
+	"github.com/Busnes-app/kynotes-server/internal/app"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/httpapi"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"gopkg.in/yaml.v3"
 )
@@ -45,6 +48,12 @@ func capsuleCommand(command string, args []string) error {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		return err
+	}
+	// A running server owns the data directory; ask it to run the operation instead.
+	if command == "deposit" || command == "backup-drill" {
+		if err := socketOperation(app.AdminSocketPath(cfg.DataDir), command, os.Stdout); !errors.Is(err, errNotRunning) {
+			return err
+		}
 	}
 	unlock, err := storage.LockDirectory(cfg.DataDir)
 	if err != nil {
@@ -104,6 +113,31 @@ func capsuleCommand(command string, args []string) error {
 		return closeErr
 	}
 	return errors.New("unknown capsule command")
+}
+
+// socketOperation runs deposit or backup-drill in the running server, prints the result
+// like the offline path and returns the service's error code as the error.
+func socketOperation(socket, command string, stdout io.Writer) error {
+	status, body, err := socketPost(socket, "/v1/"+command, nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("server answered %d: %s", status, errorMessage(body))
+	}
+	var out httpapi.SocketResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return fmt.Errorf("unreadable result: %w", err)
+	}
+	if len(out.Result) > 0 && string(out.Result) != "null" {
+		if _, err := fmt.Fprintf(stdout, "%s\n", out.Result); err != nil {
+			return err
+		}
+	}
+	if out.ErrorCode != "" {
+		return errors.New(out.ErrorCode)
+	}
+	return nil
 }
 
 // restoreCapsule is the only production entry point allowed to combine custodian

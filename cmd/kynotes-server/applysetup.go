@@ -58,22 +58,11 @@ func postSetup(socket string, req applysetup.Request) ([]byte, int, error) {
 	if err != nil {
 		return nil, applysetup.ExitError, err
 	}
-	client := &http.Client{Timeout: setupTimeout, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
-	}}}
-	resp, err := client.Post("http://kynotes/v1/apply-setup", "application/json", bytes.NewReader(payload))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
-			return nil, applysetup.ExitError, fmt.Errorf("kynotes-server is not running (no admin socket at %s); start it and wait for the health check", socket)
-		}
-		return nil, applysetup.ExitError, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	status, body, err := socketPost(socket, "/v1/apply-setup", payload)
 	if err != nil {
 		return nil, applysetup.ExitError, err
 	}
-	switch resp.StatusCode {
+	switch status {
 	case http.StatusOK:
 		var report applysetup.Report
 		if err := json.Unmarshal(body, &report); err != nil {
@@ -83,7 +72,27 @@ func postSetup(socket string, req applysetup.Request) ([]byte, int, error) {
 	case http.StatusBadRequest:
 		return nil, applysetup.ExitInvalid, fmt.Errorf("server rejected the bundle: %s", errorMessage(body))
 	}
-	return nil, applysetup.ExitError, fmt.Errorf("server answered %d: %s", resp.StatusCode, errorMessage(body))
+	return nil, applysetup.ExitError, fmt.Errorf("server answered %d: %s", status, errorMessage(body))
+}
+
+var errNotRunning = errors.New("kynotes-server is not running")
+
+// socketPost sends one request to the running server's admin socket. A missing or dead
+// socket is errNotRunning.
+func socketPost(socket, path string, payload []byte) (int, []byte, error) {
+	client := &http.Client{Timeout: setupTimeout, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+	}}}
+	resp, err := client.Post("http://kynotes"+path, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+			return 0, nil, fmt.Errorf("%w (no admin socket at %s); start it and wait for the health check", errNotRunning, socket)
+		}
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return resp.StatusCode, body, err
 }
 
 func errorMessage(body []byte) string {

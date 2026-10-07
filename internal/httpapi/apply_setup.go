@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -183,15 +184,73 @@ func (s *Setup) Drain(ctx context.Context) bool {
 	}
 }
 
+// SocketRequestID attributes deposit and drill audit rows to the admin socket.
+const SocketRequestID = "admin-socket"
+
+// SocketResult answers deposit and drill: the service's result (null when nothing was
+// produced) and its error code, empty on success.
+type SocketResult struct {
+	Result    json.RawMessage `json:"result"`
+	ErrorCode string          `json:"error_code"`
+}
+
 func SetupHandler(d SetupDeps) *Setup {
 	s := &Setup{mux: http.NewServeMux()}
-	s.mux.HandleFunc("POST /v1/apply-setup", func(w http.ResponseWriter, r *http.Request) {
+	s.mux.HandleFunc("POST /v1/apply-setup", s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
+		if err != nil {
+			WriteError(w, r, http.StatusBadRequest, "invalid_bundle", err.Error())
+			return
+		}
+		report := applySetup(ctx, d, req)
+		d.Log.Info("apply_setup", "outcome", report.ExitCode(), "count", len(report.Results))
+		writeJSON(w, report)
+	}))
+	operation := func(name string, run func(ctx context.Context) (any, error)) {
+		s.mux.HandleFunc("POST /v1/"+name, s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+			var out SocketResult
+			if d.Backups == nil {
+				out.ErrorCode = "backup_unavailable"
+			} else {
+				result, err := run(ctx)
+				if result != nil {
+					out.Result, _ = json.Marshal(result)
+				}
+				if err != nil {
+					out.ErrorCode = backup.ErrorCode(err)
+				}
+			}
+			d.Log.Info("admin_socket_"+strings.ReplaceAll(name, "-", "_"), "outcome", out.ErrorCode == "")
+			writeJSON(w, out)
+		}))
+	}
+	operation("deposit", func(ctx context.Context) (any, error) {
+		result, err := d.Backups.Run(ctx, applysetup.Actor, SocketRequestID)
+		if result.Manifest.CapsuleID == "" {
+			return nil, err
+		}
+		return result, err
+	})
+	operation("backup-drill", func(ctx context.Context) (any, error) {
+		result, err := d.Backups.Drill(ctx, applysetup.Actor, SocketRequestID)
+		if result == nil {
+			return nil, err
+		}
+		return result, err
+	})
+	return s
+}
+
+// exclusive runs one socket operation at a time, refuses new ones once Drain starts and
+// gives each a context that a client hang-up cannot cancel halfway.
+func (s *Setup) exclusive(next func(http.ResponseWriter, *http.Request, context.Context)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if s.closing.Load() {
 			WriteError(w, r, http.StatusServiceUnavailable, "shutting_down", "kynotes-server is shutting down")
 			return
 		}
 		if !s.running.TryLock() {
-			WriteError(w, r, http.StatusConflict, "apply_in_progress", "apply-setup is already running")
+			WriteError(w, r, http.StatusConflict, "operation_in_progress", "another admin socket operation is already running")
 			return
 		}
 		defer s.running.Unlock()
@@ -199,19 +258,10 @@ func SetupHandler(d SetupDeps) *Setup {
 			WriteError(w, r, http.StatusServiceUnavailable, "shutting_down", "kynotes-server is shutting down")
 			return
 		}
-		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
-		if err != nil {
-			WriteError(w, r, http.StatusBadRequest, "invalid_bundle", err.Error())
-			return
-		}
-		// A client hang-up must not abandon a pairing halfway.
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), backup.OperationTimeout)
 		defer cancel()
-		report := applySetup(ctx, d, req)
-		d.Log.Info("apply_setup", "outcome", report.ExitCode(), "count", len(report.Results))
-		writeJSON(w, report)
-	})
-	return s
+		next(w, r, ctx)
+	}
 }
 
 func applySetup(ctx context.Context, d SetupDeps, req applysetup.Request) applysetup.Report {
