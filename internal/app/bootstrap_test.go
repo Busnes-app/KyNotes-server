@@ -67,6 +67,10 @@ func TestEnsureBootstrapAdminCustomPass(t *testing.T) {
 	if role != "admin" || status != "active" {
 		t.Fatalf("unexpected role/status: %s/%s", role, status)
 	}
+	var known int
+	if err := store.DB().QueryRow(`SELECT password_admin_known FROM users WHERE username='customadmin'`).Scan(&known); err != nil || known != 1 {
+		t.Fatalf("bootstrap password is operator-known but not flagged: %d %v", known, err)
+	}
 
 	authSecret, err := auth.DeriveAuthSecret("SuperSecretPassword123!", salt, iterations)
 	if err != nil {

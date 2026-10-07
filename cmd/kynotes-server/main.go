@@ -403,7 +403,7 @@ func userCommand(args []string) error {
 		role = "admin"
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',?,?)`, id, strings.ToLower(username), hash, loginSalt, iterations, recoveryHash, role, now, now)
+	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',1,?,?)`, id, strings.ToLower(username), hash, loginSalt, iterations, recoveryHash, role, now, now)
 	if e != nil {
 		return e
 	}

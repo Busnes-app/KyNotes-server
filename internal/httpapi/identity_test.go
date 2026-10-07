@@ -314,6 +314,11 @@ func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+			// Recovery is the user's own choice of password; an admin reset is not.
+			wantFlag := map[string]int{"recover": 0, "admin": 1}[path]
+			if _, err := p.db.Exec(`UPDATE users SET password_admin_known=? WHERE id=?`, 1-wantFlag, pairUser); err != nil {
+				t.Fatal(err)
+			}
 			if path == "recover" {
 				code, hash, err := auth.NewRecoveryCode()
 				if err != nil {
@@ -339,6 +344,10 @@ func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
 			var devices, identities, envelopes int
 			if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE id=?),(SELECT COUNT(*) FROM user_identities),(SELECT COUNT(*) FROM key_envelopes)`, id).Scan(&devices, &identities, &envelopes); err != nil || devices+identities+envelopes != 0 {
 				t.Fatalf("identity survived %s: devices=%d identities=%d envelopes=%d %v", path, devices, identities, envelopes, err)
+			}
+			var flag int
+			if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&flag); err != nil || flag != wantFlag {
+				t.Fatalf("password_admin_known after %s=%d %v", path, flag, err)
 			}
 			var audited int
 			if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.delete' AND object_id=? AND outcome='success'`, id).Scan(&audited); err != nil || audited != 1 {
@@ -418,4 +427,38 @@ func TestDirectoryRevocationsSpareIdentity(t *testing.T) {
 		t.Fatalf("disable: %d %s", r.Code, r.Body.String())
 	}
 	check("deactivation")
+}
+
+// An identity wrapped under a password an admin or the server knows is readable by
+// them forever (password change only re-wraps), so creation waits for the user's own change.
+func TestAdminKnownPasswordGatesIdentityUntilOwnChange(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	p.stepUp(t)
+	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", identityBody(identityPub, identityWrapped), true, false)); code != http.StatusConflict || !strings.Contains(body, "password_change_required") {
+		t.Fatalf("identity under an admin-known password: %d %s", code, body)
+	}
+	var n int
+	if err := p.db.QueryRow(`SELECT count(*) FROM devices WHERE platform='identity'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("refused create left a row: %d %v", n, err)
+	}
+	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)); code != http.StatusNoContent {
+		t.Fatalf("own change: %d %s", code, body)
+	}
+	if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("own change left the flag: %d %v", n, err)
+	}
+	// The step-up proved the old password; it must not authorize a wrap under the new one.
+	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", identityBody(identityPub, identityWrapped), true, false)); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("old-password step-up survived the change: %d %s", code, body)
+	}
+	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/step-up", []byte(`{"authSecret":"`+strings.Repeat("c", 64)+`"}`), true, false)); code != http.StatusNoContent {
+		t.Fatalf("step-up with new password: %d %s", code, body)
+	}
+	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", identityBody(identityPub, identityWrapped), true, false)); code != http.StatusOK {
+		t.Fatalf("create after own change: %d %s", code, body)
+	}
 }

@@ -9,3 +9,6 @@ CREATE TABLE user_identities (
  updated_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX devices_one_identity ON devices(user_id) WHERE platform='identity';
+-- Set while someone other than the user (admin, operator, server) knows the password;
+-- no identity may be wrapped under it. Cleared by the user's own change or recovery.
+ALTER TABLE users ADD COLUMN password_admin_known INTEGER NOT NULL DEFAULT 0;

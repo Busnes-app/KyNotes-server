@@ -42,9 +42,18 @@ func TestSetupFlow(t *testing.T) {
 		t.Fatalf("failed to derive auth secret: %v", err)
 	}
 
+	// The server must never see the password: it is the userKEK input.
+	plain, _ := json.Marshal(map[string]string{"username": "admin", "password": "AdminMasterPassword123!"})
+	reqPlain := httptest.NewRequest("POST", "/api/v1/setup", bytes.NewReader(plain))
+	reqPlain.Header.Set("Content-Type", "application/json")
+	recPlain := httptest.NewRecorder()
+	mux.ServeHTTP(recPlain, reqPlain)
+	if recPlain.Code != http.StatusBadRequest {
+		t.Fatalf("plaintext-password setup: %d %s", recPlain.Code, recPlain.Body.String())
+	}
+
 	setupPayload := map[string]string{
 		"username":   "admin",
-		"password":   "AdminMasterPassword123!",
 		"authSecret": authSecret,
 	}
 	setupBytes, _ := json.Marshal(setupPayload)

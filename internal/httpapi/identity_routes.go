@@ -26,6 +26,8 @@ const (
 var (
 	errIdentityExists = errors.New("identity exists")
 	errIdentityRewrap = errors.New("identity rewrap mismatch")
+	// errPasswordChangeRequired: someone other than the user knows the password.
+	errPasswordChangeRequired = errors.New("password change required")
 )
 
 func decodeWrappedIdentity(value string) ([]byte, bool) {
@@ -103,12 +105,15 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		err = dbTx(db, func(tx *sql.Tx) error {
-			var taken int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)`, s.UserID, fingerprint).Scan(&taken); err != nil {
+			var taken, adminKnown int
+			if err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)),(SELECT password_admin_known FROM users WHERE id=?)`, s.UserID, fingerprint, s.UserID).Scan(&taken, &adminKnown); err != nil {
 				return err
 			}
 			if taken > 0 {
 				return errIdentityExists
+			}
+			if adminKnown != 0 {
+				return errPasswordChangeRequired
 			}
 			// secret_hash never carries the "sha256:" prefix device auth compares against.
 			if _, err := tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES(?,?,?,?,?,'identity',?)`, deviceID, s.UserID, base64.StdEncoding.EncodeToString(pub), fingerprint, "identity:"+hex.EncodeToString(unusable), now); err != nil {
@@ -119,6 +124,10 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "", RequestID(r))
 		})
+		if errors.Is(err, errPasswordChangeRequired) {
+			WriteError(w, r, 409, "password_change_required", "change the password an administrator set before creating an identity")
+			return
+		}
 		if errors.Is(err, errIdentityExists) {
 			WriteError(w, r, 409, "identity_exists", "an identity already exists for this account")
 			return

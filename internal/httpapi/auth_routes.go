@@ -73,7 +73,6 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 
 		var in struct {
 			Username   string `json:"username"`
-			Password   string `json:"password"`
 			AuthSecret string `json:"authSecret"`
 			LoginSalt  string `json:"loginSalt"`
 			Iterations int    `json:"iterations"`
@@ -97,17 +96,10 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			iterations = 600000
 		}
 
+		// The password never reaches the server: it also derives the userKEK.
 		authSecret := in.AuthSecret
-		if authSecret == "" && in.Password != "" {
-			var err error
-			authSecret, err = auth.DeriveAuthSecret(in.Password, salt, iterations)
-			if err != nil {
-				WriteError(w, r, 500, "internal", "failed to derive auth secret")
-				return
-			}
-		}
 		if len(authSecret) != 64 {
-			WriteError(w, r, 400, "invalid_request", "authSecret or password required")
+			WriteError(w, r, 400, "invalid_request", "authSecret required")
 			return
 		}
 
@@ -314,7 +306,11 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if (identities == 1) != (wrapped != nil) {
 				return errIdentityRewrap
 			}
-			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
+			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=0,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
+				return err
+			}
+			// A step-up proved the old password; it must not authorize an identity wrapped under it.
+			if _, err := tx.Exec(`UPDATE sessions SET stepup_at='' WHERE user_id=?`, s.UserID); err != nil {
 				return err
 			}
 			if wrapped == nil {
@@ -467,7 +463,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		auditID, _ := ids.Mint("aud")
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,recovery_hash=?,recovery_used_at='',updated_at=? WHERE id=?`, newHash, in.NewLoginSalt, in.Iterations, recoveryHash, now, uid); e != nil {
+			if _, e := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,recovery_hash=?,recovery_used_at='',password_admin_known=0,updated_at=? WHERE id=?`, newHash, in.NewLoginSalt, in.Iterations, recoveryHash, now, uid); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
