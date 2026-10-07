@@ -110,3 +110,41 @@ func TestApplySetupRecoveryKeyMismatchIsConflict(t *testing.T) {
 		t.Fatal("token stored for a refused key")
 	}
 }
+
+// blockingClaims holds the KyRecovery claim open until release closes.
+type blockingClaims struct {
+	setupClaims
+	started, release chan struct{}
+}
+
+func (c *blockingClaims) ClaimPairing(ctx context.Context, a, b, d, e string) (recoveryclient.PairingResult, error) {
+	close(c.started)
+	<-c.release
+	return c.setupClaims.ClaimPairing(ctx, a, b, d, e)
+}
+
+func TestCloseWaitsForInFlightPairing(t *testing.T) {
+	svc, key := fixture(t)
+	claims := &blockingClaims{setupClaims: setupClaims{key: key}, started: make(chan struct{}), release: make(chan struct{})}
+	svc.client = claims
+	applied := make(chan []applysetup.Result, 1)
+	go func() {
+		applied <- svc.ApplySetup(context.Background(), applysetup.Backup{Recovery: &applysetup.Recovery{URL: "https://kyrecovery.example", PairingCode: "123456"}})
+	}()
+	<-claims.started
+	closed := make(chan struct{})
+	go func() { svc.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a claim was in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(claims.release)
+	<-closed
+	if got := setupStatuses(<-applied); got["backup.recovery"].Status != applysetup.Created {
+		t.Fatalf("%+v", got)
+	}
+	if !recoveryclient.HasPairing(settings{svc.store}) {
+		t.Fatal("claimed token not persisted before Close returned")
+	}
+}

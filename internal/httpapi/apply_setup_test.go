@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -251,5 +252,79 @@ func TestSetupHandlerRejectsInvalidRequests(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &report)
 	if rec.Code != 200 || len(report.Results) != 1 || report.Results[0].Status != applysetup.Failed {
 		t.Fatalf("backup section without a backup service: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// blockingRT holds every outbound request until release closes.
+type blockingRT struct {
+	inner            http.RoundTripper
+	started, release chan struct{}
+	once             *sync.Once
+}
+
+func (b blockingRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	b.once.Do(func() { close(b.started) })
+	<-b.release
+	return b.inner.RoundTrip(r)
+}
+
+func TestSetupDrainWaitsForInFlightApply(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	issuer := setupIssuer(t, false)
+	rt := blockingRT{inner: http.DefaultTransport, started: make(chan struct{}), release: make(chan struct{}), once: &sync.Once{}}
+	http.DefaultTransport = rt
+	store := sso.NewStore(db)
+	h := SetupHandler(SetupDeps{DB: db, Config: cfg, SSO: store, Version: "test", Log: logging.New(io.Discard, "info", "json")})
+	s := setupSSO(issuer)
+	body, _ := json.Marshal(applysetup.Request{Version: 1, SSO: &s})
+	applied := make(chan int, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/apply-setup", bytes.NewReader(body)))
+		applied <- rec.Code
+	}()
+	<-rt.started
+	drained := make(chan bool, 1)
+	go func() { drained <- h.Drain(context.Background()) }()
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/apply-setup", strings.NewReader(`{"version":1}`)))
+		if rec.Code == http.StatusServiceUnavailable {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("new apply admitted during drain:", rec.Code)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case <-drained:
+		t.Fatal("drain returned while an apply was running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	cut, cancel := context.WithCancel(context.Background())
+	cancel()
+	if h.Drain(cut) {
+		t.Fatal("drain reported success while an apply was running")
+	}
+	close(rt.release)
+	if !<-drained || <-applied != 200 || store.Load().IssuerURL != issuer {
+		t.Fatal("in-flight apply did not finish before drain returned")
+	}
+	if !h.Drain(context.Background()) {
+		t.Fatal("second drain with nothing running must succeed")
+	}
+}
+
+func TestNetworkRouterNeverServesApplySetup(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	r := NewRouter(logging.New(io.Discard, "info", "json"), cfg.Server.MaxRequestBytes, func() bool { return true }, db, cfg, sso.NewStore(db))
+	for _, p := range []string{"/v1/apply-setup", "/api/v1/apply-setup", "/api/v1/admin/apply-setup"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("POST", p, strings.NewReader(`{"version":1}`)))
+		// Unknown /api/v1/ paths answer 405 by the router's existing contract.
+		if (rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed) || strings.Contains(rec.Body.String(), "handover") {
+			t.Fatalf("%s → %d %s", p, rec.Code, rec.Body.String())
+		}
 	}
 }

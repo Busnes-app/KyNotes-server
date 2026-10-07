@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/applysetup"
@@ -155,17 +156,46 @@ type SetupDeps struct {
 	Log     *logging.Logger
 }
 
-// SetupHandler serves apply-setup. It is mounted only on the admin Unix socket, never on
-// the network router.
-func SetupHandler(d SetupDeps) http.Handler {
-	var running sync.Mutex
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/apply-setup", func(w http.ResponseWriter, r *http.Request) {
-		if !running.TryLock() {
+// Setup serves apply-setup. It is mounted only on the admin Unix socket, never on the
+// network router.
+type Setup struct {
+	mux     *http.ServeMux
+	running sync.Mutex
+	closing atomic.Bool
+}
+
+func (s *Setup) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+
+// Drain refuses new applies and waits for the running one, so SQLite outlives it. It
+// reports false if ctx ends first.
+func (s *Setup) Drain(ctx context.Context) bool {
+	s.closing.Store(true)
+	done := make(chan struct{})
+	go func() { s.running.Lock(); s.running.Unlock(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func SetupHandler(d SetupDeps) *Setup {
+	s := &Setup{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /v1/apply-setup", func(w http.ResponseWriter, r *http.Request) {
+		if s.closing.Load() {
+			WriteError(w, r, http.StatusServiceUnavailable, "shutting_down", "kynotes-server is shutting down")
+			return
+		}
+		if !s.running.TryLock() {
 			WriteError(w, r, http.StatusConflict, "apply_in_progress", "apply-setup is already running")
 			return
 		}
-		defer running.Unlock()
+		defer s.running.Unlock()
+		if s.closing.Load() {
+			WriteError(w, r, http.StatusServiceUnavailable, "shutting_down", "kynotes-server is shutting down")
+			return
+		}
 		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
 		if err != nil {
 			WriteError(w, r, http.StatusBadRequest, "invalid_bundle", err.Error())
@@ -178,7 +208,7 @@ func SetupHandler(d SetupDeps) http.Handler {
 		d.Log.Info("apply_setup", "outcome", report.ExitCode(), "count", len(report.Results))
 		writeJSON(w, report)
 	})
-	return mux
+	return s
 }
 
 func applySetup(ctx context.Context, d SetupDeps, req applysetup.Request) applysetup.Report {

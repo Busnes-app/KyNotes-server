@@ -53,12 +53,23 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 	if err != nil {
 		return err
 	}
-	admin := &http.Server{Handler: httpapi.SetupHandler(httpapi.SetupDeps{DB: store.DB(), Config: c, SSO: ssoStore, Backups: backups, Version: version, Log: log}), ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout)}
-	go func() { _ = admin.Serve(adminLn) }()
+	setup := httpapi.SetupHandler(httpapi.SetupDeps{DB: store.DB(), Config: c, SSO: ssoStore, Backups: backups, Version: version, Log: log})
+	admin := &http.Server{Handler: setup, ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout)}
+	go func() {
+		if err := admin.Serve(adminLn); !errors.Is(err, http.ErrServerClosed) {
+			log.Error("admin_socket_failed", "reason_code", "serve_error")
+		}
+	}()
+	// Runs before the backup and store defers: SQLite must outlive a running apply.
 	defer func() {
 		sh, cancel := context.WithTimeout(context.Background(), parse(c.Server.ShutdownGrace))
 		defer cancel()
 		_ = admin.Shutdown(sh)
+		drain, cancelDrain := context.WithTimeout(context.Background(), backup.OperationTimeout+time.Minute)
+		defer cancelDrain()
+		if !setup.Drain(drain) {
+			log.Error("apply_setup_drain_cut_off", "reason_code", "timeout")
+		}
 		_ = os.Remove(AdminSocketPath(c.DataDir))
 	}()
 	if c.Backup.AllowPrivateRecovery {
