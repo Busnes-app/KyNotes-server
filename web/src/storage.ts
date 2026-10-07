@@ -186,21 +186,27 @@ export async function getPins(username: string, userID: string): Promise<Pins> {
   return record?.pins?.userID === userID ? record.pins.keys : {};
 }
 
-/** Replaces the pins of an existing vault record; without one (no IndexedDB) pins are not kept. */
-export async function storePins(username: string, userID: string, keys: Pins): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("keys", "readwrite");
-    const store = transaction.objectStore("keys");
-    const read = store.get(username);
-    read.onsuccess = () => {
-      const record = read.result as VaultRecord | undefined;
-      if (record) store.put({ ...record, pins: { userID, keys } });
-    };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-  });
-  db.close();
+/** Replaces the pins of an existing vault record. False means pins are not kept (no record, no IndexedDB); tell the user. */
+export async function storePins(username: string, userID: string, keys: Pins): Promise<boolean> {
+  try {
+    const db = await openDatabase();
+    const kept = await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction("keys", "readwrite");
+      const store = transaction.objectStore("keys");
+      let found = false;
+      const read = store.get(username);
+      read.onsuccess = () => {
+        const record = read.result as VaultRecord | undefined;
+        if (record) { found = true; store.put({ ...record, pins: { userID, keys } }); }
+      };
+      transaction.oncomplete = () => resolve(found);
+      transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+    return kept;
+  } catch {
+    return false;
+  }
 }
 
 export async function clearDeviceKey(username: string): Promise<void> {
