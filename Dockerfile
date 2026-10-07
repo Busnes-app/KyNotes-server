@@ -12,7 +12,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /src/web/dist /src/internal/web/dist
-RUN CGO_ENABLED=0 go build -trimpath -o /kynotes-server ./cmd/kynotes-server
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=${VERSION}" -o /kynotes-server ./cmd/kynotes-server
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:1b7b9f0f0e0a1d2155f531db587cc48ec26aaf97ab64364225f5bf18a054e66a
 COPY --from=build /kynotes-server /kynotes-server
@@ -21,5 +22,5 @@ COPY --from=build --chown=nonroot:nonroot /tmp /tmp
 USER nonroot
 EXPOSE 8080
 VOLUME /data
-HEALTHCHECK CMD ["/kynotes-server","--check-config"]
+HEALTHCHECK CMD ["/kynotes-server","healthcheck"]
 ENTRYPOINT ["/kynotes-server"]

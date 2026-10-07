@@ -22,7 +22,16 @@ import (
 	"time"
 )
 
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if e := healthcheckCommand(os.Args[2:]); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "gc" {
 		if e := gcCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
@@ -101,7 +110,7 @@ func main() {
 	}
 	path := flag.String("config", "/data/kynotes.yaml", "config path")
 	check := flag.Bool("check-config", false, "validate configuration")
-	version := flag.Bool("version", false, "print version")
+	showVersion := flag.Bool("version", false, "print version")
 	if err := rejectUnknownCommand(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -111,8 +120,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "unexpected positional arguments; server mode accepts flags only")
 		os.Exit(2)
 	}
-	if *version {
-		fmt.Println("kynotes-server dev")
+	if *showVersion {
+		fmt.Println(versionLine())
 		return
 	}
 	c, e := config.Load(*path)
@@ -131,6 +140,8 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+func versionLine() string { return "kynotes-server " + version }
 
 func commandConfig(args []string) string {
 	for i := 0; i+1 < len(args); i++ {
