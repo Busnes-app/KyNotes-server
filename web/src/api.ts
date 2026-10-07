@@ -1,4 +1,5 @@
 import { confirmSSOAction } from "./reauth";
+import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number };
@@ -69,7 +70,7 @@ export async function loginParams(username: string) {
 }
 
 export async function login(username: string, authSecret: string) {
-  return request<Session>("/api/v1/auth/login", {
+  return request<Session & { identity?: IdentityRecord }>("/api/v1/auth/login", {
     method: "POST", body: JSON.stringify({ username, authSecret }),
   });
 }
@@ -121,9 +122,15 @@ export function removeAdminTeamMember(teamID: string, userID: string) { return r
 export const adminSettings = () => request<{ defaultTheme: string }>("/api/v1/admin/settings");
 export function updateAdminSettings(defaultTheme: string) { return request<void>("/api/v1/admin/settings", { method: "PATCH", body: JSON.stringify({ defaultTheme }) }); }
 export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }
-export function changePassword(input: { currentAuthSecret: string; newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>("/api/v1/auth/password", { method: "POST", body: JSON.stringify(input) }); }
+export function changePassword(input: { currentAuthSecret: string; newAuthSecret: string; newLoginSalt: string; iterations: number; identityDeviceId?: string; wrappedIdentityKey?: string }) { return request<void>("/api/v1/auth/password", { method: "POST", body: JSON.stringify(input) }); }
 /** Re-proves the login secret for the current session; destructive admin routes answer step_up_required until this succeeds. */
-export function stepUp(authSecret: string) { return request<void>("/api/v1/auth/step-up", { method: "POST", body: JSON.stringify({ authSecret }) }); }
+export function stepUp(authSecret: string) { return request<{ identity: IdentityRecord } | undefined>("/api/v1/auth/step-up", { method: "POST", body: JSON.stringify({ authSecret }) }); }
+export async function myIdentity(): Promise<PublicIdentity | undefined> {
+  try { return await request<PublicIdentity>("/api/v1/me/identity"); }
+  catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
+}
+export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
+export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: async (authSecret) => (await stepUp(authSecret))?.identity };
 export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);

@@ -1,3 +1,4 @@
+import type { HeldIdentity } from "./identity";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
@@ -128,6 +129,38 @@ export async function getDeviceKey(username: string): Promise<string | undefined
   });
   db.close();
   return result?.authSecret;
+}
+
+type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string } };
+
+/** Adds the unwrapped identity to an existing vault record, so "Forget this device" stays one delete. */
+export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("keys", "readwrite");
+    const store = transaction.objectStore("keys");
+    const read = store.get(username);
+    read.onsuccess = () => {
+      const record = read.result as VaultRecord | undefined;
+      if (record) store.put({ ...record, identity: { ...identity, userID } });
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+}
+
+export async function getIdentityKey(username: string, userID: string): Promise<HeldIdentity | undefined> {
+  const db = await openDatabase();
+  const record = await new Promise<VaultRecord | undefined>((resolve, reject) => {
+    const request = db.transaction("keys").objectStore("keys").get(username);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  if (record?.identity?.userID !== userID) return undefined;
+  const { deviceId, publicKey, privateKey } = record.identity;
+  return { deviceId, publicKey, privateKey };
 }
 
 export async function clearDeviceKey(username: string): Promise<void> {
