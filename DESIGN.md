@@ -45,6 +45,15 @@ clients are designed as later phases unless required by the client teams.
   notes, tasks, and attachments.
 - A **Project** is a separate top-level container. It may contain notes, task
   data, folders, and attachments.
+- A **Section** is an encrypted `folder` object inside a workbook. Its payload
+  `{type:"section", title, color, order}` is ciphertext; the server sees only the kind.
+- A **Page** is an encrypted `note` object. Its payload carries `section` (a section
+  object ID) and a fractional `order` key, so each page owns its placement and no shared
+  manifest is written. Pages without a live section appear in the client's virtual
+  Quick Notes section; deleting a section never deletes pages. The first reorder of a
+  section that holds legacy unordered pages renumbers every page in it: a one-time burst of
+  writes, which other open devices may see as one conflict and from which the server can
+  infer that those objects share a list.
 - A **Team** is a membership and key-management container. Teams contain
   shared projects and shared notes.
 Each container has its own encryption key and explicit device sync selection.

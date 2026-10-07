@@ -53,7 +53,7 @@ surface exposes the persisted default theme and metadata-only administration;
 other host-level configuration remains host-managed.
 
 The current client additionally groups personal and team workspaces, supports
-local sorting and pinning, edits versioned BlockNote documents, autosaves and
+manual section and page ordering, edits versioned BlockNote documents, autosaves and
 supports manual saves, and displays encrypted comments. Admins can set the
 server default theme, manage account role/status, and inspect metadata-only
 audit records.

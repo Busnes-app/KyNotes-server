@@ -56,6 +56,7 @@ h2 { font-size: 23px; font-weight: 500; letter-spacing: -.05em; margin: 8px 0 0;
 .body-input { flex: 1; min-height: 300px; resize: none; border: 0; outline: 0; background: transparent; padding: 28px 0; color: #4e4b42; font: 17px/1.8 Space, sans-serif; }
 .editor-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e6e0d4; }
 .editor-actions button { margin-top: 18px; }
+.editor-actions select { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line); padding: 8px 10px; margin-top: 18px; }
 .editor-actions .danger { color: #a84832; }
 .empty-editor { display: grid; place-items: start center; align-content: center; height: 100%; text-align: center; color: #898274; }
 .empty-editor > * { margin-left: auto; margin-right: auto; }
@@ -116,7 +117,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
 .note-row-wrap.selected { border-left-color: var(--accent); background: var(--accent-soft); }
 .note-row-wrap .note-row { flex: 1; margin-bottom: 0; }
-.pin-button { width: 36px; color: var(--accent); background: transparent; font-size: 18px; }
 .format-toolbar { display: flex; gap: 6px; margin-top: 18px; }
 .format-toolbar button { padding: 6px 9px; color: var(--ink); background: var(--accent-soft); font-size: 12px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -168,7 +168,7 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .brand-mark, .icon-button, .avatar { border-radius: 12px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .note-row, .account-chip, .member-row, .admin-user, .audit-row { border-radius: 14px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .config-card, .auth-card { overflow: hidden; }
-.format-toolbar button, .pin-button { border-radius: 10px; corner-shape: squircle; }
+.format-toolbar button { border-radius: 10px; corner-shape: squircle; }
 .markdown-preview, .markdown-editor, .comments, .comment { border-radius: 16px; corner-shape: squircle; }
 .comment { overflow: hidden; }
 .note-search { min-width: 110px; width: 150px; padding: 7px 9px; border: 1px solid var(--line); color: var(--ink-strong); background: var(--panel); }
@@ -188,6 +188,7 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .shared-note h1 { font-size: clamp(32px, 7vw, 58px); }
 .shared-note-body { color: var(--ink); font-size: 17px; line-height: 1.8; }
 .conflict-banner { margin-top: 18px; padding: 12px 14px; border: 1px solid color-mix(in srgb, #b42318 35%, var(--line)); border-radius: 14px; color: var(--ink-strong); background: color-mix(in srgb, #b42318 10%, var(--panel)); font-size: 13px; line-height: 1.5; corner-shape: squircle; }
+.conflict-banner button { display: block; margin-top: 8px; }
 @media (max-width: 800px) { .note-search { width: 100%; } .list-actions { flex-wrap: wrap; } }
 .editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
 .editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }
@@ -263,3 +264,30 @@ body { color: var(--ink-strong); background: var(--bg); }
   color-scheme: dark;
 }
 }
+
+/* OneNote-style layout: notebooks | section tabs over pages + page. */
+:root { --section-orange: #d9822b; --section-blue: #3f7cc4; --section-green: #4f9a5a; --section-purple: #8a63c4; --section-red: #c4523f; --section-teal: #2f9a95; --section-yellow: #c9a227; --section-gray: #8a877d; }
+.workspace { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "nav tabs tabs" "nav pages page"; }
+.workspace > .sidebar { grid-area: nav; }
+.workspace > .section-tabs { grid-area: tabs; }
+.workspace > .note-list { grid-area: pages; }
+.workspace > .editor { grid-area: page; }
+.section-tabs { display: flex; align-items: flex-end; gap: 6px; padding: 10px 18px 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
+.section-tabs ul { display: flex; align-items: flex-end; gap: 2px; margin: 0; padding: 0; list-style: none; overflow-x: auto; min-width: 0; }
+.section-tab-item { display: flex; align-items: center; }
+.section-tab { padding: 7px 14px; border-top: 4px solid var(--tab-color); border-radius: 8px 8px 0 0; background: var(--bg); color: var(--ink); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+[class].section-tab.ky-nav-item[aria-current="page"] { background: var(--panel); color: var(--ink-strong); box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
+.section-tab-menu, .section-add { background: transparent; color: var(--ink); padding: 6px 8px; }
+.section-menu { padding: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); gap: 4px; min-width: 180px; }
+.section-menu:popover-open { display: grid; }
+.section-tab-menu { anchor-name: --section-menu; }
+@supports (anchor-name: --a) { .section-menu { position-anchor: --section-menu; inset: auto; top: anchor(bottom); left: anchor(left); margin: 4px 0 0; } }
+.section-menu > button { background: transparent; color: inherit; text-align: left; padding: 8px; }
+.section-menu > .danger { color: #b42318; }
+.section-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; }
+.section-swatch { width: 20px; height: 20px; border-radius: 50%; padding: 0; }
+.section-swatch[aria-pressed="true"] { outline: 2px solid var(--ink-strong); outline-offset: 2px; }
+@media (max-width: 800px) { .workspace { grid-template-rows: none; grid-template-areas: "nav" "tabs" "pages" "page"; } .section-tabs { padding: 8px 12px 0; } }
+
+.note-row[draggable="true"] { cursor: grab; }
+.page-section { font-style: normal; color: var(--accent); }

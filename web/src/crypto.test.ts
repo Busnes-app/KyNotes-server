@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decryptContainerMeta, decryptNote, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload } from "./crypto";
+import { decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload } from "./crypto";
 
 describe("browser crypto", () => {
   it("matches the server auth fixture", async () => {
@@ -29,5 +29,19 @@ describe("browser crypto", () => {
     expect(sealed.key).not.toContain("=");
     expect(new TextDecoder().decode(sealed.ciphertext)).not.toContain(note.body);
     await expect(decryptSharePayload(sealed.ciphertext, sealed.key)).resolves.toEqual(note);
+  });
+});
+
+describe("object payloads", () => {
+  const secret = "b9eb85992f985b432a3feaf4f5ea0b7b7960a5da42c640a3b9d93a83fc5bef1d";
+  const cnt = "cnt_test";
+  it("round-trips a placed page and a section through the object key", async () => {
+    const page = { type: "page" as const, title: "T", body: "b", section: `obj_${"b".repeat(26)}`, order: "i" };
+    expect(await decryptObject(secret, cnt, await encryptNote(secret, cnt, page))).toEqual(page);
+    const section = { type: "section" as const, title: "S", color: "teal" as const, order: "r" };
+    expect(await decryptObject(secret, cnt, await encryptNote(secret, cnt, section))).toEqual(section);
+  });
+  it("returns undefined for a payload that decrypts but is not an object payload", async () => {
+    expect(await decryptObject(secret, cnt, await encryptNote(secret, cnt, [] as never))).toBeUndefined();
   });
 });

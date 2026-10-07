@@ -11,9 +11,10 @@ type Props = {
   onChange: (document: Block[]) => void;
   uploadFile: (file: File) => Promise<string>;
   resolveFileUrl: (url: string) => Promise<string>;
+  editable?: boolean;
 };
 
-export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl }: Props) {
+export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl, editable = true }: Props) {
   const hydratedRef = useRef(false);
   const onChangeRef = useRef(onChange);
   const uploadRef = useRef(uploadFile);
@@ -41,6 +42,7 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
     <div className="blocknote-editor">
       <BlockNoteView
         editor={editor}
+        editable={editable}
         onChange={(current) => {
           if (hydratedRef.current) onChangeRef.current(current.document);
         }}

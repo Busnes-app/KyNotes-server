@@ -6,7 +6,7 @@ export type Comment = { id: string; authorUserId: string; username: string; body
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
 export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
-export type Note = { id: string; title: string; body: string; version: number; updatedAt: string };
+export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string };
 
 type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
 export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }
@@ -139,10 +139,10 @@ export async function changes(containerID: string, since = 0) {
   );
 }
 
-export async function createObject(containerID: string) {
+export async function createObject(containerID: string, kind: "note" | "folder" = "note") {
   return request<{ id: string; version: number; changeSeq: number }>(
     `/api/v1/containers/${encodeURIComponent(containerID)}/objects`, {
-      method: "POST", body: JSON.stringify({ kind: "note" }),
+      method: "POST", body: JSON.stringify({ kind }),
     },
   );
 }
@@ -178,6 +178,8 @@ export const objectAttachments = (objectID: string) => request<Array<{ id: strin
 export async function downloadAttachment(attachmentID: string) { const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error("Unable to download attachment"); return new Uint8Array(await response.arrayBuffer()); }
 
 export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`);
+export async function conflictCiphertext(conflictID: string) { const response = await fetch(`/api/v1/conflicts/${encodeURIComponent(conflictID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error(`Unable to read conflicting version (${response.status})`); return new Uint8Array(await response.arrayBuffer()); }
+export const resolveConflict = (conflictID: string) => request<void>(`/api/v1/conflicts/${encodeURIComponent(conflictID)}/resolve`, { method: "POST" });
 
 export function createShareLink(objectID: string, expiresAt: string, version = 0) {
   return request<{ id: string; token: string; objectId: string; version: number; expiresAt: string; commitReceipt: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/share-links`, {

@@ -1,6 +1,6 @@
 import { AdminBackup } from "./components/AdminBackup";
 import { ConfirmPassword } from "./components/ConfirmPassword";
-import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   addAdminTeamMember,
@@ -34,6 +34,8 @@ import {
   members,
   notifications,
   objectConflicts,
+  conflictCiphertext,
+  resolveConflict,
   objectAttachments,
   pairAdminSSO,
   readObject,
@@ -62,7 +64,7 @@ import {
   decryptAttachment,
   decryptAttachmentMetadata,
   decryptContainerMeta,
-  decryptNote,
+  decryptObject,
   decryptSharePayload,
   deriveAuthSecret,
   digestSha256Hex,
@@ -76,6 +78,9 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
+import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -106,6 +111,8 @@ import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
+const notePayload = (note: Note): PagePayload =>
+  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
 const BlockNoteEditor = lazy(() => import("./BlockNoteEditor").then((module) => ({ default: module.BlockNoteEditor })));
 
@@ -515,6 +522,21 @@ function Workspace({
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const notesRef = useRef<Note[]>([]);
+  notesRef.current = notes;
+  // Chained writes read notesRef before React renders, so they patch it directly.
+  const patchNotes = (update: (value: Note[]) => Note[]) => {
+    notesRef.current = update(notesRef.current);
+    setNotes((value) => update(value));
+  };
+  const [sections, setSections] = useState<Section[]>([]);
+  const sectionsRef = useRef<Section[]>([]);
+  // Writes read sectionsRef synchronously, so every change goes through here.
+  const patchSections = (update: (value: Section[]) => Section[]) => {
+    sectionsRef.current = update(sectionsRef.current);
+    setSections(sectionsRef.current);
+  };
+  const [sectionID, setSectionID] = useState<string>(QUICK_NOTES);
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
@@ -532,6 +554,8 @@ function Workspace({
   const saveChain = useRef(Promise.resolve());
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const selectedNoteRef = useRef<Note | null>(null);
+  const selectedRef = useRef<Container | null>(null);
+  selectedRef.current = selected;
   selectedNoteRef.current = selectedNote;
   const [notificationCount, setNotificationCount] = useState(0);
   const [membersForTeam, setMembersForTeam] = useState<
@@ -540,37 +564,39 @@ function Workspace({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Bumped to remount the open page's editor on content it did not produce.
+  const [editorRevision, setEditorRevision] = useState(0);
+  // The page a conflict recovery is rewriting; it stays read-only until the run ends.
+  const [recovering, setRecovering] = useState<string | null>(null);
+  const recoveringRef = useRef(false);
   const [view, setView] = useState<"workspace" | "settings" | "admin">(
     "workspace",
   );
   const [queueMode, setQueueMode] = useState(false);
-  const [sort, setSort] = useState<"updated" | "title">("updated");
+  const [loadingContainer, setLoadingContainer] = useState(false);
+  const loadingContainerID = useRef<string | undefined>(undefined);
+  // Versions saved while a load reads; the load's fresh list would otherwise drop them.
+  const loadCarried = useRef(new Map<string, { version: number; updatedAt?: string }>());
+  const carryDuringLoad = (id: string, saved: { version: number; updatedAt?: string }) => {
+    if (loadingContainerID.current) loadCarried.current.set(id, saved);
+  };
+  // Cache writes apply in call order, so an older body never lands last.
+  const cacheChain = useRef<Promise<unknown>>(Promise.resolve());
+  const cacheWrite = (write: () => Promise<unknown>) => {
+    const run = cacheChain.current.then(write);
+    cacheChain.current = run.catch(() => {});
+    return run;
+  };
   const [query, setQuery] = useState("");
   const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
   const [, setCommitToastTick] = useState(0);
-  const pinsKey = `kynotes-pins-${auth.user.id}`;
-  const pinned = useMemo(() => {
-    try {
-      return new Set(
-        JSON.parse(localStorage.getItem(pinsKey) || "[]") as string[],
-      );
-    } catch {
-      return new Set<string>();
-    }
-  }, [pinsKey, notes]);
   const nameOf = (container: Container) =>
-    names[container.id] || `Workspace ${container.id.slice(4, 10)}`;
-  const orderedNotes = useMemo(
-    () =>
-      [...notes].sort((a, b) => {
-        const pinDiff = Number(pinned.has(b.id)) - Number(pinned.has(a.id));
-        if (pinDiff) return pinDiff;
-        return sort === "title"
-          ? a.title.localeCompare(b.title)
-          : b.updatedAt.localeCompare(a.updatedAt);
-      }),
-    [notes, pinned, sort],
-  );
+    names[container.id] || `Notebook ${container.id.slice(4, 10)}`;
+  // Every keystroke patches notes; the search/graph index catches up off the typing path.
+  const settledNotes = useDeferredValue(notes);
+  const orderedNotes = useMemo(() => [...settledNotes].sort(compareOrdered), [settledNotes]);
+  const sectionPages = useMemo(() => pagesInSection(notes, sections, sectionID), [notes, sections, sectionID]);
+  const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
   const searchableNotes = useMemo(() => indexNotes(orderedNotes), [orderedNotes]);
   useEffect(() => {
     let cancelled = false;
@@ -611,7 +637,10 @@ function Workspace({
   }, [queueEntries, query]);
   const listEntries = queueMode
     ? visibleQueueEntries
-    : visibleNotes.map((note) => ({ note, container: selected })).filter((entry): entry is QueueEntry => Boolean(entry.container));
+    : (query.trim() ? visibleNotes : sectionPages)
+        .map((note) => ({ note, container: selected }))
+        .filter((entry): entry is QueueEntry => Boolean(entry.container));
+  const reorderable = !queueMode && !query.trim();
   const relatedNotes = useMemo(
     () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
     [searchableNotes, selectedNote],
@@ -640,6 +669,32 @@ function Workspace({
       syncChannel.current = null;
     };
   }, []);
+  useEffect(() => {
+    if (queueMode || loadingContainer || !selected) return;
+    const next = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
+    if (location.hash === next) return;
+    // Normalizing an empty or unparseable hash must not add a history entry.
+    if (parseRoute(location.hash).container) location.hash = next;
+    else history.replaceState(null, "", next);
+  }, [queueMode, loadingContainer, selected?.id, sectionID, selectedNote?.id]);
+  useEffect(() => {
+    const follow = () => void (async () => {
+      const route = parseRoute(location.hash);
+      const container = items.find((item) => item.id === route.container);
+      // Our own hash writes match the current state and stop here.
+      if (!container || route.container === loadingContainerID.current || (container.id === selected?.id && route.section === sectionID && route.page === selectedNote?.id)) return;
+      if (container.id !== selected?.id) { await selectContainer(container, route); return; }
+      setSectionID(resolveSection(route.section, sections));
+      const page = notes.find((note) => note.id === route.page);
+      if (page) await selectNote(page);
+      else {
+        if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
+        if (!parseRoute(location.hash).page) setSelectedNote(null);
+      }
+    })();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, [items, selected?.id, sectionID, selectedNote?.id, notes, sections, dirty]);
   useEffect(() => {
     if (!commitToastAt) return;
     const timer = window.setInterval(() => setCommitToastTick((value) => value + 1), 1000);
@@ -757,15 +812,23 @@ function Workspace({
       }
       setNames(nextNames);
       setItems(loaded);
-      if (loaded[0]) await selectContainer(loaded[0]);
+      const route = parseRoute(location.hash);
+      const start = loaded.find((item) => item.id === route.container) ?? loaded[0];
+      if (start) await selectContainer(start, start.id === route.container ? route : undefined);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to load workspaces",
+        error instanceof Error ? error.message : "Unable to load notebooks",
       );
     }
   }
-  async function readContainerNotes(container: Container): Promise<Note[]> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[] }> {
     const loaded: Note[] = [];
+    const found: Section[] = [];
+    const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
+      if (!payload) return;
+      if (payload.type === "section") found.push({ ...payload, id, version });
+      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, version, updatedAt });
+    };
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
       const result = await changes(container.id, since);
@@ -773,23 +836,14 @@ function Workspace({
         try {
           const object = await readObject(change.id);
           const cached = await getNote(change.id);
-          const payload =
-            cached && cached.version >= object.version
-              ? await decryptNote(auth.authSecret, container.id, cached.payload)
-              : await decryptNote(auth.authSecret, container.id, object.bytes);
-          loaded.push({
-            id: change.id,
-            ...payload,
-            body: payload.body,
-            version: cached && cached.version >= object.version ? cached.version : object.version,
-            updatedAt: cached && cached.version >= object.version ? cached.updatedAt : new Date().toISOString(),
-          });
+          const useCache = Boolean(cached && cached.version >= object.version);
+          const payload = await decryptObject(auth.authSecret, container.id, useCache ? cached!.payload : object.bytes);
+          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
         } catch {
           const cached = await getNote(change.id);
           if (cached) {
             try {
-              const payload = await decryptNote(auth.authSecret, container.id, cached.payload);
-              loaded.push({ id: change.id, ...payload, body: payload.body, version: cached.version, updatedAt: cached.updatedAt });
+              add(change.id, await decryptObject(auth.authSecret, container.id, cached.payload), cached.version, cached.updatedAt);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -801,35 +855,59 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return loaded;
+    return { notes: loaded, sections: found };
   }
-  async function selectContainer(container: Container): Promise<Note[]> {
-    const previousContainer = selected;
+  async function selectContainer(container: Container, route?: Route): Promise<Note[]> {
+    loadingContainerID.current = container.id;
+    setLoadingContainer(true);
+    try {
+      return await loadContainer(container, route);
+    } finally {
+      // A later switch owns the flag now.
+      if (loadingContainerID.current === container.id) {
+        loadingContainerID.current = undefined;
+        setLoadingContainer(false);
+      }
+    }
+  }
+  async function loadContainer(container: Container, route?: Route): Promise<Note[]> {
     const previousNote = selectedNoteRef.current;
-    if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
+    if (previousNote && dirty) {
       // Workspace navigation destroys the current editor. Finish its latest
       // encrypted save before replacing the note list so the next load cannot
       // fall back to an older plain document.
       await save(previousNote, true);
     }
+    // Another switch started meanwhile: its results win.
+    const superseded = () => loadingContainerID.current !== container.id;
+    if (superseded()) return [];
+    // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
     setQueueMode(false);
+    selectedNoteRef.current = null;
     setSelectedNote(null);
+    patchNotes(() => []);
+    patchSections(() => []);
     setCommentsForNote([]);
     setAttachmentsForNote([]);
-    let loaded: Note[] = [];
+    loadCarried.current.clear();
     try {
-      loaded = await readContainerNotes(container);
-      setNotes(loaded);
-      if (container.kind === "team")
-        setMembersForTeam(await members(container.id));
-      else setMembersForTeam([]);
+      const objects = await readContainerObjects(container);
+      if (superseded()) return [];
+      const loaded = carryAll(objects.notes, loadCarried.current);
+      loadCarried.current.clear();
+      patchNotes(() => loaded);
+      patchSections(() => objects.sections);
+      setSectionID(resolveSection(route?.section, objects.sections));
+      const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
+      if (routed) await selectNote(routed, container.id);
+      const team = container.kind === "team" ? await members(container.id) : [];
+      if (!superseded()) setMembersForTeam(team);
+      return loaded;
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Unable to load workspace",
-      );
+      if (!superseded()) setError(error instanceof Error ? error.message : "Unable to load notebook");
+      return [];
     }
-    return loaded;
   }
   async function openWorkQueue() {
     setView("workspace");
@@ -839,10 +917,10 @@ function Workspace({
       const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
       const results = await Promise.allSettled(personalContainers.map(async (container) => ({
         container,
-        notes: await readContainerNotes(container),
+        notes: (await readContainerObjects(container)).notes,
       })));
       if (results.some((result) => result.status === "rejected")) {
-        setError("Some personal workspaces could not be loaded; the work queue may be incomplete.");
+        setError("Some personal notebooks could not be loaded; the work queue may be incomplete.");
       }
       const entries = results.flatMap((result) => result.status === "fulfilled"
         ? result.value.notes.map((note) => ({ note, container: result.value.container }))
@@ -860,10 +938,17 @@ function Workspace({
     if (note) await selectNote(note, entry.container.id);
     setQueueMode(true);
   }
-  async function selectNote(note: Note, containerID = selected?.id) {
+  async function selectNote(selection: Note, containerID = selected?.id) {
+    const previous = selectedNoteRef.current;
+    if (previous && previous.id !== selection.id && dirty) await save(previous, true);
+    // Search and resurfacing rows hold deferred copies; open the live entry.
+    const note = notesRef.current.find((entry) => entry.id === selection.id) ?? selection;
+    selectedNoteRef.current = note;
     setSelectedNote(note);
     setDirty(false);
     setLastSavedAt(note.version > 0 ? note.updatedAt : "");
+    // A later selection or notebook switch owns the panels below.
+    const current = () => selectedNoteRef.current?.id === note.id;
     try { const conflicts = await objectConflicts(note.id); setConflicted((value) => { const next = new Set(value); if (conflicts.some((item) => !item.resolved)) next.add(note.id); else next.delete(note.id); return next; }); } catch { /* conflict metadata is advisory */ }
     try {
       const remote = await comments(note.id);
@@ -886,9 +971,9 @@ function Workspace({
           /* Ignore comments encrypted for another key. */
         }
       }
-      setCommentsForNote(decoded);
+      if (current()) setCommentsForNote(decoded);
     } catch {
-      setCommentsForNote([]);
+      if (current()) setCommentsForNote([]);
     }
     try {
       const remote = await objectAttachments(note.id);
@@ -899,13 +984,13 @@ function Workspace({
           decoded.push({ id: item.id, ...metadata });
         } catch { /* Ignore metadata encrypted for another key. */ }
       }
-      setAttachmentsForNote(decoded);
+      if (current()) setAttachmentsForNote(decoded);
     } catch {
-      setAttachmentsForNote([]);
+      if (current()) setAttachmentsForNote([]);
     }
   }
   async function newWorkspace() {
-    const name = prompt("Personal workspace name", "My personal workspace")?.trim();
+    const name = prompt("Notebook name", "My notebook")?.trim();
     if (!name) return;
     setBusy(true);
     try {
@@ -932,14 +1017,14 @@ function Workspace({
       await selectContainer(named);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to create workspace",
+        error instanceof Error ? error.message : "Unable to create notebook",
       );
     } finally {
       setBusy(false);
     }
   }
   async function newTeamWorkspace(teamContainer: Container) {
-    const name = prompt("Team workspace name", "New workspace")?.trim();
+    const name = prompt("Notebook name", "New notebook")?.trim();
     if (!name) return;
     setBusy(true);
     try {
@@ -952,14 +1037,14 @@ function Workspace({
       setItems((value) => [...value, named]);
       await selectContainer(named);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to create team workspace");
+      setError(error instanceof Error ? error.message : "Unable to create team notebook");
     } finally {
       setBusy(false);
     }
   }
   async function renameWorkspace() {
     if (!selected) return;
-    const name = prompt("Workspace name", nameOf(selected))?.trim();
+    const name = prompt("Notebook name", nameOf(selected))?.trim();
     if (!name) return;
     setBusy(true);
     try {
@@ -987,31 +1072,30 @@ function Workspace({
       setSelected(next);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to rename workspace",
+        error instanceof Error ? error.message : "Unable to rename notebook",
       );
     } finally {
       setBusy(false);
     }
   }
-  function togglePin(note: Note) {
-    const next = new Set(pinned);
-    next.has(note.id) ? next.delete(note.id) : next.add(note.id);
-    localStorage.setItem(pinsKey, JSON.stringify([...next]));
-    setNotes((value) => [...value]);
-  }
   async function newNote() {
     if (!selected) return;
     setBusy(true);
     try {
+      // Before createObject: an exhausted order key must not leave an empty object behind.
+      const order = endOrder(pagesInSection(notesRef.current, sectionsRef.current, sectionID));
       const object = await createObject(selected.id);
-      const note = {
+      const note: Note = {
         id: object.id,
-        title: "Untitled note",
+        title: "Untitled page",
         body: stringifyNoteDocument(emptyNoteDocument().document),
+        section: sectionID === QUICK_NOTES ? undefined : sectionID,
+        order,
         version: 0,
         updatedAt: new Date().toISOString(),
       };
-      setNotes((value) => [note, ...value]);
+      patchNotes((value) => [note, ...value]);
+      selectedNoteRef.current = note;
       setSelectedNote(note);
       setDirty(true);
       persistDraft(note);
@@ -1028,20 +1112,15 @@ function Workspace({
     if (!selected) return;
     if (!automatic) setBusy(true);
     try {
-      const payload: NotePayload = { title: note.title, body: note.body };
+      const payload = notePayload(note);
       const encrypted = await encryptNote(
         auth.authSecret,
         selected.id,
         payload,
       );
       const savedAt = new Date().toISOString();
-      await putNote({
-        id: note.id,
-        containerID: selected.id,
-        version: note.version,
-        payload: encrypted,
-        updatedAt: savedAt,
-      });
+      const containerID = selected.id;
+      await cacheWrite(() => putNote({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt }));
       try {
         const result = await saveObject(
           note.id,
@@ -1051,39 +1130,24 @@ function Workspace({
         );
         await clearQueuedSave(note.id);
         setCommitToastAt(Date.now());
-          setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
-          setSyncStatus("saved");
+        setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
         setLastSavedAt(savedAt);
         setSyncStatus("saved");
-        setNotes((value) =>
-          value.map((entry) =>
-            entry.id === saved.id && entry.body === note.body && entry.title === note.title
-              ? saved
-              : entry,
-          ),
-        );
+        // Edits or a move may have landed while the request was in flight:
+        // carry only the version forward, never the sent content.
+        patchNotes((value) => carrySaved(value, saved.id, saved));
+        carryDuringLoad(saved.id, saved);
         setQueueEntries((entries) => entries.flatMap((entry) => {
           if (entry.note.id !== saved.id) return [entry];
           return openTaskNotes(indexNotes([saved])).length ? [{ ...entry, note: saved }] : [];
         }));
-        // An edit may have landed while the request was in flight. Never let
-        // an older response replace that newer document in memory.
-        if (
-          selectedNoteRef.current?.id === saved.id &&
-          selectedNoteRef.current.title === note.title &&
-          selectedNoteRef.current.body === note.body
-        ) {
-          setSelectedNote(saved);
-          setDirty(false);
-        } else if (selectedNoteRef.current?.id === saved.id) {
-          // Carry the server's new version forward without replacing the
-          // newer local document that is waiting to be saved next.
-          setSelectedNote((current) =>
-            current?.id === saved.id
-              ? { ...current, version: saved.version, updatedAt: saved.updatedAt }
-              : current,
-          );
+        const open = selectedNoteRef.current;
+        if (open?.id === saved.id) {
+          const [carried] = carrySaved([open], saved.id, saved);
+          selectedNoteRef.current = carried;
+          setSelectedNote(carried);
+          if (samePayload(open, note)) setDirty(false);
         }
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1130,11 +1194,17 @@ function Workspace({
         try {
           const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration ?? 1);
           await clearQueuedSave(item.id);
-          setNotes((value) => value.map((note) => note.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note));
-          if (selectedNoteRef.current?.id === item.id) {
-            setSelectedNote((note) => note?.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note);
+          const saved = { version: result.version, updatedAt: item.updatedAt };
+          patchNotes((value) => carrySaved(value, item.id, saved));
+          carryDuringLoad(item.id, saved);
+          patchSections((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
+          const open = selectedNoteRef.current;
+          // The open page may hold newer edits than the queued payload, so it stays dirty.
+          if (open?.id === item.id) {
+            const [carried] = carrySaved([open], item.id, saved);
+            selectedNoteRef.current = carried;
+            setSelectedNote(carried);
             setLastSavedAt(item.updatedAt);
-            setDirty(false);
           }
         } catch (error) {
           if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1154,11 +1224,11 @@ function Workspace({
     }
   }
   async function remove(note: Note) {
-    if (!confirm("Delete this note?")) return;
+    if (!confirm("Delete this page?")) return;
     try {
       await deleteObject(note.id);
       await deleteCachedNote(note.id);
-      setNotes((value) => value.filter((entry) => entry.id !== note.id));
+      patchNotes((value) => value.filter((entry) => entry.id !== note.id));
       setSelectedNote(null);
     } catch (error) {
       setError(
@@ -1168,28 +1238,235 @@ function Workspace({
   }
   function persistDraft(note: Note) {
     if (!selected) return;
-    void encryptNote(auth.authSecret, selected.id, {
-      title: note.title,
-      body: note.body,
-    })
-      .then((payload) =>
-        putNote({
-          id: note.id,
-          containerID: selected.id,
-          version: note.version,
-          payload,
-          updatedAt: new Date().toISOString(),
-        }),
-      )
-      .catch(() => {});
+    const containerID = selected.id;
+    void cacheWrite(async () => putNote({
+      id: note.id,
+      containerID,
+      version: note.version,
+      payload: await encryptNote(auth.authSecret, containerID, notePayload(note)),
+      updatedAt: new Date().toISOString(),
+    })).catch(() => {});
   }
-  function editBody(value: string) {
-    if (selectedNote) {
-      const next = { ...selectedNote, body: value };
+  /** Encrypted write for an object that is not the open page (sections, moved pages). */
+  async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
+    if (!selected) return null;
+    const encrypted = await encryptNote(auth.authSecret, selected.id, payload);
+    const updatedAt = new Date().toISOString();
+    const containerID = selected.id;
+    await cacheWrite(() => putNote({ id, containerID, version, payload: encrypted, updatedAt }));
+    try {
+      const result = await saveObject(id, encrypted, version, selected.keyGeneration);
+      await clearQueuedSave(id);
+      return result.version;
+    } catch (error) {
+      if (error instanceof APIRequestError && error.code === "version_conflict") {
+        setConflicted((value) => new Set(value).add(id));
+        setSyncStatus("attention");
+        setError("This item changed on another device. Reopen the notebook before changing it again.");
+      } else {
+        await queueSave({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: selected.keyGeneration });
+        syncChannel.current?.postMessage({ type: "queued", id });
+        setSyncStatus("local");
+      }
+      return null;
+    }
+  }
+
+  function updateSection(id: string, change: Partial<SectionPayload>) {
+    patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
+    const queued = saveChain.current.then(async () => {
+      const current = sectionsRef.current.find((entry) => entry.id === id);
+      if (!current) return;
+      const { id: _id, version, ...payload } = current;
+      const saved = await writeObject(id, version, payload);
+      if (saved !== null) patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
+    });
+    saveChain.current = queued.catch(() => {});
+    return queued;
+  }
+
+  /** The shared cache's copy of a page; another tab may have written it. */
+  async function otherTabDraft(id: string) {
+    if (!selected) return undefined;
+    const cached = await getNote(id).catch(() => undefined);
+    if (!cached) return undefined;
+    const payload = await decryptObject(auth.authSecret, selected.id, cached.payload).catch(() => undefined);
+    return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
+  }
+
+  async function placePage(id: string, change: { section?: string; order: string }) {
+    patchNotes((value) => editEntry(value, id, change));
+    const open = selectedNoteRef.current;
+    if (open?.id === id) {
+      const next = { ...open, ...change };
+      selectedNoteRef.current = next;
       setSelectedNote(next);
+      // Dirty, so leaving the page before the queued save runs still flushes the move.
       setDirty(true);
       persistDraft(next);
+      await save(next, true);
+      return;
     }
+    const entry = notesRef.current.find((note) => note.id === id);
+    if (!entry) return;
+    const next = newestCopy(entry, await otherTabDraft(id));
+    patchNotes((value) => editEntry(value, id, { title: next.title, body: next.body }));
+    const saved = await writeObject(id, next.version, notePayload(next));
+    if (saved !== null) patchNotes((value) => carrySaved(value, id, { version: saved }));
+  }
+  const orderedSections = useMemo(() => sortedSections(sections), [sections]);
+  async function newSection() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const order = endOrder(sectionsRef.current);
+      const object = await createObject(selected.id, "folder");
+      const section: Section = {
+        id: object.id, version: object.version, type: "section", title: "New section",
+        color: SECTION_COLORS[sections.length % SECTION_COLORS.length], order,
+      };
+      patchSections((value) => [...value, section]);
+      setSectionID(section.id);
+      await updateSection(section.id, {});
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to create section");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section");
+  function renameSection(section: Section) {
+    const title = prompt("Section name", section.title)?.trim();
+    if (title) void updateSection(section.id, { title }).catch(reportSection);
+  }
+  async function removeSection(section: Section) {
+    const count = pagesInSection(notes, sections, section.id).length;
+    if (!confirm(`Delete section "${section.title}"? Its ${count} page${count === 1 ? "" : "s"} will move to Quick Notes.`)) return;
+    try {
+      await deleteObject(section.id);
+      await deleteCachedNote(section.id);
+      patchSections((value) => value.filter((entry) => entry.id !== section.id));
+      setSectionID(QUICK_NOTES);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to delete section");
+    }
+  }
+  async function moveSection(id: string, index: number) {
+    for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order }).catch(reportSection);
+  }
+  const moveChain = useRef(Promise.resolve());
+  function movePage(pageID: string, target: string, index: number) {
+    const run = moveChain.current.then(async () => {
+      const list = pagesInSection(notesRef.current, sectionsRef.current, target);
+      const section = target === QUICK_NOTES ? undefined : target;
+      for (const update of reorder(list, pageID, index)) {
+        const entry = notesRef.current.find((note) => note.id === update.id);
+        await placePage(update.id, { section: update.id === pageID ? section : entry?.section, order: update.order });
+      }
+    });
+    moveChain.current = run.catch(() => {});
+    return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
+  }
+  /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
+  async function keepConflictCopies() {
+    const open = selectedNoteRef.current;
+    if (recoveringRef.current || !selected || !open) return;
+    recoveringRef.current = true;
+    setRecovering(open.id);
+    const containerID = selected.id;
+    // A notebook switch replaces notes[]: copies are on the server and appear on its next load.
+    const sameNotebook = () => (loadingContainerID.current ?? selectedRef.current?.id) === containerID;
+    const shownIn = (page: { section?: string }) => page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
+    try {
+      // Unsent edits become one more rejected version instead of vanishing in the reload.
+      if (dirty) await save(open, true);
+      const latest = selectedNoteRef.current;
+      if (latest?.id === open.id && !samePayload(latest, open)) await save(latest, true);
+      // Reload before placing copies: they belong next to the server's placement, and a
+      // renumber may have to write the original at its server version.
+      const server = await readObject(open.id);
+      const payload = await decryptObject(auth.authSecret, containerID, server.bytes);
+      if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
+      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, version: server.version };
+      if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
+      if (selectedNoteRef.current?.id === open.id) {
+        const next = { ...selectedNoteRef.current, ...reloaded };
+        selectedNoteRef.current = next;
+        setSelectedNote(next);
+        setDirty(false);
+        setEditorRevision((value) => value + 1);
+      }
+      setError("");
+      let failed = 0;
+      let unreadable = 0;
+      const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
+      for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
+        try {
+          const decrypted = await decryptObject(auth.authSecret, containerID, await conflictCiphertext(conflict.id)).catch(() => undefined);
+          if (decrypted?.type === "page") rejected.push({ id: conflict.id, createdAt: conflict.createdAt, payload: decrypted });
+          else unreadable += 1;
+        } catch (error) {
+          failed += 1;
+          setError(error instanceof Error ? error.message : "Unable to read a conflicting version");
+        }
+      }
+      // Retried offline saves leave one record per attempt: copy each distinct text once.
+      const { resolveOnly, groups } = groupConflicts(reloaded, rejected);
+      for (const id of resolveOnly) await resolveConflict(id).catch(() => { failed += 1; });
+      for (const group of groups) {
+        // Placement needs this notebook's page list; the rest stay on the server for a later run.
+        if (!sameNotebook()) { failed += 1; continue; }
+        try {
+          const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
+          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, shownIn(current)), current, group.payload);
+          const object = await createObject(containerID);
+          const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, version: 0, updatedAt: new Date().toISOString() };
+          if (sameNotebook()) patchNotes((value) => [...value, copy]);
+          const saved = await writeObject(object.id, 0, page);
+          if (saved === null) { failed += 1; continue; }
+          if (sameNotebook()) patchNotes((value) => carrySaved(value, object.id, { version: saved }));
+          const run = moveChain.current.then(async () => {
+            for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order });
+          });
+          moveChain.current = run.catch(() => {});
+          await run;
+          // ponytail: records stay open until resolve succeeds, so a retry after a failed
+          // resolve, or after a copy that was only queued locally, adds a duplicate copy.
+          // Upgrade: record the source conflict IDs in the copy and skip records already copied.
+          for (const id of group.ids) await resolveConflict(id);
+        } catch (error) {
+          failed += 1;
+          setError(error instanceof Error ? error.message : "Unable to keep a conflicting version");
+        }
+      }
+      // Another device may have moved the page: show the section that now holds it and its copies.
+      const placed = notesRef.current.find((note) => note.id === open.id);
+      if (placed && sameNotebook() && selectedNoteRef.current?.id === open.id) {
+        setSectionID(shownIn(placed));
+      }
+      if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
+      else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
+      if (!failed && !unreadable) {
+        setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
+        setSyncStatus("saved");
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to keep the conflicting version");
+    } finally {
+      recoveringRef.current = false;
+      setRecovering(null);
+    }
+  }
+  function editOpen(pageID: string, change: { title?: string; body?: string }) {
+    const open = selectedNoteRef.current;
+    // A late change from a page's editor after another page opened is dropped.
+    if (open?.id !== pageID || recovering === pageID) return;
+    const next = { ...open, ...change };
+    selectedNoteRef.current = next;
+    setSelectedNote(next);
+    patchNotes((value) => editEntry(value, open.id, change));
+    setDirty(true);
+    persistDraft(next);
   }
   async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
     const status = await uploadStatus(job.uploadId);
@@ -1418,7 +1695,7 @@ function Workspace({
               <span className="nav-icon">✓</span>
               <span>Work queue</span>
             </button>
-            <div className="section-label">PERSONAL</div>
+            <div className="section-label">NOTEBOOKS</div>
             {personalWorkspaces.map((container) => (
               <button
                 className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
@@ -1430,7 +1707,7 @@ function Workspace({
                 <span>{nameOf(container)}</span>
               </button>
             ))}
-            <div className="section-label team-label">TEAMS</div>
+            <div className="section-label team-label">TEAM NOTEBOOKS</div>
             {teams.map((container) => (
               <React.Fragment key={container.id}>
                 <button
@@ -1454,7 +1731,7 @@ function Workspace({
                 ))}
                 {selected?.id === container.id && (
                   <button className="new-workspace" disabled={busy} onClick={() => void newTeamWorkspace(container)}>
-                    ＋ New team workspace
+                    ＋ New team notebook
                   </button>
                 )}
               </React.Fragment>
@@ -1464,7 +1741,7 @@ function Workspace({
               disabled={busy}
               onClick={() => void newWorkspace()}
             >
-              ＋ New personal workspace
+              ＋ New notebook
             </button>
             {selected && (
               <button
@@ -1472,7 +1749,7 @@ function Workspace({
                 disabled={busy}
                 onClick={() => void renameWorkspace()}
               >
-                ✎ Rename workspace
+                ✎ Rename notebook
               </button>
             )}
             {selected?.kind === "team" && (
@@ -1505,33 +1782,44 @@ function Workspace({
               </div>
             </div>
           </aside>
+          {selected && !queueMode && (
+            <SectionTabs
+              sections={orderedSections}
+              current={sectionID}
+              busy={busy}
+              onSelect={(id) => void (async () => {
+                // Leaving the open page: finish its save first, as selectNote does.
+                if (id === sectionID) return;
+                if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
+                setSectionID(id);
+                setSelectedNote(null);
+              })()}
+              onCreate={() => void newSection()}
+              onRename={renameSection}
+              onColor={(section, color) => void updateSection(section.id, { color }).catch(reportSection)}
+              onDelete={(section) => void removeSection(section)}
+              onMove={(id, index) => void moveSection(id, index)}
+              onDropPage={(pageID, target) => void movePage(pageID, target, pagesInSection(notes, sections, target).length)}
+            />
+          )}
           <section className="note-list">
             <div className="list-header">
               <div>
                 <div className="section-label">
-                  {selected ? nameOf(selected) : "WORKSPACE"}
+                  {selected ? nameOf(selected) : "NOTEBOOK"}
                 </div>
-                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a workspace"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team workspace" : "Personal workspace"}</div>}
-                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : "Notes"}</h3>}
+                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
+                {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
+                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
                 <input
-                  aria-label="Search notes"
+                  aria-label="Search this notebook"
                   className="note-search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Search"
                 />
-                <select
-                  value={sort}
-                  onChange={(event) =>
-                    setSort(event.target.value as "updated" | "title")
-                  }
-                >
-                  <option value="updated">Recent</option>
-                  <option value="title">Title</option>
-                </select>
                 <button
                   className="icon-button"
                   disabled={!selected || busy}
@@ -1541,35 +1829,49 @@ function Workspace({
                 </button>
               </div>
             </div>
-            {listEntries.map(({ note, container }) => (
+            {listEntries.map(({ note, container }, index) => {
+              // Work queue rows are a snapshot; show the open page live there.
+              const shown = queueMode && selectedNote?.id === note.id ? selectedNote : note;
+              return (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
                 key={note.id}
+                onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
+                onDrop={(event) => {
+                  const pageID = event.dataTransfer.getData(PAGE_DRAG);
+                  if (reorderable && pageID) void movePage(pageID, sectionID, index);
+                }}
               >
                 <button
                   className="note-row"
+                  data-page-id={note.id}
+                  draggable={!queueMode}
+                  onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
+                  onKeyDown={(event) => {
+                    if (!reorderable || !event.altKey) return;
+                    const to = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : -1;
+                    if (to < 0 || to >= listEntries.length) return;
+                    event.preventDefault();
+                    void movePage(note.id, sectionID, to).then(() =>
+                      document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
+                  }}
+                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
-                  <strong>{note.title || "Untitled note"}</strong>
+                  <strong>{shown.title || "Untitled page"}</strong>
                   <span>
-                    {(queueMode ? noteTasks(indexNotes([note])[0]).slice(0, 2).join(" · ") : documentText(note.body).slice(0, 64)) ||
-                      "Empty note"}
+                    {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
+                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : documentText(shown.body).slice(0, 64)) || "Empty page"}
                   </span>
                 </button>
-                <button
-                  className="pin-button"
-                  title={pinned.has(note.id) ? "Unpin note" : "Pin note"}
-                  onClick={() => togglePin(note)}
-                >
-                  {pinned.has(note.id) ? "★" : "☆"}
-                </button>
               </div>
-            ))}
+              );
+            })}
             {selected && listEntries.length === 0 && (
               <div className="empty-list">
-                {queueMode ? "No open tasks here." : "No notes yet."}
+                {queueMode ? "No open tasks here." : "No pages in this section."}
                 <br />
-                {queueMode ? "Tasks from note checklists appear here." : "Create the first one."}
+                {queueMode ? "Tasks from note checklists appear here." : "Add a page with ＋."}
               </div>
             )}
             {relatedNotes.length > 0 && (
@@ -1581,7 +1883,7 @@ function Workspace({
                     key={note.id}
                     onClick={() => void selectNote(note)}
                   >
-                    {note.title || "Untitled note"}
+                    {note.title || "Untitled page"}
                   </button>
                 ))}
               </div>
@@ -1618,33 +1920,41 @@ function Workspace({
               <>
                 {conflicted.has(selectedNote.id) && (
                   <div className="conflict-banner" role="alert">
-                    This note has a newer encrypted version on the server. Your local draft is preserved; reload the note before saving again.
+                    {recovering === selectedNote.id
+                      ? "Saving the other version as a copy…"
+                      : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
+                    <button disabled={recovering !== null} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
                 )}
                 <input
                   className="title-input"
+                  readOnly={recovering === selectedNote.id}
                   value={selectedNote.title}
-                  onChange={(event) => {
-                    const next = { ...selectedNote, title: event.target.value };
-                    setSelectedNote(next);
-                    setDirty(true);
-                    persistDraft(next);
-                  }}
+                  onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                 />
                 <div className="single-pane-editor">
                   <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
                     <BlockNoteEditor
-                      key={selectedNote.id}
+                      key={`${selectedNote.id}:${editorRevision}`}
+                      editable={recovering !== selectedNote.id}
                       noteID={selectedNote.id}
                       initialContent={parseNoteDocument(selectedNote.body).document}
                       legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}
-                      onChange={(document: Block[]) => editBody(stringifyNoteDocument(document))}
+                      onChange={(document: Block[]) => editOpen(selectedNote.id, { body: stringifyNoteDocument(document) })}
                       uploadFile={uploadInlineFile}
                       resolveFileUrl={resolveFileUrl}
                     />
                   </Suspense>
                 </div>
                 <div className="editor-actions">
+                  <select
+                    aria-label="Move page to section"
+                    value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
+                    onChange={(event) => void movePage(selectedNote.id, event.target.value, pagesInSection(notes, sections, event.target.value).length)}
+                  >
+                    {orderedSections.map((entry) => <option key={entry.id} value={entry.id}>{entry.title || "Untitled section"}</option>)}
+                    <option value={QUICK_NOTES}>Quick Notes</option>
+                  </select>
                   <button
                     className="danger quiet"
                     onClick={() => void remove(selectedNote)}
@@ -1994,7 +2304,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
     <section className="config-card">
       <h2>Teams</h2>
       <p className="config-muted">
-        Create a team workspace, then add active users to it.
+        Create a team, then add active users to it.
       </p>
       <button onClick={() => void createTeam()}>Create team</button>
       <label className="field">

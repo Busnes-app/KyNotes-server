@@ -92,12 +92,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   The document loader converts the prior encrypted Tiptap JSON envelope to
   BlockNote blocks on read so existing formatting survives editor remounts.
   The workspace surface
-  labels personal workbooks explicitly, and the admin surface uses tabbed
+  labels notebooks explicitly, and the admin surface uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
   seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
+- `web/` presents containers as notebooks with colored section tabs (`folder` objects) and
+  manually ordered pages. Placement lives in each page's encrypted payload
+  (`pages.ts`, `order.ts`); decrypted payloads pass `parseObjectPayload` before use.
+  Deep links use `#/<container>/<section|quick>/<page>`. The in-memory page list is the
+  newest local copy: edits and placement patch it, saves carry only the version forward
+  (`notes.ts`), and moves write from it, except that another tab's cached draft at an equal or
+  newer version wins (`newestCopy`). Cache writes run in call order. A notebook switch clears
+  the previous notebook's state, drops superseded loads and reapplies versions saved during
+  the read (`carryAll`). Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
+  and the section/page browser checks in `UI-VERIFICATION.md`.
 - `web/` exposes a client-only work queue for open checklist items across
-  personal workspaces; task parsing remains browser-side because the server
+  personal notebooks; task parsing remains browser-side because the server
   never sees plaintext. Inbox folders still require the planned folder-object
   client path.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
@@ -108,7 +118,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   sessions without a cached device key prompt for the master password once.
 - `web/` surfaces server-confirmed save times and treats `version_conflict`
   responses separately from offline failures, preserving the encrypted local
-  draft without endlessly retrying a stale version.
+  draft without endlessly retrying a stale version. Server-kept conflicting
+  versions are recovered as `(conflicting copy)` pages next to the original, one
+  per distinct text (text equal to the server is resolved without a copy); the original
+  reloads to the server version and a conflict is resolved only after its copy saves.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.
