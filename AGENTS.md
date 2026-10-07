@@ -119,8 +119,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/` surfaces server-confirmed save times and treats `version_conflict`
   responses separately from offline failures, preserving the encrypted local
   draft without endlessly retrying a stale version. Server-kept conflicting
-  versions are recovered as `(conflicting copy)` pages next to the original,
-  which reloads to the server version; a conflict is resolved only after its copy saves.
+  versions are recovered as `(conflicting copy)` pages next to the original, one
+  per distinct text (text equal to the server is resolved without a copy); the original
+  reloads to the server version and a conflict is resolved only after its copy saves.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.

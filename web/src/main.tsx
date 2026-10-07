@@ -78,7 +78,7 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
 import {
@@ -1376,6 +1376,7 @@ function Workspace({
     const containerID = selected.id;
     // A notebook switch replaces notes[]: copies are on the server and appear on its next load.
     const sameNotebook = () => (loadingContainerID.current ?? selectedRef.current?.id) === containerID;
+    const shownIn = (page: { section?: string }) => page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
     try {
       // Unsent edits become one more rejected version instead of vanishing in the reload.
       if (dirty) await save(open, true);
@@ -1398,15 +1399,26 @@ function Workspace({
       setError("");
       let failed = 0;
       let unreadable = 0;
+      const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
       for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
+        try {
+          const decrypted = await decryptObject(auth.authSecret, containerID, await conflictCiphertext(conflict.id)).catch(() => undefined);
+          if (decrypted?.type === "page") rejected.push({ id: conflict.id, createdAt: conflict.createdAt, payload: decrypted });
+          else unreadable += 1;
+        } catch (error) {
+          failed += 1;
+          setError(error instanceof Error ? error.message : "Unable to read a conflicting version");
+        }
+      }
+      // Retried offline saves leave one record per attempt: copy each distinct text once.
+      const { resolveOnly, groups } = groupConflicts(reloaded, rejected);
+      for (const id of resolveOnly) await resolveConflict(id).catch(() => { failed += 1; });
+      for (const group of groups) {
         // Placement needs this notebook's page list; the rest stay on the server for a later run.
         if (!sameNotebook()) { failed += 1; continue; }
         try {
-          const rejected = await decryptObject(auth.authSecret, containerID, await conflictCiphertext(conflict.id)).catch(() => undefined);
-          if (rejected?.type !== "page") { unreadable += 1; continue; }
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
-          const visible = current.section && sectionsRef.current.some((entry) => entry.id === current.section) ? current.section : QUICK_NOTES;
-          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, visible), current, rejected);
+          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, shownIn(current)), current, group.payload);
           const object = await createObject(containerID);
           const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, version: 0, updatedAt: new Date().toISOString() };
           if (sameNotebook()) patchNotes((value) => [...value, copy]);
@@ -1418,14 +1430,19 @@ function Workspace({
           });
           moveChain.current = run.catch(() => {});
           await run;
-          // ponytail: the record stays open until resolve succeeds, so a retry after a failed
+          // ponytail: records stay open until resolve succeeds, so a retry after a failed
           // resolve, or after a copy that was only queued locally, adds a duplicate copy.
-          // Upgrade: record the source conflict ID in the copy and skip records already copied.
-          await resolveConflict(conflict.id);
+          // Upgrade: record the source conflict IDs in the copy and skip records already copied.
+          for (const id of group.ids) await resolveConflict(id);
         } catch (error) {
           failed += 1;
           setError(error instanceof Error ? error.message : "Unable to keep a conflicting version");
         }
+      }
+      // Another device may have moved the page: show the section that now holds it and its copies.
+      const placed = notesRef.current.find((note) => note.id === open.id);
+      if (placed && sameNotebook() && selectedNoteRef.current?.id === open.id) {
+        setSectionID(shownIn(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");

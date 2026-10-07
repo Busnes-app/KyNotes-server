@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_ORDER_KEY } from "./order";
 import {
   QUICK_NOTES, compareOrdered, endOrder, formatRoute, pagesInSection, parseObjectPayload,
-  conflictCopy, parseRoute, reorder, resolveSection, sortedSections, type Section,
+  conflictCopy, groupConflicts, parseRoute, reorder, resolveSection, sortedSections, type PagePayload, type Section,
 } from "./pages";
 
 const id = (n: number) => `obj_${String(n).padStart(26, "0")}`;
@@ -118,5 +118,36 @@ describe("conflictCopy", () => {
     const orders = new Map(moves.map((move) => [move.id, move.order]));
     expect(orders.has("")).toBe(false);
     expect(orders.get(id(1))! < copy.order! && copy.order! < orders.get(id(2))!).toBe(true);
+  });
+});
+
+describe("groupConflicts", () => {
+  const server = { title: "Plan", body: "server" };
+  const rejected = (id: string, createdAt: string, body: string, extra: Partial<PagePayload> = {}) =>
+    ({ id, createdAt, payload: { type: "page" as const, title: "Plan", body, ...extra } });
+
+  it("collapses identical rejected versions into one group holding every record", () => {
+    const { groups, resolveOnly } = groupConflicts(server, [rejected("c1", "t1", "mine"), rejected("c2", "t2", "mine"), rejected("c3", "t3", "mine")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].ids).toEqual(["c1", "c2", "c3"]);
+    expect(groups[0].payload.body).toBe("mine");
+    expect(resolveOnly).toEqual([]);
+  });
+  it("keeps distinct versions as separate groups in createdAt order", () => {
+    const { groups } = groupConflicts(server, [rejected("c2", "t2", "second"), rejected("c1", "t1", "first"), rejected("c3", "t3", "first")]);
+    expect(groups.map((group) => [group.payload.body, group.ids])).toEqual([["first", ["c1", "c3"]], ["second", ["c2"]]]);
+  });
+  it("resolves without a copy when the text equals the server version", () => {
+    const { groups, resolveOnly } = groupConflicts(server, [rejected("c1", "t1", "server"), rejected("c2", "t2", "mine")]);
+    expect(resolveOnly).toEqual(["c1"]);
+    expect(groups.map((group) => group.ids)).toEqual([["c2"]]);
+  });
+  it("ignores placement: copies always sit next to the original", () => {
+    const { groups, resolveOnly } = groupConflicts(server, [
+      rejected("c1", "t1", "mine", { order: "a" }), rejected("c2", "t2", "mine", { order: "b", section: id(5) }),
+      rejected("c3", "t3", "server", { order: "z" }),
+    ]);
+    expect(groups.map((group) => group.ids)).toEqual([["c1", "c2"]]);
+    expect(resolveOnly).toEqual(["c3"]);
   });
 });

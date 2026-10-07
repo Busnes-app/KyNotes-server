@@ -92,6 +92,24 @@ export function conflictCopy<T extends Placed>(list: T[], original: T, rejected:
   return { page, moves: updates.filter((update) => update.id !== copyID) };
 }
 
+/**
+ * One copy per distinct rejected text, oldest first; text equal to the server page needs none.
+ * Placement is ignored: a copy always takes the original's, so it cannot tell copies apart.
+ */
+export function groupConflicts(server: { title: string; body: string }, rejected: Array<{ id: string; createdAt: string; payload: PagePayload }>) {
+  const text = (page: { title: string; body: string }) => JSON.stringify([page.title, page.body]);
+  const resolveOnly: string[] = [];
+  const groups = new Map<string, { payload: PagePayload; ids: string[] }>();
+  for (const item of [...rejected].sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))) {
+    const key = text(item.payload);
+    const group = groups.get(key);
+    if (key === text(server)) resolveOnly.push(item.id);
+    else if (group) group.ids.push(item.id);
+    else groups.set(key, { payload: item.payload, ids: [item.id] });
+  }
+  return { resolveOnly, groups: [...groups.values()] };
+}
+
 export function resolveSection(id: string | undefined, sections: Section[]): string {
   if (id === QUICK_NOTES || (id && sections.some((section) => section.id === id))) return id;
   return sortedSections(sections)[0]?.id ?? QUICK_NOTES;
