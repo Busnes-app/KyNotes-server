@@ -277,7 +277,7 @@ func (p *client) envelope() error {
 	if _, err = rand.Read(contentKey); err != nil {
 		return err
 	}
-	sealed, err := teamkeys.SealEnvelope(contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, 1, p.deviceID)
+	sealed, err := teamkeys.SealEnvelope(contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, 1, p.deviceID, p.deviceKey, p.deviceID)
 	if err != nil {
 		return err
 	}
@@ -310,7 +310,7 @@ func (p *client) envelope() error {
 	if err != nil {
 		return err
 	}
-	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, 1, p.deviceID)
+	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, 1, p.deviceID, p.deviceKey.PublicKey().Bytes())
 	if err != nil || !bytes.Equal(opened, contentKey) {
 		return fmt.Errorf("device could not open its envelope: %v", err)
 	}

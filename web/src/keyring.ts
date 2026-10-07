@@ -1,7 +1,7 @@
 import { randomBytes } from "@noble/ciphers/utils.js";
 import { base64, fromBase64, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { ENVELOPE_ALG, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
+import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
 export type Envelope = { deviceId: string; keyGeneration: number; alg: string; envelope: string };
@@ -20,7 +20,9 @@ export function openKeyring(containerID: string, envelopes: Envelope[], identity
   for (const row of envelopes) {
     if (row.deviceId !== identity.deviceId || row.alg !== ENVELOPE_ALG) continue;
     try {
-      ring.set(row.keyGeneration, unwrapEnvelope(fromBase64(row.envelope), identity.privateKey, containerID, row.keyGeneration, identity.deviceId));
+      const envelope = fromBase64(row.envelope);
+      if (envelopeSender(envelope) !== identity.deviceId) continue;
+      ring.set(row.keyGeneration, unwrapEnvelope(envelope, identity.privateKey, containerID, row.keyGeneration, identity.deviceId, identity.publicKey));
     } catch { /* A row this identity cannot open is someone else's mistake, never a key. */ }
   }
   return ring;
@@ -93,9 +95,9 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
   return grants.length ? { kind: "wrap", grants } : { kind: "idle" };
 }
 
-export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array): Envelope {
+export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, sender: HeldIdentity): Envelope {
   const identity = member.identity!;
-  return { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope: base64(wrapEnvelope(key, fromBase64(identity.publicKey), containerID, generation, identity.deviceId)) };
+  return { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope: base64(wrapEnvelope(key, fromBase64(identity.publicKey), containerID, generation, identity.deviceId, sender)) };
 }
 
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */

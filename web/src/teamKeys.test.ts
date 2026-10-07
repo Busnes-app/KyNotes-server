@@ -87,7 +87,7 @@ describe("Go cross-implementation vectors", () => {
 
 describe("binding", () => {
   const v = vectors.envelopes[0];
-  const open = (envelope: Uint8Array, container = v.containerId, generation = v.keyGeneration, device = v.recipientDeviceId, sender = h(v.senderPublicKey)) =>
+  const open = (envelope: Uint8Array, container = v.containerId, generation = v.keyGeneration, device = v.recipientDeviceId, sender: Uint8Array = h(v.senderPublicKey)) =>
     unwrapEnvelope(envelope, h(v.recipientPrivateKey), container, generation, device, sender);
 
   it("refuses an envelope replayed into another container, generation or recipient", () => {

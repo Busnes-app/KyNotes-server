@@ -19,8 +19,8 @@ describe("keyring", () => {
     const editor = person("editor", "c");
     const k2 = newContainerKey();
     const k3 = newContainerKey();
-    const rows: Envelope[] = [sealFor(owner.member, cnt, 2, k2), sealFor(editor.member, cnt, 2, k2), sealFor(owner.member, cnt, 3, k3)];
-    const forged = { ...sealFor(owner.member, cnt, 4, k3), keyGeneration: 5 }; // AAD binds the generation
+    const rows: Envelope[] = [sealFor(owner.member, cnt, 2, k2, owner.held), sealFor(editor.member, cnt, 2, k2, owner.held), sealFor(owner.member, cnt, 3, k3, owner.held)];
+    const forged = { ...sealFor(owner.member, cnt, 4, k3, owner.held), keyGeneration: 5 }; // AAD binds the generation
     const ring = openKeyring(cnt, [...rows, forged], owner.held);
     expect([...ring.keys()].sort()).toEqual([2, 3]);
     expect(ring.get(3)).toEqual(k3);
@@ -82,7 +82,7 @@ describe("planSweep", () => {
 
   it("re-mints after a removal emptied the current generation, skipping members without identities", () => {
     const k2 = newContainerKey();
-    const envelopes = [sealFor(owner.member, cnt, 2, k2), sealFor(editor.member, cnt, 2, k2)];
+    const envelopes = [sealFor(owner.member, cnt, 2, k2, owner.held), sealFor(editor.member, cnt, 2, k2, owner.held)];
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
     expect(planSweep({ container: container(3, 2), me: owner.member.userId, members: [owner.member, editor.member, sso], envelopes, ring: new Map([[2, k2]]) }))
       .toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
@@ -91,7 +91,7 @@ describe("planSweep", () => {
   it("wraps every held generation for a member missing it, and nothing it does not hold", () => {
     const newcomer = person("newcomer", "e");
     const [k2, k4] = [newContainerKey(), newContainerKey()];
-    const envelopes = [sealFor(owner.member, cnt, 2, k2), sealFor(editor.member, cnt, 2, k2), sealFor(owner.member, cnt, 4, k4), sealFor(editor.member, cnt, 4, k4)];
+    const envelopes = [sealFor(owner.member, cnt, 2, k2, owner.held), sealFor(editor.member, cnt, 2, k2, owner.held), sealFor(owner.member, cnt, 4, k4, owner.held), sealFor(editor.member, cnt, 4, k4, owner.held)];
     // Generation 3 was emptied by a removal and never held; generation 1 predates sharing.
     const plan = planSweep({ container: container(4, 2), me: owner.member.userId, members: [owner.member, editor.member, newcomer.member], envelopes, ring: new Map([[2, k2], [4, k4]]) });
     expect(plan).toEqual({ kind: "wrap", grants: [{ member: newcomer.member, generation: 2 }, { member: newcomer.member, generation: 4 }] });
