@@ -79,8 +79,10 @@ describe("vault writes follow the server and never fail it", () => {
 describe("colleague key pins", () => {
   beforeEach(clearAllDeviceKeys);
   it("keeps pins per signed-in user and clears them with the device", async () => {
+    expect(await storePins("alice", userID, { usr_b: "key" })).toBe(false); // no vault record: not kept
+    expect(await getPins("alice", userID)).toEqual({});
     await storeDeviceKey("alice", "a".repeat(64));
-    await storePins("alice", userID, { usr_b: "key" });
+    expect(await storePins("alice", userID, { usr_b: "key" })).toBe(true);
     expect(await getPins("alice", userID)).toEqual({ usr_b: "key" });
     expect(await getPins("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz")).toEqual({});
     await storeIdentityKey("alice", userID, held);
