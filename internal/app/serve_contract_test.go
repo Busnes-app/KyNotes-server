@@ -14,7 +14,7 @@ func TestServeRefusesToStartOnInvalidConfig(t *testing.T) {
 	c := config.Defaults()
 	c.DataDir = t.TempDir()
 	c.Server.Bind = "not-a-bind"
-	err := Serve(context.Background(), c, logging.New(io.Discard, "info", "json"))
+	err := Serve(context.Background(), c, logging.New(io.Discard, "info", "json"), "test")
 	if err == nil || !strings.Contains(err.Error(), "server.bind") {
 		t.Fatalf("got %v", err)
 	}
@@ -27,7 +27,7 @@ func TestGracefulShutdownDrainsInFlightRequest(t *testing.T) {
 	c.Server.DevInsecureCookies = true
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, c, logging.New(io.Discard, "info", "json")) }()
+	go func() { done <- Serve(ctx, c, logging.New(io.Discard, "info", "json"), "test") }()
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)

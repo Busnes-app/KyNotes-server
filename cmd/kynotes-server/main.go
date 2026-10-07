@@ -135,7 +135,7 @@ func main() {
 	log := logging.New(os.Stdout, c.Log.Level, c.Log.Format)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if e = app.Serve(ctx, c, log); e != nil {
+	if e = app.Serve(ctx, c, log, version); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}
