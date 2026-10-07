@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
 import { newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
+import { confirmFingerprintChange, FingerprintChangedError } from "./pins";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const dev = (c: string) => `dev_${c.repeat(26)}`;
@@ -116,6 +117,36 @@ describe("keyring", () => {
     const forged = await encryptNote(k2, cnt, { title: "F", body: "" });
     expect(readKeys({ sharedGeneration: 2 }, removed, legacy, 3)).toEqual([]);
     await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, legacy, 3), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
+  });
+});
+
+describe("sealFor pins", () => {
+  const owner = person("owner", "b", "owner");
+  const editor = person("editor", "c");
+  const swapped: MemberKey = { ...editor.member, identity: { ...editor.member.identity!, publicKey: base64(generateIdentity().publicKey) } };
+  const k2 = newContainerKey();
+
+  it("pins a recipient on first wrap and keeps a matching pin", () => {
+    const first = sealFor(editor.member, cnt, 2, k2, owner.held, {});
+    expect(first.pins).toEqual({ [editor.member.userId]: editor.member.identity!.publicKey });
+    expect(sealFor(editor.member, cnt, 2, k2, owner.held, first.pins).pins).toEqual(first.pins);
+  });
+
+  it("refuses a changed key until the user confirms the new fingerprint", () => {
+    const pins = { [editor.member.userId]: editor.member.identity!.publicKey };
+    let error: unknown;
+    try { sealFor(swapped, cnt, 2, k2, owner.held, pins); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(FingerprintChangedError);
+    expect(error).toMatchObject({ member: swapped, pinned: pins[editor.member.userId] });
+    const confirmed = confirmFingerprintChange(pins, swapped);
+    expect(confirmed).toEqual({ [editor.member.userId]: swapped.identity!.publicKey });
+    expect(sealFor(swapped, cnt, 2, k2, owner.held, confirmed).envelope.deviceId).toBe(editor.member.identity!.deviceId);
+  });
+
+  it("wraps for this user only to this browser's own identity", () => {
+    const self: MemberKey = { ...owner.member, identity: { deviceId: dev("h"), publicKey: base64(generateIdentity().publicKey) } };
+    expect(() => sealFor(self, cnt, 2, k2, owner.held, {})).toThrow();
+    expect(sealFor(owner.member, cnt, 2, k2, owner.held, {}).pins).toEqual({});
   });
 });
 
