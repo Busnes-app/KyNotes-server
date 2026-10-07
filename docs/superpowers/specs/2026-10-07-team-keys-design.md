@@ -240,3 +240,17 @@ Each phase can ship on its own.
 - /home/yoshi/git/busnes.app/kynotes-server-subpages/internal/httpapi/device_routes.go
 - /home/yoshi/git/busnes.app/kynotes-server-subpages/internal/httpapi/collab_routes.go
 - /home/yoshi/git/busnes.app/kynotes-server-subpages/IMPLEMENTATION_PLAN.md (plus DESIGN.md, `internal/httpapi/admin_routes.go`, `internal/httpapi/object_routes.go`, `web/src/storage.ts`)
+## 8. Decision 2026-10-07: identities for SSO-only users and new browsers (owner-approved)
+
+Users who sign in only through KyIdentity have no KyNotes password. Every user, including password users, also gets device linking:
+
+1. **First browser.** After sign-in the browser creates the identity keypair. It shows a one-time **recovery code**, which wraps a copy stored on the server. This is the last-resort backup; the server and KyIdentity cannot unwrap it.
+2. **Every trusted browser** keeps the identity private key wrapped under its own **non-extractable WebCrypto key** in IndexedDB. Reloads need no secret.
+3. **Linking a new browser or phone.**
+   - The newcomer creates a one-time X25519 key and shows a short code or QR.
+   - An already-trusted browser or device approves it and wraps the identity key to that one-time public key. The KyNotes server only relays ciphertext.
+   - Both screens show the same short check code derived from both public keys, so a server that swaps keys is detected.
+4. **KyIdentity is authentication only.** It decides who may request and approve linking. It never holds key material, so KyNotes stays zero-knowledge toward whoever operates KyIdentity.
+5. **Loss.** With no trusted device left, the recovery code restores the identity. With neither, the identity is reset, team owners re-share team keys automatically through the steward sweep, and only that user's personal notebooks are lost.
+
+Phasing: device linking ships with P3, before any SSO user needs team keys. The recovery code ships with P5, together with personal notebooks. Password users keep the password unwrap path from P1 and can also link devices.
