@@ -6,13 +6,17 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/applysetup"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
@@ -140,4 +144,65 @@ func grantAdmin(tx *sql.Tx, userID string, want applysetup.Admin, now string) er
 		return err
 	}
 	return storage.RecordAuditOutcomeTx(tx, applysetup.Actor, "admin.user.update", "", userID, "success", "role=admin", applysetup.RequestID)
+}
+
+type SetupDeps struct {
+	DB      *sql.DB
+	Config  config.Config
+	SSO     *sso.Store
+	Backups *backup.Service
+	Version string
+	Log     *logging.Logger
+}
+
+// SetupHandler serves apply-setup. It is mounted only on the admin Unix socket, never on
+// the network router.
+func SetupHandler(d SetupDeps) http.Handler {
+	var running sync.Mutex
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/apply-setup", func(w http.ResponseWriter, r *http.Request) {
+		if !running.TryLock() {
+			WriteError(w, r, http.StatusConflict, "apply_in_progress", "apply-setup is already running")
+			return
+		}
+		defer running.Unlock()
+		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
+		if err != nil {
+			WriteError(w, r, http.StatusBadRequest, "invalid_bundle", err.Error())
+			return
+		}
+		// A client hang-up must not abandon a pairing halfway.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), backup.OperationTimeout)
+		defer cancel()
+		report := applySetup(ctx, d, req)
+		d.Log.Info("apply_setup", "outcome", report.ExitCode(), "count", len(report.Results))
+		writeJSON(w, report)
+	})
+	return mux
+}
+
+func applySetup(ctx context.Context, d SetupDeps, req applysetup.Request) applysetup.Report {
+	var results []applysetup.Result
+	if req.SSO != nil {
+		results = append(results, applySSO(ctx, d.DB, d.SSO, *req.SSO))
+	}
+	var admins []string
+	for _, a := range req.Admins {
+		res, username := applyAdmin(d.DB, d.Config, d.SSO.Load().IssuerURL, a)
+		results = append(results, res)
+		if username != "" {
+			admins = append(admins, username)
+		}
+	}
+	h := applysetup.Handover{URL: applysetup.Origin(d.SSO.Load().RedirectURI), AdminUsernames: admins, BackupDir: d.Config.Backup.Dir, Version: d.Version}
+	switch {
+	case d.Backups != nil:
+		if req.Backup != nil {
+			results = append(results, d.Backups.ApplySetup(ctx, *req.Backup)...)
+		}
+		h.RecoveryKeyFingerprint, _ = d.Backups.KeyID()
+	case req.Backup != nil:
+		results = append(results, applysetup.Result{Section: "backup", Status: applysetup.Failed, Detail: "backup service unavailable"})
+	}
+	return applysetup.NewReport(results, h)
 }

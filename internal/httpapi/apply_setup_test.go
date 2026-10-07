@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"database/sql"
@@ -195,5 +196,60 @@ func TestApplyAdminRefusesDisabledBindingAndForeignIssuer(t *testing.T) {
 	_ = db.QueryRow(`SELECT count(*) FROM users WHERE username='new'`).Scan(&n)
 	if n != 0 {
 		t.Fatal("invalid admin was created")
+	}
+}
+
+func TestSetupHandlerAppliesAndNeverEchoesSecrets(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	issuer := setupIssuer(t, false)
+	var logs bytes.Buffer
+	h := SetupHandler(SetupDeps{DB: db, Config: cfg, SSO: sso.NewStore(db), Version: "test", Log: logging.New(&logs, "debug", "json")})
+	s := setupSSO(issuer)
+	body, _ := json.Marshal(applysetup.Request{Version: 1, SSO: &s, Admins: []applysetup.Admin{{Issuer: issuer, Subject: "sub-owner", Username: "owner-admin"}}})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/apply-setup", bytes.NewReader(body)))
+	if rec.Code != 200 {
+		t.Fatal(rec.Code, rec.Body.String())
+	}
+	var report applysetup.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	h2 := report.Handover
+	if report.ExitCode() != applysetup.ExitOK || len(report.Results) != 2 || h2.URL != "https://notes.example" || len(h2.AdminUsernames) != 1 || h2.AdminUsernames[0] != "owner-admin" || h2.Version != "test" {
+		t.Fatalf("%+v", report)
+	}
+	for _, secret := range []string{"client-secret-value", "hmac-secret-value"} {
+		var inAudit int
+		_ = db.QueryRow(`SELECT count(*) FROM audit_events WHERE instr(reason_code,?)>0 OR instr(object_id,?)>0`, secret, secret).Scan(&inAudit)
+		if strings.Contains(rec.Body.String(), secret) || strings.Contains(logs.String(), secret) || inAudit != 0 {
+			t.Fatalf("%s leaked", secret)
+		}
+	}
+	if !strings.Contains(logs.String(), "apply_setup") {
+		t.Fatal("no apply_setup log line")
+	}
+}
+
+func TestSetupHandlerRejectsInvalidRequests(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	h := SetupHandler(SetupDeps{DB: db, Config: cfg, SSO: sso.NewStore(db), Log: logging.New(io.Discard, "info", "json")})
+	for _, body := range []string{
+		`{"version":2}`,
+		`{"version":1,"extra":1}`,
+		`{"version":1,"sso":{"issuerUrl":"http://id.example","clientId":"kynotes","clientSecret":"client-secret-value","redirectUri":"https://notes.example/api/v1/auth/oidc/callback"}}`,
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/apply-setup", strings.NewReader(body)))
+		if rec.Code != 400 || strings.Contains(rec.Body.String(), "client-secret-value") {
+			t.Fatalf("%s → %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/apply-setup", strings.NewReader(`{"version":1,"backup":{"keep":7}}`)))
+	var report applysetup.Report
+	_ = json.Unmarshal(rec.Body.Bytes(), &report)
+	if rec.Code != 200 || len(report.Results) != 1 || report.Results[0].Status != applysetup.Failed {
+		t.Fatalf("backup section without a backup service: %d %s", rec.Code, rec.Body.String())
 	}
 }
