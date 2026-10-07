@@ -21,7 +21,13 @@ export function updateBox(page: CanvasPage, id: string, change: Partial<Omit<Can
     boxes: page.boxes.map((box) => {
       if (box.id !== id) return box;
       const next = { ...box, ...change };
-      return { ...next, x: coord(next.x), y: coord(next.y), width: Math.min(BOX_MAX_WIDTH, Math.max(BOX_MIN_WIDTH, Math.round(next.width))) };
+      const keep = (value: number, old: number) => (Number.isFinite(value) ? value : old);
+      return {
+        ...next,
+        x: coord(keep(next.x, box.x)),
+        y: coord(keep(next.y, box.y)),
+        width: Math.min(BOX_MAX_WIDTH, Math.max(BOX_MIN_WIDTH, Math.round(keep(next.width, box.width)))),
+      };
     }),
   };
 }

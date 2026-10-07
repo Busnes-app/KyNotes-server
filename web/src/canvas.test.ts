@@ -20,6 +20,10 @@ describe("boxes", () => {
     expect(updateBox(page, "a", { x: -50, width: 5 }).boxes[0]).toMatchObject({ x: 0, width: 160 });
     expect(updateBox(page, "a", { width: 99999 }).boxes[0].width).toBe(2000);
   });
+  it("keeps the previous value for non-finite input", () => {
+    const page = { ...emptyCanvasPage(), boxes: [box("a", 10, 20)] };
+    expect(updateBox(page, "a", { x: NaN, y: Infinity }).boxes[0]).toMatchObject({ x: 10, y: 20 });
+  });
   it("prunes only empty boxes and keeps identity when there are none", () => {
     const page = { ...emptyCanvasPage(), boxes: [box("a", 0, 0), box("b", 0, 100, "keep")] };
     expect(isEmptyBox(page.boxes[0])).toBe(true);
