@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -140,5 +142,81 @@ func TestIdentityCreateRefusesPairedDeviceKey(t *testing.T) {
 	p.stepUp(t)
 	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", identityBody(phone, identityWrapped), true, false)); code != http.StatusConflict || !strings.Contains(body, "identity_exists") {
 		t.Fatalf("identity took a paired device key: %d %s", code, body)
+	}
+}
+
+func TestIdentityRowCannotAuthenticateAsDevice(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	p.deviceID = p.createIdentity(t)
+	var stored string
+	if err := p.db.QueryRow(`SELECT secret_hash FROM devices WHERE id=?`, p.deviceID).Scan(&stored); err != nil || !strings.HasPrefix(stored, "identity:") {
+		t.Fatalf("secret_hash=%q %v", stored, err)
+	}
+	// Even a usable hash planted on the row must not authenticate it.
+	p.deviceSecret = strings.Repeat("b", 48)
+	sum := sha256.Sum256([]byte(p.deviceSecret))
+	if _, err := p.db.Exec(`UPDATE devices SET secret_hash=? WHERE id=?`, "sha256:"+hex.EncodeToString(sum[:]), p.deviceID); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/containers", "/api/v1/devices/" + p.deviceID + "/containers"} {
+		if code, _ := status(t, p.doDeviceOnly(t, http.MethodGet, path, nil)); code != http.StatusUnauthorized {
+			t.Fatalf("identity row authenticated on %s: %d", path, code)
+		}
+	}
+}
+
+func TestIdentityRowHiddenFromDeviceRoutes(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	_, body := status(t, p.do(t, http.MethodGet, "/api/v1/devices", nil, false, false))
+	if strings.Contains(body, id) || strings.Contains(body, "identity") {
+		t.Fatalf("identity listed: %s", body)
+	}
+	if code, _ := status(t, p.do(t, http.MethodDelete, "/api/v1/devices/"+id, nil, true, false)); code != http.StatusNotFound {
+		t.Fatalf("identity revocable: %d", code)
+	}
+	if code, _ := status(t, p.do(t, http.MethodGet, "/api/v1/devices/"+id+"/containers", nil, false, false)); code != http.StatusNotFound {
+		t.Fatalf("identity selection readable: %d", code)
+	}
+	if code, _ := status(t, p.do(t, http.MethodPut, "/api/v1/devices/"+id+"/containers", []byte(`{"containerIds":[]}`), true, false)); code != http.StatusNotFound {
+		t.Fatalf("identity selection writable: %d", code)
+	}
+	var revoked string
+	if err := p.db.QueryRow(`SELECT revoked_at FROM devices WHERE id=?`, id).Scan(&revoked); err != nil || revoked != "" {
+		t.Fatalf("identity row changed: %q %v", revoked, err)
+	}
+}
+
+func TestRegisterCannotClaimIdentity(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	body := []byte(`{"pairingToken":` + quote(p.mintToken(t)) + `,"publicKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{6}, 32))) + `,"platform":"identity","labelCiphertext":""}`)
+	if code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/devices/register", body, false, false)); code != http.StatusBadRequest {
+		t.Fatalf("platform identity registered: %d", code)
+	}
+	if _, secret, code := p.register(t, p.mintToken(t), identityPub); code == http.StatusOK || secret != "" {
+		t.Fatalf("identity key re-paired as a phone: %d", code)
+	}
+	var platform, hash string
+	if err := p.db.QueryRow(`SELECT platform,secret_hash FROM devices WHERE id=?`, id).Scan(&platform, &hash); err != nil || platform != "identity" || !strings.HasPrefix(hash, "identity:") {
+		t.Fatalf("identity row taken over: %q %q %v", platform, hash, err)
+	}
+}
+
+func TestIdentityDoesNotBlockSaves(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	p.createIdentity(t)
+	res := p.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), true, false)
+	var c struct {
+		ID string `json:"id"`
+	}
+	data, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if json.Unmarshal(data, &c) != nil || c.ID == "" {
+		t.Fatalf("container=%d %s", res.StatusCode, data)
+	}
+	var missing int
+	if err := p.db.QueryRow(missingEnvelopesSQL, c.ID, c.ID, 1).Scan(&missing); err != nil || missing != 0 {
+		t.Fatalf("identity row trips the save gate: %d %v", missing, err)
 	}
 }
