@@ -37,11 +37,16 @@ export function writeKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
   return key && { key, generation: container.keyGeneration };
 }
 
-/** Keys to try on read: the row's own generation first, then newest first, then legacy. */
-export function readKeys(ring: Keyring, legacy: KeyRef, hint?: number): KeyRef[] {
-  const first = hint === undefined ? undefined : ring.get(hint);
-  const rest = [...ring.entries()].filter(([generation]) => generation !== hint).sort(([a], [b]) => b - a).map(([, key]) => key);
-  return [...(first ? [first] : []), ...rest, legacy];
+/**
+ * The one key a row may be read with. Rows at or above sharedGeneration open only
+ * with their own generation's CK, so neither a relabelled legacy row nor a removed
+ * member's older CK can stand in for a newer generation. Older rows are legacy.
+ */
+export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined): KeyRef[] {
+  if (generation === undefined || !Number.isInteger(generation)) return [];
+  if (container.sharedGeneration === 0 || generation < container.sharedGeneration) return [legacy];
+  const key = ring.get(generation);
+  return key ? [key] : [];
 }
 
 /** Runs open with each key in turn; AES-GCM authentication makes a wrong key fail, not misread. */
