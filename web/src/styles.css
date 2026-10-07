@@ -338,6 +338,7 @@ body { color: var(--ink-strong); background: var(--bg); }
   .canvas-scroll { height: auto; }
 }
 .page-toggle { align-self: center; width: 22px; height: 22px; padding: 0; margin-inline-start: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; line-height: 1; cursor: pointer; }
+.page-toggle-space { flex: none; width: 22px; margin-inline-start: 4px; }
 .page-toggle:hover, .page-toggle:focus-visible { background: var(--accent-soft); color: var(--ink-strong); }
 
 /* Section groups: folder tabs share .section-tab; the breadcrumb sits above the strip. */

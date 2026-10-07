@@ -121,7 +121,7 @@ export function SectionTabs(props: Props) {
         <ol className="section-breadcrumb" aria-label="Section groups">
           {path.map((step, index) => (
             <li key={step.id ?? ROOT}>
-              <button className="quiet" aria-current={index === path.length - 1 ? "page" : undefined} onClick={() => props.onOpenGroup(step.id)}>
+              <button className="quiet" aria-current={index === path.length - 1 ? "location" : undefined} onClick={() => props.onOpenGroup(step.id)}>
                 {step.title}
               </button>
             </li>
@@ -132,7 +132,7 @@ export function SectionTabs(props: Props) {
         {sections.map((section, index) => tab(section.id, section.title, section.color, index, section))}
         {atRoot && tab(QUICK_NOTES, "Quick Notes", "gray", sections.length)}
         {groups.map(groupTab)}
-        {!atRoot && !sections.length && <li className="section-empty">This group is empty. Add a section with ＋.</li>}
+        {!atRoot && !sections.length && !groups.length && <li className="section-empty">This group is empty. Add a section with ＋.</li>}
       </ul>
       <button className="quiet section-add" disabled={busy} popoverTarget="section-add-menu" aria-label="New section or group">＋</button>
       <div className="section-menu section-add-menu" id="section-add-menu" popover="auto">

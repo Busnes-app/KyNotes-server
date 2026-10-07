@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carryAll, carrySaved, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
 import { parseObjectPayload } from "./pages";
 
 const A = "obj_a";
@@ -73,6 +73,16 @@ describe("carryAll", () => {
     const loaded = [page(A, "draft", 1), page(B, "b", 4)];
     const carried = new Map([[A, { version: 2, updatedAt: "t1" }], [B, { version: 3 }]]);
     expect(carryAll(loaded, carried)).toEqual([{ ...page(A, "draft", 2), updatedAt: "t1" }, page(B, "b", 4)]);
+  });
+});
+
+describe("carryVersions", () => {
+  it("carries only newer versions onto loaded sections and groups, adding no fields", () => {
+    const loaded = [{ id: A, version: 1, title: "S" }, { id: B, version: 4, title: "G" }];
+    const carried = new Map([[A, { version: 2, updatedAt: "t1" }], [B, { version: 3 }]]);
+    const result = carryVersions(loaded, carried);
+    expect(result).toEqual([{ id: A, version: 2, title: "S" }, { id: B, version: 4, title: "G" }]);
+    expect(result[1]).toBe(loaded[1]);
   });
 });
 

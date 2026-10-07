@@ -42,6 +42,14 @@ export function newestCopy(entry: Note, cached: { version: number; title: string
   return cached && cached.version >= entry.version ? { ...entry, title: cached.title, body: cached.body } : entry;
 }
 
+/** Sections and groups: carry a saved version forward, never backwards, with no other field. */
+export function carryVersions<T extends { id: string; version: number }>(items: T[], carried: Map<string, { version: number }>): T[] {
+  return items.map((item) => {
+    const saved = carried.get(item.id);
+    return saved && saved.version > item.version ? { ...item, version: saved.version } : item;
+  });
+}
+
 /** Versions saved while a notebook load was reading, reapplied to its fresh list. */
 export function carryAll(notes: Note[], carried: Map<string, { version: number; updatedAt?: string }>): Note[] {
   return [...carried].reduce((value, [id, saved]) => carrySaved(value, id, saved), notes);

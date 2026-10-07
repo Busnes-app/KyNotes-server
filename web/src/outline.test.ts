@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, shiftLevel, siblingMove, visibleRows } from "./outline";
+import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 
 const page = (id: string, level?: number, order?: string) => ({ id, level, order });
 
@@ -152,6 +152,26 @@ describe("group moves", () => {
       { id: id(2), label: "Work › Q4" },
     ]);
     expect(groupTargets(groups, parents, id(1))).toEqual([{ id: id(3), label: "Home" }]);
+  });
+  it("labels untitled groups in move targets", () => {
+    const groups = [{ id: id(1), title: "" }];
+    expect(groupTargets(groups, groupParents(groups))).toEqual([{ id: id(1), label: "Untitled group" }]);
+  });
+  it("tells same-named sections apart by their group path", () => {
+    const groups = [{ id: id(1), title: "Work" }, { id: id(2), title: "Q4", group: id(1) }, { id: id(3), title: "Home" }];
+    const parents = groupParents(groups);
+    const sections = [
+      { id: id(10), title: "Notes", group: id(2) },
+      { id: id(11), title: "Notes", group: id(3) },
+      { id: id(12), title: "Notes" },
+      { id: id(13), title: "", group: id(42) },
+    ];
+    expect(sectionTargets(sections, groups, parents)).toEqual([
+      { id: id(11), label: "Home › Notes" },
+      { id: id(12), label: "Notes" },
+      { id: id(13), label: "Untitled section" },
+      { id: id(10), label: "Work › Q4 › Notes" },
+    ]);
   });
   it("finds the group of a routed section", () => {
     const parents = groupParents([{ id: id(1) }]);

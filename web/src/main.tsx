@@ -80,8 +80,8 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
-import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, shiftLevel, siblingMove, visibleRows } from "./outline";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
 import {
   clearDeviceKey,
@@ -626,12 +626,14 @@ function Workspace({
     if (collapsedKey) saveChoice(collapsedKey, JSON.stringify(next));
     setCollapsed(new Set(next));
   }
+  const revealPage = (list: Note[], id: string) => {
+    const above = ancestors(list, id);
+    setCollapsed((value) => above.some((entry) => value.has(entry)) ? new Set([...value].filter((entry) => !above.includes(entry))) : value);
+  };
   // A page opened from search, resurfacing or a link is never hidden under a collapsed parent.
   useEffect(() => {
     const id = selectedNote?.id;
-    if (!id) return;
-    const above = ancestors(sectionPages, id);
-    setCollapsed((value) => above.some((entry) => value.has(entry)) ? new Set([...value].filter((entry) => !above.includes(entry))) : value);
+    if (id) revealPage(sectionPages, id);
     // Only on opening a page: collapsing the open page's parent afterwards is allowed.
   }, [selectedNote?.id, sectionID, collapsedKey]);
   const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
@@ -679,8 +681,11 @@ function Workspace({
         .map((note) => ({ note, container: selected }))
         .filter((entry): entry is QueueEntry => Boolean(entry.container));
   const reorderable = !queueMode && !query.trim();
+  // An open group with no sections: the strip has no tab for sectionID, so no page list or new page.
+  const sectionHidden = !queueMode && groupOfSection(sectionID, sections, parents) !== groupID;
+  const groupEmpty = sectionHidden && reorderable;
   const listRows = reorderable && selected
-    ? visibleRows(sectionPages, collapsed).map((row) => ({ note: row.item, container: selected, row }))
+    ? visibleRows(sectionHidden ? [] : sectionPages, collapsed).map((row) => ({ note: row.item, container: selected, row }))
     : listEntries.map((entry) => ({ ...entry, row: undefined }));
   const sectionIndex = (id: string) => sectionPages.findIndex((note) => note.id === id);
   const canShift = (id: string, delta: 1 | -1) => sectionIndex(id) >= 0 && shiftLevel(sectionLevels, sectionIndex(id), delta) !== undefined;
@@ -941,11 +946,12 @@ function Workspace({
       const objects = await readContainerObjects(container);
       if (superseded()) return [];
       const loaded = carryAll(objects.notes, loadCarried.current);
+      const loadedSections = carryVersions(objects.sections, loadCarried.current);
+      patchSections(() => loadedSections);
+      patchGroups(() => carryVersions(objects.groups, loadCarried.current));
       loadCarried.current.clear();
       patchNotes(() => loaded);
-      patchSections(() => objects.sections);
-      patchGroups(() => objects.groups);
-      showSection(resolveSection(route?.section, objects.sections));
+      showSection(resolveSection(route?.section, loadedSections));
       const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, container.id);
       const team = container.kind === "team" ? await members(container.id) : [];
@@ -1320,6 +1326,7 @@ function Workspace({
     try {
       const result = await saveObject(id, encrypted, version, selected.keyGeneration);
       await clearQueuedSave(id);
+      carryDuringLoad(id, { version: result.version, updatedAt });
       return result.version;
     } catch (error) {
       if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1433,9 +1440,10 @@ function Workspace({
   }
   /** Children move up one level first; a failed write stops before the delete, so nothing is lost. */
   async function removeGroup(group: Group) {
-    if (!confirm(`Delete group "${group.title}"? Its sections and groups move up one level.`)) return;
-    const parent = parents.get(group.id);
+    if (!confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
+    setBusy(true);
     try {
+      const parent = groupParents(groupsRef.current).get(group.id);
       for (const kind of ["section", "group"] as const) {
         for (const child of siblings(kind, group.id)) {
           if (!(await updateStructure(kind, child.id, { group: parent }))) {
@@ -1450,6 +1458,8 @@ function Workspace({
       setGroupID((value) => (value === group.id ? parent : value));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to delete group");
+    } finally {
+      setBusy(false);
     }
   }
   async function moveStructure(kind: "section" | "group", id: string, index: number) {
@@ -1473,12 +1483,14 @@ function Workspace({
     if (id !== sectionID) setSelectedNote(null);
     showSection(id);
   }
-  /** Shows a group's tabs and its first section; an empty group keeps the current page list. */
-  function openGroup(id: string | undefined) {
+  /** Shows a group's tabs and its first section; a group without sections shows no pages. */
+  async function openGroup(id: string | undefined) {
     if (groupOfSection(sectionID, sections, parents) === id) return setGroupID(id);
     const first = orderedSections.find((entry) => sectionGroup(entry, parents) === id)?.id ?? (id === undefined ? QUICK_NOTES : undefined);
-    if (first === undefined) setGroupID(id);
-    else void selectSection(first);
+    if (first !== undefined) return selectSection(first);
+    if (!(await flushOpenPage())) return;
+    setSelectedNote(null);
+    setGroupID(id);
   }
   const groupTrail = selected
     ? [{ id: undefined, title: nameOf(selected) }, ...groupPath(groupID, parents).map((id) => ({ id, title: groups.find((entry) => entry.id === id)?.title || "Untitled group" }))]
@@ -1507,7 +1519,7 @@ function Workspace({
       for (const update of placeBlock(list, block, levels.slice(start, end), before < 0 ? list.length : before)) {
         const entry = notesRef.current.find((note) => note.id === update.id);
         await placePage(update.id, inBlock.has(update.id)
-          ? { section, order: update.order, level: update.level as 0 | 1 | 2 }
+          ? { section, order: update.order, level: update.level }
           : { section: entry?.section, order: update.order });
       }
     });
@@ -1518,7 +1530,10 @@ function Workspace({
       if (!page) return;
       const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
       const level = shiftLevel(displayLevels(list), list.findIndex((note) => note.id === pageID), delta);
-      if (level !== undefined) await placePage(pageID, { section: page.section, order: page.order, level: level as 0 | 1 | 2 });
+      if (level === undefined) return;
+      // Indenting under a collapsed parent must not hide the row being worked on.
+      revealPage(list.map((note) => (note.id === pageID ? { ...note, level } : note)), pageID);
+      await placePage(pageID, { section: page.section, order: page.order, level });
     });
   }
   /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
@@ -1530,7 +1545,7 @@ function Workspace({
     const containerID = selected.id;
     // A notebook switch replaces notes[]: copies are on the server and appear on its next load.
     const sameNotebook = () => (loadingContainerID.current ?? selectedRef.current?.id) === containerID;
-        try {
+    try {
       // Unsent edits become one more rejected version instead of vanishing in the reload.
       if (dirty) await save(open, true);
       const latest = selectedNoteRef.current;
@@ -1952,7 +1967,7 @@ function Workspace({
               onDeleteGroup={(group) => void removeGroup(group)}
               onMove={(kind, id, index) => void moveStructure(kind, id, index)}
               onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
-              onOpenGroup={openGroup}
+              onOpenGroup={(id) => void openGroup(id)}
               onDropPage={(pageID, target) => void movePage(pageID, target, null)}
             />
           )}
@@ -1964,7 +1979,7 @@ function Workspace({
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionTitle(sectionID)}</h3>}
+                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
                 <input
@@ -1976,7 +1991,9 @@ function Workspace({
                 />
                 <button
                   className="icon-button"
-                  disabled={!selected || busy}
+                  disabled={!selected || busy || sectionHidden}
+                  title={sectionHidden ? "Add a section to this group first" : "New page"}
+                  aria-label="New page"
                   onClick={() => void newNote()}
                 >
                   ＋
@@ -2001,6 +2018,7 @@ function Workspace({
                   if (before !== undefined) void movePage(pageID, sectionID, before);
                 }}
               >
+                {row && !row.hasChildren && <span className="page-toggle-space" aria-hidden="true" />}
                 {row?.hasChildren && (
                   <button
                     className="page-toggle quiet"
@@ -2048,11 +2066,11 @@ function Workspace({
               </div>
               );
             })}
-            {selected && listEntries.length === 0 && (
+            {selected && (listEntries.length === 0 || groupEmpty) && (
               <div className="empty-list">
-                {queueMode ? "No open tasks here." : "No pages in this section."}
+                {queueMode ? "No open tasks here." : groupEmpty ? "This group has no sections." : "No pages in this section."}
                 <br />
-                {queueMode ? "Tasks from note checklists appear here." : "Add a page with ＋."}
+                {queueMode ? "Tasks from note checklists appear here." : groupEmpty ? "Add a section to this group to add pages." : "Add a page with ＋."}
               </div>
             )}
             {relatedNotes.length > 0 && (
@@ -2133,7 +2151,7 @@ function Workspace({
                     value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
                     onChange={(event) => void movePage(selectedNote.id, event.target.value, null)}
                   >
-                    {orderedSections.map((entry) => <option key={entry.id} value={entry.id}>{entry.title || "Untitled section"}</option>)}
+                    {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
                     <option value={QUICK_NOTES}>Quick Notes</option>
                   </select>
                   <button

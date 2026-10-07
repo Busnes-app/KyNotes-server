@@ -2,10 +2,11 @@ import { keyBetween } from "./order";
 
 export const MAX_LEVEL = 2;
 export const MAX_GROUP_DEPTH = 4;
+export type Level = 0 | 1 | 2;
 type Leveled = { id: string; level?: number };
 type Ordered = { id: string; order?: string };
 
-const clampLevel = (level: number | undefined) => Math.min(MAX_LEVEL, Math.max(0, level ?? 0));
+const clampLevel = (level: number | undefined) => Math.min(MAX_LEVEL, Math.max(0, level ?? 0)) as Level;
 
 /** Display levels for an ordered page list: the first page is 0, each page at most one deeper than the one before. */
 export function displayLevels(list: Leveled[]): number[] {
@@ -56,11 +57,11 @@ export function ancestors(list: Leveled[], id: string): string[] {
 }
 
 /** The level `list[index]` would get from indent (+1) or outdent (-1), or undefined when not allowed. */
-export function shiftLevel(levels: number[], index: number, delta: 1 | -1): number | undefined {
+export function shiftLevel(levels: number[], index: number, delta: 1 | -1): Level | undefined {
   const next = levels[index] + delta;
   if (next < 0 || next > MAX_LEVEL) return undefined;
   if (delta === 1 && (index === 0 || next > levels[index - 1] + 1)) return undefined;
-  return next;
+  return next as Level;
 }
 
 /**
@@ -69,7 +70,7 @@ export function shiftLevel(levels: number[], index: number, delta: 1 | -1): numb
  * One key per block page when the neighbours allow it; otherwise the whole list is
  * renumbered once (target pages then get an order-only update).
  */
-export function placeBlock<T extends Ordered & Leveled>(target: T[], block: T[], blockLevels: number[], index: number): Array<{ id: string; order: string; level?: number }> {
+export function placeBlock<T extends Ordered & Leveled>(target: T[], block: T[], blockLevels: number[], index: number): Array<{ id: string; order: string; level?: Level }> {
   const at = Math.max(0, Math.min(index, target.length));
   const targetLevels = displayLevels(target);
   const head = Math.min(blockLevels[0], at === 0 ? 0 : targetLevels[at - 1] + 1);
@@ -86,7 +87,7 @@ export function placeBlock<T extends Ordered & Leveled>(target: T[], block: T[],
     } catch { /* tie or exhausted key: renumber below */ }
   }
   let order: string | null = null;
-  const merged: Array<{ id: string; level?: number }> = [
+  const merged: Array<{ id: string; level?: Level }> = [
     ...target.slice(0, at).map((item) => ({ id: item.id })),
     ...block.map((item, i) => ({ id: item.id, level: levels[i] })),
     ...target.slice(at).map((item) => ({ id: item.id })),
@@ -151,12 +152,25 @@ export function groupMoveAllowed(id: string, target: string | undefined, parents
 
 /** "Move into group…" choices labelled "A › B", sorted by label; `moving` (a group) skips targets it may not enter. */
 export function groupTargets(groups: Array<{ id: string; title: string }>, parents: Map<string, string | undefined>, moving?: string) {
-  const titles = new Map(groups.map((group) => [group.id, group.title]));
+  const titles = groupTitles(groups);
   return groups
     .filter((group) => moving === undefined || groupMoveAllowed(moving, group.id, parents))
     .map((group) => ({ id: group.id, label: groupPath(group.id, parents).map((id) => titles.get(id)).join(" › ") }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/** "Move to section" choices labelled with their group path, "A › B › Section", sorted by label. */
+export function sectionTargets(sections: Array<Grouped & { title: string }>, groups: Array<{ id: string; title: string }>, parents: Map<string, string | undefined>) {
+  const titles = groupTitles(groups);
+  return sections
+    .map((section) => ({
+      id: section.id,
+      label: [...groupPath(sectionGroup(section, parents), parents).map((id) => titles.get(id)), section.title || "Untitled section"].join(" › "),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+const groupTitles = (groups: Array<{ id: string; title: string }>) => new Map(groups.map((group) => [group.id, group.title || "Untitled group"]));
 
 /** Group holding section `id`; Quick Notes and unknown sections are at the root. */
 export function groupOfSection(id: string, sections: Grouped[], parents: Map<string, string | undefined>): string | undefined {
