@@ -86,7 +86,7 @@ The fallback rule ("unnamed until the owner opens it") is shown in the UI.
 This single routine covers admin-added members, invitees, members whose identity was reset, and interrupted rotations.
 
 **Add a member.** Two paths:
-- **Invitation from an owner or admin member:** the inviter's browser fetches the invitee's identity public key (new `GET /users/{id}/identity`, which returns key and fingerprint) and wraps `CK` for the team and each child workspace. The wrapped keys are stored with the invitation in a new `invitation_envelopes` table. On accept, the server moves them into `key_envelopes` in the same transaction that creates the memberships, but only if the generation still matches. If it does not, they are dropped and the steward sweep fills the gap.
+- **Invitation from an owner or admin member:** an invitation to someone the inviter does not already share a live container with goes out without envelopes: `GET /users/{id}/identity` answers only co-members and a steward holding a pending invitation they issued, and no route adds envelopes to an existing invitation. The steward sweep wraps `CK` after accept. When the invitee is already a co-member, the inviter's browser may fetch their identity key and wrap `CK` for the team and each child workspace; those envelopes are stored in `invitation_envelopes` and moved into `key_envelopes` in the accept transaction, only if the generation still matches. Otherwise they are dropped and the sweep fills the gap.
 - **Admin add (admin holds no key) or invitee without an identity yet:** the membership is created without keys and the steward sweep wraps later. The member's UI shows "Waiting for a team owner to share keys".
 
 **Remove a member: forward-only rotation, no bulk re-encryption.**

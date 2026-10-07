@@ -341,6 +341,8 @@ user data.
 | `invalid_request` | 400 | malformed body, bad parameter, failed validation |
 | `unauthenticated` | 401 | no or invalid session/device credential |
 | `csrf_failed` | 403 | missing or mismatched CSRF token |
+| `step_up_required` | 403 | the route needs a local password step-up within `StepUpWindow` (or refuses an SSO session) |
+| `sso_step_up_required` | 403 | an SSO session must confirm this action with a fresh OIDC proof; carries `challenge` (`docs/SSO.md`) |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |

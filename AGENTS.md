@@ -77,7 +77,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   implementation migrations.
 - `cmd/kynotes-probe` is the live 12-step client interoperability acceptance
   path; it uses the same session, pairing, envelope, sync, upload, and GC
-  contracts as external clients.
+  contracts as external clients. Its X25519 device key is random, persisted 0600
+  (`-device-key`, default under the user cache dir per server URL and username),
+  never derived from `authSecret`; the device is revoked at the end of every run.
 - `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.

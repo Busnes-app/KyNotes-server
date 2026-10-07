@@ -163,7 +163,8 @@ sessions are refused. The save gate depends on whether the container has ever
 rotated (`containers.shared_generation`). Until it has, every member's paired
 device needs an envelope at the current generation, as before. Afterwards, the
 writer's own identity needs one. Both gates also need a live membership, and
-the write transaction checks them again together with the writer's role.
+the write transaction checks them again. Object saves also recheck the writer's
+role there; comment and attachment writes recheck only the gate.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks

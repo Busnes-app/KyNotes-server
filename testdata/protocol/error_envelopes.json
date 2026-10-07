@@ -2,6 +2,8 @@
   {"code":"invalid_request","http":400},
   {"code":"unauthenticated","http":401},
   {"code":"csrf_failed","http":403},
+  {"code":"step_up_required","http":403},
+  {"code":"sso_step_up_required","http":403},
   {"code":"forbidden","http":403},
   {"code":"not_found","http":404},
   {"code":"method_not_allowed","http":405},
