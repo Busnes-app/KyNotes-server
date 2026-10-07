@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -382,5 +383,140 @@ func TestEnvelopeWriteRefusals(t *testing.T) {
 				t.Fatalf("refused write stored %d envelopes", n)
 			}
 		})
+	}
+}
+
+func TestKeyRotationIsAtomicAndCoversEveryIdentity(t *testing.T) {
+	tm := newTeam(t)
+	path := "/api/v1/containers/" + tm.id + "/key-rotations"
+	full := rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1))
+	tm.editor.stepUp(t)
+	solo := seedContainer(t, tm.owner, "workbook", "", map[string]string{tm.editor.id: "editor", tm.viewer.id: "owner"})
+	if code, body := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+solo+"/key-rotations", rotationBody(1, envJSON(tm.editorID, 2, 1)), true, false)); code != http.StatusForbidden {
+		t.Fatalf("editor rotated: %d %s", code, body)
+	}
+	// A steward without an identity cannot mint a key it could never hold.
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='admin' WHERE user_id=?`, tm.viewer.id); err != nil {
+		t.Fatal(err)
+	}
+	tm.viewer.stepUp(t)
+	if code, body := status(t, tm.viewer.do(t, http.MethodPost, path, full, true, false)); code != http.StatusBadRequest {
+		t.Fatalf("steward without identity rotated: %d %s", code, body)
+	}
+	for name, body := range map[string][]byte{
+		"missing a member identity": rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1)),
+		"missing the caller":        rotationBody(1, envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1)),
+		"wrong generation":          rotationBody(1, envJSON(tm.ownerID, 3, 1), envJSON(tm.adminID, 3, 1), envJSON(tm.editorID, 3, 1)),
+		"duplicate recipient":       rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.ownerID, 2, 2), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1)),
+	} {
+		if code, out := status(t, tm.owner.do(t, http.MethodPost, path, body, true, false)); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s", name, code, out)
+		}
+		if g, _ := generationOf(t, tm.owner, tm.id); g != 1 || countEnvelopes(t, tm.owner, tm.id, 2) != 0 {
+			t.Fatalf("%s: partial commit at generation %d", name, g)
+		}
+	}
+	if code, body := status(t, tm.owner.do(t, http.MethodPost, path, full, true, false)); code != http.StatusOK || !strings.Contains(body, `"keyGeneration":2`) {
+		t.Fatalf("full set=%d %s", code, body)
+	}
+	if g, shared := generationOf(t, tm.owner, tm.id); g != 2 || shared != 2 || countEnvelopes(t, tm.owner, tm.id, 2) != 3 {
+		t.Fatalf("after rotation generation=%d shared=%d", g, shared)
+	}
+	if code, body := status(t, tm.owner.do(t, http.MethodPost, path, full, true, false)); code != http.StatusConflict {
+		t.Fatalf("stale expectedGeneration=%d %s", code, body)
+	}
+	var audits int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='container.key_rotate' AND container_id=?`, tm.id).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("audits=%d %v", audits, err)
+	}
+	tm.rotate(t, tm.id, 2)
+	if g, shared := generationOf(t, tm.owner, tm.id); g != 3 || shared != 2 {
+		t.Fatalf("second rotation moved shared_generation: generation=%d shared=%d", g, shared)
+	}
+}
+
+func TestKeyRotationRequiresUserStepUp(t *testing.T) {
+	tm := newTeam(t)
+	if _, err := tm.owner.db.Exec(`UPDATE sessions SET stepup_at=''`); err != nil {
+		t.Fatal(err)
+	}
+	body := rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusForbidden || !strings.Contains(out, "step_up_required") {
+		t.Fatalf("rotation without step-up: %d %s", code, out)
+	}
+}
+
+func TestConcurrentRotationsCannotSplitAGeneration(t *testing.T) {
+	tm := newTeam(t)
+	tm.admin.stepUp(t)
+	path := "/api/v1/containers/" + tm.id + "/key-rotations"
+	codes := make([]int, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i, c := range []*pairClient{tm.owner, tm.admin.pairClient} {
+		wg.Add(1)
+		go func(i int, c *pairClient) {
+			defer wg.Done()
+			fill := byte(10 + i)
+			codes[i], errs[i] = c.send(http.MethodPost, path, rotationBody(1, envJSON(tm.ownerID, 2, fill), envJSON(tm.adminID, 2, fill), envJSON(tm.editorID, 2, fill)))
+		}(i, c)
+	}
+	wg.Wait()
+	if errs[0] != nil || errs[1] != nil {
+		t.Fatal(errs)
+	}
+	if codes[0]+codes[1] != http.StatusOK+http.StatusConflict {
+		t.Fatalf("codes=%v, want one 200 and one 409", codes)
+	}
+	var keys int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(DISTINCT envelope) FROM key_envelopes WHERE container_id=? AND key_generation=2`, tm.id).Scan(&keys); err != nil || keys != 1 {
+		t.Fatalf("generation 2 holds %d distinct keys: %v", keys, err)
+	}
+	if g, _ := generationOf(t, tm.owner, tm.id); g != 2 {
+		t.Fatalf("generation=%d", g)
+	}
+}
+
+func TestEnvelopeForNonMemberIsRejected(t *testing.T) {
+	tm := newTeam(t)
+	outsider := tm.owner.addUser(t, "outsider")
+	outsiderID := outsider.createIdentity(t)
+	if code, body := status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(envJSON(outsiderID, 1, 1)), true, false)); code != http.StatusBadRequest {
+		t.Fatalf("PUT for non-member=%d %s", code, body)
+	}
+	body := rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1), envJSON(outsiderID, 2, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusBadRequest {
+		t.Fatalf("rotation with non-member=%d %s", code, out)
+	}
+	if g, shared := generationOf(t, tm.owner, tm.id); g != 1 || shared != 0 || countEnvelopes(t, tm.owner, tm.id, 2) != 0 {
+		t.Fatalf("refused rotation left state: generation=%d shared=%d", g, shared)
+	}
+	// A removed member is a non-member too.
+	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d %s", code, out)
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(envJSON(tm.editorID, 2, 1)), true, false)); code != http.StatusBadRequest {
+		t.Fatalf("PUT for removed member=%d %s", code, out)
+	}
+}
+
+func TestEnvelopeWritesRecheckStepUpInTransaction(t *testing.T) {
+	tm := newTeam(t)
+	clear := func() {
+		if _, err := tm.owner.db.Exec(`UPDATE sessions SET stepup_at=''`); err != nil {
+			t.Error(err)
+		}
+	}
+	hdr := map[string]string{"Content-Type": "application/json"}
+	if code, body := tm.owner.sendRacing(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", hdr, envelopesBody(envJSON(tm.editorID, 1, 1)), clear); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("envelope PUT after step-up was cleared: %d %s", code, body)
+	}
+	tm.owner.stepUp(t)
+	rotation := rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1))
+	if code, body := tm.owner.sendRacing(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", hdr, rotation, clear); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("rotation after step-up was cleared: %d %s", code, body)
+	}
+	if g, _ := generationOf(t, tm.owner, tm.id); g != 1 || countEnvelopes(t, tm.owner, tm.id, 1) != 0 {
+		t.Fatalf("stale step-up wrote: generation=%d", g)
 	}
 }

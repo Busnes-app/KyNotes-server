@@ -3,11 +3,14 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
@@ -120,4 +123,85 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 		return errEnvelopeExists
 	}
 	return nil
+}
+
+// ownIdentityEnvelopeSQL is the shared save gate: the writer's own identity holds
+// an envelope at the generation. Args: user, container, generation.
+const ownIdentityEnvelopeSQL = `SELECT EXISTS(SELECT 1 FROM key_envelopes e JOIN devices d ON d.id=e.device_id AND d.platform='identity' AND d.user_id=? WHERE e.container_id=? AND e.key_generation=?)`
+
+// uncoveredIdentitiesSQL counts active members' identities without an envelope
+// at the generation. Args: container, generation.
+const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
+
+func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
+	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		cid := r.PathValue("id")
+		var in struct {
+			ExpectedGeneration int64        `json:"expectedGeneration"`
+			Envelopes          []envelopeIn `json:"envelopes"`
+		}
+		if ids.Validate("cnt", cid) != nil || json.NewDecoder(r.Body).Decode(&in) != nil || in.ExpectedGeneration < 1 || len(in.Envelopes) == 0 {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		seen := map[string]bool{}
+		for _, v := range in.Envelopes {
+			if seen[v.DeviceID] {
+				WriteError(w, r, 400, "invalid_request", "invalid request")
+				return
+			}
+			seen[v.DeviceID] = true
+		}
+		var next int64
+		err := dbTx(db, func(tx *sql.Tx) error {
+			now := time.Now().UTC()
+			if err := auth.RecheckUserStepUpTx(tx, s, now); err != nil {
+				return err
+			}
+			role, _, err := memberTx(tx, cid, s.UserID)
+			if err != nil {
+				return err
+			}
+			if !isSteward(role) {
+				return errInsufficientRole
+			}
+			stamp := now.Format(time.RFC3339)
+			err = tx.QueryRow(`UPDATE containers SET key_generation=key_generation+1,shared_generation=CASE WHEN shared_generation=0 THEN key_generation+1 ELSE shared_generation END,change_seq=change_seq+1,updated_at=? WHERE id=? AND key_generation=? RETURNING key_generation`, stamp, cid, in.ExpectedGeneration).Scan(&next)
+			if errors.Is(err, sql.ErrNoRows) {
+				return errGenerationMoved
+			}
+			if err != nil {
+				return err
+			}
+			for _, v := range in.Envelopes {
+				if err := insertEnvelopeTx(tx, cid, next, s.UserID, role, v, stamp); err != nil {
+					if errors.Is(err, errGenerationMoved) {
+						return errEnvelopeInvalid // the set must target the new generation
+					}
+					return err
+				}
+			}
+			var uncovered int
+			var own bool
+			if err := tx.QueryRow(uncoveredIdentitiesSQL, cid, next).Scan(&uncovered); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ownIdentityEnvelopeSQL, s.UserID, cid, next).Scan(&own); err != nil {
+				return err
+			}
+			if uncovered > 0 || !own {
+				return errEnvelopeInvalid
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.key_rotate", cid, "", "success", "", RequestID(r))
+		})
+		if writeTeamKeyError(w, r, err) {
+			return
+		}
+		writeJSON(w, map[string]any{"keyGeneration": next})
+	})))
 }
