@@ -68,23 +68,31 @@ export async function digestSha256Hex(data: Uint8Array): Promise<string> {
   return [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function deriveAuthSecret(password: string, salt: string, iterations: number): Promise<string> {
+export type LoginKeys = { authSecret: string; userKEK: Uint8Array };
+
+async function stretchPassword(password: string, salt: string, iterations: number): Promise<Uint8Array> {
   const rawSalt = fromBase64(salt);
   if (hasNativeSubtle()) {
     try {
       const passwordKey = await crypto.subtle.importKey("raw", buffer(encoder.encode(password)), "PBKDF2", false, ["deriveBits"]);
-      const stretched = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: buffer(rawSalt), iterations, hash: "SHA-256" }, passwordKey, 256);
-      const root = await crypto.subtle.importKey("raw", stretched, "HKDF", false, ["deriveBits"]);
-      const result = await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: new ArrayBuffer(0), info: buffer(encoder.encode("kynotes/auth/v1")) }, root, 256);
-      return [...new Uint8Array(result)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: buffer(rawSalt), iterations, hash: "SHA-256" }, passwordKey, 256));
     } catch {
       // Fall through to fallback
     }
   }
+  return pbkdf2Sha256(encoder.encode(password), rawSalt, iterations, 32);
+}
 
-  const derived = await pbkdf2Sha256(encoder.encode(password), rawSalt, iterations, 32);
-  const okm = hkdfSha256(derived, 32, new Uint8Array(0), encoder.encode("kynotes/auth/v1"));
-  return [...okm].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+/** One PBKDF2 pass, two HKDF labels: the server sees authSecret, never userKEK. */
+export async function deriveLoginKeys(password: string, salt: string, iterations: number): Promise<LoginKeys> {
+  const stretched = await stretchPassword(password, salt, iterations);
+  const label = (info: string) => hkdfSha256(stretched, 32, new Uint8Array(0), encoder.encode(info));
+  const authSecret = [...label("kynotes/auth/v1")].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return { authSecret, userKEK: label("kynotes/user-kek/v1") };
+}
+
+export async function deriveAuthSecret(password: string, salt: string, iterations: number): Promise<string> {
+  return (await deriveLoginKeys(password, salt, iterations)).authSecret;
 }
 
 export function randomLoginSalt(): string {
