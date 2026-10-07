@@ -24,8 +24,9 @@ const (
 )
 
 var (
-	errIdentityExists = errors.New("identity exists")
-	errIdentityRewrap = errors.New("identity rewrap mismatch")
+	errIdentityExists  = errors.New("identity exists")
+	errIdentityRewrap  = errors.New("identity rewrap mismatch")
+	errPasswordChanged = errors.New("password changed concurrently")
 	// errPasswordChangeRequired: someone other than the user knows the password.
 	errPasswordChangeRequired = errors.New("password change required")
 )
@@ -105,6 +106,10 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		err = dbTx(db, func(tx *sql.Tx) error {
+			// Recovery or a password change may have committed since the middleware ran.
+			if err := auth.RecheckUserStepUpTx(tx, s, time.Now().UTC()); err != nil {
+				return err
+			}
 			var taken, adminKnown int
 			if err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)),(SELECT password_admin_known FROM users WHERE id=?)`, s.UserID, fingerprint, s.UserID).Scan(&taken, &adminKnown); err != nil {
 				return err
@@ -124,6 +129,14 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "", RequestID(r))
 		})
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			auth.WriteAuthError(w, "unauthenticated", "authentication required")
+			return
+		}
+		if errors.Is(err, auth.ErrStepUpInvalid) {
+			auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
+			return
+		}
 		if errors.Is(err, errPasswordChangeRequired) {
 			WriteError(w, r, 409, "password_change_required", "change the password an administrator set before creating an identity")
 			return

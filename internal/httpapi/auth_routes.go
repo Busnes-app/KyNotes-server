@@ -307,6 +307,14 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		// The identity is re-wrapped under the new userKEK in the same commit, or the change is refused.
 		now := time.Now().UTC().Format(time.RFC3339)
 		err = dbTx(db, func(tx *sql.Tx) error {
+			// Recovery or another password change may have committed since the verify.
+			current, err := auth.RecheckSessionTx(tx, s, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if current != stored {
+				return errPasswordChanged
+			}
 			var identities int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=?`, s.UserID).Scan(&identities); err != nil {
 				return err
@@ -334,6 +342,14 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			}
 			return nil
 		})
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			auth.WriteAuthError(w, "unauthenticated", "authentication required")
+			return
+		}
+		if errors.Is(err, errPasswordChanged) {
+			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
+			return
+		}
 		if errors.Is(err, errIdentityRewrap) {
 			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and change the password again")
 			return

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -480,4 +481,95 @@ func TestPasswordChangeSharesStepUpLockout(t *testing.T) {
 	if code := change("a"); code != http.StatusTooManyRequests {
 		t.Fatalf("correct secret after lockout: %d", code)
 	}
+}
+
+// commitFirst runs commit on the body's first read, after the middleware has authorized the request.
+type commitFirst struct {
+	once   sync.Once
+	commit func()
+	body   io.Reader
+}
+
+func (c *commitFirst) Read(b []byte) (int, error) {
+	c.once.Do(c.commit)
+	return c.body.Read(b)
+}
+
+// putIdentityRacing sends an authorized identity PUT and runs commit between the
+// middleware and the create transaction. Expect: 100-continue holds the body back
+// until the handler first reads it, so commit cannot land before authorization.
+func (p *pairClient) putIdentityRacing(t *testing.T, commit func()) (int, string) {
+	t.Helper()
+	body := identityBody(identityPub, identityWrapped)
+	req, err := http.NewRequest(http.MethodPut, p.url+"/api/v1/me/identity", &commitFirst{commit: commit, body: bytes.NewReader(body)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ContentLength = int64(len(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Expect", "100-continue")
+	for _, c := range p.hc.Jar.Cookies(req.URL) {
+		req.AddCookie(c)
+		if c.Name == "csrf_token" {
+			req.Header.Set("X-CSRF-Token", c.Value)
+		}
+	}
+	res, err := (&http.Client{Transport: &http.Transport{ExpectContinueTimeout: time.Minute}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return status(t, res)
+}
+
+func assertNoIdentityRows(t *testing.T, p *pairClient) {
+	t.Helper()
+	var devices, identities, audits int
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE platform='identity'),(SELECT COUNT(*) FROM user_identities),(SELECT COUNT(*) FROM audit_events WHERE event='identity.create')`).Scan(&devices, &identities, &audits); err != nil || devices+identities+audits != 0 {
+		t.Fatalf("stale authorization created an identity: devices=%d identities=%d audits=%d %v", devices, identities, audits, err)
+	}
+}
+
+func TestIdentityCreateRejectsConcurrentRecovery(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	p.stepUp(t)
+	code, hash, err := auth.NewRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`UPDATE users SET recovery_hash=? WHERE id=?`, hash, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	recovered := 0
+	got, body := p.putIdentityRacing(t, func() {
+		req := `{"username":"pair","recoveryCode":` + quote(code) + `,"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + base64.StdEncoding.EncodeToString([]byte("fedcba9876543210")) + `","iterations":100000}`
+		res := p.do(t, http.MethodPost, "/api/v1/auth/recover", []byte(req), false, false)
+		recovered = res.StatusCode
+		res.Body.Close()
+	})
+	if recovered != http.StatusOK {
+		t.Fatalf("recover=%d", recovered)
+	}
+	if got != http.StatusUnauthorized || !strings.Contains(body, "unauthenticated") {
+		t.Fatalf("PUT authorized by a revoked session: %d %s", got, body)
+	}
+	assertNoIdentityRows(t, p)
+}
+
+func TestIdentityCreateRejectsConcurrentPasswordChange(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	p.stepUp(t)
+	changed := 0
+	got, body := p.putIdentityRacing(t, func() {
+		change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+		res := p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)
+		changed = res.StatusCode
+		res.Body.Close()
+	})
+	if changed != http.StatusNoContent {
+		t.Fatalf("password change=%d", changed)
+	}
+	if got != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("PUT authorized by the old password's step-up: %d %s", got, body)
+	}
+	assertNoIdentityRows(t, p)
 }

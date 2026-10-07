@@ -345,6 +345,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
   and `wrappedIdentityKey` when one exists (`409 identity_rewrap_required`), clears every session's
   step-up and shares the step-up lockout; recovery and admin reset delete it with an audit row.
+  `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
+  `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
+  or a password/step-up changed (403 for `PUT`) after the middleware writes nothing.
   `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
   recovery) makes `PUT` answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
