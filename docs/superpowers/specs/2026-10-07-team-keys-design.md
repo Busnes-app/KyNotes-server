@@ -130,13 +130,15 @@ The migration is lazy, idempotent and never destructive.
   - `object_versions.author_user_id`.
   - A `devices.platform = 'identity'` convention.
 - Routes:
-  - `PUT /me/identity`: create or replace the identity, session plus step-up. Replacing it deletes all of the user's identity envelopes.
-  - `GET /me/identity`: returns the wrapped private key.
+  - `PUT /me/identity`: create the identity; session, CSRF and a local-password step-up (SSO sessions are refused). Create-only in P1: a second create returns 409 `identity_exists`. Replacement (which would delete the user's identity envelopes) is deferred.
+  - `GET /me/identity`: public key, fingerprint and device ID only. It never returns the wrapped private key.
+  - The wrapped private key is delivered only in responses that just verified the password: the local `POST /auth/login` and `POST /auth/step-up` success bodies carry `identity` (with `wrapAlg` and `wrappedPrivateKey`, `no-store`) when one exists. A session cookie alone must not yield an offline-guessing target. SSO sessions never receive it.
   - `GET /users/{id}/identity`: public key and fingerprint, for members of shared containers or invite targets.
   - `POST /containers/{id}/key-rotations`.
   - `PUT /comments/{id}`.
   - Invitation create and accept accept and move envelopes.
-  - `POST /auth/password` takes `wrappedIdentityKey`.
+  - `POST /auth/password` takes `wrappedIdentityKey` and `identityDeviceId` (both or neither). The re-wrap updates only that identity in the password's transaction; a missing, stale or mismatched identity returns 409 `identity_rewrap_required` and changes nothing.
+  - Recovery and admin password reset delete the identity (and, by cascade, its envelopes), audited as `identity.delete`.
 - Rule changes:
   - Envelope `PUT` freshness uses `RequireStepUp` (`StepUpAt`) instead of session age.
   - Owner or admin may write for any member. **Any member may write envelopes for their own devices and identity**, so a viewer can pair a phone.
@@ -171,6 +173,8 @@ The migration is lazy, idempotent and never destructive.
 - **Insider owner or admin** can wrap a wrong or different key for some members. The insert-only rule plus a client-side check that the key decrypts current meta catches accidental splits. A malicious insider is out of scope.
 - **Minting** (rotation, wrapping for others) requires session, CSRF and step-up. Device credentials are never accepted.
 - **Admin separation:** admins never hold memberships in teams they create. Account bootstrap must force a password change before the identity exists (§1).
+- **Offline guessing:** the wrapped identity key is guessable offline against the password, so it is released only in password-proving responses (local login and step-up), never to a bare session cookie or a device credential.
+- **SSO users (open question):** SSO sessions cannot create or receive an identity in P1, because their step-up proves the IdP, not the password the wrap depends on. How SSO-only users get an identity is unresolved.
 - **At-rest browser cache:** the identity private key in IndexedDB is equivalent to the cached `authSecret` today, with the same "Forget this device" control.
 
 ## 7. Phases

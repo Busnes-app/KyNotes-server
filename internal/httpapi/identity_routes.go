@@ -33,22 +33,41 @@ func decodeWrappedIdentity(value string) ([]byte, bool) {
 	return wrapped, err == nil && len(wrapped) == wrappedIdentityBytes
 }
 
+// loadIdentity returns nil when the user has none. The wrapped private key is an
+// offline password-guessing target, so only responses that just verified the
+// password (local login and step-up) may ask for it; a session cookie never can.
+func loadIdentity(db *sql.DB, userID string, withWrapped bool) (map[string]string, error) {
+	var deviceID, publicKey, fingerprint, alg, created, updated string
+	var wrapped []byte
+	err := db.QueryRow(`SELECT i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, userID).Scan(&deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "createdAt": created, "updatedAt": updated}
+	if withWrapped {
+		out["wrapAlg"] = alg
+		out["wrappedPrivateKey"] = base64.StdEncoding.EncodeToString(wrapped)
+	}
+	return out, nil
+}
+
 func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/me/identity", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
-		var deviceID, publicKey, fingerprint, alg, created, updated string
-		var wrapped []byte
-		err := db.QueryRow(`SELECT i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, s.UserID).Scan(&deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated)
-		if errors.Is(err, sql.ErrNoRows) {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
+		identity, err := loadIdentity(db, s.UserID, false)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		if identity == nil {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "wrapAlg": alg, "wrappedPrivateKey": base64.StdEncoding.EncodeToString(wrapped), "createdAt": created, "updatedAt": updated})
+		writeJSON(w, identity)
 	})))
 	mux.Handle("PUT /api/v1/me/identity", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {

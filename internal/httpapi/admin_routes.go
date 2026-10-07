@@ -267,7 +267,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"))
-		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), r.Header.Get("X-Request-Id"))
+		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/admin/audit", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

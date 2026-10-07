@@ -211,8 +211,18 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, id, "auth.login", "", "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
+		identity, err := loadIdentity(db, id, true)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		recordAudit(db, id, "auth.login", "", "", RequestID(r))
+		out := map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)}
+		if identity != nil {
+			out["identity"] = identity
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, out)
 	}
 	mux.HandleFunc("POST /api/v1/auth/login", handleLogin)
 	mux.HandleFunc("POST /api/auth/login", handleLogin)
@@ -258,6 +268,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		var in struct {
 			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
 			WrappedIdentityKey                             string `json:"wrappedIdentityKey"`
+			IdentityDeviceID                               string `json:"identityDeviceId"`
 			Iterations                                     int    `json:"iterations"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.CurrentAuthSecret) != 64 || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 {
@@ -265,6 +276,10 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var wrapped []byte
+		if (in.WrappedIdentityKey == "") != (in.IdentityDeviceID == "") {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
 		if in.WrappedIdentityKey != "" {
 			var ok bool
 			if wrapped, ok = decodeWrappedIdentity(in.WrappedIdentityKey); !ok {
@@ -304,8 +319,15 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if wrapped == nil {
 				return nil
 			}
-			_, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=?`, wrapped, now, s.UserID)
-			return err
+			// Bound to the identity the client unwrapped, so a concurrent re-create is not overwritten.
+			res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=?`, wrapped, now, s.UserID, in.IdentityDeviceID)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n != 1 {
+				return errIdentityRewrap
+			}
+			return nil
 		})
 		if errors.Is(err, errIdentityRewrap) {
 			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and change the password again")
@@ -315,7 +337,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "account.password_change", "", "", r.Header.Get("X-Request-Id"))
+		recordAudit(db, s.UserID, "account.password_change", "", "", RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +374,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		s, _ := auth.SessionFromContext(r)
 		key := s.UserID + "\x00" + clientIP(r)
 		if !loginLockout.Try(key, time.Now().UTC()) {
-			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", r.Header.Get("X-Request-Id"))
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", RequestID(r))
 			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
 		}
@@ -365,7 +387,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		if err != nil || verifyErr != nil {
 			loginLockout.Fail(key, time.Now().UTC())
-			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", r.Header.Get("X-Request-Id"))
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", RequestID(r))
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
 		}
@@ -375,8 +397,21 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "auth.step_up", "", "", r.Header.Get("X-Request-Id"))
-		w.WriteHeader(http.StatusNoContent)
+		recordAudit(db, s.UserID, "auth.step_up", "", "", RequestID(r))
+		// SSO sessions never receive the wrapped identity (none exists for them in P1).
+		var identity map[string]string
+		if s.SSOIssuer == "" {
+			if identity, err = loadIdentity(db, s.UserID, true); err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+		}
+		if identity == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, map[string]any{"identity": identity})
 	})))
 
 	mux.HandleFunc("POST /api/v1/auth/recover", func(w http.ResponseWriter, r *http.Request) {
@@ -449,7 +484,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if e != nil {
 				return e
 			}
-			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, r.Header.Get("X-Request-Id"), "")
+			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, RequestID(r), "")
 			return e
 		})
 		if e != nil {

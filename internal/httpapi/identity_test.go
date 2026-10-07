@@ -33,11 +33,14 @@ func status(t *testing.T, res *http.Response) (int, string) {
 	return res.StatusCode, string(body)
 }
 
-func (p *pairClient) stepUp(t *testing.T) {
+// stepUp returns the response body: the wrapped identity once one exists, else empty.
+func (p *pairClient) stepUp(t *testing.T) string {
 	t.Helper()
-	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/step-up", []byte(`{"authSecret":"`+strings.Repeat("a", 64)+`"}`), true, false)); code != http.StatusNoContent {
+	code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/step-up", []byte(`{"authSecret":"`+strings.Repeat("a", 64)+`"}`), true, false))
+	if code != http.StatusNoContent && code != http.StatusOK {
 		t.Fatalf("step-up=%d %s", code, body)
 	}
+	return body
 }
 
 // createIdentity returns the identity device ID.
@@ -109,12 +112,13 @@ func TestUserStepUpRefusesSSOSession(t *testing.T) {
 	}
 }
 
-func TestIdentityGetReturnsWrappedKeyToSessionOnly(t *testing.T) {
+func TestIdentityGetNeverReturnsWrappedKey(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	if code, _ := status(t, p.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)); code != http.StatusNotFound {
 		t.Fatalf("before create: %d", code)
 	}
 	id := p.createIdentity(t)
+	// The session cookie alone (a stolen cookie) yields only public material.
 	res := p.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)
 	if res.Header.Get("Cache-Control") != "no-store" {
 		t.Fatal("identity response is cacheable")
@@ -122,14 +126,47 @@ func TestIdentityGetReturnsWrappedKeyToSessionOnly(t *testing.T) {
 	var got map[string]string
 	data, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if json.Unmarshal(data, &got) != nil || got["deviceId"] != id || got["wrapAlg"] != "aes-256-gcm" ||
-		got["publicKey"] != base64.StdEncoding.EncodeToString(identityPub) ||
-		got["wrappedPrivateKey"] != base64.StdEncoding.EncodeToString(identityWrapped) || len(got["fingerprint"]) != 64 {
+	if json.Unmarshal(data, &got) != nil || got["deviceId"] != id ||
+		got["publicKey"] != base64.StdEncoding.EncodeToString(identityPub) || len(got["fingerprint"]) != 64 {
 		t.Fatalf("identity=%s", data)
+	}
+	if strings.Contains(string(data), "wrappedPrivateKey") || strings.Contains(string(data), base64.StdEncoding.EncodeToString(identityWrapped)) {
+		t.Fatalf("session GET returned the wrapped key: %s", data)
 	}
 	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{7}, 32))
 	if code, _ := status(t, p.doDeviceOnly(t, http.MethodGet, "/api/v1/me/identity", nil)); code != http.StatusUnauthorized {
-		t.Fatalf("device credential read the wrapped identity: %d", code)
+		t.Fatalf("device credential read the identity: %d", code)
+	}
+}
+
+func TestWrappedIdentityOnlyInPasswordProofs(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	wrapped := base64.StdEncoding.EncodeToString(identityWrapped)
+	login := func() (*http.Response, string) {
+		res := p.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("login=%d %s", res.StatusCode, data)
+		}
+		return res, string(data)
+	}
+	if _, body := login(); strings.Contains(body, "identity") {
+		t.Fatalf("login without identity: %s", body)
+	}
+	id := p.createIdentity(t)
+	res, body := login()
+	if !strings.Contains(body, `"wrappedPrivateKey":"`+wrapped+`"`) || !strings.Contains(body, id) || res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("local login lacks the wrapped identity: %s", body)
+	}
+	if body := p.stepUp(t); !strings.Contains(body, `"wrappedPrivateKey":"`+wrapped+`"`) || !strings.Contains(body, `"wrapAlg":"aes-256-gcm"`) {
+		t.Fatalf("local step-up lacks the wrapped identity: %s", body)
+	}
+	if _, err := p.db.Exec(`UPDATE sessions SET sso_issuer='https://idp.example' WHERE user_id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if body := p.stepUp(t); strings.Contains(body, "wrappedPrivateKey") || strings.Contains(body, wrapped) {
+		t.Fatalf("SSO step-up returned the wrapped identity: %s", body)
 	}
 }
 
@@ -223,10 +260,11 @@ func TestIdentityDoesNotBlockSaves(t *testing.T) {
 
 func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
+	identityID := "dev_00000000000000000000000000"
 	change := func(wrapped string) (int, string) {
 		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000`
 		if wrapped != "" {
-			body += `,"wrappedIdentityKey":` + quote(wrapped)
+			body += `,"wrappedIdentityKey":` + quote(wrapped) + `,"identityDeviceId":` + quote(identityID)
 		}
 		return status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body+`}`), true, false))
 	}
@@ -234,7 +272,15 @@ func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	if code, _ := change(rewrapped); code != http.StatusConflict {
 		t.Fatalf("rewrap without identity: %d", code)
 	}
-	p.createIdentity(t)
+	created := p.createIdentity(t)
+	if code, body := change(rewrapped); code != http.StatusConflict || !strings.Contains(body, "identity_rewrap_required") {
+		t.Fatalf("rewrap bound to a stale identity ID: %d %s", code, body)
+	}
+	identityID = created
+	half := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"identityDeviceId":` + quote(created) + `}`
+	if code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(half), true, false)); code != http.StatusBadRequest {
+		t.Fatalf("identity ID without a wrapped key: %d", code)
+	}
 	if code, body := change(""); code != http.StatusConflict || !strings.Contains(body, "identity_rewrap_required") {
 		t.Fatalf("old client orphaned the identity: %d %s", code, body)
 	}
