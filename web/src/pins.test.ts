@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePins, fingerprint, sameKey } from "./pins";
+import { comparePins, confirmFingerprintChange, fingerprint, isPinConfirmation, PinConfirmation, sameKey } from "./pins";
 
 const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)));
 const member = (id: string, publicKey?: string) => ({ userId: id, username: id, role: "editor", identity: publicKey ? { deviceId: "dev", publicKey } : undefined });
@@ -30,5 +30,11 @@ describe("pins", () => {
     expect(await fingerprint(key(0))).toBe("66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925".match(/.{4}/g)!.join(" "));
     await expect(fingerprint(btoa("short"))).rejects.toThrow();
     await expect(fingerprint("not base64!")).rejects.toThrow();
+  });
+
+  it("recognises only confirmations confirmFingerprintChange made", () => {
+    expect(isPinConfirmation(confirmFingerprintChange({}, member("a", key(4))))).toBe(true);
+    expect(isPinConfirmation(Object.assign(Object.create(PinConfirmation.prototype), { userId: "a", key: key(5), pins: {} }))).toBe(false);
+    expect(isPinConfirmation(key(5))).toBe(false);
   });
 });

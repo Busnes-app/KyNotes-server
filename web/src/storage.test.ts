@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins } from "./storage";
-import { confirmFingerprintChange } from "./pins";
+import { confirmFingerprintChange, PinConfirmation } from "./pins";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const held = { deviceId: "dev_00000000000000000000000000", publicKey: new Uint8Array(32).fill(1), privateKey: new Uint8Array(32).fill(2) };
@@ -93,6 +93,8 @@ describe("pin and key-mark writes never downgrade", () => {
     expect(await storeConfirmedPin("alice", userID, key(8))).toBe(false);
     // @ts-expect-error nor is a look-alike object
     expect(await storeConfirmedPin("alice", userID, { userId: "usr_b", key: key(8), pins: {} })).toBe(false);
+    const forged = Object.assign(Object.create(PinConfirmation.prototype), { userId: "usr_b", key: key(9), pins: {} });
+    expect(await storeConfirmedPin("alice", userID, forged)).toBe(false);
     expect((await getPins("alice", userID)).usr_b).toBe(key(7));
   });
   it("keeps the highest key mark and first key digests per container, and reports when it cannot", async () => {

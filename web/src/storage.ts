@@ -1,6 +1,6 @@
 import type { HeldIdentity } from "./identity";
 import type { KeyState } from "./keyring";
-import { PinConfirmation, type Pins } from "./pins";
+import { isPinConfirmation, type PinConfirmation, type Pins } from "./pins";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
@@ -224,7 +224,7 @@ export async function storePins(username: string, userID: string, keys: Pins): P
 
 /** Replaces one pin; only a confirmFingerprintChange result is accepted. */
 export async function storeConfirmedPin(username: string, userID: string, confirmation: PinConfirmation): Promise<boolean> {
-  if (!(confirmation instanceof PinConfirmation)) return false;
+  if (!isPinConfirmation(confirmation)) return false;
   return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...pinsOf(record, userID), [confirmation.userId]: confirmation.key } } }));
 }
 

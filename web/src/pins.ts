@@ -32,14 +32,24 @@ export class FingerprintChangedError extends Error {
   }
 }
 
+/** Confirmations confirmFingerprintChange made; a prototype or look-alike object is never in here. */
+const confirmations = new WeakSet<PinConfirmation>();
 let mintConfirmation: (userId: string, key: string, pins: Pins) => PinConfirmation;
 
 /** Proof the user confirmed a changed fingerprint; only confirmFingerprintChange makes one. */
 export class PinConfirmation {
   private declare readonly brand: true; // nominal: look-alike objects do not type-check
-  static { mintConfirmation = (userId, key, pins) => new PinConfirmation(userId, key, pins); }
+  static {
+    mintConfirmation = (userId, key, pins) => {
+      const confirmation = new PinConfirmation(userId, key, pins);
+      confirmations.add(confirmation);
+      return confirmation;
+    };
+  }
   private constructor(readonly userId: string, readonly key: string, readonly pins: Pins) {}
 }
+
+export const isPinConfirmation = (value: unknown): value is PinConfirmation => typeof value === "object" && value !== null && confirmations.has(value as PinConfirmation);
 
 /** The user compared the new fingerprint out of band and accepts it. Persist with storeConfirmedPin; retry sealFor with .pins. */
 export function confirmFingerprintChange(pins: Pins, member: MemberKey): PinConfirmation {

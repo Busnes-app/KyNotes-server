@@ -51,10 +51,9 @@ const isSteward = (role: string) => role === "owner" || role === "admin";
  */
 export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   const { containerID, envelopes, me, members, pins } = input;
-  const ring = new Map(input.held ?? []);
+  const ring = new Map<number, Uint8Array>();
   const known = { mark: Math.max(0, input.known.mark), digests: { ...input.known.digests } };
   const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[], conflicts: [] as number[], known };
-  if (!me) return out;
   const pinnedKeys = Object.values(pins).flatMap((key) => { try { return [publicKeyBytes(key)]; } catch { return []; } });
   /** First key per generation wins, across reloads through the stored digest. */
   const accept = (generation: number, key: Uint8Array): boolean => {
@@ -69,6 +68,9 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
     known.digests[generation] ??= digest;
     return true;
   };
+  // Held keys pass the same digest check as envelopes; a mismatch is dropped and reported.
+  for (const [generation, key] of input.held ?? []) accept(generation, key);
+  if (!me) return out;
   const open = (envelope: Uint8Array, generation: number, sender: Uint8Array) => {
     try { return unwrapEnvelope(envelope, me.privateKey, containerID, generation, me.deviceId, sender); } catch { return undefined; }
   };

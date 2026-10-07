@@ -149,6 +149,19 @@ describe("keyring", () => {
       expect(openKeyring({ containerID: cnt, envelopes: same, me: editor.held, members: [editor.member], pins, known }).ring.get(2)).toEqual(k2);
     });
 
+    it("drops a held key that disagrees with the stored digest, even beside a matching envelope", () => {
+      const digests = open(0, fromOwner, editor.held, members, {}).known.digests;
+      const other = newContainerKey();
+      const opened = open(2, fromOwner, editor.held, members, {}, new Map([[2, other]]), digests);
+      expect(opened.ring.get(2)).toEqual(k2);
+      expect(opened.conflicts).toEqual([2]);
+      expect(opened.known.digests).toEqual(digests);
+      // A held key with no stored digest is recorded.
+      const recorded = open(0, [], editor.held, members, {}, new Map([[5, other]]));
+      expect(recorded.ring.get(5)).toEqual(other);
+      expect(Object.keys(recorded.known.digests)).toEqual(["5"]);
+    });
+
     it("never rewrites a pin from server data", () => {
       const pinned = admin.member.identity!.publicKey;
       const pins = { [owner.member.userId]: pinned };
