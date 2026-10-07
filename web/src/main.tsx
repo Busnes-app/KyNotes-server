@@ -100,6 +100,7 @@ import {
   putNote,
   putUpload,
   queueSave,
+  rememberAfter,
   storeDeviceKey,
   storeIdentityKey,
 } from "./storage";
@@ -310,8 +311,7 @@ function Login({
       const keys = await deriveLoginKeys(password, salt, iterations);
       const authSecret = keys.authSecret;
       // The password stays in the browser; the server only ever sees authSecret.
-      const result = await setupInit(name, undefined, authSecret, salt, iterations);
-      await storeDeviceKey(name, authSecret);
+      const result = await rememberAfter(() => setupInit(name, undefined, authSecret, salt, iterations), name, authSecret);
       sessionStorage.setItem("kynotes-last-username", name);
       onLogin({ username: name, authSecret, user: result.user });
       settleIdentity(name, result.user.id, keys);
@@ -333,21 +333,21 @@ function Login({
       const params = await loginParams(activeName);
       const keys = await deriveLoginKeys(password, params.loginSalt, params.iterations);
       const authSecret = keys.authSecret;
-      await storeDeviceKey(activeName, authSecret);
       if (sessionUser) {
         // If SSO session is active, verify credentials or enter directly
         try {
-          const result = await login(activeName, authSecret);
+          const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
           sessionStorage.setItem("kynotes-last-username", activeName);
           onLogin({ username: activeName, authSecret, user: result.user });
           settleIdentity(activeName, result.user.id, keys, result.identity);
         } catch {
           // If login endpoint failed but SSO session is valid, allow user entry with their derived key
+          await storeDeviceKey(activeName, authSecret).catch(() => undefined);
           sessionStorage.setItem("kynotes-last-username", activeName);
           onLogin({ username: activeName, authSecret, user: sessionUser });
         }
       } else {
-        const result = await login(activeName, authSecret);
+        const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
         sessionStorage.setItem("kynotes-last-username", activeName);
         onLogin({ username: activeName, authSecret, user: result.user });
         settleIdentity(activeName, result.user.id, keys, result.identity);
@@ -2340,16 +2340,14 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
       const newKeys = await deriveLoginKeys(next, newLoginSalt, 600000);
       const cached = await getIdentityKey(name, userID).catch(() => undefined);
       const rewrapped = await rewrapIdentity(identityAPI, userID, currentKeys, newKeys.userKEK, cached);
-      await changePassword({
+      await rememberAfter(() => changePassword({
         currentAuthSecret: currentKeys.authSecret,
         newAuthSecret: newKeys.authSecret,
         newLoginSalt,
         iterations: 600000,
         identityDeviceId: rewrapped?.identityDeviceId,
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
-      });
-      await storeDeviceKey(name, newKeys.authSecret);
-      if (rewrapped) await storeIdentityKey(name, userID, rewrapped.identity);
+      }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
       setCurrent("");
       setNext("");
       setStatus(

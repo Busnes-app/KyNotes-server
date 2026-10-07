@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, storeDeviceKey, storeIdentityKey } from "./storage";
+import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, rememberAfter, storeDeviceKey, storeIdentityKey } from "./storage";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const held = { deviceId: "dev_00000000000000000000000000", publicKey: new Uint8Array(32).fill(1), privateKey: new Uint8Array(32).fill(2) };
@@ -28,11 +28,12 @@ describe("keys vault identity", () => {
     expect(await getIdentityKey("alice", userID)).toBeUndefined();
   });
 
-  it("drops the identity when the auth secret is replaced", async () => {
+  it("keeps the identity when the auth secret is replaced", async () => {
     await storeDeviceKey("alice", "a".repeat(64));
     await storeIdentityKey("alice", userID, held);
     await storeDeviceKey("alice", "b".repeat(64));
-    expect(await getIdentityKey("alice", userID)).toBeUndefined();
+    expect(await getIdentityKey("alice", userID)).toEqual(held);
+    expect(await getDeviceKey("alice")).toBe("b".repeat(64));
   });
 
   it("forget this device removes it", async () => {
@@ -44,5 +45,33 @@ describe("keys vault identity", () => {
     await storeIdentityKey("bob", userID, held);
     await clearAllDeviceKeys();
     expect(await getIdentityKey("bob", userID)).toBeUndefined();
+  });
+});
+
+describe("vault writes follow the server and never fail it", () => {
+  beforeEach(clearAllDeviceKeys);
+
+  it("a refused sign-in leaves the vault, identity included, untouched", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    await storeIdentityKey("alice", userID, held);
+    await expect(rememberAfter(() => Promise.reject(new Error("invalid credentials")), "alice", "b".repeat(64))).rejects.toThrow("invalid credentials");
+    expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+    expect(await getIdentityKey("alice", userID)).toEqual(held);
+  });
+
+  it("stores after a successful call, with the re-wrapped identity", async () => {
+    expect(await rememberAfter(async () => "ok", "alice", "b".repeat(64), { userID, identity: held })).toBe("ok");
+    expect(await getDeviceKey("alice")).toBe("b".repeat(64));
+    expect(await getIdentityKey("alice", userID)).toEqual(held);
+  });
+
+  it("succeeds when IndexedDB is unavailable", async () => {
+    const real = globalThis.indexedDB;
+    vi.stubGlobal("indexedDB", undefined);
+    try {
+      expect(await rememberAfter(async () => "ok", "alice", "b".repeat(64), { userID, identity: held })).toBe("ok");
+    } finally {
+      vi.stubGlobal("indexedDB", real);
+    }
   });
 });

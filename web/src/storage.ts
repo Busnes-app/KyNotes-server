@@ -106,18 +106,28 @@ export async function clearUpload(uploadId: string): Promise<void> {
   db.close();
 }
 
+/** Merges into the vault record so a cached identity survives a new auth secret. */
 export async function storeDeviceKey(username: string, authSecret: string): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const request = db.transaction("keys", "readwrite").objectStore("keys").put({
-      username,
-      authSecret,
-      updatedAt: new Date().toISOString(),
-    });
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    const transaction = db.transaction("keys", "readwrite");
+    const store = transaction.objectStore("keys");
+    const read = store.get(username);
+    read.onsuccess = () => store.put({ ...read.result, username, authSecret, updatedAt: new Date().toISOString() });
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
   });
   db.close();
+}
+
+/** Runs the server call, then caches its keys best-effort: the vault is a convenience and never fails a sign-in. */
+export async function rememberAfter<T>(call: () => Promise<T>, username: string, authSecret: string, held?: { userID: string; identity: HeldIdentity }): Promise<T> {
+  const result = await call();
+  try {
+    await storeDeviceKey(username, authSecret);
+    if (held) await storeIdentityKey(username, held.userID, held.identity);
+  } catch { /* no IndexedDB: the next visit prompts for the password again */ }
+  return result;
 }
 
 export async function getDeviceKey(username: string): Promise<string | undefined> {
