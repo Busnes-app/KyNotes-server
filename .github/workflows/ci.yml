@@ -61,10 +61,10 @@ jobs:
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
-      - run: go test -fuzz=FuzzParsePairingToken -fuzztime=60s ./internal/auth
-      - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=60s ./internal/auth
-      - run: go test -fuzz=FuzzParseID -fuzztime=60s ./internal/ids
-      - run: go test -fuzz=FuzzConfigLoad -fuzztime=60s ./internal/config
+      - run: go test -fuzz=FuzzParsePairingToken -fuzztime=150000x ./internal/auth
+      - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=100000x ./internal/auth
+      - run: go test -fuzz=FuzzParseID -fuzztime=6000000x ./internal/ids
+      - run: go test -fuzz=FuzzConfigLoad -fuzztime=2000000x ./internal/config
       - run: |
           set -eu
           image=kynotes-server:ci
