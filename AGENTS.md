@@ -337,3 +337,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestApply*`, `TestSetupHandler*`, `TestAdminSocket*`, `TestServeOwnsAdminSocketLifecycle`,
   `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
   `scripts/apply-setup-container-check.sh`.
+- Team keys P1: `internal/httpapi/identity_routes.go` serves `GET`/`PUT /api/v1/me/identity`
+  (create-only, `auth.RequireUserStepUp`: local session + `stepup_at`, SSO refused). `GET`
+  is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a
+  `devices` row with `platform='identity'` and an unusable `secret_hash` (migration 0021,
+  `user_identities`); device auth, device list/revoke/selection, register and the save gate
+  exclude it. Password change must carry `identityDeviceId` and `wrappedIdentityKey` when one
+  exists (`409 identity_rewrap_required`); recovery and admin reset delete it with an audit row.
+  `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
+  (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
+  or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
+  ("Forget this device" clears it). SSO-only users have no identity (open question).
+  `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
+  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserStepUpRefusesSSOSession`,
+  `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
+  `TestRecoveryAndAdminResetDeleteIdentity`, `TestEnvelopeVectors` and `npm test`.
