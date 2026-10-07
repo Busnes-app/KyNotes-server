@@ -65,3 +65,12 @@ func TestHandlerServesAppAndSPAPaths(t *testing.T) {
 		t.Fatal("handler is nil")
 	}
 }
+
+func TestHandlerSetsExactCSP(t *testing.T) {
+	const want = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	res := httptest.NewRecorder()
+	Handler().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/", nil))
+	if got := res.Header().Get("Content-Security-Policy"); got != want {
+		t.Fatalf("CSP = %q, want %q", got, want)
+	}
+}

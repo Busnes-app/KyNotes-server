@@ -80,7 +80,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, newestCopy, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -103,9 +103,8 @@ import {
   type ThemeName,
 } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
-import { documentText, emptyNoteDocument, isStructuredNoteBody, parseNoteDocument, stringifyNoteDocument } from "./document";
+import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
-import type { Block } from "@blocknote/core";
 import "./styles.css";
 import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
@@ -114,7 +113,7 @@ const MAX_CHANGE_PAGES = 100;
 const notePayload = (note: Note): PagePayload =>
   ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
-const BlockNoteEditor = lazy(() => import("./BlockNoteEditor").then((module) => ({ default: module.BlockNoteEditor })));
+const CanvasPage = lazy(() => import("./CanvasPage"));
 
 type AuthState = {
   username: string;
@@ -1088,7 +1087,7 @@ function Workspace({
       const note: Note = {
         id: object.id,
         title: "Untitled page",
-        body: stringifyNoteDocument(emptyNoteDocument().document),
+        body: stringifyCanvasPage(emptyCanvasPage()),
         section: sectionID === QUICK_NOTES ? undefined : sectionID,
         order,
         version: 0,
@@ -1464,7 +1463,7 @@ function Workspace({
     const next = { ...open, ...change };
     selectedNoteRef.current = next;
     setSelectedNote(next);
-    patchNotes((value) => editEntry(value, open.id, change));
+    patchNotes((value) => editOpenEntry(value, open, next, change));
     setDirty(true);
     persistDraft(next);
   }
@@ -1698,8 +1697,8 @@ function Workspace({
             <div className="section-label">NOTEBOOKS</div>
             {personalWorkspaces.map((container) => (
               <button
-                className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
-                aria-current={selected?.id === container.id ? "page" : undefined}
+                className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
+                aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
                 key={container.id}
                 onClick={() => void selectContainer(container)}
               >
@@ -1711,8 +1710,8 @@ function Workspace({
             {teams.map((container) => (
               <React.Fragment key={container.id}>
                 <button
-                  className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
-                  aria-current={selected?.id === container.id ? "page" : undefined}
+                  className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
+                  aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
                   onClick={() => void selectContainer(container)}
                 >
                   <span className="nav-icon">◇</span>
@@ -1720,8 +1719,8 @@ function Workspace({
                 </button>
                 {teamWorkspaces(container.id).map((workspace) => (
                   <button
-                    className={`ky-nav-item nav-item nested-nav-item ${selected?.id === workspace.id ? "selected" : ""}`}
-                    aria-current={selected?.id === workspace.id ? "page" : undefined}
+                    className={`ky-nav-item nav-item nested-nav-item ${!queueMode && selected?.id === workspace.id ? "selected" : ""}`}
+                    aria-current={!queueMode && selected?.id === workspace.id ? "page" : undefined}
                     key={workspace.id}
                     onClick={() => void selectContainer(workspace)}
                   >
@@ -1861,7 +1860,7 @@ function Workspace({
                   <strong>{shown.title || "Untitled page"}</strong>
                   <span>
                     {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
-                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : documentText(shown.body).slice(0, 64)) || "Empty page"}
+                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : indexNotes([shown])[0].body.slice(0, 64)) || "Empty page"}
                   </span>
                 </button>
               </div>
@@ -1932,15 +1931,15 @@ function Workspace({
                   value={selectedNote.title}
                   onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                 />
-                <div className="single-pane-editor">
-                  <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
-                    <BlockNoteEditor
+                <div className="page-canvas">
+                  <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
+                    <CanvasPage
                       key={`${selectedNote.id}:${editorRevision}`}
+                      pageID={selectedNote.id}
+                      body={selectedNote.body}
                       editable={recovering !== selectedNote.id}
-                      noteID={selectedNote.id}
-                      initialContent={parseNoteDocument(selectedNote.body).document}
-                      legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}
-                      onChange={(document: Block[]) => editOpen(selectedNote.id, { body: stringifyNoteDocument(document) })}
+                      onChange={(body) => editOpen(selectedNote.id, { body })}
+                      onError={setError}
                       uploadFile={uploadInlineFile}
                       resolveFileUrl={resolveFileUrl}
                     />
