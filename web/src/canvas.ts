@@ -93,6 +93,10 @@ export function fitBox(x: number, wanted: number, view?: { left: number; width: 
   return { x: Math.max(0, Math.min(x, view.left), Math.min(x, right - width)), width };
 }
 
+/** Ctrl/Cmd+Z by the letter on Latin layouts (AZERTY, QWERTZ), by the physical key otherwise. */
+export const isUndoKey = ({ key, code }: { key: string; code: string }) =>
+  /^[a-z]$/i.test(key) ? key.toLowerCase() === "z" : code === "KeyZ";
+
 export function readingOrder(boxes: CanvasBox[]): Map<string, number> {
   const sorted = [...boxes].sort((a, b) => a.y - b.y || a.x - b.x);
   return new Map(sorted.map((box, index) => [box.id, index]));

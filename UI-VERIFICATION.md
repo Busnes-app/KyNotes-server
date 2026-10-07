@@ -117,7 +117,7 @@ Scratch server on copied preview data (never production), Playwright MCP, Chromi
 | Ink and click-to-add reach below a long note (surface sized from measured box heights) | Fixed after verification (final-review fixes); not re-run in a browser |
 | Editing on a phone keeps desktop box widths | Fixed after verification (final-review fixes); not re-run in a browser |
 | Right-edge placement while scrolled horizontally lands at the click | Fixed after verification (final-review fixes, `fitBox` unit-tested); not re-run in a browser |
-| Undo keys on non-Latin layouts (`KeyZ`) | Fixed after verification (final-review fixes); not re-run in a browser |
+| Undo keys match the letter Z on Latin layouts (AZERTY, QWERTZ) and the physical Z key on non-Latin layouts | Fixed after verification (final-review fixes, `isUndoKey` unit-tested); not re-run in a browser |
 | Page full: body near 9 MiB shows "page is full", no `PUT` | Not run in a browser; `pageFits` is unit-tested |
 | Real stylus pressure | Unproven: no pen device |
 

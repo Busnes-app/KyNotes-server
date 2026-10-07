@@ -7,6 +7,19 @@ export function editEntry(notes: Note[], id: string, change: Content): Note[] {
   return notes.map((note) => (note.id === id ? { ...note, ...change } : note));
 }
 
+const sameFields = (a: Note, b: Note) => {
+  const keys = Object.keys(a) as Array<keyof Note>;
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+};
+
+/**
+ * Edits the open page. A list entry still equal to the open page becomes `next` itself,
+ * so per-object projection caches parse the edited page once per keystroke.
+ */
+export function editOpenEntry(notes: Note[], open: Note, next: Note, change: Content): Note[] {
+  return notes.map((note) => (note.id !== open.id ? note : sameFields(note, open) ? next : { ...note, ...change }));
+}
+
 /** A server write succeeded: carry its version forward, never content, never backwards. */
 export function carrySaved(notes: Note[], id: string, saved: { version: number; updatedAt?: string }): Note[] {
   return notes.map((note) => (note.id === id && saved.version > note.version

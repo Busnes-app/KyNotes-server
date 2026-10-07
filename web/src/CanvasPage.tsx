@@ -6,7 +6,7 @@ import {
   DEFAULT_BOX_WIDTH, INK_COLORS, LEGACY_BOX, MAX_STROKE_POINTS, MAX_STROKES, openPage, stringifyCanvasPage,
   type CanvasBox, type CanvasPage as Page, type CanvasStroke, type InkColor,
 } from "./document";
-import { History, addBox, contentExtent, eraseAt, fitBox, freeSpot, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
+import { History, addBox, contentExtent, eraseAt, fitBox, freeSpot, isUndoKey, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
 import { strokePath } from "./ink";
 
 type Tool = "type" | "pen" | "highlighter" | "eraser";
@@ -221,7 +221,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   };
   const undoKeys = useRef<(event: KeyboardEvent) => void>(() => {});
   undoKeys.current = (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.code !== "KeyZ") return;
+    if (!(event.ctrlKey || event.metaKey) || !isUndoKey(event)) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest?.(".bn-container, dialog, input, textarea, select, [contenteditable]:not([contenteditable=false])")) return; // text undo belongs to the editor
     event.preventDefault();

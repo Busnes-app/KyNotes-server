@@ -80,7 +80,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, newestCopy, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -1463,7 +1463,7 @@ function Workspace({
     const next = { ...open, ...change };
     selectedNoteRef.current = next;
     setSelectedNote(next);
-    patchNotes((value) => editEntry(value, open.id, change));
+    patchNotes((value) => editOpenEntry(value, open, next, change));
     setDirty(true);
     persistDraft(next);
   }

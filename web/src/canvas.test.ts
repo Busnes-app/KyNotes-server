@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { History, MAX_PAGE_BYTES, addBox, contentExtent, eraseAt, fitBox, freeSpot, isEmptyBox, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
+import { History, MAX_PAGE_BYTES, addBox, contentExtent, eraseAt, fitBox, freeSpot, isEmptyBox, isUndoKey, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
 import { MAX_BOXES, MAX_COORD, emptyCanvasPage, type CanvasBox, type CanvasStroke } from "./document";
 
 const box = (id: string, x: number, y: number, text = ""): CanvasBox => ({ id, x, y, width: 300, blocks: [{ type: "paragraph", content: text }] });
@@ -107,5 +107,22 @@ describe("box placement", () => {
   });
   it("keeps an off-window spot such as Add text at the page origin", () => {
     expect(fitBox(0, 640, view(900, 1200))).toEqual({ x: 0, width: 640 });
+  });
+});
+
+describe("undo key", () => {
+  it("matches the letter Z on any Latin layout", () => {
+    expect(isUndoKey({ key: "z", code: "KeyZ" })).toBe(true); // QWERTY
+    expect(isUndoKey({ key: "Z", code: "KeyZ" })).toBe(true); // Shift
+    expect(isUndoKey({ key: "z", code: "KeyW" })).toBe(true); // AZERTY
+    expect(isUndoKey({ key: "z", code: "KeyY" })).toBe(true); // QWERTZ
+  });
+  it("ignores another Latin letter on the physical Z key", () => {
+    expect(isUndoKey({ key: "w", code: "KeyZ" })).toBe(false); // AZERTY
+    expect(isUndoKey({ key: "y", code: "KeyZ" })).toBe(false); // QWERTZ
+  });
+  it("falls back to the physical key on non-Latin layouts", () => {
+    expect(isUndoKey({ key: "я", code: "KeyZ" })).toBe(true);
+    expect(isUndoKey({ key: "я", code: "KeyQ" })).toBe(false);
   });
 });
