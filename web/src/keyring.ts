@@ -1,6 +1,7 @@
 import { randomBytes } from "@noble/ciphers/utils.js";
 import { base64, fromBase64, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
+import { publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
@@ -14,18 +15,45 @@ export type Member = { userId: string; username: string; role: string };
 /** A member and its identity, when it has one the server shows us. */
 export type MemberKey = Member & { identity?: Pick<PublicIdentity, "deviceId" | "publicKey"> };
 
-export function openKeyring(containerID: string, envelopes: Envelope[], identity: HeldIdentity | undefined): Keyring {
+/** This browser's identity and the user it belongs to. */
+export type Me = HeldIdentity & { userId: string };
+/** Keys opened, pins to persist, and key holders to surface: fresh were pinned now, changed were refused. */
+export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; changed: PinChange[] };
+
+const isSteward = (role: string) => role === "owner" || role === "admin";
+
+/**
+ * Opens this identity's envelopes, accepting only keys a trusted sender sealed:
+ * this identity itself, or a current owner or admin whose identity key matches
+ * its pin. A first-contact sender is pinned once its envelope opens (TOFU); a
+ * changed key is refused until the user confirms it (confirmFingerprintChange).
+ */
+export function openKeyring(containerID: string, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Pins): OpenedKeyring {
   const ring = new Map<number, Uint8Array>();
-  if (!identity) return ring;
+  const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[] };
+  if (!me) return out;
   for (const row of envelopes) {
-    if (row.deviceId !== identity.deviceId || row.alg !== ENVELOPE_ALG) continue;
+    if (row.deviceId !== me.deviceId || row.alg !== ENVELOPE_ALG) continue;
     try {
       const envelope = fromBase64(row.envelope);
-      if (envelopeSender(envelope) !== identity.deviceId) continue;
-      ring.set(row.keyGeneration, unwrapEnvelope(envelope, identity.privateKey, containerID, row.keyGeneration, identity.deviceId, identity.publicKey));
+      const sender = envelopeSender(envelope);
+      const self = sender === me.deviceId;
+      const member = self ? undefined : members.find((entry) => entry.identity?.deviceId === sender);
+      if (!self && (!member || member.userId === me.userId || !isSteward(member.role))) continue;
+      const pinned = member && out.pins[member.userId];
+      if (member && pinned !== undefined && !sameKey(pinned, member.identity!.publicKey)) {
+        if (!out.changed.some((change) => change.member.userId === member.userId)) out.changed.push({ member, pinned });
+        continue;
+      }
+      const senderPublic = member ? publicKeyBytes(member.identity!.publicKey) : me.publicKey;
+      ring.set(row.keyGeneration, unwrapEnvelope(envelope, me.privateKey, containerID, row.keyGeneration, me.deviceId, senderPublic));
+      if (member && pinned === undefined) {
+        out.pins[member.userId] = member.identity!.publicKey;
+        out.fresh.push(member);
+      }
     } catch { /* A row this identity cannot open is someone else's mistake, never a key. */ }
   }
-  return ring;
+  return out;
 }
 
 /**
@@ -66,7 +94,6 @@ export type SweepPlan =
   | { kind: "mint"; recipients: MemberKey[] }
   | { kind: "wrap"; grants: Array<{ member: MemberKey; generation: number }> };
 
-const isSteward = (role: string) => role === "owner" || role === "admin";
 
 /**
  * What an owner or admin's browser must do so every member holds the container keys.
@@ -95,9 +122,10 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
   return grants.length ? { kind: "wrap", grants } : { kind: "idle" };
 }
 
-export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, sender: HeldIdentity): Envelope {
+export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, me: Me, pins: Pins): { envelope: Envelope; pins: Pins } {
   const identity = member.identity!;
-  return { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope: base64(wrapEnvelope(key, fromBase64(identity.publicKey), containerID, generation, identity.deviceId, sender)) };
+  const envelope = base64(wrapEnvelope(key, publicKeyBytes(identity.publicKey), containerID, generation, identity.deviceId, me));
+  return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins };
 }
 
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */
