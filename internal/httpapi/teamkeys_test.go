@@ -219,3 +219,63 @@ func (p *pairClient) saveRacing(t *testing.T, oid string, generation int64, comm
 	code, _ := p.sendRacing(t, http.MethodPut, "/api/v1/objects/"+oid, map[string]string{"X-Kynotes-Key-Generation": strconv.FormatInt(generation, 10), "X-Kynotes-Base-Version": strconv.FormatInt(base, 10)}, []byte("ciphertext"), commit)
 	return code
 }
+
+func TestEnvelopeWriteRequiresUserStepUp(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	cid := seedContainer(t, p, "workbook", "", map[string]string{pairUser: "owner"})
+	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{7}, 32))
+	// The session is seconds old: the retired session-age rule would have admitted it.
+	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/containers/"+cid+"/envelopes", envelopesBody(envJSON(p.deviceID, 1, 1)), true, false)); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("fresh session without step-up: %d %s", code, body)
+	}
+	p.stepUp(t)
+	if code, _ := status(t, p.do(t, http.MethodPut, "/api/v1/containers/"+cid+"/envelopes", envelopesBody(envJSON(p.deviceID, 1, 1)), false, false)); code != http.StatusForbidden {
+		t.Fatalf("without CSRF: %d", code)
+	}
+	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/containers/"+cid+"/envelopes", envelopesBody(envJSON(p.deviceID, 1, 1)), true, false)); code != http.StatusNoContent {
+		t.Fatalf("after step-up: %d %s", code, body)
+	}
+}
+
+func TestEnvelopeWriteIsInsertOnlyExceptOwnIdentity(t *testing.T) {
+	tm := newTeam(t)
+	put := func(c *pairClient, body []byte) (int, string) {
+		return status(t, c.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", body, true, false))
+	}
+	if code, body := put(tm.owner, envelopesBody(envJSON(tm.editorID, 1, 1), envJSON(tm.ownerID, 1, 1))); code != http.StatusNoContent {
+		t.Fatalf("first write=%d %s", code, body)
+	}
+	tm.admin.stepUp(t)
+	if code, body := put(tm.admin.pairClient, envelopesBody(envJSON(tm.editorID, 1, 2))); code != http.StatusConflict || !strings.Contains(body, "already_exists") {
+		t.Fatalf("second steward overwrote a recipient: %d %s", code, body)
+	}
+	var fill []byte
+	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.editorID).Scan(&fill); err != nil || fill[0] != 1 {
+		t.Fatalf("envelope changed: %x %v", fill, err)
+	}
+	if code, body := put(tm.owner, envelopesBody(envJSON(tm.ownerID, 1, 3))); code != http.StatusNoContent {
+		t.Fatalf("own identity replace=%d %s", code, body)
+	}
+	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.ownerID).Scan(&fill); err != nil || fill[0] != 3 {
+		t.Fatalf("own identity not replaced: %x %v", fill, err)
+	}
+}
+
+func TestMemberMayWriteOnlyOwnEnvelopes(t *testing.T) {
+	tm := newTeam(t)
+	ed := tm.editor
+	ed.deviceID, ed.deviceSecret, _ = ed.register(t, ed.mintToken(t), bytes.Repeat([]byte{8}, 32))
+	ed.stepUp(t)
+	put := func(body []byte) (int, string) {
+		return status(t, ed.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", body, true, false))
+	}
+	if code, body := put(envelopesBody(envJSON(tm.editorID, 1, 1), envJSON(ed.deviceID, 1, 1))); code != http.StatusNoContent {
+		t.Fatalf("own identity and phone=%d %s", code, body)
+	}
+	if code, body := put(envelopesBody(envJSON(tm.adminID, 1, 1))); code != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+		t.Fatalf("editor wrapped for another member: %d %s", code, body)
+	}
+	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 2 {
+		t.Fatalf("envelopes=%d, want 2", n)
+	}
+}
