@@ -90,7 +90,10 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		var in struct{ InviteeID, Role string }
+		var in struct {
+			InviteeID, Role string
+			Envelopes       []invitationEnvelopeIn `json:"envelopes"`
+		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil || in.InviteeID == "" {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
@@ -109,8 +112,18 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 		sum := sha256.Sum256([]byte(token))
 		id, _ := ids.Mint("inv")
 		now := time.Now().UTC()
-		if _, e := db.Exec(`INSERT INTO invitations(id,container_id,inviter_id,invitee_id,token_hash,role,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)`, id, cid, s.UserID, in.InviteeID, hex.EncodeToString(sum[:]), in.Role, now.Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339)); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		e := dbTx(db, func(tx *sql.Tx) error {
+			if _, e := tx.Exec(`INSERT INTO invitations(id,container_id,inviter_id,invitee_id,token_hash,role,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)`, id, cid, s.UserID, in.InviteeID, hex.EncodeToString(sum[:]), in.Role, now.Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339)); e != nil {
+				return e
+			}
+			for _, v := range in.Envelopes {
+				if e := insertInvitationEnvelopeTx(tx, id, cid, s.UserID, in.InviteeID, v); e != nil {
+					return e
+				}
+			}
+			return nil
+		})
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		writeJSON(w, map[string]any{"id": id, "token": token, "expiresAt": now.Add(24 * time.Hour).UTC().Format(time.RFC3339)})
@@ -151,8 +164,10 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			if _, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, cid, s.UserID, role, now); e != nil {
 				return e
 			}
-			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, s.UserID, role, now, cid)
-			return e
+			if _, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, s.UserID, role, now, cid); e != nil {
+				return e
+			}
+			return moveInvitationEnvelopesTx(tx, r.PathValue("id"), s.UserID, now)
 		})
 		if e != nil {
 			WriteError(w, r, 409, "already_exists", "membership already exists")

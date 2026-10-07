@@ -740,3 +740,65 @@ func TestRemovedMemberCannotWriteAnywhereInTheTeam(t *testing.T) {
 		t.Fatalf("gate admitted a removed member (upload finalize path): %v", err)
 	}
 }
+
+func TestInvitationEnvelopesMoveOnlyAtTheirGeneration(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	body := rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.child+"/key-rotations", body, true, false)); code != http.StatusOK {
+		t.Fatalf("rotate child=%d %s", code, out)
+	}
+	invite := func(invitee string, envelopes ...string) (string, string, int) {
+		res := tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/invitations", []byte(`{"inviteeId":`+quote(invitee)+`,"role":"editor","envelopes":[`+strings.Join(envelopes, ",")+`]}`), true, false)
+		var out struct{ ID, Token string }
+		data, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		_ = json.Unmarshal(data, &out)
+		return out.ID, out.Token, res.StatusCode
+	}
+	withContainer := func(cid, env string) string { return `{"containerId":` + quote(cid) + `,` + env[1:] }
+	fresh, stale := tm.owner.addUser(t, "fresh"), tm.owner.addUser(t, "stale")
+	freshID, staleID := fresh.createIdentity(t), stale.createIdentity(t)
+
+	if _, _, code := invite(fresh.id, withContainer(tm.id, envJSON(freshID, 1, 1))); code != http.StatusConflict {
+		t.Fatalf("envelope at a past generation=%d", code)
+	}
+	if _, _, code := invite(fresh.id, withContainer(tm.id, envJSON(staleID, 2, 1))); code != http.StatusBadRequest {
+		t.Fatalf("envelope for someone other than the invitee=%d", code)
+	}
+	if _, _, code := invite(fresh.id, withContainer(tm.id, envJSON(freshID, 2, 1)), withContainer(tm.id, envJSON(freshID, 2, 2))); code != http.StatusBadRequest {
+		t.Fatalf("two envelopes for one container=%d", code)
+	}
+	inv, tok, code := invite(fresh.id, withContainer(tm.id, envJSON(freshID, 2, 1)), withContainer(tm.child, envJSON(freshID, 2, 1)))
+	if code != http.StatusOK {
+		t.Fatalf("invite=%d", code)
+	}
+	staleInv, staleTok, code := invite(stale.id, withContainer(tm.id, envJSON(staleID, 2, 1)), withContainer(tm.child, envJSON(staleID, 2, 1)))
+	if code != http.StatusOK {
+		t.Fatalf("invite stale=%d", code)
+	}
+	if code, body := status(t, fresh.do(t, http.MethodPost, "/api/v1/invitations/"+inv+"/accept", []byte(`{"token":`+quote(tok)+`}`), true, false)); code != http.StatusNoContent {
+		t.Fatalf("accept=%d %s", code, body)
+	}
+	if countEnvelopes(t, tm.owner, tm.id, 2) != 4 || countEnvelopes(t, tm.owner, tm.child, 2) != 4 {
+		t.Fatal("accepted envelopes were not installed in the team and child")
+	}
+	if _, code := fresh.save(t, tm.child, "", 2); code != http.StatusOK {
+		t.Fatalf("invitee save after accept=%d", code)
+	}
+	// The team rotates before the second invitee accepts: its team envelope is dropped.
+	body = rotationBody(2, envJSON(tm.ownerID, 3, 1), envJSON(tm.adminID, 3, 1), envJSON(tm.editorID, 3, 1), envJSON(freshID, 3, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusOK {
+		t.Fatalf("rotate team=%d %s", code, out)
+	}
+	if code, body := status(t, stale.do(t, http.MethodPost, "/api/v1/invitations/"+staleInv+"/accept", []byte(`{"token":`+quote(staleTok)+`}`), true, false)); code != http.StatusNoContent {
+		t.Fatalf("accept stale=%d %s", code, body)
+	}
+	var teamStale, childStale, left int
+	if err := tm.owner.db.QueryRow(`SELECT (SELECT COUNT(*) FROM key_envelopes WHERE device_id=?1 AND container_id=?2),(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?1 AND container_id=?3),(SELECT COUNT(*) FROM invitation_envelopes)`, staleID, tm.id, tm.child).Scan(&teamStale, &childStale, &left); err != nil {
+		t.Fatal(err)
+	}
+	if teamStale != 0 || childStale != 1 || left != 0 {
+		t.Fatalf("stale team envelope installed=%d, child=%d, leftover=%d", teamStale, childStale, left)
+	}
+}

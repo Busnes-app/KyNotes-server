@@ -318,3 +318,87 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 	}
 	return nil
 }
+
+type invitationEnvelopeIn struct {
+	ContainerID string `json:"containerId"`
+	envelopeIn
+}
+
+// insertInvitationEnvelopeTx stores an envelope for the invitee's identity in
+// team cid or one of its child workspaces, at that container's current
+// generation, where the inviter is owner or admin. One per container.
+func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee string, v invitationEnvelopeIn) error {
+	env, ok := v.bytes()
+	if !ok || ids.Validate("cnt", v.ContainerID) != nil {
+		return errEnvelopeInvalid
+	}
+	var role string
+	var generation int64
+	err := tx.QueryRow(`SELECT m.role,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errEnvelopeInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if !isSteward(role) {
+		return errInsufficientRole
+	}
+	if v.KeyGeneration != generation {
+		return errGenerationMoved
+	}
+	var identity int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE id=? AND user_id=? AND platform='identity' AND revoked_at=''`, v.DeviceID, invitee).Scan(&identity); err != nil {
+		return err
+	}
+	if identity == 0 {
+		return errEnvelopeInvalid
+	}
+	res, err := tx.Exec(`INSERT INTO invitation_envelopes(invitation_id,container_id,device_id,key_generation,alg,envelope) VALUES(?,?,?,?,?,?) ON CONFLICT DO NOTHING`, invitationID, v.ContainerID, v.DeviceID, v.KeyGeneration, v.Alg, env)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errEnvelopeInvalid // a second envelope for the same container
+	}
+	return nil
+}
+
+// moveInvitationEnvelopesTx installs an accepted invitation's envelopes whose
+// container is still at their generation and whose identity is still live; the
+// rest are dropped for the key steward sweep to fill.
+func moveInvitationEnvelopesTx(tx *sql.Tx, invitationID, invitee, now string) error {
+	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
+	if err != nil {
+		return err
+	}
+	type moved struct {
+		container, device, alg string
+		generation             int64
+		envelope               []byte
+	}
+	var all []moved
+	for rows.Next() {
+		var m moved
+		if err := rows.Scan(&m.container, &m.device, &m.generation, &m.alg, &m.envelope); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, m := range all {
+		id, err := ids.Mint("env")
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(container_id,device_id,key_generation) DO NOTHING`, id, m.container, m.device, m.generation, m.alg, m.envelope, now); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(`DELETE FROM invitation_envelopes WHERE invitation_id=?`, invitationID)
+	return err
+}
