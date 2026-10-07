@@ -76,7 +76,7 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, endOrder, pagesInSection, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import {
   clearDeviceKey,
@@ -644,6 +644,29 @@ function Workspace({
     };
   }, []);
   useEffect(() => {
+    if (queueMode || !selected) return;
+    const next = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
+    if (location.hash !== next) location.hash = next;
+  }, [queueMode, selected?.id, sectionID, selectedNote?.id]);
+  useEffect(() => {
+    const follow = () => void (async () => {
+      const route = parseRoute(location.hash);
+      const container = items.find((item) => item.id === route.container);
+      // Our own hash writes match the current state and stop here.
+      if (!container || (container.id === selected?.id && route.section === sectionID && route.page === selectedNote?.id)) return;
+      if (container.id !== selected?.id) { await selectContainer(container, route); return; }
+      setSectionID(resolveSection(route.section, sections));
+      const page = notes.find((note) => note.id === route.page);
+      if (page) await selectNote(page);
+      else {
+        if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
+        setSelectedNote(null);
+      }
+    })();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, [items, selected?.id, sectionID, selectedNote?.id, notes, sections, dirty]);
+  useEffect(() => {
     if (!commitToastAt) return;
     const timer = window.setInterval(() => setCommitToastTick((value) => value + 1), 1000);
     const expiry = window.setTimeout(() => setCommitToastAt(null), COMMIT_TOAST_DURATION_MS);
@@ -760,7 +783,9 @@ function Workspace({
       }
       setNames(nextNames);
       setItems(loaded);
-      if (loaded[0]) await selectContainer(loaded[0]);
+      const route = parseRoute(location.hash);
+      const start = loaded.find((item) => item.id === route.container) ?? loaded[0];
+      if (start) await selectContainer(start, start.id === route.container ? route : undefined);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to load workspaces",
