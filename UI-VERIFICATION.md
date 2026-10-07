@@ -133,3 +133,40 @@ Scratch server on copied preview data (never production), Playwright MCP, Chromi
 | ![Desktop light](docs/canvas-light-desktop.png) | ![Desktop dark](docs/canvas-dark-desktop.png) |
 | ![Mobile light](docs/canvas-light-mobile.png) | ![Mobile dark](docs/canvas-dark-mobile.png) |
 | ![Pen toolbar light](docs/canvas-pen-toolbar.png) | ![Pen toolbar dark](docs/canvas-pen-toolbar-dark.png) |
+
+## Subpages and section groups (2026-10-07)
+
+Scratch server with throwaway data (never production), Playwright MCP, Chromium, 1280x900 in Busnes Light unless noted. Tab drops in the first run used synthetic DragEvents; the re-verification used real mouse drags (`page.mouse` down, 15 move steps, up).
+
+| Check | Result |
+| --- | --- |
+| Legacy page opened and left without typing sends no `PUT` | Pass |
+| Indent/outdent with Ctrl+Alt+] / Ctrl+Alt+[ and the editor buttons; Tab only moves focus; levels persist after reload | Pass |
+| Collapsing a parent hides its subpages; collapse persists after reload | Pass |
+| Moving a parent by Alt+ArrowDown, by in-list drag and by tab drop carries its subpages, hidden ones included | Pass; tab drop confirmed with a real mouse drag in the re-verification |
+| Deleting a parent keeps its subpages, one level up | Pass |
+| Search opens a hidden subpage and expands its ancestors | Pass |
+| Nested groups three deep, every breadcrumb step navigates, section dropped on a group tab moves in | Pass |
+| Deleting a middle group moves its sections and groups up | Pass (success path only; the stop-on-failure path is not browser-tested) |
+| Deep link to a page in a grouped section opens the right group and page in a new tab | Pass |
+| Group without sections shows no pages and no editor | Pass |
+| Phone 390x844 | Pass after fix: the editor action row overflowed (scrollWidth 579); fixed in 3c97104, re-verified at 375 in light and dark |
+| Indent/Outdent buttons match the quiet Delete button, one line | Pass after fix (3c97104), re-verified light and dark, desktop and mobile |
+| Dark theme: group tab, breadcrumb, indentation and toggles legible | Pass |
+| Subpage level and collapsed state announced to screen readers | Fixed after verification (09a60d3, visually hidden row text); not re-run in a browser |
+| Quick Notes orphans of a deleted section start at level 0 | Fixed after verification (09a60d3, `displayLevels` unit-tested); not re-run in a browser |
+| Dropping a page on its own section's tab does not move it; group menus disabled while busy | Fixed after verification (09a60d3); not re-run in a browser |
+
+### Open items
+
+- Playwright `dragTo` from a row below the fold onto a section tab moved a neighbouring page. Diagnosed as a harness artifact: `dragTo` presses on the row, then scrolls the window back to bring the tab into view before the first move, so the drag starts on whichever row is now under the pointer. Real mouse drags moved the correct block.
+- A second real drag back onto the "Sprint board" tab appeared not to move the block during re-verification. The final reviewer could not reproduce this with a real mouse drag on the same data. The most likely cause is an ambiguous text locator.
+- BlockNote/Mantine inline styles still raise CSP `style-src 'self'` console errors on page open. Not introduced by this branch.
+
+### Screenshots
+
+| Light | Dark |
+| --- | --- |
+| ![Subpages desktop light](docs/subpages-light-desktop.png) | ![Subpages desktop dark](docs/subpages-dark-desktop.png) |
+| ![Subpages mobile light](docs/subpages-light-mobile.png) | ![Subpages mobile dark](docs/subpages-dark-mobile.png) |
+| ![Section groups](docs/section-groups.png) | |
