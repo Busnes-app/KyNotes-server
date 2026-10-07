@@ -56,6 +56,7 @@ h2 { font-size: 23px; font-weight: 500; letter-spacing: -.05em; margin: 8px 0 0;
 .body-input { flex: 1; min-height: 300px; resize: none; border: 0; outline: 0; background: transparent; padding: 28px 0; color: #4e4b42; font: 17px/1.8 Space, sans-serif; }
 .editor-actions { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e6e0d4; }
 .editor-actions button { margin-top: 18px; }
+.editor-actions select { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line); padding: 8px 10px; margin-top: 18px; }
 .editor-actions .danger { color: #a84832; }
 .empty-editor { display: grid; place-items: start center; align-content: center; height: 100%; text-align: center; color: #898274; }
 .empty-editor > * { margin-left: auto; margin-right: auto; }
@@ -273,8 +274,8 @@ body { color: var(--ink-strong); background: var(--bg); }
 .section-tabs { display: flex; align-items: flex-end; gap: 6px; padding: 10px 18px 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
 .section-tabs ul { display: flex; align-items: flex-end; gap: 2px; margin: 0; padding: 0; list-style: none; overflow-x: auto; min-width: 0; }
 .section-tab-item { display: flex; align-items: center; }
-.section-tab { padding: 7px 14px; border-top: 4px solid var(--tab-color); border-radius: 8px 8px 0 0; background: transparent; color: var(--ink); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-[class].section-tab.ky-nav-item[aria-current="page"] { box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
+.section-tab { padding: 7px 14px; border-top: 4px solid var(--tab-color); border-radius: 8px 8px 0 0; background: var(--bg); color: var(--ink); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+[class].section-tab.ky-nav-item[aria-current="page"] { background: var(--panel); color: var(--ink-strong); box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
 .section-tab-menu, .section-add { background: transparent; color: var(--ink); padding: 6px 8px; }
 .section-menu { padding: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); gap: 4px; min-width: 180px; }
 .section-menu:popover-open { display: grid; }

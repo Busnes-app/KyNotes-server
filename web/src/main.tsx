@@ -793,7 +793,7 @@ function Workspace({
       if (start) await selectContainer(start, start.id === route.container ? route : undefined);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to load workspaces",
+        error instanceof Error ? error.message : "Unable to load notebooks",
       );
     }
   }
@@ -871,7 +871,7 @@ function Workspace({
       else setMembersForTeam([]);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to load workspace",
+        error instanceof Error ? error.message : "Unable to load notebook",
       );
     }
     return loaded;
@@ -887,7 +887,7 @@ function Workspace({
         notes: (await readContainerObjects(container)).notes,
       })));
       if (results.some((result) => result.status === "rejected")) {
-        setError("Some personal workspaces could not be loaded; the work queue may be incomplete.");
+        setError("Some notebooks could not be loaded; the work queue may be incomplete.");
       }
       const entries = results.flatMap((result) => result.status === "fulfilled"
         ? result.value.notes.map((note) => ({ note, container: result.value.container }))
@@ -979,7 +979,7 @@ function Workspace({
       await selectContainer(named);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to create workspace",
+        error instanceof Error ? error.message : "Unable to create notebook",
       );
     } finally {
       setBusy(false);
@@ -999,7 +999,7 @@ function Workspace({
       setItems((value) => [...value, named]);
       await selectContainer(named);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to create team workspace");
+      setError(error instanceof Error ? error.message : "Unable to create team notebook");
     } finally {
       setBusy(false);
     }
@@ -1034,7 +1034,7 @@ function Workspace({
       setSelected(next);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Unable to rename workspace",
+        error instanceof Error ? error.message : "Unable to rename notebook",
       );
     } finally {
       setBusy(false);
@@ -1684,10 +1684,10 @@ function Workspace({
             <div className="list-header">
               <div>
                 <div className="section-label">
-                  {selected ? nameOf(selected) : "WORKSPACE"}
+                  {selected ? nameOf(selected) : "NOTEBOOK"}
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across personal workspaces</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
+                {queueMode ? <div className="workspace-kind">Open tasks across your notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
@@ -1707,7 +1707,9 @@ function Workspace({
                 </button>
               </div>
             </div>
-            {listEntries.map(({ note, container }, index) => (
+            {listEntries.map(({ note, container }, index) => {
+              const shown = selectedNote?.id === note.id ? selectedNote : note;
+              return (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
                 key={note.id}
@@ -1729,14 +1731,15 @@ function Workspace({
                   aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
-                  <strong>{note.title || "Untitled page"}</strong>
+                  <strong>{shown.title || "Untitled page"}</strong>
                   <span>
                     {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
-                    {(queueMode ? noteTasks(indexNotes([note])[0]).slice(0, 2).join(" · ") : documentText(note.body).slice(0, 64)) || "Empty page"}
+                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : documentText(shown.body).slice(0, 64)) || "Empty page"}
                   </span>
                 </button>
               </div>
-            ))}
+              );
+            })}
             {selected && listEntries.length === 0 && (
               <div className="empty-list">
                 {queueMode ? "No open tasks here." : "No pages in this section."}
@@ -2174,7 +2177,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
     <section className="config-card">
       <h2>Teams</h2>
       <p className="config-muted">
-        Create a team workspace, then add active users to it.
+        Create a team, then add active users to it.
       </p>
       <button onClick={() => void createTeam()}>Create team</button>
       <label className="field">

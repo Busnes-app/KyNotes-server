@@ -32,7 +32,7 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
   const tab = (id: string, title: string, color: SectionColor, index: number, section?: Section) => (
     <li key={id} className="section-tab-item">
       <button
-        className={`ky-nav-item section-tab ${current === id ? "selected" : ""}`}
+        className={`quiet ky-nav-item section-tab ${current === id ? "selected" : ""}`}
         aria-current={current === id ? "page" : undefined}
         style={{ "--tab-color": `var(--section-${color})` } as React.CSSProperties}
         draggable={Boolean(section)}
@@ -45,9 +45,9 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
       </button>
       {section && current === id && (
         <>
-          <button className="section-tab-menu" popoverTarget={`section-menu-${id}`} aria-label={`Section options for ${title}`}>⋯</button>
+          <button className="quiet section-tab-menu" popoverTarget={`section-menu-${id}`} aria-label={`Section options for ${title}`}>⋯</button>
           <div className="section-menu" id={`section-menu-${id}`} popover="auto">
-            <button disabled={busy} onClick={() => { close(id); onRename(section); }}>Rename</button>
+            <button className="quiet" disabled={busy} onClick={() => { close(id); onRename(section); }}>Rename</button>
             <div className="section-colors" role="group" aria-label="Section color">
               {SECTION_COLORS.map((choice) => (
                 <button
@@ -60,9 +60,9 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
                 />
               ))}
             </div>
-            <button disabled={index === 0} onClick={() => { close(id); onMove(id, index - 1); }}>Move left</button>
-            <button disabled={index === sections.length - 1} onClick={() => { close(id); onMove(id, index + 1); }}>Move right</button>
-            <button className="danger" onClick={() => { close(id); onDelete(section); }}>Delete section</button>
+            <button className="quiet" disabled={index === 0} onClick={() => { close(id); onMove(id, index - 1); }}>Move left</button>
+            <button className="quiet" disabled={index === sections.length - 1} onClick={() => { close(id); onMove(id, index + 1); }}>Move right</button>
+            <button className="quiet danger" onClick={() => { close(id); onDelete(section); }}>Delete section</button>
           </div>
         </>
       )}
@@ -74,7 +74,7 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
         {sections.map((section, index) => tab(section.id, section.title, section.color, index, section))}
         {tab(QUICK_NOTES, "Quick Notes", "gray", sections.length)}
       </ul>
-      <button className="section-add" disabled={busy} onClick={onCreate} aria-label="New section">＋</button>
+      <button className="quiet section-add" disabled={busy} onClick={onCreate} aria-label="New section">＋</button>
     </nav>
   );
 }

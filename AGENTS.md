@@ -102,7 +102,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Deep links use `#/<container>/<section|quick>/<page>`. Verify `order.test.ts`,
   `pages.test.ts` and the section/page browser checks in `UI-VERIFICATION.md`.
 - `web/` exposes a client-only work queue for open checklist items across
-  personal workspaces; task parsing remains browser-side because the server
+  notebooks; task parsing remains browser-side because the server
   never sees plaintext. Inbox folders still require the planned folder-object
   client path.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
