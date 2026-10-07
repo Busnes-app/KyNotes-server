@@ -1697,8 +1697,8 @@ function Workspace({
             <div className="section-label">NOTEBOOKS</div>
             {personalWorkspaces.map((container) => (
               <button
-                className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
-                aria-current={selected?.id === container.id ? "page" : undefined}
+                className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
+                aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
                 key={container.id}
                 onClick={() => void selectContainer(container)}
               >
@@ -1710,8 +1710,8 @@ function Workspace({
             {teams.map((container) => (
               <React.Fragment key={container.id}>
                 <button
-                  className={`ky-nav-item nav-item ${selected?.id === container.id ? "selected" : ""}`}
-                  aria-current={selected?.id === container.id ? "page" : undefined}
+                  className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
+                  aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
                   onClick={() => void selectContainer(container)}
                 >
                   <span className="nav-icon">◇</span>
@@ -1719,8 +1719,8 @@ function Workspace({
                 </button>
                 {teamWorkspaces(container.id).map((workspace) => (
                   <button
-                    className={`ky-nav-item nav-item nested-nav-item ${selected?.id === workspace.id ? "selected" : ""}`}
-                    aria-current={selected?.id === workspace.id ? "page" : undefined}
+                    className={`ky-nav-item nav-item nested-nav-item ${!queueMode && selected?.id === workspace.id ? "selected" : ""}`}
+                    aria-current={!queueMode && selected?.id === workspace.id ? "page" : undefined}
                     key={workspace.id}
                     onClick={() => void selectContainer(workspace)}
                   >

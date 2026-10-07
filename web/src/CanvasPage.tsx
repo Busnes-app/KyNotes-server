@@ -1,9 +1,9 @@
 // web/src/CanvasPage.tsx
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Block, PartialBlock } from "@blocknote/core";
 import { BlockNoteEditor } from "./BlockNoteEditor";
 import {
-  INK_COLORS, LEGACY_BOX, MAX_STROKE_POINTS, MAX_STROKES, openPage, stringifyCanvasPage,
+  BOX_MIN_WIDTH, DEFAULT_BOX_WIDTH, INK_COLORS, LEGACY_BOX, MAX_STROKE_POINTS, MAX_STROKES, openPage, stringifyCanvasPage,
   type CanvasBox, type CanvasPage as Page, type CanvasStroke, type InkColor,
 } from "./document";
 import { History, addBox, contentExtent, eraseAt, freeSpot, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
@@ -128,9 +128,21 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     });
     return result;
   };
+  // Width that fits the visible canvas from x, so the resize edge stays reachable.
+  const fitWidth = (x: number, wanted: number) => {
+    const visible = surfaceRef.current?.parentElement?.clientWidth;
+    return visible ? Math.max(BOX_MIN_WIDTH, Math.min(wanted, visible - x - 24)) : wanted;
+  };
+  // Narrow an unedited legacy box for display only; never emits a change.
+  useLayoutEffect(() => {
+    const box = pageRef.current.boxes.find((entry) => entry.id === LEGACY_BOX);
+    if (!box) return;
+    const width = fitWidth(box.x, box.width);
+    if (width < box.width) show(updateBox(pageRef.current, LEGACY_BOX, { width }));
+  }, []);
   const placeBox = (x: number, y: number, blocks?: PartialBlock[]) => {
     if (!editable) return;
-    const added = addBox(pruneEmpty(pageRef.current), x, y, blocks);
+    const added = addBox(pruneEmpty(pageRef.current), x, y, blocks, fitWidth(x, DEFAULT_BOX_WIDTH));
     if (!added) return onError("This page has the maximum number of text boxes.");
     setFocusID(added.id);
     commit(added.page);
@@ -185,6 +197,21 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     const next = history.current.redo(pageRef.current.strokes);
     if (next) commit({ ...pageRef.current, strokes: next });
   };
+  const undoKeys = useRef<(event: KeyboardEvent) => void>(() => {});
+  undoKeys.current = (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest?.(".bn-container, input, textarea, select, [contenteditable]:not([contenteditable=false])")) return; // text undo belongs to the editor
+    event.preventDefault();
+    if (event.shiftKey) redo();
+    else undo();
+  };
+  useEffect(() => {
+    if (!editable) return;
+    const listener = (event: KeyboardEvent) => undoKeys.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, [editable]);
   useEffect(() => {
     if (editable) return;
     draft.current = null;
@@ -271,13 +298,6 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
       }
     }
   };
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if ((event.target as HTMLElement).closest(".bn-container")) return; // text undo belongs to the editor
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
-    event.preventDefault();
-    if (event.shiftKey) redo();
-    else undo();
-  };
   const pathOf = (stroke: CanvasStroke) => {
     let path = paths.current.get(stroke);
     if (path === undefined) {
@@ -290,26 +310,26 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   const extent = contentExtent(page);
   const ranks = readingOrder(page.boxes);
   return (
-    <div className={`canvas-page tool-${editable ? tool : "type"}`} onKeyDown={onKeyDown}>
+    <div className={`canvas-page tool-${editable ? tool : "type"}`}>
       <div className="canvas-toolbar" role="toolbar" aria-label="Page tools">
         {TOOLS.map(([value, label]) => (
-          <button key={value} className={value === "type" ? "" : "ink-tool"} aria-pressed={tool === value} disabled={!editable} onClick={() => setTool(value)}>{label}</button>
+          <button key={value} className={value === "type" ? "quiet" : "quiet ink-tool"} aria-pressed={tool === value} disabled={!editable} onClick={() => setTool(value)}>{label}</button>
         ))}
         {(tool === "pen" || tool === "highlighter") && (
           <>
             {INK_COLORS.map((choice) => (
-              <button key={choice} className={`ink-tool ink-swatch ink-${choice}`} aria-label={`${choice} ink`} aria-pressed={color === choice} disabled={!editable} onClick={() => setColor(choice)} />
+              <button key={choice} className={`quiet ink-tool ink-swatch ink-${choice}`} aria-label={`${choice} ink`} aria-pressed={color === choice} disabled={!editable} onClick={() => setColor(choice)} />
             ))}
             {SIZES[tool].map((value, index) => (
-              <button key={value} className="ink-tool" aria-label={`Size ${value}`} aria-pressed={sizeIndex === index} disabled={!editable} onClick={() => setSizeIndex(index)}>
+              <button key={value} className="quiet ink-tool" aria-label={`Size ${value}`} aria-pressed={sizeIndex === index} disabled={!editable} onClick={() => setSizeIndex(index)}>
                 {["S", "M", "L"][index]}
               </button>
             ))}
           </>
         )}
-        <button className="ink-tool" disabled={!editable} onClick={undo} aria-keyshortcuts="Control+Z">Undo ink</button>
-        <button className="ink-tool" disabled={!editable} onClick={redo} aria-keyshortcuts="Control+Shift+Z">Redo ink</button>
-        <button disabled={!editable} onClick={() => { const spot = freeSpot(pageRef.current, heights()); placeBox(spot.x, spot.y); }}>Add text</button>
+        <button className="quiet ink-tool" disabled={!editable} onClick={undo} aria-keyshortcuts="Control+Z">Undo ink</button>
+        <button className="quiet ink-tool" disabled={!editable} onClick={redo} aria-keyshortcuts="Control+Shift+Z">Redo ink</button>
+        <button className="quiet" disabled={!editable} onClick={() => { const spot = freeSpot(pageRef.current, heights()); placeBox(spot.x, spot.y); }}>Add text</button>
       </div>
       {page.strokes.length > 0 && <p className="canvas-ink-note">This page has ink. Open it on a wider screen to see it.</p>}
       <div className="canvas-scroll">

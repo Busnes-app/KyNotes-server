@@ -9,10 +9,10 @@ const GAP = 24;
 const DEFAULT_HEIGHT = 120;
 const coord = (value: number) => Math.min(MAX_COORD, Math.max(0, Math.round(value)));
 
-export function addBox(page: CanvasPage, x: number, y: number, blocks: PartialBlock[] = [{ type: "paragraph", content: "" }]) {
+export function addBox(page: CanvasPage, x: number, y: number, blocks: PartialBlock[] = [{ type: "paragraph", content: "" }], width = DEFAULT_BOX_WIDTH) {
   if (page.boxes.length >= MAX_BOXES) return undefined;
   const id = crypto.randomUUID();
-  return { id, page: { ...page, boxes: [...page.boxes, { id, x: coord(x), y: coord(y), width: DEFAULT_BOX_WIDTH, blocks }] } };
+  return { id, page: { ...page, boxes: [...page.boxes, { id, x: coord(x), y: coord(y), width, blocks }] } };
 }
 
 export function updateBox(page: CanvasPage, id: string, change: Partial<Omit<CanvasBox, "id">>): CanvasPage {
