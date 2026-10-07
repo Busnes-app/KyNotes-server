@@ -51,10 +51,36 @@ Scratch server on 127.0.0.1 with throwaway data (notebooks "Project Atlas" and "
 
 Not run: none of the listed checks were skipped.
 
+### Save path
+
+Hard reload at the start, none between edit and move. Moves ran Planning to Research in round 1 and the reverse in round 2.
+
+| Check | Result |
+| --- | --- |
+| Online edit, then move: row shows new title/body at once, no conflict text, persists after reload | Pass (both rounds) |
+| Offline edit, reconnect, then move: saved after 20 s, no conflict text, persists | Pass (both rounds) |
+| Move during autosave (move 0.2 s after typing): typed text persists in the new section | Pass (both rounds) |
+| Rapid notebook switching Atlas, Home, Atlas, Home (150 ms): never shows Atlas pages under Home | Pass (both rounds) |
+| Alt+↓ twice: focus stays on the moved row, order 1st to 3rd | Pass (both rounds) |
+| Typing 200 characters with no delay: body exactly 200 characters after reload | Pass |
+| Search, then open the result: editor shows the matching title and body | Pass |
+| "Delete section" menu item is red | Pass |
+
+### Conflict recovery
+
+Two tabs: tab 2 offline (per-tab, via CDP) edits a page, tab 1 moves it to another section, tab 2 reconnects. The first save-path round found tab 2's edit lost. The conflict recovery runs found duplicate copies (three identical copies from one click, two from a double-click) and tab 2 staying on the old section. Fixed in b3c23d9..b39d823 and re-verified in round 2 after cleaning up the leftover copies.
+
+| Check | Result |
+| --- | --- |
+| Banner "Another device saved this page first..." with a "Keep the other version as a copy" button | Pass |
+| One click after several retries: one "(conflicting copy)" page directly after the original, in the original's section; original shows the server body; same after reloading both tabs | Pass after fix (initial run: fail) |
+| Double-click (20 ms): exactly one copy | Pass after fix (initial run: fail) |
+| Editor read-only during recovery (title readOnly, body not editable, keystrokes ignored), editable again afterwards | Pass |
+| Tab 2 switches to the original's section after recovery | Pass after fix |
+
 ### Open items
 
 - CSP `style-src 'self'` blocks inline styles from the app and BlockNote bundles, producing console errors and a BlockNote placeholder-CSS `insertRule` warning during editing. Not introduced by this branch; whether it predates it was not checked.
-- These results predate the page-list reconciliation and notebook-load isolation commits that follow 6f7e6f6; those are covered by `notes.test.ts` and have not been re-run in a browser.
 - Mobile layout is cramped: sidebar plus tabs take about 500 px and the page list and editor sit in nested scrollers below the fold. Pre-existing and unchanged.
 
 No complete end-to-end product workflow or accessibility audit is claimed.
@@ -65,4 +91,5 @@ No complete end-to-end product workflow or accessibility audit is claimed.
 | --- | --- |
 | ![Desktop light](docs/onenote-nav-light-desktop.png) | ![Desktop dark](docs/onenote-nav-dark-desktop.png) |
 | ![Mobile light](docs/onenote-nav-light-mobile.png) | ![Mobile dark](docs/onenote-nav-dark-mobile.png) |
-| ![Section menu](docs/onenote-nav-section-menu.png) | |
+| ![Section menu](docs/onenote-nav-section-menu.png) | ![Conflict banner](docs/onenote-nav-conflict.png) |
+| ![Conflict copy](docs/onenote-nav-conflict-copy.png) | |
