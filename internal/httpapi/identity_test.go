@@ -462,3 +462,22 @@ func TestAdminKnownPasswordGatesIdentityUntilOwnChange(t *testing.T) {
 		t.Fatalf("create after own change: %d %s", code, body)
 	}
 }
+
+// A stolen cookie must not turn password change into an unthrottled guessing oracle.
+func TestPasswordChangeSharesStepUpLockout(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	t.Cleanup(func() { loginLockout.Success(pairUser + "\x00127.0.0.1") })
+	change := func(current string) int {
+		body := `{"currentAuthSecret":"` + strings.Repeat(current, 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+		code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false))
+		return code
+	}
+	for i := 0; i < 3; i++ {
+		if code := change("b"); code != http.StatusUnauthorized {
+			t.Fatalf("wrong guess %d: %d", i, code)
+		}
+	}
+	if code := change("a"); code != http.StatusTooManyRequests {
+		t.Fatalf("correct secret after lockout: %d", code)
+	}
+}

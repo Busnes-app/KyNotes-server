@@ -280,6 +280,12 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return
 			}
 		}
+		// Shares the step-up budget: both verify the current password for a live session.
+		key := s.UserID + "\x00" + clientIP(r)
+		if !loginLockout.Try(key, time.Now().UTC()) {
+			WriteError(w, r, 429, "rate_limited", "try again later")
+			return
+		}
 		var stored string
 		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
 		verifyErr := auth.VerifyAuthSecret(in.CurrentAuthSecret, stored)
@@ -288,9 +294,11 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		if err != nil || verifyErr != nil {
+			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
 			return
 		}
+		loginLockout.Success(key)
 		hash, err := auth.HashAuthSecret(in.NewAuthSecret)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
