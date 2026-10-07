@@ -1,5 +1,6 @@
-import { randomBytes } from "@noble/ciphers/utils.js";
+import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
 import { base64, fromBase64, type KeyRef } from "./crypto";
+import { sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
@@ -22,11 +23,17 @@ export type Me = HeldIdentity & { userId: string };
  * (fresh: pinned now; changed: refused), generations whose envelope disagreed with a key
  * already accepted, and this device's new high-water mark to persist (storeKeyMark).
  */
-export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; changed: PinChange[]; conflicts: number[]; mark: number };
+export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; changed: PinChange[]; conflicts: number[]; known: KeyState };
+/**
+ * What this device remembers per container: the highest generation it accepted from
+ * itself or a current steward, and the SHA-256 (hex) of every key it accepted, so a
+ * different key for a known generation is refused even after a reload.
+ */
+export type KeyState = { mark: number; digests: Record<number, string> };
 export type OpenKeyringInput = {
   containerID: string; envelopes: Envelope[]; me: Me | undefined; members: MemberKey[]; pins: Pins;
-  /** Highest generation this device accepted from a current steward or itself (getKeyMark); 0 when unknown. */
-  mark: number;
+  /** This device's key memory for the container (getKeyState); never taken from the server. */
+  known: KeyState;
   /** Keys accepted earlier in this session; they always win. */
   held?: Keyring;
 };
@@ -45,13 +52,22 @@ const isSteward = (role: string) => role === "owner" || role === "admin";
 export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   const { containerID, envelopes, me, members, pins } = input;
   const ring = new Map(input.held ?? []);
-  const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[], conflicts: [] as number[], mark: Math.max(0, input.mark) };
+  const known = { mark: Math.max(0, input.known.mark), digests: { ...input.known.digests } };
+  const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[], conflicts: [] as number[], known };
   if (!me) return out;
   const pinnedKeys = Object.values(pins).flatMap((key) => { try { return [publicKeyBytes(key)]; } catch { return []; } });
-  const accept = (generation: number, key: Uint8Array) => {
+  /** First key per generation wins, across reloads through the stored digest. */
+  const accept = (generation: number, key: Uint8Array): boolean => {
+    const digest = bytesToHex(sha256(key));
     const prior = ring.get(generation);
-    if (!prior) ring.set(generation, key);
-    else if (!prior.every((byte, i) => byte === key[i]) && !out.conflicts.includes(generation)) out.conflicts.push(generation);
+    const matches = prior ? bytesToHex(sha256(prior)) === digest : (known.digests[generation] ?? digest) === digest;
+    if (!matches) {
+      if (!out.conflicts.includes(generation)) out.conflicts.push(generation);
+      return false;
+    }
+    ring.set(generation, prior ?? key);
+    known.digests[generation] ??= digest;
+    return true;
   };
   const open = (envelope: Uint8Array, generation: number, sender: Uint8Array) => {
     try { return unwrapEnvelope(envelope, me.privateKey, containerID, generation, me.deviceId, sender); } catch { return undefined; }
@@ -72,8 +88,8 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
       if (steward && !trusted && !out.changed.some((change) => change.member.userId === steward.userId)) out.changed.push({ member: steward, pinned: pinned! });
       const key = trusted ? open(envelope, row.keyGeneration, self ? me.publicKey : publicKeyBytes(steward!.identity!.publicKey)) : undefined;
       if (!key) { deferred.push({ envelope, generation: row.keyGeneration }); continue; }
-      accept(row.keyGeneration, key);
-      out.mark = Math.max(out.mark, row.keyGeneration);
+      if (!accept(row.keyGeneration, key)) continue;
+      known.mark = Math.max(known.mark, row.keyGeneration);
       if (steward && pinned === undefined) {
         out.pins[steward.userId] = steward.identity!.publicKey;
         out.fresh.push(steward);
@@ -82,7 +98,7 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   }
   // Pass 2: history from identities pinned before this call, strictly below the device's mark.
   for (const { envelope, generation } of deferred) {
-    if (generation >= out.mark) continue;
+    if (generation >= known.mark) continue;
     for (const sender of pinnedKeys) {
       const key = open(envelope, generation, sender);
       if (key) { accept(generation, key); break; }

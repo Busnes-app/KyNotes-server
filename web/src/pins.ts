@@ -32,11 +32,20 @@ export class FingerprintChangedError extends Error {
   }
 }
 
-/** The user compared the new fingerprint out of band and accepts it: pin the member's current key. */
-export function confirmFingerprintChange(pins: Pins, member: MemberKey): Pins {
+let mintConfirmation: (userId: string, key: string, pins: Pins) => PinConfirmation;
+
+/** Proof the user confirmed a changed fingerprint; only confirmFingerprintChange makes one. */
+export class PinConfirmation {
+  private declare readonly brand: true; // nominal: look-alike objects do not type-check
+  static { mintConfirmation = (userId, key, pins) => new PinConfirmation(userId, key, pins); }
+  private constructor(readonly userId: string, readonly key: string, readonly pins: Pins) {}
+}
+
+/** The user compared the new fingerprint out of band and accepts it. Persist with storeConfirmedPin; retry sealFor with .pins. */
+export function confirmFingerprintChange(pins: Pins, member: MemberKey): PinConfirmation {
   const key = member.identity?.publicKey;
   if (!key || !validKey(key)) throw new Error("invalid identity public key");
-  return { ...pins, [member.userId]: key };
+  return mintConfirmation(member.userId, key, { ...pins, [member.userId]: key });
 }
 
 /** Splits keyed members into first-seen and changed; unchanged pins are neither. */

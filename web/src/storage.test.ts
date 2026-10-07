@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyMark, getPins, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyMark, storePins } from "./storage";
+import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins } from "./storage";
+import { confirmFingerprintChange } from "./pins";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const held = { deviceId: "dev_00000000000000000000000000", publicKey: new Uint8Array(32).fill(1), privateKey: new Uint8Array(32).fill(2) };
@@ -79,24 +80,31 @@ describe("vault writes follow the server and never fail it", () => {
 describe("pin and key-mark writes never downgrade", () => {
   beforeEach(clearAllDeviceKeys);
   const cnt = "cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa";
-  it("adds first-contact pins without overwriting, and replaces one only when confirmed", async () => {
+  it("adds first-contact pins without overwriting, and replaces one only through a confirmation", async () => {
     await storeDeviceKey("alice", "a".repeat(64));
+    const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)));
     expect(await storePins("alice", userID, { usr_b: "old" })).toBe(true);
     expect(await storePins("alice", userID, { usr_b: "server", usr_c: "new" })).toBe(true);
     expect(await getPins("alice", userID)).toEqual({ usr_b: "old", usr_c: "new" });
-    expect(await storeConfirmedPin("alice", userID, "usr_b", "confirmed")).toBe(true);
-    expect(await getPins("alice", userID)).toEqual({ usr_b: "confirmed", usr_c: "new" });
+    const member = { userId: "usr_b", username: "b", role: "editor", identity: { deviceId: "dev", publicKey: key(7) } };
+    expect(await storeConfirmedPin("alice", userID, confirmFingerprintChange({}, member))).toBe(true);
+    expect(await getPins("alice", userID)).toEqual({ usr_b: key(7), usr_c: "new" });
+    // @ts-expect-error a raw key is not a confirmation
+    expect(await storeConfirmedPin("alice", userID, key(8))).toBe(false);
+    // @ts-expect-error nor is a look-alike object
+    expect(await storeConfirmedPin("alice", userID, { userId: "usr_b", key: key(8), pins: {} })).toBe(false);
+    expect((await getPins("alice", userID)).usr_b).toBe(key(7));
   });
-  it("keeps the highest key mark per container and reports when it cannot", async () => {
-    expect(await storeKeyMark("alice", userID, cnt, 3)).toBe(false);
-    expect(await getKeyMark("alice", userID, cnt)).toBe(0);
+  it("keeps the highest key mark and first key digests per container, and reports when it cannot", async () => {
+    expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: {} })).toBe(false);
+    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 0, digests: {} });
     await storeDeviceKey("alice", "a".repeat(64));
-    expect(await storeKeyMark("alice", userID, cnt, 3)).toBe(true);
-    expect(await storeKeyMark("alice", userID, cnt, 2)).toBe(true);
-    expect(await getKeyMark("alice", userID, cnt)).toBe(3);
-    expect(await getKeyMark("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz", cnt)).toBe(0);
+    expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: { 2: "aa" } })).toBe(true);
+    expect(await storeKeyState("alice", userID, cnt, { mark: 2, digests: { 2: "bb", 3: "cc" } })).toBe(true);
+    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 3, digests: { 2: "aa", 3: "cc" } });
+    expect(await getKeyState("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz", cnt)).toEqual({ mark: 0, digests: {} });
     await clearDeviceKey("alice");
-    expect(await getKeyMark("alice", userID, cnt)).toBe(0);
+    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 0, digests: {} });
   });
 });
 

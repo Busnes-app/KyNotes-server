@@ -1,5 +1,6 @@
 import type { HeldIdentity } from "./identity";
-import type { Pins } from "./pins";
+import type { KeyState } from "./keyring";
+import { PinConfirmation, type Pins } from "./pins";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
@@ -142,7 +143,7 @@ export async function getDeviceKey(username: string): Promise<string | undefined
   return result?.authSecret;
 }
 
-type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string }; pins?: { userID: string; keys: Pins }; keyMarks?: { userID: string; byContainer: Record<string, number> } };
+type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string }; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
 
 /** Adds the unwrapped identity to an existing vault record, so "Forget this device" stays one delete. */
 export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<void> {
@@ -221,24 +222,27 @@ export async function storePins(username: string, userID: string, keys: Pins): P
   return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...keys, ...pinsOf(record, userID) } } }));
 }
 
-/** Replaces one pin after the user confirmed the new fingerprint (confirmFingerprintChange). */
-export async function storeConfirmedPin(username: string, userID: string, memberID: string, key: string): Promise<boolean> {
-  return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...pinsOf(record, userID), [memberID]: key } } }));
+/** Replaces one pin; only a confirmFingerprintChange result is accepted. */
+export async function storeConfirmedPin(username: string, userID: string, confirmation: PinConfirmation): Promise<boolean> {
+  if (!(confirmation instanceof PinConfirmation)) return false;
+  return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...pinsOf(record, userID), [confirmation.userId]: confirmation.key } } }));
 }
 
-const marksOf = (record: VaultRecord, userID: string): Record<string, number> => (record.keyMarks?.userID === userID ? record.keyMarks.byContainer : {});
+const statesOf = (record: VaultRecord, userID: string): Record<string, KeyState> => (record.keyStates?.userID === userID ? record.keyStates.byContainer : {});
 
-/** Highest generation this device accepted from a current steward in containerID; 0 when unknown. */
-export async function getKeyMark(username: string, userID: string, containerID: string): Promise<number> {
+/** This device's key memory for containerID (high-water mark, digests of accepted keys); empty when unknown. */
+export async function getKeyState(username: string, userID: string, containerID: string): Promise<KeyState> {
   const record = await readRecord(username);
-  return (record && marksOf(record, userID)[containerID]) || 0;
+  return (record && statesOf(record, userID)[containerID]) || { mark: 0, digests: {} };
 }
 
-/** Raises the container's mark; it never decreases. False means the mark is not kept. */
-export async function storeKeyMark(username: string, userID: string, containerID: string, generation: number): Promise<boolean> {
+/** Merges key memory: the mark only rises and a stored digest is never replaced. False means it is not kept. */
+export async function storeKeyState(username: string, userID: string, containerID: string, state: KeyState): Promise<boolean> {
   return updateRecord(username, (record) => {
-    const byContainer = marksOf(record, userID);
-    return { ...record, keyMarks: { userID, byContainer: { ...byContainer, [containerID]: Math.max(byContainer[containerID] ?? 0, generation) } } };
+    const byContainer = statesOf(record, userID);
+    const prior = byContainer[containerID] ?? { mark: 0, digests: {} };
+    const next = { mark: Math.max(prior.mark, state.mark), digests: { ...state.digests, ...prior.digests } };
+    return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } };
   });
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
 import { newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
-import { confirmFingerprintChange, FingerprintChangedError } from "./pins";
+import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const dev = (c: string) => `dev_${c.repeat(26)}`;
@@ -14,8 +14,8 @@ const person = (name: string, c: string, role = "editor") => {
 };
 const legacy = legacyKeyRef("5a".repeat(32));
 /** openKeyring with this device's stored high-water mark (generations it accepted from a current steward). */
-const open = (mark: number, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Record<string, string>, held?: Map<number, Uint8Array>) =>
-  openKeyring({ containerID: cnt, envelopes, me, members, pins, mark, held });
+const open = (mark: number, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Record<string, string>, held?: Map<number, Uint8Array>, digests: Record<number, string> = {}) =>
+  openKeyring({ containerID: cnt, envelopes, me, members, pins, known: { mark, digests }, held });
 /** An envelope sealed with no pins in play. */
 const seal = (member: MemberKey, generation: number, key: Uint8Array, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
 
@@ -109,12 +109,12 @@ describe("keyring", () => {
     });
 
     it("raises the mark only for keys accepted from a current steward or itself, and never lowers it", () => {
-      expect(open(0, fromOwner, editor.held, members, {}).mark).toBe(2);
-      expect(open(5, fromOwner, editor.held, members, {}).mark).toBe(5);
+      expect(open(0, fromOwner, editor.held, members, {}).known.mark).toBe(2);
+      expect(open(5, fromOwner, editor.held, members, {}).known.mark).toBe(5);
       const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
       // Accepted only through the pinned exception: no new mark.
-      expect(open(3, fromOwner, editor.held, [admin.member, editor.member], pins).mark).toBe(3);
-      expect(open(0, [seal(owner.member, 4, k2, owner.held)], owner.held, members, {}).mark).toBe(4);
+      expect(open(3, fromOwner, editor.held, [admin.member, editor.member], pins).known.mark).toBe(3);
+      expect(open(0, [seal(owner.member, 4, k2, owner.held)], owner.held, members, {}).known.mark).toBe(4);
     });
 
     it("keeps the first key accepted for a generation and reports a different one as a conflict", () => {
@@ -130,6 +130,23 @@ describe("keyring", () => {
       expect(later.ring.get(2)).toEqual(other);
       expect(later.conflicts).toEqual([2]);
       expect(held.get(2)).toEqual(other);
+    });
+
+    it("after a reload, refuses a pinned-history key that differs from the one this device accepted", () => {
+      const first = open(0, fromOwner, editor.held, members, {});
+      expect(first.known).toEqual({ mark: 2, digests: { 2: expect.stringMatching(/^[0-9a-f]{64}$/) } });
+      // Reload: nothing held. The server withholds the owner's envelope and serves a pinned
+      // former steward's envelope for generation 2 with another key.
+      const pins = { ...first.pins, [admin.member.userId]: admin.member.identity!.publicKey };
+      const known = { mark: 3, digests: first.known.digests };
+      const swapped = [seal(editor.member, 2, newContainerKey(), admin.held)];
+      const reloaded = openKeyring({ containerID: cnt, envelopes: swapped, me: editor.held, members: [editor.member], pins, known });
+      expect(reloaded.ring.size).toBe(0);
+      expect(reloaded.conflicts).toEqual([2]);
+      expect(reloaded.known).toEqual(known);
+      // The same key from that pinned sender is fine.
+      const same = [seal(editor.member, 2, k2, admin.held)];
+      expect(openKeyring({ containerID: cnt, envelopes: same, me: editor.held, members: [editor.member], pins, known }).ring.get(2)).toEqual(k2);
     });
 
     it("never rewrites a pin from server data", () => {
@@ -204,8 +221,9 @@ describe("sealFor pins", () => {
     expect(error).toBeInstanceOf(FingerprintChangedError);
     expect(error).toMatchObject({ member: swapped, pinned: pins[editor.member.userId] });
     const confirmed = confirmFingerprintChange(pins, swapped);
-    expect(confirmed).toEqual({ [editor.member.userId]: swapped.identity!.publicKey });
-    expect(sealFor(swapped, cnt, 2, k2, owner.held, confirmed).envelope.deviceId).toBe(editor.member.identity!.deviceId);
+    expect(confirmed).toBeInstanceOf(PinConfirmation);
+    expect(confirmed.pins).toEqual({ [editor.member.userId]: swapped.identity!.publicKey });
+    expect(sealFor(swapped, cnt, 2, k2, owner.held, confirmed.pins).envelope.deviceId).toBe(editor.member.identity!.deviceId);
   });
 
   it("wraps for this user only to this browser's own identity", () => {
