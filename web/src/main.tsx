@@ -842,42 +842,48 @@ function Workspace({
     try {
       return await loadContainer(container, route);
     } finally {
-      loadingContainerID.current = undefined;
-      setLoadingContainer(false);
+      // A later switch owns the flag now.
+      if (loadingContainerID.current === container.id) {
+        loadingContainerID.current = undefined;
+        setLoadingContainer(false);
+      }
     }
   }
   async function loadContainer(container: Container, route?: Route): Promise<Note[]> {
-    const previousContainer = selected;
     const previousNote = selectedNoteRef.current;
-    if (previousContainer && previousNote && previousContainer.id !== container.id && dirty) {
+    if (previousNote && dirty) {
       // Workspace navigation destroys the current editor. Finish its latest
       // encrypted save before replacing the note list so the next load cannot
       // fall back to an older plain document.
       await save(previousNote, true);
     }
+    // Another switch started meanwhile: its results win.
+    const superseded = () => loadingContainerID.current !== container.id;
+    if (superseded()) return [];
+    // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
     setQueueMode(false);
+    selectedNoteRef.current = null;
     setSelectedNote(null);
+    patchNotes(() => []);
+    patchSections(() => []);
     setCommentsForNote([]);
     setAttachmentsForNote([]);
-    let loaded: Note[] = [];
     try {
       const objects = await readContainerObjects(container);
-      loaded = objects.notes;
-      setNotes(loaded);
+      if (superseded()) return [];
+      patchNotes(() => objects.notes);
       patchSections(() => objects.sections);
       setSectionID(resolveSection(route?.section, objects.sections));
-      const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
+      const routed = route?.page ? objects.notes.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, container.id);
-      if (container.kind === "team")
-        setMembersForTeam(await members(container.id));
-      else setMembersForTeam([]);
+      const team = container.kind === "team" ? await members(container.id) : [];
+      if (!superseded()) setMembersForTeam(team);
+      return objects.notes;
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Unable to load notebook",
-      );
+      if (!superseded()) setError(error instanceof Error ? error.message : "Unable to load notebook");
+      return [];
     }
-    return loaded;
   }
   async function openWorkQueue() {
     setView("workspace");
@@ -911,9 +917,12 @@ function Workspace({
   async function selectNote(note: Note, containerID = selected?.id) {
     const previous = selectedNoteRef.current;
     if (previous && previous.id !== note.id && dirty) await save(previous, true);
+    selectedNoteRef.current = note;
     setSelectedNote(note);
     setDirty(false);
     setLastSavedAt(note.version > 0 ? note.updatedAt : "");
+    // A later selection or notebook switch owns the panels below.
+    const current = () => selectedNoteRef.current?.id === note.id;
     try { const conflicts = await objectConflicts(note.id); setConflicted((value) => { const next = new Set(value); if (conflicts.some((item) => !item.resolved)) next.add(note.id); else next.delete(note.id); return next; }); } catch { /* conflict metadata is advisory */ }
     try {
       const remote = await comments(note.id);
@@ -936,9 +945,9 @@ function Workspace({
           /* Ignore comments encrypted for another key. */
         }
       }
-      setCommentsForNote(decoded);
+      if (current()) setCommentsForNote(decoded);
     } catch {
-      setCommentsForNote([]);
+      if (current()) setCommentsForNote([]);
     }
     try {
       const remote = await objectAttachments(note.id);
@@ -949,9 +958,9 @@ function Workspace({
           decoded.push({ id: item.id, ...metadata });
         } catch { /* Ignore metadata encrypted for another key. */ }
       }
-      setAttachmentsForNote(decoded);
+      if (current()) setAttachmentsForNote(decoded);
     } catch {
-      setAttachmentsForNote([]);
+      if (current()) setAttachmentsForNote([]);
     }
   }
   async function newWorkspace() {
