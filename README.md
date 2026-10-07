@@ -29,7 +29,8 @@ out of band. A product process never holds recovery private keys or custodian sh
 Local plaintext maintenance commands are `copy-data-dir --out` and
 `restore-data-dir --in`; they require a stopped service. The sealed recovery commands are
 `deposit`, `export-capsule --out`, `backup-drill`, and `restore --in --to` (shares on stdin).
-Use the admin UI for operations while the server is running.
+`deposit` and `backup-drill` also work while the server runs (`docker exec`); use the admin
+UI for the other operations then.
 
 Ciphertext blobs have their own mirror: configure `KYNOTES_BLOB_TARGET`, then use Admin
 **Mirror now**, scheduled backups, or the offline `mirror-blobs --config PATH` command.

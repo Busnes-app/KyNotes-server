@@ -101,8 +101,10 @@ A key without a destination is a precondition failure. A remote failure reports 
 local copy that did succeed; a local failure does not cancel the deposit.
 
 Use [RESTORE.md](RESTORE.md) for sealed recovery and the blob-coverage limitations.
-CLI `deposit`, `export-capsule --out FILE` and `backup-drill` take the data-directory
-lock and require a stopped server; the admin UI operates through the live handle.
+CLI `deposit` and `backup-drill` run inside a running server over the local admin socket
+`<data_dir>/admin.sock` (no step-up; access to the socket is container access), and take the
+data-directory lock themselves when it is stopped. `export-capsule --out FILE` always needs a
+stopped server. Both print the JSON result and exit 1 on failure.
 `copy-data-dir --out DIR` and `restore-data-dir --in DIR` are local plaintext copies.
 
 Every destructive backup action, including capsule export, uses POST and requires admin step-up plus CSRF;

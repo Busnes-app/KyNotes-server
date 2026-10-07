@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `apply-setup --file BUNDLE` configures SSO, SSO-bound admins and backups on a running server
+  through the local admin socket `<data_dir>/admin.sock` (mode 0600). It is create-only and
+  prints a JSON report. See `docs/INSTALLER.md`.
+- `deposit` and `backup-drill` run inside a running server over the same socket and print a JSON
+  result; with the server stopped they keep the offline path. An unreachable SSO issuer is now a
+  retryable `failed` (exit 1) in `apply-setup`, not `invalid`.
 - `docker-compose.yml` names the published, attested image and no longer builds. A source install
   keeps building only if `docker-compose.build.yml` is in its `COMPOSE_FILE` chain; installs from
   before this change have no such line and must run the snippet in `docker-compose.build.yml`

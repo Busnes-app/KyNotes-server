@@ -12,7 +12,7 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   Capsule and mirror results are independent; a receipt never proves blob coverage.
 - `TokenLabel` and effective deployment secret bytes are compatibility contracts.
 - Service operations serialize pin/pair/run/export/drill; CLI takes the same directory
-  lock as the server. Close waits for bounded operations before SQLite closes.
+  lock as the server, or runs `deposit`/`backup-drill` in it over `admin.sock` when it is up. Close waits for bounded operations before SQLite closes.
 - Export uses POST with admin, step-up and CSRF; a GET cannot trigger collection.
 - Pinned recoveryclient v0.5.1 stamps attempts before checking key/destination or collecting.
   An enabled schedule with no attempt is due immediately, without comparing two clocks.
@@ -22,6 +22,10 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   usable secrets, an active admin, recovery pin, and matching blob inventory.
 - Only `cmd/kynotes-server/backup.go:restoreCapsule` may open suite capsules or combine
   shares. Drills use library-generated throwaway keys and protected scratch.
+- `ApplySetup` claims a pairing code only when the instance is not paired (a hand-pinned
+  key alone still claims; a different returned key is a conflict and the code is spent),
+  never re-pins a key, and sets the interval only when no admin setting exists. Dir and
+  keep are env-fixed and only compared.
 
 # Verification
 

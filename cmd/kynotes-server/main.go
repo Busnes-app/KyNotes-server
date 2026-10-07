@@ -25,6 +25,9 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "apply-setup" {
+		os.Exit(applySetupCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if e := healthcheckCommand(os.Args[2:]); e != nil {
 			fmt.Fprintln(os.Stderr, e)
@@ -135,7 +138,7 @@ func main() {
 	log := logging.New(os.Stdout, c.Log.Level, c.Log.Format)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if e = app.Serve(ctx, c, log); e != nil {
+	if e = app.Serve(ctx, c, log, version); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}

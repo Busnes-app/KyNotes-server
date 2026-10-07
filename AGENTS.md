@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -232,7 +232,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   session resolution in the rate-limit middleware even when sent a cookie.
 - Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,
   CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
-  owns the same data-directory lock as the server; `restore --in --to` is the only
+  owns the same data-directory lock as the server, except `deposit`/`backup-drill`, which
+  go through `admin.sock` when the server runs; `restore --in --to` is the only
   custodian-share/capsule-open entry point and revokes restored sessions. Legacy local
   plaintext commands are `copy-data-dir` and `restore-data-dir`. Capsules exclude all
   blob bytes, including note versions; full recovery needs the separate blob store.
@@ -278,6 +279,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - CLI server mode accepts flags only. Removed `backup` names `copy-data-dir`/`deposit`
   in its error; unknown commands and trailing positional arguments exit before loading
   configuration or starting the server. `TestUnknownSubcommandIsRejected` covers dispatch.
+  `apply-setup` is the one subcommand that needs the server running: it talks to it over
+  `<data_dir>/admin.sock`.
 
 - All IP-keyed rate limits honor X-Forwarded-For only with behind_proxy enabled and
   a trusted immediate peer. Walk the chain from the right to the first untrusted IP;
@@ -298,7 +301,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   in the audit, but still revokes credentials and requires the OIDC ceiling. Inactive
   events always disable/revoke, and never preserve an active administrator.
   Changes revoke sessions/devices and advance the callback cutoff atomically with
-  audit. Readback includes the local role. Verify `TestSSOAppRoles*`,
+  audit. `revokeForRoleChange` (directory and apply-setup grants) upserts the cutoff into
+  `sso_login_cutoffs` (migration 0020), independent of directory state, so auto-provisioned
+  subjects are fenced too; `checkSSOIdentityTx` enforces it with the directory cutoff.
+  Readback includes the local role. Verify `TestSSOAppRoles*`,
   `TestDirectoryAppRoleShapes`, `TestDirectoryDeactivationIgnoresRoles`,
   `TestDirectoryRetainsLastActiveAdminGrant`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
   and existing directory race/rollback checks. OIDC step-up uses the separate
@@ -311,3 +317,23 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   parent's handle for polling/cleanup; `web/src/reauth.test.ts` checks that ordering.
 
 - Product PNGs (`/favicon.png`, `/app-icon.png`, `/app-icon-192.png`, `/app-icon-512.png`) must pass the router allowlist to reach the embedded files. `TestProductIconsReachEmbeddedFiles` checks the public response type and dimensions.
+
+- `internal/applysetup` owns the apply-setup contract: bundle (secrets only by file path,
+  unknown fields rejected), socket request, create/present/conflict decisions, report and
+  exit codes 0/3/2/1 (precedence invalid > failed > conflict). `internal/httpapi/apply_setup.go`
+  applies SSO through the router's shared `sso.Store` after a discovery probe (issuer
+  transport/5xx/429 is `failed`, `sso.ErrIssuerUnavailable`; a bad document is `invalid`), and admins
+  bound by issuer+subject (never by username; a grant revokes credentials through
+  `revokeForRoleChange`). `backup.Service.ApplySetup` compares env-fixed dir/keep, sets the
+  interval only when unset and claims a pairing only when unpaired. `internal/app` owns
+  `admin.sock`: 0600, peer uid or root, created after the data-dir lock, never a network
+  listener; shutdown drains a running apply for up to `backup.OperationTimeout` plus a
+  minute before SQLite closes, then removes the socket (compose `stop_grace_period: 17m`
+  covers it). One audit row per change (actor `system`, request `apply-setup`). The same
+  socket serves `POST /v1/deposit` and `/v1/backup-drill` through `backup.Service.Run`/`Drill`
+  (actor `system`, request `admin-socket`), one operation at a time with the same drain;
+  answers are `{"result","error_code"}` and the CLI exits 1 on any error code.
+  `docs/INSTALLER.md` is the installer contract. Verify `go test ./internal/applysetup`,
+  `TestApply*`, `TestSetupHandler*`, `TestAdminSocket*`, `TestServeOwnsAdminSocketLifecycle`,
+  `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
+  `scripts/apply-setup-container-check.sh`.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -15,10 +16,11 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/health"
 	"github.com/Busnes-app/kynotes-server/internal/httpapi"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
-func Serve(ctx context.Context, c config.Config, log *logging.Logger) error {
+func Serve(ctx context.Context, c config.Config, log *logging.Logger, version string) error {
 	if err := config.Validate(c); err != nil {
 		return err
 	}
@@ -40,18 +42,42 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger) error {
 	if err != nil {
 		return err
 	}
-	backups := backup.New(c, store, "dev")
+	backups := backup.New(c, store, version)
 	defer backups.Close()
 	workerCtx, stopWorker := context.WithCancel(ctx)
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); runBackupLoop(workerCtx, backups, log) }()
 	defer func() { stopWorker(); <-workerDone }()
+	ssoStore := sso.NewStore(store.DB())
+	adminLn, err := listenAdminSocket(c.DataDir)
+	if err != nil {
+		return err
+	}
+	setup := httpapi.SetupHandler(httpapi.SetupDeps{DB: store.DB(), Config: c, SSO: ssoStore, Backups: backups, Version: version, Log: log})
+	admin := &http.Server{Handler: setup, ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout)}
+	go func() {
+		if err := admin.Serve(adminLn); !errors.Is(err, http.ErrServerClosed) {
+			log.Error("admin_socket_failed", "reason_code", "serve_error")
+		}
+	}()
+	// Runs before the backup and store defers: SQLite must outlive a running apply.
+	defer func() {
+		sh, cancel := context.WithTimeout(context.Background(), parse(c.Server.ShutdownGrace))
+		defer cancel()
+		_ = admin.Shutdown(sh)
+		drain, cancelDrain := context.WithTimeout(context.Background(), backup.OperationTimeout+time.Minute)
+		defer cancelDrain()
+		if !setup.Drain(drain) {
+			log.Error("apply_setup_drain_cut_off", "reason_code", "timeout")
+		}
+		_ = os.Remove(AdminSocketPath(c.DataDir))
+	}()
 	if c.Backup.AllowPrivateRecovery {
 		log.Info("backup_private_recovery_enabled", "outcome", "enabled")
 	}
 	go runGC(ctx, store.DB(), blobs, c)
 	h := &health.Checker{Ready: true}
-	srv := &http.Server{Addr: c.Server.Bind, Handler: httpapi.NewRouter(log, c.Server.MaxRequestBytes, h.IsReady, store.DB(), blobs, c, backups), ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout), ReadTimeout: parse(c.Server.ReadTimeout), WriteTimeout: parse(c.Server.WriteTimeout), IdleTimeout: parse(c.Server.IdleTimeout)}
+	srv := &http.Server{Addr: c.Server.Bind, Handler: httpapi.NewRouter(log, c.Server.MaxRequestBytes, h.IsReady, store.DB(), blobs, c, backups, ssoStore), ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout), ReadTimeout: parse(c.Server.ReadTimeout), WriteTimeout: parse(c.Server.WriteTimeout), IdleTimeout: parse(c.Server.IdleTimeout)}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {

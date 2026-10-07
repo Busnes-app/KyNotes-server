@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/Busnes-app/ky-primitives/syncauth"
+	"github.com/Busnes-app/kynotes-server/internal/applysetup"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
@@ -38,9 +38,7 @@ type directoryUser struct {
 	} `json:"meta"`
 }
 
-func directoryIdentifier(s string) bool {
-	return s != "" && len(s) <= 256 && strings.TrimSpace(s) == s && !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
-}
+func directoryIdentifier(s string) bool { return applysetup.Identifier(s) }
 
 func (u directoryUser) revision(kind string) (int64, error) {
 	n, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(u.Meta.Version, `W/"`), `"`), 10, 64)
@@ -296,18 +294,26 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 	}
 	// A retained recovery grant still invalidates earlier proofs and credentials.
 	if u.localRole() != existingRole {
-		if _, err := db.Exec(`UPDATE sso_directory_state SET revoked_before=max(revoked_before,?) WHERE issuer=? AND subject=?`, time.Now().Unix(), issuer, u.ID); err != nil {
+		if err := revokeForRoleChange(db, issuer, u.ID, existingID, now); err != nil {
 			return false, err
-		}
-		// Both promotion and demotion require fresh sessions and device pairing.
-		for _, table := range []string{"sessions", "devices"} {
-			if _, err := db.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, existingID); err != nil {
-				return false, err
-			}
 		}
 	}
 	// Update existing user
 	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, sso_issuer=?, updated_at=? WHERE id=?`,
 		username, role, status, u.ID, issuer, now, existingID)
 	return retained, err
+}
+
+// revokeForRoleChange: promotion and demotion both require fresh sessions, device pairing
+// and login proofs.
+func revokeForRoleChange(tx *sql.Tx, issuer, subject, userID, now string) error {
+	if _, err := tx.Exec(`INSERT INTO sso_login_cutoffs(issuer,subject,revoked_before) VALUES(?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revoked_before=max(revoked_before,excluded.revoked_before)`, issuer, subject, time.Now().Unix()); err != nil {
+		return err
+	}
+	for _, table := range []string{"sessions", "devices"} {
+		if _, err := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
