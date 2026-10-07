@@ -124,16 +124,16 @@ The migration is lazy, idempotent and never destructive.
 ## 5. Changes required
 
 **Server**
-- Migration `0021_identity_keys.sql` (P1: `user_identities`, `users.password_admin_known`); P2 adds `invitation_envelopes` and `author_user_id` as `0022`:
+- Migration `0021_identity_keys.sql` (P1: `user_identities`, `users.password_admin_known`); P2 adds `invitation_envelopes`, `author_user_id` and `containers.shared_generation` as `0022`:
   - `user_identities(user_id PK, device_id UNIQUE → devices, wrapped_private_key BLOB, wrap_alg, created_at, updated_at)`.
-  - `invitation_envelopes(invitation_id, container_id, key_generation, alg, envelope)`.
+  - `invitation_envelopes(invitation_id, container_id, device_id, key_generation, alg, envelope)`, one per container.
   - `object_versions.author_user_id`.
   - A `devices.platform = 'identity'` convention.
 - Routes:
   - `PUT /me/identity`: create the identity; session, CSRF and a local-password step-up (SSO sessions are refused). Create-only in P1: a second create returns 409 `identity_exists`. Replacement (which would delete the user's identity envelopes) is deferred. While `password_admin_known` is set it returns 409 `password_change_required` and creates nothing.
   - `GET /me/identity`: public key, fingerprint and device ID only. It never returns the wrapped private key.
   - The wrapped private key is delivered only in responses that just verified the password: the local `POST /auth/login` and `POST /auth/step-up` success bodies carry `identity` (with `wrapAlg` and `wrappedPrivateKey`, `no-store`) when one exists. A session cookie alone must not yield an offline-guessing target. SSO sessions never receive it.
-  - `GET /users/{id}/identity`: public key and fingerprint, for members of shared containers or invite targets.
+  - `GET /users/{id}/identity`: device ID, public key and fingerprint of an active user, for the user, a co-member of a live container, and a team or project owner or admin holding a pending invitation they issued to the user; a uniform 404 otherwise.
   - `POST /containers/{id}/key-rotations`.
   - `PUT /comments/{id}`.
   - Invitation create and accept accept and move envelopes.
@@ -174,6 +174,7 @@ The migration is lazy, idempotent and never destructive.
 - **Minting** (rotation, wrapping for others) requires session, CSRF and step-up. Device credentials are never accepted.
 - **Admin separation:** admins never hold memberships in teams they create. Account bootstrap must force a password change before the identity exists (§1).
 - **Offline guessing:** the wrapped identity key is guessable offline against the password, so it is released only in password-proving responses (local login and step-up), never to a bare session cookie or a device credential.
+- **Identities created before `password_admin_known` existed** may be wrapped under a password an administrator once knew. The user's own password change re-wraps rather than replaces them. Replacing the keypair needs the P5 replacement path, so P2 leaves this residual risk for pre-flag accounts.
 - **SSO users (open question):** SSO sessions cannot create or receive an identity in P1, because their step-up proves the IdP, not the password the wrap depends on. How SSO-only users get an identity is unresolved.
 - **At-rest browser cache:** the identity private key in IndexedDB is equivalent to the cached `authSecret` today, with the same "Forget this device" control.
 
@@ -208,6 +209,24 @@ Each phase can ship on its own.
   - Concurrent-rotate race test.
   - Update the `TestNoUserDataRouteIsRegistered` whitelist.
   - Extend the probe so it installs a real envelope.
+
+**P2 as built.** Resolved ambiguities:
+  1. `containers.shared_generation` (0022) is set by the first rotation. While it is 0, the original device gate applies unchanged.
+  2. The writer is the session user. Content writes are session-only.
+  3. The gate also requires a live membership and is rechecked inside the write transaction (object save, comment create and rewrite, attachment finalize); the object save also rechecks the writer's role there. A refused save leaves its finalized blob on disk without a `blobs` row (`ponytail:`; upgrade path: an age-gated sweep).
+  4. Envelope writes and rotations use `RequireUserStepUp` plus `RecheckUserStepUpTx`. SSO sessions are refused.
+  5. No new error codes. A stale generation, an existing envelope, a moved generation and an incomplete rotation all share 409 `already_exists` with distinct messages; a non-steward writing for others is 403. P1's `identity_exists`, `password_change_required` and `identity_rewrap_required` are added to the plan's error table and `error_envelopes.json` (additive).
+  6. The rotation set covers the caller and every active member's live identity. Members without an identity and disabled users are wrapped later by the sweep.
+  7. Own-identity envelope writes are re-wrap only: a member may replace its own identity envelope at a generation but never write it first, so a steward or an accepted invitation supplies it. P3 must self-wrap only a key it unwrapped at that generation. Recipients must be live devices or identities of active members.
+  8. `invitation_envelopes` has `device_id` (foreign-key cascade) and one row per container. Removal and rotation delete invitation envelopes below the current generation.
+  9. Identity lookup is limited to the user, live co-members and a team or project steward holding a pending invitation they issued; everyone else gets the same 404. A steward therefore cannot wrap at invite time for a stranger: the invitation goes out without envelopes and the sweep fills them after accept. Integrity comes from TOFU pins.
+  10. Owner/admin and server-admin removal share one transaction: child-workspace memberships revoked, generations bumped, envelopes and selections deleted, the removed user's pending invitations deleted, audit row written. The owner/admin route re-reads both roles in the transaction (an admin cannot remove an admin or owner). A non-member is 404.
+  11. Accept rechecks, in its transaction, that the inviter is still an owner or admin of the live container (404 otherwise); consumed or void invitations are 404 and an existing membership row in the team scope is 409.
+  12. `author_user_id` is write-only until P4.
+  13. The identity is not rotated on the first password change the user makes themselves; see §6.
+  14. The web client needs no change: no container becomes shared until P3 calls the rotation route.
+
+  Known limits left for later phases: creating a team invitation to a known user ID reveals whether the user is active (rate-limit invitation creation); invitations without envelopes leave the new member unable to write until the sweep runs, and no route adds envelopes to an existing invitation; a removed member keeps a revoked membership row, so re-inviting them ends in 409; an admin may invite a peer as admin and then cannot remove them; invitation expiry is not rechecked inside the accept transaction; envelopes of expired, never-accepted invitations persist until the invitation row is deleted.
 
 **P3. Team keys in the web client.** Keyring, `KeyRef` refactor, steward sweep, invitation wrapping, key-wait UI, TOFU pins. New team content is shared. Legacy content is still read by trial decryption.
 - Tests:

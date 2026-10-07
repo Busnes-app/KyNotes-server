@@ -345,7 +345,10 @@ user data.
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
-| `already_exists` | 409 | idempotency or uniqueness violation |
+| `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9) |
+| `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
+| `password_change_required` | 409 | an administrator knows the password; the user must change it before creating an identity |
+| `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
 | `pairing_token_used` | 409 | pairing nonce already redeemed |
 | `gone` | 410 | upload session expired or object hard-deleted |
 | `payload_too_large` | 413 | body or declared size exceeds the configured limit |
@@ -369,7 +372,7 @@ probing for object existence across accounts.
 | Login, login-params, recovery | none | none | — |
 | Device list, revoke, pairing-token mint | required | rejected | fresh session (< 5 min since login) for mint and revoke |
 | Device registration (redeem pairing token) | none | none (mints one) | pairing token |
-| Envelope write (`PUT .../envelopes`) | required | rejected | fresh session |
+| Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required, local session | rejected | CSRF + `stepup_at` within `StepUpWindow`, rechecked in the write transaction; SSO sessions refused |
 | Envelope read (`GET .../envelopes`) | either | either | a device may read only envelopes sealed for **itself** |
 | Container/object/attachment sync | either | either | — |
 | Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
@@ -1233,7 +1236,9 @@ deliberately every phase).
 | GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
 | PUT | `/api/v1/me/identity` | session + CSRF + user step-up | create only: `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`; `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
-| PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + fresh | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}` |
+| PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; `409 already_exists` for a stale generation or an existing recipient envelope |
+| POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
+| GET | `/api/v1/users/{id}/identity` | session | `{"userId","deviceId","publicKey","fingerprint"}` of an active user's live identity, for the user, a co-member of a live container, or a team/project owner/admin holding a pending, unexpired invitation they issued to the user; otherwise a uniform `404` |
 
 ### 5.2 Rules
 
@@ -1255,6 +1260,8 @@ deliberately every phase).
 * A successful password change clears `stepup_at` on every session of the user.
 * `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has an identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
 * Recovery and admin password reset delete the identity row in the same transaction and write an audit row.
+* Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
+* `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
 
 ### 5.3 Tests
 
@@ -1295,6 +1302,19 @@ deliberately every phase).
 - `TestPasswordChangeRewrapsIdentityAtomically`
 - `TestRecoveryAndAdminResetDeleteIdentity`
 - `TestEnvelopeVectors`
+- `TestEnvelopeWriteRequiresUserStepUp`
+- `TestEnvelopeWriteRefusals`
+- `TestEnvelopeWriteIsInsertOnlyExceptOwnIdentity`
+- `TestOwnIdentityWriteIsRewrapOnly`
+- `TestMemberMayWriteOnlyOwnEnvelopes`
+- `TestEnvelopeForNonMemberIsRejected`
+- `TestEnvelopeWritesRecheckStepUpInTransaction`
+- `TestKeyRotationIsAtomicAndCoversEveryIdentity`
+- `TestKeyRotationRequiresUserStepUp`
+- `TestConcurrentRotationsCannotSplitAGeneration`
+- `TestRevokedIdentityNeitherWritesNorBlocksRotation`
+- `TestUserIdentityVisibility`
+- `TestOpenEnvelopeAgreesWithVectors`
 
 ---
 
@@ -1325,6 +1345,13 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 3. Stream the body into a `blobstore.Temp`, computing the digest as it goes.
 4. `Finalize("")` — the blob is now on disk and content-addressed.
 5. Open a write transaction:
+   * Recheck the write gate (§9): live membership, `key_generation` equal to the
+     request, the envelope rule, and an `editor` or higher role. On failure roll
+     back and answer `404 not_found`, `403 forbidden` or `409 already_exists`
+     (`key rotation incomplete`). ponytail: the finalized blob of a refused
+     write stays on disk without a `blobs` row; deleting it would race a
+     concurrent writer of the same digest. Upgrade path: an age-gated sweep of
+     blob files that have no `blobs` row.
    * Re-read `objects.current_version`.
    * If `baseVersion == current_version`: insert `object_versions` at
      `current_version + 1`, bump `objects.current_version`, take a new
@@ -1574,13 +1601,43 @@ Rules:
   | rotate keys | ✓ | ✓ | — | — | — |
   | delete container | ✓ | — | — | — | — |
 
-* **Key rotation on membership change**: removing a member increments
-  `containers.key_generation`, deletes that member's devices' envelopes for the
-  container, and requires the rotating client to `PUT` a full envelope set for
-  the new generation for every remaining device. Until that set exists,
-  `POST`/`PUT` of new content at the new generation is refused with `409
-  already_exists` and message `key rotation incomplete`. The server never sees
-  the key; it only enforces that the generation moved and that envelopes exist.
+* **Key rotation on membership change**: removing a member (owner/admin route
+  or server-admin route, one shared transaction with its audit row) revokes the
+  member in the container and its child workspaces, increments their
+  `key_generation`, deletes that member's envelopes and device selections there,
+  deletes the pending invitations that member issued in the team, and deletes
+  invitation envelopes below the new generations. The removal route re-reads
+  both roles in the transaction: an admin cannot remove an admin or an owner.
+  A steward then calls `POST /containers/{id}/key-rotations`. The server never
+  sees the key; it enforces that the generation moved and which envelopes exist.
+* **Write gate**: new content (object save, comment create or rewrite,
+  attachment finalize) needs a live membership and the current
+  `key_generation`. If the container has never rotated
+  (`shared_generation = 0`), every member's paired device also needs an
+  envelope at that generation. Otherwise the writer's own live identity needs
+  one. A failed gate is `409 already_exists` with message `key rotation
+  incomplete`. The gate runs before the body streams and again in the write
+  transaction. Object saves record the session user in
+  `object_versions.author_user_id`, which nothing reads before P4.
+* **Invitation envelopes**: `POST /containers/{id}/invitations` may carry
+  `envelopes:[{containerId,deviceId,keyGeneration,alg,envelope}]` for the
+  invitee's live identity, one per container (the team or its child workspaces)
+  at that container's current generation, where the inviter is owner or admin.
+  Accept rechecks, in the membership transaction, that the inviter is still an
+  owner or admin of the live container (`404` otherwise), installs the
+  envelopes still at their generation and drops the rest. A consumed or void
+  invitation is `404`; an existing membership row anywhere in the team scope
+  is `409`.
+* **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
+  is author-only (`403` otherwise) and passes the write gate.
+* **Known limits** (P2): creating a team invitation to a known user ID reveals
+  whether that user is active (invitation creation is not rate-limited);
+  invitations may be created without envelopes, and the new member cannot
+  write until a steward's sweep supplies them; a removed member keeps a revoked
+  membership row, so re-inviting them ends in `409`; an admin may invite a peer
+  as admin and then cannot remove them; invitation expiry is not rechecked
+  inside the accept transaction; envelopes of expired, never-accepted
+  invitations persist until the invitation row is deleted.
 * Presence is in-memory only, never persisted, TTL 60 seconds, and contains only
   `{userId, containerId, since}`. On restart it is empty. That is correct.
 
@@ -1590,6 +1647,15 @@ Tests:
 - `TestRemovingMemberIncrementsKeyGeneration`
 - `TestRemovedMemberEnvelopesAreDeleted`
 - `TestNewContentRefusedUntilRotationEnvelopesExist`
+- `TestLegacyContainersKeepTheDeviceGate`
+- `TestSaveRacingRemovalOrRotationIsRefused`
+- `TestSaveRacingDemotionIsRefused`
+- `TestAdminMemberRemovalRotatesLikeOwnerRemoval`
+- `TestRemovedMemberCannotWriteAnywhereInTheTeam`
+- `TestCollaboratorRemovalRulesAndAcceptOutcomes`
+- `TestInvitationEnvelopesMoveOnlyAtTheirGeneration`
+- `TestInvitationsDieWithTheirStewardship`
+- `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
 - `TestInvitationTokenIsSingleUseAndExpires`
@@ -1666,7 +1732,8 @@ fixtures in `testdata/protocol/`.
 
 1. login-params → derive auth secret → login
 2. mint a pairing token, register a device, receive the device secret
-3. install a key envelope from the web session, read it back from the device
+3. step up, install a real key envelope from the web session (a second one for
+   the same recipient is refused), read it back from the device and open it
 4. select containers for sync
 5. create a note, save v1, save v2, read back both
 6. save with a stale base version, receive `409`, download the preserved conflict

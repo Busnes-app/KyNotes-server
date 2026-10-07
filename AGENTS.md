@@ -367,3 +367,29 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
   `TestUserAddFlagsOperatorKnownPassword`, `TestEnvelopeVectors` and `npm test` (which also keeps
   `*ForVector` exports out of non-test sources).
+- Team keys P2: `internal/httpapi/teamkeys_routes.go` owns the shared-key rules. `insertEnvelopeTx`
+  makes envelopes insert-only per container/generation/recipient; a member's own identity envelope
+  is re-wrap only (stewards or an accepted invitation write it first). Members wrap for their own
+  devices, stewards for any member; recipients must be live devices or identities of active members.
+  `PUT .../envelopes` and `POST .../key-rotations` use `auth.RequireUserStepUp` plus
+  `RecheckUserStepUpTx`. Rotation compares and increments `key_generation`, sets
+  `containers.shared_generation` (migration 0022) once, and requires the caller and every active
+  member identity. `checkWriteGate` serves object saves, comment create/rewrite and attachment
+  finalize, before streaming and inside the transaction (object saves also recheck role there):
+  live membership, current generation, then the legacy device rule while `shared_generation=0` or
+  the writer's own identity envelope after. `removeMemberTx` serves owner/admin and server-admin
+  removal (children revoked, generations bumped, envelopes, selections and the removed user's
+  pending invitations deleted, audited in the same transaction). Invitations may carry identity
+  envelopes (`invitation_envelopes`, moved on accept only at their generation and only while the
+  inviter is still a steward). `PUT /comments/{id}` is author-only; `GET /users/{id}/identity`
+  answers self, live co-members and an inviting steward, else a uniform 404;
+  `object_versions.author_user_id` is written, not yet read. Shared 409 `already_exists` covers
+  moved generations, duplicates and incomplete rotations. Known limits are listed in
+  `IMPLEMENTATION_PLAN.md` §9. The probe seals and opens a real envelope with `internal/teamkeys`
+  (never linked into the server). Verify `TestEnvelope*`, `TestKeyRotation*`,
+  `TestOwnIdentityWriteIsRewrapOnly`, `TestConcurrentRotationsCannotSplitAGeneration`,
+  `TestLegacyContainersKeepTheDeviceGate`, `TestNewContentRefusedUntilRotationEnvelopesExist`,
+  `TestSaveRacing*`, `TestAdminMemberRemovalRotatesLikeOwnerRemoval`,
+  `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
+  `TestInvitation*`, `TestCommentRewriteIsAuthorOnly`, `TestUserIdentityVisibility`,
+  `TestOpenEnvelopeAgreesWithVectors` and the probe.
