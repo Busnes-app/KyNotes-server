@@ -1,6 +1,6 @@
 import { AdminBackup } from "./components/AdminBackup";
 import { ConfirmPassword } from "./components/ConfirmPassword";
-import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   addAdminTeamMember,
@@ -78,6 +78,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
+import { carrySaved, editEntry, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -570,7 +571,9 @@ function Workspace({
   const [, setCommitToastTick] = useState(0);
   const nameOf = (container: Container) =>
     names[container.id] || `Notebook ${container.id.slice(4, 10)}`;
-  const orderedNotes = useMemo(() => [...notes].sort(compareOrdered), [notes]);
+  // Every keystroke patches notes; the search/graph index catches up off the typing path.
+  const settledNotes = useDeferredValue(notes);
+  const orderedNotes = useMemo(() => [...settledNotes].sort(compareOrdered), [settledNotes]);
   const sectionPages = useMemo(() => pagesInSection(notes, sections, sectionID), [notes, sections, sectionID]);
   const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
   const searchableNotes = useMemo(() => indexNotes(orderedNotes), [orderedNotes]);
@@ -1044,17 +1047,20 @@ function Workspace({
     if (!selected) return;
     setBusy(true);
     try {
+      // Before createObject: an exhausted order key must not leave an empty object behind.
+      const order = endOrder(pagesInSection(notesRef.current, sectionsRef.current, sectionID));
       const object = await createObject(selected.id);
       const note: Note = {
         id: object.id,
         title: "Untitled page",
         body: stringifyNoteDocument(emptyNoteDocument().document),
         section: sectionID === QUICK_NOTES ? undefined : sectionID,
-        order: endOrder(pagesInSection(notes, sections, sectionID)),
+        order,
         version: 0,
         updatedAt: new Date().toISOString(),
       };
-      setNotes((value) => [note, ...value]);
+      patchNotes((value) => [note, ...value]);
+      selectedNoteRef.current = note;
       setSelectedNote(note);
       setDirty(true);
       persistDraft(note);
@@ -1094,39 +1100,23 @@ function Workspace({
         );
         await clearQueuedSave(note.id);
         setCommitToastAt(Date.now());
-          setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
-          setSyncStatus("saved");
+        setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
         setLastSavedAt(savedAt);
         setSyncStatus("saved");
-        patchNotes((value) =>
-          value.map((entry) =>
-            entry.id === saved.id && entry.body === note.body && entry.title === note.title &&
-              entry.section === note.section && entry.order === note.order
-              ? saved
-              : entry,
-          ),
-        );
+        // Edits or a move may have landed while the request was in flight:
+        // carry only the version forward, never the sent content.
+        patchNotes((value) => carrySaved(value, saved.id, saved));
         setQueueEntries((entries) => entries.flatMap((entry) => {
           if (entry.note.id !== saved.id) return [entry];
           return openTaskNotes(indexNotes([saved])).length ? [{ ...entry, note: saved }] : [];
         }));
-        // An edit may have landed while the request was in flight. Never let
-        // an older response replace that newer document in memory.
-        if (
-          selectedNoteRef.current?.id === saved.id &&
-          selectedNoteRef.current.title === note.title &&
-          selectedNoteRef.current.body === note.body
-        ) {
-          selectedNoteRef.current = saved;
-          setSelectedNote(saved);
-          setDirty(false);
-        } else if (selectedNoteRef.current?.id === saved.id) {
-          // Carry the server's new version forward without replacing the
-          // newer local document that is waiting to be saved next.
-          const carried = { ...selectedNoteRef.current, version: saved.version, updatedAt: saved.updatedAt };
+        const open = selectedNoteRef.current;
+        if (open?.id === saved.id) {
+          const [carried] = carrySaved([open], saved.id, saved);
           selectedNoteRef.current = carried;
           setSelectedNote(carried);
+          if (samePayload(open, note)) setDirty(false);
         }
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1173,12 +1163,16 @@ function Workspace({
         try {
           const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration ?? 1);
           await clearQueuedSave(item.id);
-          setNotes((value) => value.map((note) => note.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note));
+          const saved = { version: result.version, updatedAt: item.updatedAt };
+          patchNotes((value) => carrySaved(value, item.id, saved));
           patchSections((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
-          if (selectedNoteRef.current?.id === item.id) {
-            setSelectedNote((note) => note?.id === item.id ? { ...note, version: result.version, updatedAt: item.updatedAt } : note);
+          const open = selectedNoteRef.current;
+          // The open page may hold newer edits than the queued payload, so it stays dirty.
+          if (open?.id === item.id) {
+            const [carried] = carrySaved([open], item.id, saved);
+            selectedNoteRef.current = carried;
+            setSelectedNote(carried);
             setLastSavedAt(item.updatedAt);
-            setDirty(false);
           }
         } catch (error) {
           if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1202,7 +1196,7 @@ function Workspace({
     try {
       await deleteObject(note.id);
       await deleteCachedNote(note.id);
-      setNotes((value) => value.filter((entry) => entry.id !== note.id));
+      patchNotes((value) => value.filter((entry) => entry.id !== note.id));
       setSelectedNote(null);
     } catch (error) {
       setError(
@@ -1261,40 +1255,32 @@ function Workspace({
     return queued;
   }
 
-  /** The newest local copy of a page: an offline draft may be ahead of `notes`. */
-  async function latestLocal(note: Note, containerID: string): Promise<Note> {
-    const cached = await getNote(note.id);
-    if (!cached || cached.version < note.version) return note;
-    const payload = await decryptObject(auth.authSecret, containerID, cached.payload).catch(() => undefined);
-    return payload?.type === "page" ? { ...note, title: payload.title, body: payload.body } : note;
-  }
-
   async function placePage(id: string, change: { section?: string; order: string }) {
+    patchNotes((value) => editEntry(value, id, change));
     const open = selectedNoteRef.current;
     if (open?.id === id) {
       const next = { ...open, ...change };
       selectedNoteRef.current = next;
       setSelectedNote(next);
-      patchNotes((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
       await save(next, true);
       return;
     }
-    const entry = notesRef.current.find((note) => note.id === id);
-    if (!entry || !selected) return;
-    const next = { ...(await latestLocal(entry, selected.id)), ...change };
-    patchNotes((value) => value.map((note) => (note.id === id ? next : note)));
+    // notes[] holds every local edit and drained version, so it is the newest copy.
+    const next = notesRef.current.find((note) => note.id === id);
+    if (!next) return;
     const saved = await writeObject(id, next.version, notePayload(next));
-    if (saved !== null) patchNotes((value) => value.map((note) => (note.id === id ? { ...note, version: saved } : note)));
+    if (saved !== null) patchNotes((value) => carrySaved(value, id, { version: saved }));
   }
   const orderedSections = useMemo(() => sortedSections(sections), [sections]);
   async function newSection() {
     if (!selected) return;
     setBusy(true);
     try {
+      const order = endOrder(sectionsRef.current);
       const object = await createObject(selected.id, "folder");
       const section: Section = {
         id: object.id, version: object.version, type: "section", title: "New section",
-        color: SECTION_COLORS[sections.length % SECTION_COLORS.length], order: endOrder(sections),
+        color: SECTION_COLORS[sections.length % SECTION_COLORS.length], order,
       };
       patchSections((value) => [...value, section]);
       setSectionID(section.id);
@@ -1338,13 +1324,15 @@ function Workspace({
     moveChain.current = run.catch(() => {});
     return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
   }
-  function editBody(value: string) {
-    if (selectedNote) {
-      const next = { ...selectedNote, body: value };
-      setSelectedNote(next);
-      setDirty(true);
-      persistDraft(next);
-    }
+  function editOpen(change: { title?: string; body?: string }) {
+    const open = selectedNoteRef.current;
+    if (!open) return;
+    const next = { ...open, ...change };
+    selectedNoteRef.current = next;
+    setSelectedNote(next);
+    patchNotes((value) => editEntry(value, open.id, change));
+    setDirty(true);
+    persistDraft(next);
   }
   async function uploadPending(job: Awaited<ReturnType<typeof pendingUploads>>[number]) {
     const status = await uploadStatus(job.uploadId);
@@ -1708,7 +1696,8 @@ function Workspace({
               </div>
             </div>
             {listEntries.map(({ note, container }, index) => {
-              const shown = selectedNote?.id === note.id ? selectedNote : note;
+              // Work queue rows are a snapshot; show the open page live there.
+              const shown = queueMode && selectedNote?.id === note.id ? selectedNote : note;
               return (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
@@ -1799,12 +1788,7 @@ function Workspace({
                 <input
                   className="title-input"
                   value={selectedNote.title}
-                  onChange={(event) => {
-                    const next = { ...selectedNote, title: event.target.value };
-                    setSelectedNote(next);
-                    setDirty(true);
-                    persistDraft(next);
-                  }}
+                  onChange={(event) => editOpen({ title: event.target.value })}
                 />
                 <div className="single-pane-editor">
                   <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
@@ -1813,7 +1797,7 @@ function Workspace({
                       noteID={selectedNote.id}
                       initialContent={parseNoteDocument(selectedNote.body).document}
                       legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}
-                      onChange={(document: Block[]) => editBody(stringifyNoteDocument(document))}
+                      onChange={(document: Block[]) => editOpen({ body: stringifyNoteDocument(document) })}
                       uploadFile={uploadInlineFile}
                       resolveFileUrl={resolveFileUrl}
                     />
