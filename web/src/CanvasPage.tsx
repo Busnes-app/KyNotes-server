@@ -1,5 +1,5 @@
 // web/src/CanvasPage.tsx
-import { memo, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Block, PartialBlock } from "@blocknote/core";
 import { BlockNoteEditor } from "./BlockNoteEditor";
 import {
@@ -20,6 +20,7 @@ const pressureOf = (event: PointerEvent | React.PointerEvent) =>
 
 type Actions = {
   change: (id: string, blocks: Block[]) => void;
+  hydrated: (id: string, blocks: Block[]) => void;
   startDrag: (event: React.PointerEvent<HTMLElement>, id: string, mode: "move" | "resize") => void;
   dragMove: (event: React.PointerEvent<HTMLElement>) => void;
   endDrag: () => void;
@@ -53,6 +54,7 @@ const Box = memo(function Box({ pageID, box, rank, autoFocus, editable, legacyMa
         autoFocus={autoFocus}
         editable={editable}
         onChange={(blocks) => act().change(box.id, blocks)}
+        onHydrated={(blocks) => act().hydrated(box.id, blocks)}
         uploadFile={(file) => act().uploadFile(file)}
         resolveFileUrl={(url) => act().resolveFileUrl(url)}
       />
@@ -92,7 +94,8 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   const draft = useRef<number[] | null>(null);
   const eraseStart = useRef<CanvasStroke[] | null>(null);
   const penSeen = useRef(false);
-  const drag = useRef<{ id: string; mode: "move" | "resize"; px: number; py: number; x: number; y: number; width: number } | null>(null);
+  const drag = useRef<{ id: string; mode: "move" | "resize"; px: number; py: number; x: number; y: number; width: number; start: Page } | null>(null);
+  const activePointer = useRef<number | null>(null);
   const history = useRef(new History<CanvasStroke[]>());
   const paths = useRef(new WeakMap<CanvasStroke, string>());
   const size = SIZES[tool === "highlighter" ? "highlighter" : "pen"][sizeIndex];
@@ -101,6 +104,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     pageRef.current = next;
     setPage(next);
   };
+  // ponytail: serializes the whole page on every change (per keystroke); upgrade path: debounce serialization or serialize strokes once per ink commit.
   /** Shows and emits a change. `guard` refuses growth past the page byte limit (ink only). */
   const commit = (next: Page, guard = false) => {
     if (!editable) return false;
@@ -135,12 +139,14 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   const actions = useRef<Actions>(null);
   actions.current = {
     change: (id, blocks) => commit(updateBox(pageRef.current, id, { blocks })),
+    // Parsed legacy markdown replaces the raw paragraph locally; no save until the user edits.
+    hydrated: (id, blocks) => show(updateBox(pageRef.current, id, { blocks })),
     startDrag: (event, id, mode) => {
       if (!editable) return;
       const box = pageRef.current.boxes.find((entry) => entry.id === id);
       if (!box || event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      drag.current = { id, mode, px: event.clientX, py: event.clientY, x: box.x, y: box.y, width: box.width };
+      drag.current = { id, mode, px: event.clientX, py: event.clientY, x: box.x, y: box.y, width: box.width, start: pageRef.current };
     },
     dragMove: (event) => {
       if (!editable) return;
@@ -152,8 +158,9 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     },
     endDrag: () => {
       if (!drag.current) return;
+      const { start } = drag.current;
       drag.current = null;
-      commit(pageRef.current);
+      if (pageRef.current !== start) commit(pageRef.current);
     },
     nudge: (event, id) => {
       if (!editable) return;
@@ -178,6 +185,14 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     const next = history.current.redo(pageRef.current.strokes);
     if (next) commit({ ...pageRef.current, strokes: next });
   };
+  useEffect(() => {
+    if (editable) return;
+    draft.current = null;
+    eraseStart.current = null;
+    drag.current = null;
+    activePointer.current = null;
+  }, [editable]);
+
   const erase = (x: number, y: number) => {
     const current = pageRef.current;
     const strokes = eraseAt(current.strokes, x, y, ERASER_RADIUS);
@@ -188,7 +203,8 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     if (!editable) return;
     if (event.pointerType === "pen") penSeen.current = true;
     else if (event.pointerType === "touch" && penSeen.current) return; // palm rejection once a pen is in use
-    if (event.button !== 0) return;
+    if (event.button !== 0 || activePointer.current !== null) return;
+    activePointer.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
     const { x, y } = local(event);
     if (tool === "eraser") {
@@ -200,6 +216,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     setTick((value) => value + 1);
   };
   const inkMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.pointerId !== activePointer.current) return;
     if (eraseStart.current) {
       const { x, y } = local(event);
       erase(x, y);
@@ -214,14 +231,13 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     }
     setTick((value) => value + 1);
   };
-  const inkUp = () => {
+  const inkUp = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.pointerId !== activePointer.current) return;
+    activePointer.current = null;
     const start = eraseStart.current;
     if (start) {
       eraseStart.current = null;
-      if (pageRef.current.strokes !== start) {
-        history.current.push(start);
-        commit(pageRef.current);
-      }
+      if (pageRef.current.strokes !== start && commit(pageRef.current)) history.current.push(start);
       return;
     }
     const points = draft.current;
@@ -234,12 +250,6 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     if (commit({ ...before, strokes: [...before.strokes, stroke] }, true)) history.current.push(before.strokes);
   };
 
-  const onSurfacePointerDown = (event: React.PointerEvent) => {
-    if (!editable) return;
-    if (event.target !== surfaceRef.current) return;
-    const pruned = pruneEmpty(pageRef.current);
-    if (pruned !== pageRef.current) commit(pruned);
-  };
   // `click` (not pointerdown) so a touch scroll never creates a box.
   const onSurfaceClick = (event: React.MouseEvent) => {
     if (!editable || tool !== "type" || event.target !== surfaceRef.current || narrow()) return;
@@ -280,7 +290,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   const extent = contentExtent(page);
   const ranks = readingOrder(page.boxes);
   return (
-    <div className={`canvas-page tool-${tool}`} onKeyDown={onKeyDown}>
+    <div className={`canvas-page tool-${editable ? tool : "type"}`} onKeyDown={onKeyDown}>
       <div className="canvas-toolbar" role="toolbar" aria-label="Page tools">
         {TOOLS.map(([value, label]) => (
           <button key={value} className={value === "type" ? "" : "ink-tool"} aria-pressed={tool === value} disabled={!editable} onClick={() => setTool(value)}>{label}</button>
@@ -307,7 +317,6 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
           ref={surfaceRef}
           className="canvas-surface"
           style={{ width: extent.width + 400, height: extent.height + 400 }}
-          onPointerDown={onSurfacePointerDown}
           onClick={onSurfaceClick}
           onDragOver={(event) => { if (event.target === surfaceRef.current && event.dataTransfer.types.includes("Files")) event.preventDefault(); }}
           onDrop={(event) => void onDrop(event)}
