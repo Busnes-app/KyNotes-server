@@ -28,6 +28,7 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
     else if (section && sectionID !== QUICK_NOTES) onMove(section, index);
     event.preventDefault();
   };
+  const close = (id: string) => document.getElementById(`section-menu-${id}`)?.hidePopover();
   const tab = (id: string, title: string, color: SectionColor, index: number, section?: Section) => (
     <li key={id} className="section-tab-item">
       <button
@@ -46,7 +47,7 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
         <>
           <button className="section-tab-menu" popoverTarget={`section-menu-${id}`} aria-label={`Section options for ${title}`}>⋯</button>
           <div className="section-menu" id={`section-menu-${id}`} popover="auto">
-            <button disabled={busy} onClick={() => onRename(section)}>Rename</button>
+            <button disabled={busy} onClick={() => { close(id); onRename(section); }}>Rename</button>
             <div className="section-colors" role="group" aria-label="Section color">
               {SECTION_COLORS.map((choice) => (
                 <button
@@ -55,13 +56,13 @@ export function SectionTabs({ sections, current, busy, onSelect, onCreate, onRen
                   aria-label={choice}
                   aria-pressed={section.color === choice}
                   style={{ background: `var(--section-${choice})` }}
-                  onClick={() => onColor(section, choice)}
+                  onClick={() => { close(id); onColor(section, choice); }}
                 />
               ))}
             </div>
-            <button disabled={index === 0} onClick={() => onMove(id, index - 1)}>Move left</button>
-            <button disabled={index === sections.length - 1} onClick={() => onMove(id, index + 1)}>Move right</button>
-            <button className="danger" onClick={() => onDelete(section)}>Delete section</button>
+            <button disabled={index === 0} onClick={() => { close(id); onMove(id, index - 1); }}>Move left</button>
+            <button disabled={index === sections.length - 1} onClick={() => { close(id); onMove(id, index + 1); }}>Move right</button>
+            <button className="danger" onClick={() => { close(id); onDelete(section); }}>Delete section</button>
           </div>
         </>
       )}

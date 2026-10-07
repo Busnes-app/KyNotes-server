@@ -1283,9 +1283,10 @@ function Workspace({
       setBusy(false);
     }
   }
+  const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section");
   function renameSection(section: Section) {
     const title = prompt("Section name", section.title)?.trim();
-    if (title) void updateSection(section.id, { title });
+    if (title) void updateSection(section.id, { title }).catch(reportSection);
   }
   async function removeSection(section: Section) {
     const count = pagesInSection(notes, sections, section.id).length;
@@ -1300,7 +1301,7 @@ function Workspace({
     }
   }
   async function moveSection(id: string, index: number) {
-    for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order });
+    for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order }).catch(reportSection);
   }
   async function movePage(pageID: string, target: string, index: number) {
     const list = pagesInSection(notes, sections, target);
@@ -1639,13 +1640,14 @@ function Workspace({
               busy={busy}
               onSelect={(id) => void (async () => {
                 // Leaving the open page: finish its save first, as selectNote does.
+                if (id === sectionID) return;
                 if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
                 setSectionID(id);
                 setSelectedNote(null);
               })()}
               onCreate={() => void newSection()}
               onRename={renameSection}
-              onColor={(section, color) => void updateSection(section.id, { color })}
+              onColor={(section, color) => void updateSection(section.id, { color }).catch(reportSection)}
               onDelete={(section) => void removeSection(section)}
               onMove={(id, index) => void moveSection(id, index)}
               onDropPage={(pageID, target) => void movePage(pageID, target, pagesInSection(notes, sections, target).length)}

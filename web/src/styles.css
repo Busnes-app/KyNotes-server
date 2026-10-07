@@ -277,7 +277,10 @@ body { color: var(--ink-strong); background: var(--bg); }
 .section-tab { padding: 7px 14px; border-top: 4px solid var(--tab-color); border-radius: 8px 8px 0 0; background: transparent; color: var(--ink); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 [class].section-tab.ky-nav-item[aria-current="page"] { box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
 .section-tab-menu, .section-add { background: transparent; color: var(--ink); padding: 6px 8px; }
-.section-menu { padding: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); display: grid; gap: 4px; min-width: 180px; }
+.section-menu { padding: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); gap: 4px; min-width: 180px; }
+.section-menu:popover-open { display: grid; }
+.section-tab-menu { anchor-name: --section-menu; }
+@supports (anchor-name: --a) { .section-menu { position-anchor: --section-menu; inset: auto; top: anchor(bottom); left: anchor(left); margin: 4px 0 0; } }
 .section-menu > button { background: transparent; color: inherit; text-align: left; padding: 8px; }
 .section-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; }
 .section-swatch { width: 20px; height: 20px; border-radius: 50%; padding: 0; }
