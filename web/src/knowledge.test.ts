@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contextualNotes, graphEdges, indexNotes, noteTags, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
-import { isStructuredNoteBody, stringifyNoteDocument } from "./document";
+import { emptyCanvasPage, isStructuredNoteBody, stringifyCanvasPage, stringifyNoteDocument } from "./document";
 
 const notes = [
   { id: "a", title: "Launch", body: "See [[b]] #product\n- [ ] Ship beta", updatedAt: "" },
@@ -47,5 +47,18 @@ describe("local knowledge projections", () => {
 
   it("keeps only notes with open tasks in the work queue", () => {
     expect(openTaskNotes(notes).map((note) => note.id)).toEqual(["a"]);
+  });
+});
+
+describe("canvas tasks", () => {
+  it("finds open checklist items in any box", () => {
+    const body = stringifyCanvasPage({
+      ...emptyCanvasPage(),
+      boxes: [
+        { id: "a", x: 0, y: 0, width: 300, blocks: [{ type: "paragraph", content: "intro" }] },
+        { id: "b", x: 0, y: 200, width: 300, blocks: [{ type: "checkListItem", props: { checked: false }, content: "Call Ana" }] },
+      ],
+    });
+    expect(noteTasks({ id: "n", title: "", body, updatedAt: "" })).toEqual(["Call Ana"]);
   });
 });

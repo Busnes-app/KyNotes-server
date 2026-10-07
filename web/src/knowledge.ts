@@ -1,4 +1,4 @@
-import { documentText } from "./document";
+import { documentText, isStructuredNoteBody, pageBlocks } from "./document";
 
 const MAX_TASK_DEPTH = 100;
 
@@ -36,9 +36,7 @@ export function noteTags(note: NoteProjection): string[] {
 export function noteTasks(note: NoteProjection): string[] {
   const tasks: string[] = [];
   const source = note.sourceBody ?? note.body;
-  let document: { format?: string; document?: unknown[] } | undefined;
-  try { document = JSON.parse(source) as typeof document; } catch { /* Legacy text below. */ }
-  if (document?.format === "kynotes.blocknote.v1" && Array.isArray(document.document)) {
+  if (isStructuredNoteBody(source)) {
     const text = (content: unknown): string => Array.isArray(content)
       ? content.map((item) => typeof item === "object" && item !== null && "text" in item && typeof item.text === "string" ? item.text : "").join("")
       : typeof content === "string" ? content : "";
@@ -54,7 +52,7 @@ export function noteTasks(note: NoteProjection): string[] {
       }
       if (Array.isArray(block.children)) block.children.forEach((child) => visit(child as typeof block, depth + 1));
     };
-    document.document.forEach((block) => visit(block as Parameters<typeof visit>[0]));
+    pageBlocks(source).forEach((block) => visit(block as Parameters<typeof visit>[0]));
     return tasks;
   }
   return source.split("\n").filter((line) => /^\s*- \[ \] /.test(line)).map((line) => line.replace(/^\s*- \[ \] /, "").trim());
