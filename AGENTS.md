@@ -341,9 +341,15 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   (create-only, `auth.RequireUserStepUp`: local session + `stepup_at`, SSO refused). `GET`
   is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a
   `devices` row with `platform='identity'` and an unusable `secret_hash` (migration 0021,
-  `user_identities`); device auth, device list/revoke/selection, register and the save gate
-  exclude it. Password change must carry `identityDeviceId` and `wrappedIdentityKey` when one
-  exists (`409 identity_rewrap_required`); recovery and admin reset delete it with an audit row.
+  `user_identities`); device auth, device list/revoke/selection, directory deactivation and role
+  changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
+  and `wrappedIdentityKey` when one exists (`409 identity_rewrap_required`), clears every session's
+  step-up and shares the step-up lockout; recovery and admin reset delete it with an audit row.
+  `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
+  recovery) makes `PUT` answer `409 password_change_required`; the browser then creates the identity
+  after the user's own password change. Any new path that sets a password for someone else must
+  set the flag. `/setup` accepts only `authSecret`. Until shared keys land, the password form warns
+  that existing notes become unreadable and needs an acknowledgement (`web/src/passwordChange.ts`).
   `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
   (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
@@ -351,4 +357,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
   `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserStepUpRefusesSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
-  `TestRecoveryAndAdminResetDeleteIdentity`, `TestEnvelopeVectors` and `npm test`.
+  `TestRecoveryAndAdminResetDeleteIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
+  `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
+  `TestUserAddFlagsOperatorKnownPassword`, `TestEnvelopeVectors` and `npm test` (which also keeps
+  `*ForVector` exports out of non-test sources).

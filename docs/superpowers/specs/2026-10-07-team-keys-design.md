@@ -30,7 +30,7 @@ paired phones: own X25519 device key ◄── envelopes ── CK  (unchanged f
 - Any of the user's browsers recovers the private key after a password login (it derives `userKEK` from `stretched`) or from the IndexedDB keys vault.
 - `userKEK` uses a new HKDF label off the same PBKDF2 output. The server never sees it, which fixes F1 for all new content.
 
-**Admin-created accounts.** The admin's browser must not generate the user's keypair, because the admin knows the initial password. The identity is created on the user's own first login. Until then the user has no public key and appears as "awaiting first sign-in" in team UIs. Recommendation, which belongs to sub-project A: force a password change on the first login of admin-created accounts, and create the identity *after* that change. Otherwise the admin still knows the initial password and therefore `userKEK`.
+**Admin-created accounts.** The admin's browser must not generate the user's keypair, because the admin knows the initial password. The identity is created on the user's own first login. Until then the user has no public key and appears as "awaiting first sign-in" in team UIs. An identity wrapped under that password stays readable by the admin, because a later password change only re-wraps it. So the server flags every password someone other than the user set (`users.password_admin_known`: admin create and reset, `BOOTSTRAP_ADMIN_*`, `user add`), refuses `PUT /me/identity` with 409 `password_change_required` while it is set, and the user's own password change (or recovery) clears it; the browser then creates the identity under the new password. Forcing that change at first login belongs to sub-project A. Accounts created before the flag existed are not flagged.
 
 **How this fits the frozen per-device envelope contract (minimal change).** Each user identity is represented as a `devices` row with `platform = 'identity'`:
 - `public_key` is the identity public key and the fingerprint is computed by the server as usual.
@@ -124,20 +124,20 @@ The migration is lazy, idempotent and never destructive.
 ## 5. Changes required
 
 **Server**
-- Migration `0021_identity_keys.sql` (P1: `user_identities`); P2 adds `invitation_envelopes` and `author_user_id` as `0022`:
+- Migration `0021_identity_keys.sql` (P1: `user_identities`, `users.password_admin_known`); P2 adds `invitation_envelopes` and `author_user_id` as `0022`:
   - `user_identities(user_id PK, device_id UNIQUE → devices, wrapped_private_key BLOB, wrap_alg, created_at, updated_at)`.
   - `invitation_envelopes(invitation_id, container_id, key_generation, alg, envelope)`.
   - `object_versions.author_user_id`.
   - A `devices.platform = 'identity'` convention.
 - Routes:
-  - `PUT /me/identity`: create the identity; session, CSRF and a local-password step-up (SSO sessions are refused). Create-only in P1: a second create returns 409 `identity_exists`. Replacement (which would delete the user's identity envelopes) is deferred.
+  - `PUT /me/identity`: create the identity; session, CSRF and a local-password step-up (SSO sessions are refused). Create-only in P1: a second create returns 409 `identity_exists`. Replacement (which would delete the user's identity envelopes) is deferred. While `password_admin_known` is set it returns 409 `password_change_required` and creates nothing.
   - `GET /me/identity`: public key, fingerprint and device ID only. It never returns the wrapped private key.
   - The wrapped private key is delivered only in responses that just verified the password: the local `POST /auth/login` and `POST /auth/step-up` success bodies carry `identity` (with `wrapAlg` and `wrappedPrivateKey`, `no-store`) when one exists. A session cookie alone must not yield an offline-guessing target. SSO sessions never receive it.
   - `GET /users/{id}/identity`: public key and fingerprint, for members of shared containers or invite targets.
   - `POST /containers/{id}/key-rotations`.
   - `PUT /comments/{id}`.
   - Invitation create and accept accept and move envelopes.
-  - `POST /auth/password` takes `wrappedIdentityKey` and `identityDeviceId` (both or neither). The re-wrap updates only that identity in the password's transaction; a missing, stale or mismatched identity returns 409 `identity_rewrap_required` and changes nothing.
+  - `POST /auth/password` takes `wrappedIdentityKey` and `identityDeviceId` (both or neither). The re-wrap updates only that identity in the password's transaction; a missing, stale or mismatched identity returns 409 `identity_rewrap_required` and changes nothing. It sets `password_admin_known=0`, clears every session's step-up window (an old-password proof must not authorize a wrap under the new one) and shares the step-up lockout.
   - Recovery and admin password reset delete the identity (and, by cascade, its envelopes), audited as `identity.delete`.
 - Rule changes:
   - Envelope `PUT` freshness uses `RequireStepUp` (`StepUpAt`) instead of session age.
@@ -192,11 +192,14 @@ Each phase can ship on its own.
   1. The save gate skips identity rows (one shared constant).
   2. `PUT /me/identity` needs a local-session user step-up; SSO sessions are refused.
   3. `/devices/register` refuses `platform = "identity"` and never re-pairs onto an identity row.
-  4. `/setup` no longer sends the plaintext password.
-  5. Migration 0021 holds only `user_identities`; P2 tables go in 0022.
+  4. `/setup` no longer sends or accepts the plaintext password (400 without `authSecret`).
+  5. Migration 0021 holds `user_identities` and `users.password_admin_known`; P2 tables go in 0022.
   6. `PUT /me/identity` is create-only (409 `identity_exists`); replacement waits for its first caller (P5).
   7. The wrapped key is delivered only in local login and step-up bodies; `GET /me/identity` is public-only; the browser caches it in the IndexedDB vault (cleared by "Forget this device", kept on logout).
   8. Password change must carry `identityDeviceId` and `wrappedIdentityKey` when an identity exists (409 `identity_rewrap_required`); recovery and admin reset delete the identity with an audit row. A silent step-up after login also opens the admin step-up window.
+  9. No identity is created while an admin or the server knows the password (see "Admin-created accounts").
+  10. Directory deactivation and SSO role changes revoke sessions and paired devices, never the identity row.
+  11. Stopgap: content keys still derive from the password, so the password-change form warns that existing notes become unreadable and requires an explicit acknowledgement.
 
 **P2. Server rule changes.** Rotate route, insert-only envelopes, member-self writes, step-up freshness, the new save gate, the admin removal bump, `author_user_id`, invitation envelopes, `PUT /comments/{id}`, DESIGN.md and plan updates.
 - Tests:

@@ -137,8 +137,12 @@ bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
 clears it, and logout keeps it. Identity rows never authenticate as a device,
-are not listed, revoked or selected through device routes, and are excluded
-from the device-envelope save gate. Envelopes are
+are not listed, revoked or selected through device routes or directory
+deactivation and role changes, and are excluded from the device-envelope save
+gate. No identity is created while someone other than the user knows the
+password (`users.password_admin_known`: admin create and reset, bootstrap,
+`user add`); the user's own password change or recovery clears the flag, and
+the browser then creates the identity under the new password. Envelopes are
 `0x01 | ephPub | nonce | ChaCha20-Poly1305(CK)` (93 bytes), bound by AAD to
 container, key generation and recipient (IDs in the AAD are fixed-length);
 `testdata/protocol/envelope_vectors.json` pins the bytes. A password change
