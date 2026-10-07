@@ -76,7 +76,25 @@ func RequireStepUp(db *sql.DB, next http.Handler) http.Handler {
 			requireSSOStepUp(db, s, next, w, r)
 			return
 		}
-		if s.StepUpAt.IsZero() || time.Since(s.StepUpAt) > StepUpWindow {
+		if !freshLocalProof(s) {
+			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+func freshLocalProof(s Session) bool {
+	return !s.StepUpAt.IsZero() && time.Since(s.StepUpAt) <= StepUpWindow
+}
+
+// RequireUserStepUp gates one-way doors on the caller's own account: any local
+// session that re-proved its login secret within StepUpWindow. SSO sessions are
+// refused; their step-up proves the IdP, not the password these routes rely on.
+func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
+	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := SessionFromContext(r)
+		if s.SSOIssuer != "" || !freshLocalProof(s) {
 			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return
 		}
