@@ -15,10 +15,10 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		device, isDevice := auth.DeviceFromContext(r)
-		query := `SELECT c.id,c.kind,c.team_id,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
+		query := `SELECT c.id,c.kind,c.team_id,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
 		args := []any{uid}
 		if isDevice {
-			query = `SELECT c.id,c.kind,c.team_id,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id JOIN device_containers dc ON dc.container_id=c.id AND dc.device_id=? WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
+			query = `SELECT c.id,c.kind,c.team_id,c.meta_ciphertext,c.meta_version,c.change_seq,c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id JOIN device_containers dc ON dc.container_id=c.id AND dc.device_id=? WHERE m.user_id=? AND m.revoked_at='' AND c.deleted_at=''`
 			args = []any{device.ID, uid}
 		}
 		rows, e := db.Query(query, args...)
@@ -31,9 +31,9 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		for rows.Next() {
 			var id, kind, teamID string
 			var meta []byte
-			var version, seq, generation int64
-			_ = rows.Scan(&id, &kind, &teamID, &meta, &version, &seq, &generation)
-			out = append(out, map[string]any{"id": id, "kind": kind, "teamId": teamID, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": version, "changeSeq": seq, "keyGeneration": generation})
+			var version, seq, generation, shared int64
+			_ = rows.Scan(&id, &kind, &teamID, &meta, &version, &seq, &generation, &shared)
+			out = append(out, map[string]any{"id": id, "kind": kind, "teamId": teamID, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": version, "changeSeq": seq, "keyGeneration": generation, "sharedGeneration": shared})
 		}
 		writeJSON(w, out)
 	})))
@@ -90,7 +90,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		recordAudit(db, s.UserID, "container.create", id, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
+		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
 	})))
 	mux.Handle("PATCH /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {

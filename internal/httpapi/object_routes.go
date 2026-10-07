@@ -207,7 +207,7 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			return
 		}
 		generation, _ := strconv.ParseInt(r.Header.Get("X-Kynotes-Key-Generation"), 10, 64)
-		if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, generation)) {
+		if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, generation, r.Header.Get(keySchemeHeader))) {
 			return
 		}
 		routing := []byte{}
@@ -282,7 +282,7 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 		// races a concurrent writer of the same digest. Upgrade path: an age-gated GC sweep
 		// of blob files with no blobs row.
 		// A removal, demotion or rotation may have committed while the body streamed.
-		if e = checkWriteGate(tx, cid, s.UserID, generation); e != nil {
+		if e = checkWriteGate(tx, cid, s.UserID, generation, r.Header.Get(keySchemeHeader)); e != nil {
 			_ = tx.Rollback()
 			writeTeamKeyError(w, r, e)
 			return

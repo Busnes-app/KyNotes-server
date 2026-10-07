@@ -68,6 +68,7 @@ func (p *pairClient) do(t *testing.T, method, path string, body []byte, csrf, de
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set(keySchemeHeader, keySchemeShared) // a current web client
 	for _, c := range p.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if csrf && c.Name == "csrf_token" {

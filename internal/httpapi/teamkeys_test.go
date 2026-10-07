@@ -111,6 +111,7 @@ func (p *pairClient) save(t *testing.T, cid, oid string, generation int64) (stri
 	req, _ := http.NewRequest(http.MethodPut, p.url+"/api/v1/objects/"+oid, strings.NewReader("ciphertext"))
 	req.Header.Set("X-Kynotes-Key-Generation", strconv.FormatInt(generation, 10))
 	req.Header.Set("X-Kynotes-Base-Version", strconv.FormatInt(base, 10))
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range p.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {
@@ -217,7 +218,7 @@ func (p *pairClient) saveRacing(t *testing.T, oid string, generation int64, comm
 	t.Helper()
 	var base int64
 	_ = p.db.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&base)
-	code, _ := p.sendRacing(t, http.MethodPut, "/api/v1/objects/"+oid, map[string]string{"X-Kynotes-Key-Generation": strconv.FormatInt(generation, 10), "X-Kynotes-Base-Version": strconv.FormatInt(base, 10)}, []byte("ciphertext"), commit)
+	code, _ := p.sendRacing(t, http.MethodPut, "/api/v1/objects/"+oid, map[string]string{"X-Kynotes-Key-Generation": strconv.FormatInt(generation, 10), "X-Kynotes-Base-Version": strconv.FormatInt(base, 10), keySchemeHeader: keySchemeShared}, []byte("ciphertext"), commit)
 	return code
 }
 
@@ -736,7 +737,7 @@ func TestRemovedMemberCannotWriteAnywhereInTheTeam(t *testing.T) {
 	if code, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":`+strconv.FormatInt(g, 10)+`}`), true, false)); code != http.StatusNotFound {
 		t.Fatalf("removed member rewrote a comment: %d", code)
 	}
-	if err := checkWriteGate(tm.owner.db, tm.child, tm.editor.id, g); err != errNotMember {
+	if err := checkWriteGate(tm.owner.db, tm.child, tm.editor.id, g, keySchemeShared); err != errNotMember {
 		t.Fatalf("gate admitted a removed member (upload finalize path): %v", err)
 	}
 }
