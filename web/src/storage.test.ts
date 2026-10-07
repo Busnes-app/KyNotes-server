@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, rememberAfter, storeDeviceKey, storeIdentityKey } from "./storage";
+import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getPins, rememberAfter, storeDeviceKey, storeIdentityKey, storePins } from "./storage";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const held = { deviceId: "dev_00000000000000000000000000", publicKey: new Uint8Array(32).fill(1), privateKey: new Uint8Array(32).fill(2) };
@@ -73,5 +73,20 @@ describe("vault writes follow the server and never fail it", () => {
     } finally {
       vi.stubGlobal("indexedDB", real);
     }
+  });
+});
+
+describe("colleague key pins", () => {
+  beforeEach(clearAllDeviceKeys);
+  it("keeps pins per signed-in user and clears them with the device", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    await storePins("alice", userID, { usr_b: "key" });
+    expect(await getPins("alice", userID)).toEqual({ usr_b: "key" });
+    expect(await getPins("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz")).toEqual({});
+    await storeIdentityKey("alice", userID, held);
+    await storeDeviceKey("alice", "b".repeat(64));
+    expect(await getPins("alice", userID)).toEqual({ usr_b: "key" });
+    await clearDeviceKey("alice");
+    expect(await getPins("alice", userID)).toEqual({});
   });
 });

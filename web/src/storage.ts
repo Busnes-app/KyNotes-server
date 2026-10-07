@@ -1,4 +1,5 @@
 import type { HeldIdentity } from "./identity";
+import type { Pins } from "./pins";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
@@ -141,7 +142,7 @@ export async function getDeviceKey(username: string): Promise<string | undefined
   return result?.authSecret;
 }
 
-type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string } };
+type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string }; pins?: { userID: string; keys: Pins } };
 
 /** Adds the unwrapped identity to an existing vault record, so "Forget this device" stays one delete. */
 export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<void> {
@@ -171,6 +172,35 @@ export async function getIdentityKey(username: string, userID: string): Promise<
   if (record?.identity?.userID !== userID) return undefined;
   const { deviceId, publicKey, privateKey } = record.identity;
   return { deviceId, publicKey, privateKey };
+}
+
+/** Colleague key pins live in the vault record, so "Forget this device" clears them too. */
+export async function getPins(username: string, userID: string): Promise<Pins> {
+  const db = await openDatabase();
+  const record = await new Promise<VaultRecord | undefined>((resolve, reject) => {
+    const request = db.transaction("keys").objectStore("keys").get(username);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return record?.pins?.userID === userID ? record.pins.keys : {};
+}
+
+/** Replaces the pins of an existing vault record; without one (no IndexedDB) pins are not kept. */
+export async function storePins(username: string, userID: string, keys: Pins): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("keys", "readwrite");
+    const store = transaction.objectStore("keys");
+    const read = store.get(username);
+    read.onsuccess = () => {
+      const record = read.result as VaultRecord | undefined;
+      if (record) store.put({ ...record, pins: { userID, keys } });
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
 }
 
 export async function clearDeviceKey(username: string): Promise<void> {
