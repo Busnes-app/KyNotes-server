@@ -3,10 +3,12 @@ import { isOrderKey, keyBetween } from "./order";
 export const QUICK_NOTES = "quick";
 export const SECTION_COLORS = ["orange", "blue", "green", "purple", "red", "teal", "yellow", "gray"] as const;
 export type SectionColor = (typeof SECTION_COLORS)[number];
-export type SectionPayload = { type: "section"; title: string; color: SectionColor; order?: string };
-export type PagePayload = { type: "page"; title: string; body: string; section?: string; order?: string };
-export type ObjectPayload = SectionPayload | PagePayload;
+export type SectionPayload = { type: "section"; title: string; color: SectionColor; order?: string; group?: string };
+export type GroupPayload = { type: "group"; title: string; color: SectionColor; order?: string; group?: string };
+export type PagePayload = { type: "page"; title: string; body: string; section?: string; order?: string; level?: 0 | 1 | 2 };
+export type ObjectPayload = SectionPayload | GroupPayload | PagePayload;
 export type Section = SectionPayload & { id: string; version: number };
+export type Group = GroupPayload & { id: string; version: number };
 type Placed = { id: string; section?: string; order?: string };
 
 // Crockford base32, lowercase, as minted by internal/ids.
@@ -18,18 +20,21 @@ export function parseObjectPayload(value: unknown): ObjectPayload | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const v = value as Record<string, unknown>;
   const order = isOrderKey(v.order) ? v.order : undefined;
-  if (v.type === "section") {
+  const group = typeof v.group === "string" && OBJECT_ID.test(v.group) ? v.group : undefined;
+  if (v.type === "section" || v.type === "group") {
     return {
-      type: "section",
-      title: typeof v.title === "string" ? v.title : "Untitled section",
+      type: v.type,
+      title: typeof v.title === "string" ? v.title : v.type === "group" ? "Untitled group" : "Untitled section",
       color: SECTION_COLORS.includes(v.color as SectionColor) ? (v.color as SectionColor) : "gray",
       order,
+      group,
     };
   }
   if (typeof v.body !== "string") return undefined;
   const page: PagePayload = { type: "page", title: typeof v.title === "string" ? v.title : "", body: v.body };
   if ("section" in v) page.section = typeof v.section === "string" && OBJECT_ID.test(v.section) ? v.section : undefined;
   if ("order" in v) page.order = order;
+  if ("level" in v) page.level = v.level === 0 || v.level === 1 || v.level === 2 ? v.level : undefined;
   return page;
 }
 

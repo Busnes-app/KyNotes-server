@@ -830,6 +830,7 @@ function Workspace({
     const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
       if (!payload) return;
       if (payload.type === "section") found.push({ ...payload, id, version });
+      else if (payload.type === "group") return; // Task 4 handles groups properly.
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, version, updatedAt });
     };
     let since = 0;

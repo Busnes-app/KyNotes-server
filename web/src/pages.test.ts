@@ -151,3 +151,24 @@ describe("groupConflicts", () => {
     expect(resolveOnly).toEqual(["c3"]);
   });
 });
+
+describe("structural payload fields", () => {
+  const gid = (n: number) => `obj_${String(n).padStart(26, "0")}`;
+  it("parses groups like sections, with a validated parent group", () => {
+    expect(parseObjectPayload({ type: "group", title: "Work", color: "teal", order: "i", group: gid(1) }))
+      .toEqual({ type: "group", title: "Work", color: "teal", order: "i", group: gid(1) });
+    expect(parseObjectPayload({ type: "group", title: 5, color: "neon", group: "../x" }))
+      .toEqual({ type: "group", title: "Untitled group", color: "gray", order: undefined, group: undefined });
+  });
+  it("gives sections an optional validated group", () => {
+    expect(parseObjectPayload({ type: "section", title: "S", color: "blue", group: gid(2) })).toMatchObject({ group: gid(2) });
+    expect(parseObjectPayload({ type: "section", title: "S", color: "blue", group: 7 })).toMatchObject({ group: undefined });
+  });
+  it("accepts only the integer levels 0, 1 and 2", () => {
+    for (const level of [0, 1, 2]) expect(parseObjectPayload({ type: "page", title: "", body: "", level })).toMatchObject({ level });
+    for (const level of [3, -1, 1.5, "1", null]) expect(parseObjectPayload({ type: "page", title: "", body: "", level })).toMatchObject({ level: undefined });
+  });
+  it("leaves legacy pages without a level", () => {
+    expect(parseObjectPayload({ title: "Old", body: "x" })).toEqual({ type: "page", title: "Old", body: "x" });
+  });
+});
