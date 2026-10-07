@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carrySaved, editEntry, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
 
 const A = "obj_a";
 const B = "obj_b";
@@ -49,5 +49,28 @@ describe("samePayload", () => {
     expect(samePayload(open, { ...open, section: "obj_s" })).toBe(false);
     expect(samePayload(open, { ...open, order: "z" })).toBe(false);
     expect(samePayload(open, { ...open, title: "other" })).toBe(false);
+  });
+});
+
+describe("newestCopy", () => {
+  const listed = { ...page(A, "list body", 2), title: "list title" };
+  const draft = (version: number) => ({ version, title: "other tab", body: "other tab body" });
+  it("prefers another tab's cached draft at an equal or newer version", () => {
+    expect(newestCopy(listed, draft(2))).toMatchObject({ title: "other tab", body: "other tab body", version: 2 });
+    expect(newestCopy(listed, draft(3))).toMatchObject({ body: "other tab body", version: 2 });
+  });
+  it("keeps the list when the cache is older, as after this tab's own save", () => {
+    expect(newestCopy(listed, draft(1))).toBe(listed);
+  });
+  it("keeps the list when there is no readable cached draft", () => {
+    expect(newestCopy(listed, undefined)).toBe(listed);
+  });
+});
+
+describe("carryAll", () => {
+  it("reapplies versions saved while a notebook was loading", () => {
+    const loaded = [page(A, "draft", 1), page(B, "b", 4)];
+    const carried = new Map([[A, { version: 2, updatedAt: "t1" }], [B, { version: 3 }]]);
+    expect(carryAll(loaded, carried)).toEqual([{ ...page(A, "draft", 2), updatedAt: "t1" }, page(B, "b", 4)]);
   });
 });

@@ -78,7 +78,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carrySaved, editEntry, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, newestCopy, samePayload } from "./notes";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -566,6 +566,18 @@ function Workspace({
   const [queueMode, setQueueMode] = useState(false);
   const [loadingContainer, setLoadingContainer] = useState(false);
   const loadingContainerID = useRef<string | undefined>(undefined);
+  // Versions saved while a load reads; the load's fresh list would otherwise drop them.
+  const loadCarried = useRef(new Map<string, { version: number; updatedAt?: string }>());
+  const carryDuringLoad = (id: string, saved: { version: number; updatedAt?: string }) => {
+    if (loadingContainerID.current) loadCarried.current.set(id, saved);
+  };
+  // Cache writes apply in call order, so an older body never lands last.
+  const cacheChain = useRef<Promise<unknown>>(Promise.resolve());
+  const cacheWrite = (write: () => Promise<unknown>) => {
+    const run = cacheChain.current.then(write);
+    cacheChain.current = run.catch(() => {});
+    return run;
+  };
   const [query, setQuery] = useState("");
   const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
   const [, setCommitToastTick] = useState(0);
@@ -869,17 +881,20 @@ function Workspace({
     patchSections(() => []);
     setCommentsForNote([]);
     setAttachmentsForNote([]);
+    loadCarried.current.clear();
     try {
       const objects = await readContainerObjects(container);
       if (superseded()) return [];
-      patchNotes(() => objects.notes);
+      const loaded = carryAll(objects.notes, loadCarried.current);
+      loadCarried.current.clear();
+      patchNotes(() => loaded);
       patchSections(() => objects.sections);
       setSectionID(resolveSection(route?.section, objects.sections));
-      const routed = route?.page ? objects.notes.find((note) => note.id === route.page) : undefined;
+      const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, container.id);
       const team = container.kind === "team" ? await members(container.id) : [];
       if (!superseded()) setMembersForTeam(team);
-      return objects.notes;
+      return loaded;
     } catch (error) {
       if (!superseded()) setError(error instanceof Error ? error.message : "Unable to load notebook");
       return [];
@@ -914,9 +929,11 @@ function Workspace({
     if (note) await selectNote(note, entry.container.id);
     setQueueMode(true);
   }
-  async function selectNote(note: Note, containerID = selected?.id) {
+  async function selectNote(selection: Note, containerID = selected?.id) {
     const previous = selectedNoteRef.current;
-    if (previous && previous.id !== note.id && dirty) await save(previous, true);
+    if (previous && previous.id !== selection.id && dirty) await save(previous, true);
+    // Search and resurfacing rows hold deferred copies; open the live entry.
+    const note = notesRef.current.find((entry) => entry.id === selection.id) ?? selection;
     selectedNoteRef.current = note;
     setSelectedNote(note);
     setDirty(false);
@@ -1093,13 +1110,8 @@ function Workspace({
         payload,
       );
       const savedAt = new Date().toISOString();
-      await putNote({
-        id: note.id,
-        containerID: selected.id,
-        version: note.version,
-        payload: encrypted,
-        updatedAt: savedAt,
-      });
+      const containerID = selected.id;
+      await cacheWrite(() => putNote({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt }));
       try {
         const result = await saveObject(
           note.id,
@@ -1116,6 +1128,7 @@ function Workspace({
         // Edits or a move may have landed while the request was in flight:
         // carry only the version forward, never the sent content.
         patchNotes((value) => carrySaved(value, saved.id, saved));
+        carryDuringLoad(saved.id, saved);
         setQueueEntries((entries) => entries.flatMap((entry) => {
           if (entry.note.id !== saved.id) return [entry];
           return openTaskNotes(indexNotes([saved])).length ? [{ ...entry, note: saved }] : [];
@@ -1174,6 +1187,7 @@ function Workspace({
           await clearQueuedSave(item.id);
           const saved = { version: result.version, updatedAt: item.updatedAt };
           patchNotes((value) => carrySaved(value, item.id, saved));
+          carryDuringLoad(item.id, saved);
           patchSections((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
           const open = selectedNoteRef.current;
           // The open page may hold newer edits than the queued payload, so it stays dirty.
@@ -1215,24 +1229,22 @@ function Workspace({
   }
   function persistDraft(note: Note) {
     if (!selected) return;
-    void encryptNote(auth.authSecret, selected.id, notePayload(note))
-      .then((payload) =>
-        putNote({
-          id: note.id,
-          containerID: selected.id,
-          version: note.version,
-          payload,
-          updatedAt: new Date().toISOString(),
-        }),
-      )
-      .catch(() => {});
+    const containerID = selected.id;
+    void cacheWrite(async () => putNote({
+      id: note.id,
+      containerID,
+      version: note.version,
+      payload: await encryptNote(auth.authSecret, containerID, notePayload(note)),
+      updatedAt: new Date().toISOString(),
+    })).catch(() => {});
   }
   /** Encrypted write for an object that is not the open page (sections, moved pages). */
   async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
     if (!selected) return null;
     const encrypted = await encryptNote(auth.authSecret, selected.id, payload);
     const updatedAt = new Date().toISOString();
-    await putNote({ id, containerID: selected.id, version, payload: encrypted, updatedAt });
+    const containerID = selected.id;
+    await cacheWrite(() => putNote({ id, containerID, version, payload: encrypted, updatedAt }));
     try {
       const result = await saveObject(id, encrypted, version, selected.keyGeneration);
       await clearQueuedSave(id);
@@ -1264,6 +1276,15 @@ function Workspace({
     return queued;
   }
 
+  /** The shared cache's copy of a page; another tab may have written it. */
+  async function otherTabDraft(id: string) {
+    if (!selected) return undefined;
+    const cached = await getNote(id).catch(() => undefined);
+    if (!cached) return undefined;
+    const payload = await decryptObject(auth.authSecret, selected.id, cached.payload).catch(() => undefined);
+    return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
+  }
+
   async function placePage(id: string, change: { section?: string; order: string }) {
     patchNotes((value) => editEntry(value, id, change));
     const open = selectedNoteRef.current;
@@ -1271,12 +1292,16 @@ function Workspace({
       const next = { ...open, ...change };
       selectedNoteRef.current = next;
       setSelectedNote(next);
+      // Dirty, so leaving the page before the queued save runs still flushes the move.
+      setDirty(true);
+      persistDraft(next);
       await save(next, true);
       return;
     }
-    // notes[] holds every local edit and drained version, so it is the newest copy.
-    const next = notesRef.current.find((note) => note.id === id);
-    if (!next) return;
+    const entry = notesRef.current.find((note) => note.id === id);
+    if (!entry) return;
+    const next = newestCopy(entry, await otherTabDraft(id));
+    patchNotes((value) => editEntry(value, id, { title: next.title, body: next.body }));
     const saved = await writeObject(id, next.version, notePayload(next));
     if (saved !== null) patchNotes((value) => carrySaved(value, id, { version: saved }));
   }
@@ -1333,9 +1358,10 @@ function Workspace({
     moveChain.current = run.catch(() => {});
     return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
   }
-  function editOpen(change: { title?: string; body?: string }) {
+  function editOpen(pageID: string, change: { title?: string; body?: string }) {
     const open = selectedNoteRef.current;
-    if (!open) return;
+    // A late change from a page's editor after another page opened is dropped.
+    if (open?.id !== pageID) return;
     const next = { ...open, ...change };
     selectedNoteRef.current = next;
     setSelectedNote(next);
@@ -1801,7 +1827,7 @@ function Workspace({
                 <input
                   className="title-input"
                   value={selectedNote.title}
-                  onChange={(event) => editOpen({ title: event.target.value })}
+                  onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                 />
                 <div className="single-pane-editor">
                   <Suspense fallback={<div className="blocknote-editor editor-loading">Loading editor…</div>}>
@@ -1810,7 +1836,7 @@ function Workspace({
                       noteID={selectedNote.id}
                       initialContent={parseNoteDocument(selectedNote.body).document}
                       legacyMarkdown={isStructuredNoteBody(selectedNote.body) ? undefined : selectedNote.body}
-                      onChange={(document: Block[]) => editOpen({ body: stringifyNoteDocument(document) })}
+                      onChange={(document: Block[]) => editOpen(selectedNote.id, { body: stringifyNoteDocument(document) })}
                       uploadFile={uploadInlineFile}
                       resolveFileUrl={resolveFileUrl}
                     />
