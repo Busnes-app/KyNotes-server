@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carryAll, carrySaved, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { parseObjectPayload } from "./pages";
 
 const A = "obj_a";
 const B = "obj_b";
@@ -72,6 +73,16 @@ describe("carryAll", () => {
     const loaded = [page(A, "draft", 1), page(B, "b", 4)];
     const carried = new Map([[A, { version: 2, updatedAt: "t1" }], [B, { version: 3 }]]);
     expect(carryAll(loaded, carried)).toEqual([{ ...page(A, "draft", 2), updatedAt: "t1" }, page(B, "b", 4)]);
+  });
+});
+
+describe("carryVersions", () => {
+  it("carries only newer versions onto loaded sections and groups, adding no fields", () => {
+    const loaded = [{ id: A, version: 1, title: "S" }, { id: B, version: 4, title: "G" }];
+    const carried = new Map([[A, { version: 2, updatedAt: "t1" }], [B, { version: 3 }]]);
+    const result = carryVersions(loaded, carried);
+    expect(result).toEqual([{ id: A, version: 2, title: "S" }, { id: B, version: 4, title: "G" }]);
+    expect(result[1]).toBe(loaded[1]);
   });
 });
 
@@ -160,5 +171,21 @@ describe("flushUntilStable", () => {
     const h = harness((open) => open);
     expect(await flushUntilStable(() => null, h.save, 5)).toBe("done");
     expect(h.sent).toHaveLength(0);
+  });
+});
+
+describe("page levels", () => {
+  it("keeps level through edits, saves, other-tab drafts and the payload round-trip", () => {
+    let notes = [{ ...page(A, "body"), level: 1 as const }, page(B, "other")];
+    notes = editEntry(notes, A, { body: "edited" });
+    notes = carrySaved(notes, A, { version: 2 });
+    const kept = newestCopy(find(notes, A), { version: 2, title: "t", body: "draft" });
+    expect(kept.level).toBe(1);
+    expect(parseObjectPayload(JSON.parse(JSON.stringify(notePayload(kept))))).toMatchObject({ type: "page", level: 1, body: "draft" });
+    expect(editEntry(notes, A, { level: 2 })[0].level).toBe(2);
+  });
+
+  it("treats a level change as unsaved", () => {
+    expect(samePayload(page(A, "x"), { ...page(A, "x"), level: 1 })).toBe(false);
   });
 });

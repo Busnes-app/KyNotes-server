@@ -1,6 +1,10 @@
 import type { Note } from "./api";
+import type { PagePayload } from "./pages";
 
-type Content = Partial<Pick<Note, "title" | "body" | "section" | "order">>;
+type Content = Partial<Pick<Note, "title" | "body" | "section" | "order" | "level">>;
+
+export const notePayload = (note: Note): PagePayload =>
+  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order, level: note.level });
 
 /** In-memory pages always hold the newest local content: edits and placement land here first. */
 export function editEntry(notes: Note[], id: string, change: Content): Note[] {
@@ -28,7 +32,7 @@ export function carrySaved(notes: Note[], id: string, saved: { version: number; 
 }
 
 export const samePayload = (a: Note, b: Note) =>
-  a.title === b.title && a.body === b.body && a.section === b.section && a.order === b.order;
+  a.title === b.title && a.body === b.body && a.section === b.section && a.order === b.order && a.level === b.level;
 
 /**
  * A page that is not open: another tab may hold a newer draft in the shared cache. This tab's
@@ -36,6 +40,14 @@ export const samePayload = (a: Note, b: Note) =>
  */
 export function newestCopy(entry: Note, cached: { version: number; title: string; body: string } | undefined): Note {
   return cached && cached.version >= entry.version ? { ...entry, title: cached.title, body: cached.body } : entry;
+}
+
+/** Sections and groups: carry a saved version forward, never backwards, with no other field. */
+export function carryVersions<T extends { id: string; version: number }>(items: T[], carried: Map<string, { version: number }>): T[] {
+  return items.map((item) => {
+    const saved = carried.get(item.id);
+    return saved && saved.version > item.version ? { ...item, version: saved.version } : item;
+  });
 }
 
 /** Versions saved while a notebook load was reading, reapplied to its fresh list. */

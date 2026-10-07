@@ -6,7 +6,7 @@ export type Comment = { id: string; authorUserId: string; username: string; body
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
 export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
-export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string };
+export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
 
 type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
 export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }

@@ -78,9 +78,11 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
+import { readChoice, saveChoice } from "./ky-ui/theme";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -111,8 +113,6 @@ import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
 const FLUSH_ROUNDS = 5;
-const notePayload = (note: Note): PagePayload =>
-  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order });
 
 const CanvasPage = lazy(() => import("./CanvasPage"));
 
@@ -536,7 +536,20 @@ function Workspace({
     sectionsRef.current = update(sectionsRef.current);
     setSections(sectionsRef.current);
   };
+  const [groups, setGroups] = useState<Group[]>([]);
+  const groupsRef = useRef<Group[]>([]);
+  const patchGroups = (update: (value: Group[]) => Group[]) => {
+    groupsRef.current = update(groupsRef.current);
+    setGroups(groupsRef.current);
+  };
+  const parents = useMemo(() => groupParents(groups), [groups]);
   const [sectionID, setSectionID] = useState<string>(QUICK_NOTES);
+  // The group whose tabs are shown; undefined is the notebook root.
+  const [groupID, setGroupID] = useState<string | undefined>(undefined);
+  const showSection = (id: string) => {
+    setSectionID(id);
+    setGroupID(groupOfSection(id, sectionsRef.current, groupParents(groupsRef.current)));
+  };
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
@@ -599,6 +612,30 @@ function Workspace({
   const settledNotes = useDeferredValue(notes);
   const orderedNotes = useMemo(() => [...settledNotes].sort(compareOrdered), [settledNotes]);
   const sectionPages = useMemo(() => pagesInSection(notes, sections, sectionID), [notes, sections, sectionID]);
+  const sectionLevels = useMemo(() => displayLevels(sectionPages), [sectionPages]);
+  const collapsedKey = selected ? `kynotes-collapsed-${auth.user.id}-${selected.id}` : "";
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setCollapsed(parseCollapsed(collapsedKey ? readChoice(collapsedKey) : null));
+  }, [collapsedKey]);
+  function toggleCollapsed(id: string) {
+    const ids = new Set(notesRef.current.map((note) => note.id));
+    const next = [...collapsed].filter((entry) => entry !== id && ids.has(entry));
+    if (!collapsed.has(id)) next.push(id);
+    // Blocked storage just leaves collapse unpersisted.
+    if (collapsedKey) saveChoice(collapsedKey, JSON.stringify(next));
+    setCollapsed(new Set(next));
+  }
+  const revealPage = (list: Note[], id: string) => {
+    const above = ancestors(list, id);
+    setCollapsed((value) => above.some((entry) => value.has(entry)) ? new Set([...value].filter((entry) => !above.includes(entry))) : value);
+  };
+  // A page opened from search, resurfacing or a link is never hidden under a collapsed parent.
+  useEffect(() => {
+    const id = selectedNote?.id;
+    if (id) revealPage(sectionPages, id);
+    // Only on opening a page: collapsing the open page's parent afterwards is allowed.
+  }, [selectedNote?.id, sectionID, collapsedKey]);
   const sectionTitle = (id?: string) => sections.find((entry) => entry.id === id)?.title ?? "Quick Notes";
   const searchableNotes = useMemo(() => indexNotes(orderedNotes), [orderedNotes]);
   useEffect(() => {
@@ -644,6 +681,28 @@ function Workspace({
         .map((note) => ({ note, container: selected }))
         .filter((entry): entry is QueueEntry => Boolean(entry.container));
   const reorderable = !queueMode && !query.trim();
+  // An open group with no sections: the strip has no tab for sectionID, so no page list or new page.
+  const sectionHidden = !queueMode && groupOfSection(sectionID, sections, parents) !== groupID;
+  const groupEmpty = sectionHidden && reorderable;
+  const listRows = reorderable && selected
+    ? visibleRows(sectionHidden ? [] : sectionPages, collapsed).map((row) => ({ note: row.item, container: selected, row }))
+    : listEntries.map((entry) => ({ ...entry, row: undefined }));
+  const sectionIndex = (id: string) => sectionPages.findIndex((note) => note.id === id);
+  const canShift = (id: string, delta: 1 | -1) => sectionIndex(id) >= 0 && shiftLevel(sectionPages, sectionIndex(id), delta) !== undefined;
+  // Group menus ask for targets every render; recompute only when the groups change.
+  const moveTargets = useMemo(() => {
+    const cache = new Map<string, ReturnType<typeof groupTargets>>();
+    return (kind: "section" | "group", id: string) => {
+      const key = kind === "group" ? id : "";
+      if (!cache.has(key)) cache.set(key, groupTargets(groups, parents, kind === "group" ? id : undefined));
+      return cache.get(key)!;
+    };
+  }, [groups, parents]);
+  const subpageCount = (id: string) => {
+    const [start, end] = blockRange(sectionLevels, sectionIndex(id));
+    return end - start - 1;
+  };
+  const beforeAt = (index: number | undefined) => index === undefined ? undefined : sectionPages[index]?.id ?? null;
   const relatedNotes = useMemo(
     () => contextualNotes(searchableNotes, selectedNote ? indexNotes([selectedNote])[0] : undefined).map((match) => match.note),
     [searchableNotes, selectedNote],
@@ -691,7 +750,7 @@ function Workspace({
       if (container.id !== selected?.id) { if (!(await selectContainer(container, route))) stay(); return; }
       const page = notes.find((note) => note.id === route.page);
       if (route.page !== selectedNoteRef.current?.id && !(await flushOpenPage())) { stay(); return; }
-      setSectionID(resolveSection(route.section, sections));
+      showSection(resolveSection(route.section, sections));
       if (page) { if (!(await selectNote(page))) stay(); }
       else if (!parseRoute(location.hash).page) setSelectedNote(null);
     })();
@@ -824,13 +883,15 @@ function Workspace({
       );
     }
   }
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[] }> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[] }> {
     const loaded: Note[] = [];
     const found: Section[] = [];
+    const foundGroups: Group[] = [];
     const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
       if (!payload) return;
       if (payload.type === "section") found.push({ ...payload, id, version });
-      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, version, updatedAt });
+      else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
+      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
     };
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
@@ -858,7 +919,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return { notes: loaded, sections: found };
+    return { notes: loaded, sections: found, groups: foundGroups };
   }
   /** Null when the open page could not be flushed and stays open. */
   async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
@@ -889,6 +950,8 @@ function Workspace({
     setSelectedNote(null);
     patchNotes(() => []);
     patchSections(() => []);
+    patchGroups(() => []);
+    setGroupID(undefined);
     setCommentsForNote([]);
     setAttachmentsForNote([]);
     loadCarried.current.clear();
@@ -896,10 +959,12 @@ function Workspace({
       const objects = await readContainerObjects(container);
       if (superseded()) return [];
       const loaded = carryAll(objects.notes, loadCarried.current);
+      const loadedSections = carryVersions(objects.sections, loadCarried.current);
+      patchSections(() => loadedSections);
+      patchGroups(() => carryVersions(objects.groups, loadCarried.current));
       loadCarried.current.clear();
       patchNotes(() => loaded);
-      patchSections(() => objects.sections);
-      setSectionID(resolveSection(route?.section, objects.sections));
+      showSection(resolveSection(route?.section, loadedSections));
       const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, container.id);
       const team = container.kind === "team" ? await members(container.id) : [];
@@ -1214,6 +1279,7 @@ function Workspace({
           patchNotes((value) => carrySaved(value, item.id, saved));
           carryDuringLoad(item.id, saved);
           patchSections((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
+          patchGroups((value) => value.map((entry) => entry.id === item.id ? { ...entry, version: result.version } : entry));
           const open = selectedNoteRef.current;
           // The open page may hold newer edits than the queued payload, so it stays dirty.
           if (open?.id === item.id) {
@@ -1273,6 +1339,7 @@ function Workspace({
     try {
       const result = await saveObject(id, encrypted, version, selected.keyGeneration);
       await clearQueuedSave(id);
+      carryDuringLoad(id, { version: result.version, updatedAt });
       return result.version;
     } catch (error) {
       if (error instanceof APIRequestError && error.code === "version_conflict") {
@@ -1288,16 +1355,19 @@ function Workspace({
     }
   }
 
-  function updateSection(id: string, change: Partial<SectionPayload>) {
-    patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
+  /** Chained encrypted write of a section or group, from its newest local copy; resolves true once saved. */
+  function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>) {
+    const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
+    patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
     const queued = saveChain.current.then(async () => {
-      const current = sectionsRef.current.find((entry) => entry.id === id);
-      if (!current) return;
+      const current = kind === "section" ? sectionsRef.current.find((entry) => entry.id === id) : groupsRef.current.find((entry) => entry.id === id);
+      if (!current) return false;
       const { id: _id, version, ...payload } = current;
       const saved = await writeObject(id, version, payload);
-      if (saved !== null) patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
+      if (saved !== null) patch((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
+      return saved !== null;
     });
-    saveChain.current = queued.catch(() => {});
+    saveChain.current = queued.then(() => {}, () => {});
     return queued;
   }
 
@@ -1310,7 +1380,10 @@ function Workspace({
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
-  async function placePage(id: string, change: { section?: string; order: string }) {
+  async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }) {
+    // An undefined level keeps the page's own; an undefined section means Quick Notes.
+    const { level, ...rest } = placement;
+    const change = level === undefined ? rest : placement;
     patchNotes((value) => editEntry(value, id, change));
     const open = selectedNoteRef.current;
     if (open?.id === id) {
@@ -1331,29 +1404,40 @@ function Workspace({
     if (saved !== null) patchNotes((value) => carrySaved(value, id, { version: saved }));
   }
   const orderedSections = useMemo(() => sortedSections(sections), [sections]);
-  async function newSection() {
+  const groupSections = useMemo(() => orderedSections.filter((entry) => sectionGroup(entry, parents) === groupID), [orderedSections, parents, groupID]);
+  const childGroups = useMemo(() => groups.filter((entry) => parents.get(entry.id) === groupID).sort(compareOrdered), [groups, parents, groupID]);
+  /** Sorted sections or groups directly inside `parent`, read at run time. */
+  function siblings(kind: "section" | "group", parent: string | undefined): Array<Section | Group> {
+    const current = groupParents(groupsRef.current);
+    return kind === "section"
+      ? sortedSections(sectionsRef.current).filter((entry) => sectionGroup(entry, current) === parent)
+      : groupsRef.current.filter((entry) => current.get(entry.id) === parent).sort(compareOrdered);
+  }
+  async function newStructure(kind: "section" | "group") {
     if (!selected) return;
     setBusy(true);
     try {
-      const order = endOrder(sectionsRef.current);
+      const parent = groupID;
+      const order = endOrder(siblings(kind, parent));
       const object = await createObject(selected.id, "folder");
-      const section: Section = {
-        id: object.id, version: object.version, type: "section", title: "New section",
-        color: SECTION_COLORS[sections.length % SECTION_COLORS.length], order,
-      };
-      patchSections((value) => [...value, section]);
-      setSectionID(section.id);
-      await updateSection(section.id, {});
+      const base = { id: object.id, version: object.version, order, group: parent };
+      if (kind === "section") {
+        patchSections((value) => [...value, { ...base, type: "section", title: "New section", color: SECTION_COLORS[value.length % SECTION_COLORS.length] }]);
+        showSection(object.id);
+      } else {
+        patchGroups((value) => [...value, { ...base, type: "group", title: "New group", color: SECTION_COLORS[value.length % SECTION_COLORS.length] }]);
+      }
+      await updateStructure(kind, object.id, {});
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to create section");
+      setError(error instanceof Error ? error.message : `Unable to create ${kind}`);
     } finally {
       setBusy(false);
     }
   }
-  const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section");
-  function renameSection(section: Section) {
-    const title = prompt("Section name", section.title)?.trim();
-    if (title) void updateSection(section.id, { title }).catch(reportSection);
+  const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section or group");
+  function renameStructure(kind: "section" | "group", entry: Section | Group) {
+    const title = prompt(kind === "section" ? "Section name" : "Group name", entry.title)?.trim();
+    if (title) void updateStructure(kind, entry.id, { title }).catch(reportSection);
   }
   async function removeSection(section: Section) {
     const count = pagesInSection(notes, sections, section.id).length;
@@ -1362,26 +1446,108 @@ function Workspace({
       await deleteObject(section.id);
       await deleteCachedNote(section.id);
       patchSections((value) => value.filter((entry) => entry.id !== section.id));
-      setSectionID(QUICK_NOTES);
+      showSection(QUICK_NOTES);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to delete section");
     }
   }
-  async function moveSection(id: string, index: number) {
-    for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order }).catch(reportSection);
-  }
-  const moveChain = useRef(Promise.resolve());
-  function movePage(pageID: string, target: string, index: number) {
-    const run = moveChain.current.then(async () => {
-      const list = pagesInSection(notesRef.current, sectionsRef.current, target);
-      const section = target === QUICK_NOTES ? undefined : target;
-      for (const update of reorder(list, pageID, index)) {
-        const entry = notesRef.current.find((note) => note.id === update.id);
-        await placePage(update.id, { section: update.id === pageID ? section : entry?.section, order: update.order });
+  /** Children move up one level first; a failed write stops before the delete, so nothing is lost. */
+  async function removeGroup(group: Group) {
+    if (!confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
+    setBusy(true);
+    try {
+      const parent = groupParents(groupsRef.current).get(group.id);
+      for (const kind of ["section", "group"] as const) {
+        for (const child of siblings(kind, group.id)) {
+          if (!(await updateStructure(kind, child.id, { group: parent }))) {
+            setError((value) => value || "Could not move everything out of the group, so it was kept. Try again.");
+            return;
+          }
+        }
       }
-    });
+      await deleteObject(group.id);
+      await deleteCachedNote(group.id);
+      patchGroups((value) => value.filter((entry) => entry.id !== group.id));
+      setGroupID((value) => (value === group.id ? parent : value));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to delete group");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function moveStructure(kind: "section" | "group", id: string, index: number) {
+    const entry = kind === "section" ? sectionsRef.current.find((item) => item.id === id) : groupsRef.current.find((item) => item.id === id);
+    if (!entry) return;
+    const parent = kind === "section" ? sectionGroup(entry, parents) : parents.get(id);
+    for (const update of reorder(siblings(kind, parent), id, index)) await updateStructure(kind, update.id, { order: update.order }).catch(reportSection);
+  }
+  async function moveIntoGroup(kind: "section" | "group", id: string, target: string | undefined) {
+    if (kind === "group" && !groupMoveAllowed(id, target, groupParents(groupsRef.current))) {
+      setError(`A group cannot move into itself or its own groups, or nest deeper than ${MAX_GROUP_DEPTH} levels.`);
+      return;
+    }
+    const order = endOrder(siblings(kind, target).filter((entry) => entry.id !== id));
+    await updateStructure(kind, id, { group: target, order }).catch(reportSection);
+    if (kind === "section" && id === sectionID) setGroupID(target);
+  }
+  async function selectSection(id: string) {
+    // Leaving the open page: finish its save first, as selectNote does.
+    if (id !== sectionID && !(await flushOpenPage())) return;
+    if (id !== sectionID) setSelectedNote(null);
+    showSection(id);
+  }
+  /** Shows a group's tabs and its first section; a group without sections shows no pages. */
+  async function openGroup(id: string | undefined) {
+    if (groupOfSection(sectionID, sections, parents) === id) return setGroupID(id);
+    const first = orderedSections.find((entry) => sectionGroup(entry, parents) === id)?.id ?? (id === undefined ? QUICK_NOTES : undefined);
+    if (first !== undefined) return selectSection(first);
+    if (!(await flushOpenPage())) return;
+    setSelectedNote(null);
+    setGroupID(id);
+  }
+  const groupTrail = selected
+    ? [{ id: undefined, title: nameOf(selected) }, ...groupPath(groupID, parents).map((id) => ({ id, title: groups.find((entry) => entry.id === id)?.title || "Untitled group" }))]
+    : [];
+  const moveChain = useRef(Promise.resolve());
+  const pageSection = (page: { section?: string }) =>
+    page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
+  function onMoveChain(work: () => Promise<void>) {
+    const run = moveChain.current.then(work);
     moveChain.current = run.catch(() => {});
     return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
+  }
+  /** Moves the block headed by `pageID` before page `beforeID` in `target`, or to its end. */
+  function movePage(pageID: string, target: string, beforeID: string | null) {
+    return onMoveChain(async () => {
+      const page = notesRef.current.find((note) => note.id === pageID);
+      if (!page) return;
+      const source = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
+      const levels = displayLevels(source);
+      const [start, end] = blockRange(levels, source.findIndex((note) => note.id === pageID));
+      const block = source.slice(start, end);
+      const inBlock = new Set(block.map((note) => note.id));
+      const list = pagesInSection(notesRef.current, sectionsRef.current, target).filter((note) => !inBlock.has(note.id));
+      const before = beforeID === null ? -1 : list.findIndex((note) => note.id === beforeID);
+      const section = target === QUICK_NOTES ? undefined : target;
+      for (const update of placeBlock(list, block, levels.slice(start, end), before < 0 ? list.length : before)) {
+        const entry = notesRef.current.find((note) => note.id === update.id);
+        await placePage(update.id, inBlock.has(update.id)
+          ? { section, order: update.order, level: update.level }
+          : { section: entry?.section, order: update.order });
+      }
+    });
+  }
+  function indentPage(pageID: string, delta: 1 | -1) {
+    return onMoveChain(async () => {
+      const page = notesRef.current.find((note) => note.id === pageID);
+      if (!page) return;
+      const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
+      const level = shiftLevel(list, list.findIndex((note) => note.id === pageID), delta);
+      if (level === undefined) return;
+      // Indenting under a collapsed parent must not hide the row being worked on.
+      revealPage(list.map((note) => (note.id === pageID ? { ...note, level } : note)), pageID);
+      await placePage(pageID, { section: page.section, order: page.order, level });
+    });
   }
   /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
   async function keepConflictCopies() {
@@ -1392,7 +1558,6 @@ function Workspace({
     const containerID = selected.id;
     // A notebook switch replaces notes[]: copies are on the server and appear on its next load.
     const sameNotebook = () => (loadingContainerID.current ?? selectedRef.current?.id) === containerID;
-    const shownIn = (page: { section?: string }) => page.section && sectionsRef.current.some((entry) => entry.id === page.section) ? page.section : QUICK_NOTES;
     try {
       // Unsent edits become one more rejected version instead of vanishing in the reload.
       if (dirty) await save(open, true);
@@ -1403,7 +1568,7 @@ function Workspace({
       const server = await readObject(open.id);
       const payload = await decryptObject(auth.authSecret, containerID, server.bytes);
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
-      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, version: server.version };
+      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
       if (selectedNoteRef.current?.id === open.id) {
         const next = { ...selectedNoteRef.current, ...reloaded };
@@ -1434,9 +1599,9 @@ function Workspace({
         if (!sameNotebook()) { failed += 1; continue; }
         try {
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
-          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, shownIn(current)), current, group.payload);
+          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(current)), current, group.payload);
           const object = await createObject(containerID);
-          const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, version: 0, updatedAt: new Date().toISOString() };
+          const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, level: page.level, version: 0, updatedAt: new Date().toISOString() };
           if (sameNotebook()) patchNotes((value) => [...value, copy]);
           const saved = await writeObject(object.id, 0, page);
           if (saved === null) { failed += 1; continue; }
@@ -1458,7 +1623,7 @@ function Workspace({
       // Another device may have moved the page: show the section that now holds it and its copies.
       const placed = notesRef.current.find((note) => note.id === open.id);
       if (placed && sameNotebook() && selectedNoteRef.current?.id === open.id) {
-        setSectionID(shownIn(placed));
+        showSection(pageSection(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
@@ -1800,22 +1965,27 @@ function Workspace({
           </aside>
           {selected && !queueMode && (
             <SectionTabs
-              sections={orderedSections}
+              sections={groupSections}
+              groups={childGroups}
+              path={groupTrail}
               current={sectionID}
               busy={busy}
-              onSelect={(id) => void (async () => {
-                // Leaving the open page: finish its save first, as selectNote does.
-                if (id === sectionID) return;
-                if (!(await flushOpenPage())) return;
-                setSectionID(id);
-                setSelectedNote(null);
-              })()}
-              onCreate={() => void newSection()}
-              onRename={renameSection}
-              onColor={(section, color) => void updateSection(section.id, { color }).catch(reportSection)}
+              canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
+              moveTargets={moveTargets}
+              onSelect={(id) => void selectSection(id)}
+              onCreate={(kind) => void newStructure(kind)}
+              onRename={renameStructure}
+              onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
               onDelete={(section) => void removeSection(section)}
-              onMove={(id, index) => void moveSection(id, index)}
-              onDropPage={(pageID, target) => void movePage(pageID, target, pagesInSection(notes, sections, target).length)}
+              onDeleteGroup={(group) => void removeGroup(group)}
+              onMove={(kind, id, index) => void moveStructure(kind, id, index)}
+              onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
+              onOpenGroup={(id) => void openGroup(id)}
+              onDropPage={(pageID, target) => {
+                // A drop on the page's own section tab is not a move.
+                const page = notesRef.current.find((note) => note.id === pageID);
+                if (page && pageSection(page) !== target) void movePage(pageID, target, null);
+              }}
             />
           )}
           <section className="note-list">
@@ -1826,7 +1996,7 @@ function Workspace({
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionTitle(sectionID)}</h3>}
+                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
                 <input
@@ -1838,43 +2008,79 @@ function Workspace({
                 />
                 <button
                   className="icon-button"
-                  disabled={!selected || busy}
+                  disabled={!selected || busy || sectionHidden}
+                  title={sectionHidden ? "Add a section to this group first" : "New page"}
+                  aria-label="New page"
                   onClick={() => void newNote()}
                 >
                   ＋
                 </button>
               </div>
             </div>
-            {listEntries.map(({ note, container }, index) => {
+            {listRows.map(({ note, container, row }) => {
               // Work queue rows are a snapshot; show the open page live there.
               const shown = queueMode && selectedNote?.id === note.id ? selectedNote : note;
+              const title = shown.title || "Untitled page";
               return (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
                 key={note.id}
+                style={row ? { paddingInlineStart: row.level * 16 } : undefined}
                 onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
                 onDrop={(event) => {
                   const pageID = event.dataTransfer.getData(PAGE_DRAG);
-                  if (reorderable && pageID) void movePage(pageID, sectionID, index);
+                  const from = sectionIndex(pageID);
+                  if (!reorderable || from < 0) return;
+                  const before = beforeAt(dropBefore(sectionLevels, from, sectionIndex(note.id)));
+                  if (before !== undefined) void movePage(pageID, sectionID, before);
                 }}
               >
+                {row && !row.hasChildren && <span className="page-toggle-space" aria-hidden="true" />}
+                {row?.hasChildren && (
+                  <button
+                    className="page-toggle quiet"
+                    aria-expanded={!row.collapsed}
+                    aria-label={`${row.collapsed ? "Expand" : "Collapse"} ${title}`}
+                    onClick={() => toggleCollapsed(note.id)}
+                  >
+                    {row.collapsed ? "▸" : "▾"}
+                  </button>
+                )}
                 <button
                   className="note-row"
                   data-page-id={note.id}
                   draggable={!queueMode}
                   onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
-                    if (!reorderable || !event.altKey) return;
-                    const to = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : -1;
-                    if (to < 0 || to >= listEntries.length) return;
+                    if (!reorderable) return;
+                    const index = sectionIndex(note.id);
+                    const bracket = event.ctrlKey && event.altKey
+                      ? (event.key === "]" || event.code === "BracketRight" ? 1 : event.key === "[" || event.code === "BracketLeft" ? -1 : 0)
+                      : 0;
+                    if (bracket) {
+                      const delta = bracket as 1 | -1;
+                      if (!canShift(note.id, delta)) return;
+                      event.preventDefault();
+                      void indentPage(note.id, delta);
+                      return;
+                    }
+                    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                    const before = beforeAt(siblingMove(sectionLevels, index, event.key === "ArrowUp" ? -1 : 1));
+                    if (before === undefined) return;
                     event.preventDefault();
-                    void movePage(note.id, sectionID, to).then(() =>
+                    void movePage(note.id, sectionID, before).then(() =>
                       document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
                   }}
-                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
-                  <strong>{shown.title || "Untitled page"}</strong>
+                  <strong>{title}</strong>
+                  {row && (row.level > 0 || row.hasChildren) && (
+                    <span className="visually-hidden">
+                      {row.level > 0 ? `, subpage level ${row.level}` : ""}
+                      {row.hasChildren ? (row.collapsed ? `, collapsed, ${subpageCount(note.id)} subpages hidden` : ", expanded") : ""}
+                    </span>
+                  )}
                   <span>
                     {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
                     {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : indexNotes([shown])[0].body.slice(0, 64)) || "Empty page"}
@@ -1883,11 +2089,11 @@ function Workspace({
               </div>
               );
             })}
-            {selected && listEntries.length === 0 && (
+            {selected && (listEntries.length === 0 || groupEmpty) && (
               <div className="empty-list">
-                {queueMode ? "No open tasks here." : "No pages in this section."}
+                {queueMode ? "No open tasks here." : groupEmpty ? "This group has no sections." : "No pages in this section."}
                 <br />
-                {queueMode ? "Tasks from note checklists appear here." : "Add a page with ＋."}
+                {queueMode ? "Tasks from note checklists appear here." : groupEmpty ? "Add a section to this group to add pages." : "Add a page with ＋."}
               </div>
             )}
             {relatedNotes.length > 0 && (
@@ -1966,11 +2172,27 @@ function Workspace({
                   <select
                     aria-label="Move page to section"
                     value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
-                    onChange={(event) => void movePage(selectedNote.id, event.target.value, pagesInSection(notes, sections, event.target.value).length)}
+                    onChange={(event) => void movePage(selectedNote.id, event.target.value, null)}
                   >
-                    {orderedSections.map((entry) => <option key={entry.id} value={entry.id}>{entry.title || "Untitled section"}</option>)}
+                    {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
                     <option value={QUICK_NOTES}>Quick Notes</option>
                   </select>
+                  <button
+                    className="quiet"
+                    disabled={!canShift(selectedNote.id, 1)}
+                    title="Indent page (Ctrl+Alt+])"
+                    onClick={() => void indentPage(selectedNote.id, 1)}
+                  >
+                    Indent page
+                  </button>
+                  <button
+                    className="quiet"
+                    disabled={!canShift(selectedNote.id, -1)}
+                    title="Outdent page (Ctrl+Alt+[)"
+                    onClick={() => void indentPage(selectedNote.id, -1)}
+                  >
+                    Outdent page
+                  </button>
                   <button
                     className="danger quiet"
                     onClick={() => void remove(selectedNote)}

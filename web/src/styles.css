@@ -192,6 +192,11 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 @media (max-width: 800px) { .note-search { width: 100%; } .list-actions { flex-wrap: wrap; } }
 .editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
 .editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }
+.editor-actions { flex-wrap: wrap; gap: 0 8px; }
+.editor-actions select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.editor-actions button { white-space: nowrap; }
+.editor-actions .quiet:not(.danger) { color: var(--ink-strong); background: transparent; border: 1px solid transparent; }
+.editor-actions .quiet:not(.danger):hover, .editor-actions .quiet:not(.danger):focus-visible { background: var(--accent-soft); border-color: var(--line); }
 .admin-settings-layout .settings-nav { display: flex; gap: 6px; overflow-x: auto; margin: 18px 0 4px; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--sidebar-end); corner-shape: squircle; }
 .admin-settings-layout .settings-nav a { flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; color: var(--ink); font: 12px Mono, monospace; }
 .admin-settings-layout .settings-nav a:hover, .admin-settings-layout .settings-nav a:focus-visible, .admin-settings-layout .settings-nav a:active { color: var(--ink-strong); background: var(--panel); }
@@ -337,3 +342,17 @@ body { color: var(--ink-strong); background: var(--bg); }
   .canvas-ink-note { display: block; color: var(--ink); font-size: 13px; }
   .canvas-scroll { height: auto; }
 }
+.page-toggle { align-self: center; width: 22px; height: 22px; padding: 0; margin-inline-start: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; line-height: 1; cursor: pointer; }
+.page-toggle-space { flex: none; width: 22px; margin-inline-start: 4px; }
+.page-toggle:hover, .page-toggle:focus-visible { background: var(--accent-soft); color: var(--ink-strong); }
+
+/* Section groups: folder tabs share .section-tab; the breadcrumb sits above the strip. */
+.section-tabs { display: grid; grid-template-columns: minmax(0, max-content) auto; justify-content: start; column-gap: 6px; }
+.section-breadcrumb { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; margin: 0 0 6px; padding: 0; list-style: none; font-size: 13px; color: var(--ink); }
+.section-breadcrumb li + li::before { content: "›"; padding: 0 4px; color: var(--ink); }
+.section-breadcrumb button { background: transparent; color: inherit; padding: 2px 4px; }
+.section-breadcrumb button[aria-current="page"] { color: var(--ink-strong); font-weight: 600; }
+.section-empty { align-self: center; padding: 7px 10px; color: var(--ink); font-size: 13px; white-space: nowrap; }
+.section-add { anchor-name: --section-add; }
+@supports (anchor-name: --a) { .section-add-menu { position-anchor: --section-add; } }
+.section-menu > select { margin: 4px 8px; }
