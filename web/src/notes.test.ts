@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carryAll, carrySaved, editEntry, editOpenEntry, newestCopy, samePayload } from "./notes";
+import { carryAll, carrySaved, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, samePayload } from "./notes";
 
 const A = "obj_a";
 const B = "obj_b";
@@ -92,5 +92,73 @@ describe("open page edits", () => {
     const moved = { ...open, section: "obj_s", order: "r" };
     const notes = editOpenEntry([moved], open, { ...open, body: "new" }, { body: "new" });
     expect(find(notes, A)).toEqual({ ...moved, body: "new" });
+  });
+});
+
+describe("flushing the open page before leaving it", () => {
+  it("is done when what was sent is what is open", () => {
+    const open = page(A, "typed");
+    expect(flushRound(open, A, { ...open, version: 2 })).toBe("done");
+  });
+
+  it("goes again when keystrokes landed during the save", () => {
+    expect(flushRound(page(A, "typed more"), A, page(A, "typed"))).toBe("again");
+  });
+
+  it("goes again when the open page moved during the save", () => {
+    expect(flushRound({ ...page(A, "typed"), order: "r" }, A, page(A, "typed"))).toBe("again");
+  });
+
+  it("fails when nothing was sent, so the page stays open and dirty", () => {
+    expect(flushRound(page(A, "typed"), A, undefined)).toBe("failed");
+  });
+
+  it("is done when another selection closed the page meanwhile", () => {
+    expect(flushRound(page(B, "other"), A, undefined)).toBe("done");
+    expect(flushRound(null, A, undefined)).toBe("done");
+  });
+});
+
+describe("flushUntilStable", () => {
+  // A fake editor: `open` is the page on screen, `sent` records each save request.
+  const harness = (during: (open: Note, round: number) => Note | null, result: (sent: Note) => Note | undefined = (sent) => sent) => {
+    let open: Note | null = page(A, "typed");
+    const sent: Note[] = [];
+    const save = async (note: Note) => {
+      sent.push(note);
+      open = open && during(open, sent.length);
+      return result(note);
+    };
+    return { getOpen: () => open, save, sent };
+  };
+
+  it("sends a second round carrying an edit typed during the first save", async () => {
+    const h = harness((open, round) => (round === 1 ? { ...open, body: "typed late" } : open));
+    expect(await flushUntilStable(h.getOpen, h.save, 5)).toBe("done");
+    expect(h.sent.map((note) => note.body)).toEqual(["typed", "typed late"]);
+  });
+
+  it("gives up as busy after the round limit while edits keep landing", async () => {
+    const h = harness((open, round) => ({ ...open, body: `edit ${round}` }));
+    expect(await flushUntilStable(h.getOpen, h.save, 5)).toBe("busy");
+    expect(h.sent).toHaveLength(5);
+  });
+
+  it("fails after one round when nothing was sent", async () => {
+    const h = harness((open) => open, () => undefined);
+    expect(await flushUntilStable(h.getOpen, h.save, 5)).toBe("failed");
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("is done when the page closes mid-flush", async () => {
+    const h = harness(() => page(B, "other"), () => undefined);
+    expect(await flushUntilStable(h.getOpen, h.save, 5)).toBe("done");
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("is done without saving when no page is open", async () => {
+    const h = harness((open) => open);
+    expect(await flushUntilStable(() => null, h.save, 5)).toBe("done");
+    expect(h.sent).toHaveLength(0);
   });
 });

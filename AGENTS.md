@@ -107,7 +107,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Deep links use `#/<container>/<section|quick>/<page>`. The in-memory page list is the
   newest local copy: edits and placement patch it, saves carry only the version forward
   (`notes.ts`), and moves write from it, except that another tab's cached draft at an equal or
-  newer version wins (`newestCopy`). Cache writes run in call order. A notebook switch clears
+  newer version wins (`newestCopy`). Cache writes run in call order. Leaving the open page
+  goes through `flushOpenPage`, which re-saves until the open page matches what was sent
+  (`flushUntilStable`, at most 5 rounds); otherwise the page stays open and dirty, the error
+  says why, and a refused hash navigation restores the URL with `replaceState`. A notebook switch clears
   the previous notebook's state, drops superseded loads and reapplies versions saved during
   the read (`carryAll`). Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
   and the section/page browser checks in `UI-VERIFICATION.md`.
