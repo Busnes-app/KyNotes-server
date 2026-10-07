@@ -232,7 +232,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   session resolution in the rate-limit middleware even when sent a cookie.
 - Backups use `ky-primitives/recoveryclient` through `internal/backup`; HTTP admin,
   CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
-  owns the same data-directory lock as the server; `restore --in --to` is the only
+  owns the same data-directory lock as the server, except `deposit`/`backup-drill`, which
+  go through `admin.sock` when the server runs; `restore --in --to` is the only
   custodian-share/capsule-open entry point and revokes restored sessions. Legacy local
   plaintext commands are `copy-data-dir` and `restore-data-dir`. Capsules exclude all
   blob bytes, including note versions; full recovery needs the separate blob store.
@@ -317,14 +318,19 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/applysetup` owns the apply-setup contract: bundle (secrets only by file path,
   unknown fields rejected), socket request, create/present/conflict decisions, report and
   exit codes 0/3/2/1 (precedence invalid > failed > conflict). `internal/httpapi/apply_setup.go`
-  applies SSO through the router's shared `sso.Store` after a discovery probe, and admins
+  applies SSO through the router's shared `sso.Store` after a discovery probe (issuer
+  transport/5xx/429 is `failed`, `sso.ErrIssuerUnavailable`; a bad document is `invalid`), and admins
   bound by issuer+subject (never by username; a grant revokes credentials through
   `revokeForRoleChange`). `backup.Service.ApplySetup` compares env-fixed dir/keep, sets the
   interval only when unset and claims a pairing only when unpaired. `internal/app` owns
   `admin.sock`: 0600, peer uid or root, created after the data-dir lock, never a network
   listener; shutdown drains a running apply for up to `backup.OperationTimeout` plus a
   minute before SQLite closes, then removes the socket (compose `stop_grace_period: 17m`
-  covers it). One audit row per change (actor `system`, request `apply-setup`).
+  covers it). One audit row per change (actor `system`, request `apply-setup`). The same
+  socket serves `POST /v1/deposit` and `/v1/backup-drill` through `backup.Service.Run`/`Drill`
+  (actor `system`, request `admin-socket`), one operation at a time with the same drain;
+  answers are `{"result","error_code"}` and the CLI exits 1 on any error code.
   `docs/INSTALLER.md` is the installer contract. Verify `go test ./internal/applysetup`,
   `TestApply*`, `TestSetupHandler*`, `TestAdminSocket*`, `TestServeOwnsAdminSocketLifecycle`,
-  `TestApplySetupTwiceEndToEnd` and `scripts/apply-setup-container-check.sh`.
+  `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
+  `scripts/apply-setup-container-check.sh`.

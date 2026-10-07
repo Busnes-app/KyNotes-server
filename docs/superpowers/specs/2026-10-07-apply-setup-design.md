@@ -30,6 +30,7 @@ The CLI takes the same exclusive data-directory lock as the server, so it cannot
 - **Shutdown.** The server drains a running apply for up to the backup operation timeout (16 minutes) plus a minute before SQLite closes. A container or init stop timeout shorter than that cuts it off; `docker-compose.yml` sets `stop_grace_period: 17m`.
 - **Client.** `apply-setup --file F [--config PATH]` reads and validates the bundle, sends it over the socket, and prints the server's JSON report to stdout.
 - **Exit codes.** 0 when everything applied or was already present. 3 when something conflicts with existing settings and was left unchanged. 2 for invalid input. 1 for other errors. Precedence: invalid, then other errors, then conflict.
+- **Live backup operations.** The same socket serves `deposit` and `backup-drill`: when the server runs, those CLI commands ask it to run its backup service and print the JSON result (exit 0 ok, 1 failed); when it is stopped they keep the offline path under the data-directory lock.
 - **Server not running.** The command fails with a clear message. The installer runs it after the health check.
 - **Rationale.** The server applies the bundle with its own machinery: audit rows, writer lock, cached settings, the backup service and the pairing client. Nothing races it, and access to the socket already implies container access, so this grants nothing new.
 
@@ -64,7 +65,7 @@ Every section is optional.
 
 ### Per section
 
-- **`sso`.** When no SSO settings exist, store them, through the same validation and audit as the admin route, including the issuer metadata probe. When identical settings exist, report `present`. When they differ, report `conflict` and leave them unchanged.
+- **`sso`.** When no SSO settings exist, store them, through the same validation and audit as the admin route, including the issuer metadata probe. An unreachable issuer (transport error, 5xx, 429) is `failed` and retryable; a definite bad document is `invalid`. When identical settings exist, report `present`. When they differ, report `conflict` and leave them unchanged.
 - **`admins`.**
   - For each identity, ensure a user bound to `issuer`+`subject` with the local admin grant and no password.
   - An existing binding with the admin grant reports `present`. An existing binding without it gets the grant, with an audit row.

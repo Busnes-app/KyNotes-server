@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # apply-setup inside a real container: socket mode, two runs (second all present), an
-# inline secret refused without echo, and the socket removed on stop.
+# inline secret refused without echo, live deposit routed over the socket, and the socket
+# removed on stop.
 # Usage: scripts/apply-setup-container-check.sh IMAGE   (run from the repository root)
 set -euo pipefail
 image=${1:?usage: apply-setup-container-check.sh IMAGE}
@@ -19,7 +20,7 @@ docker run -d --name "$name" --user "$(id -u):$(id -g)" -e KYNOTES_BACKUP_DIR=/d
   -v "$data:/data" "$image" --config /data/kynotes.yaml >/dev/null
 ready=0
 for _ in $(seq 1 30); do
-  if docker exec "$name" /kynotes-server healthcheck --config /data/kynotes.yaml 2>/dev/null; then ready=1; break; fi
+  if docker exec "$name" /kynotes-server healthcheck --config /data/kynotes.yaml >/dev/null 2>&1; then ready=1; break; fi
   sleep 1
 done
 test "$ready" -eq 1 || { docker logs "$name"; echo "server never became healthy"; exit 1; }
@@ -34,6 +35,14 @@ if grep -oE '"status":"[a-z]+"' "$data/run2.json" | grep -vqxF '"status":"presen
   cat "$data/run2.json"; echo "second run not all present"; exit 1
 fi
 test "$(grep -oF '"status":"present"' "$data/run2.json" | wc -l)" -eq 3 || { cat "$data/run2.json"; exit 1; }
+
+# No key is pinned, so the live deposit must fail with the service's precondition code. The
+# offline path would fail on the data-directory lock instead.
+set +e
+docker exec "$name" /kynotes-server deposit --config /data/kynotes.yaml >"$data/deposit.out" 2>"$data/deposit.err"
+rc=$?
+set -e
+test "$rc" -eq 1 && grep -qxF recovery_key_required "$data/deposit.err" || { cat "$data/deposit.err"; echo "live deposit: exit $rc"; exit 1; }
 
 set +e
 docker exec "$name" /kynotes-server apply-setup --file /data/inline.json --config /data/kynotes.yaml >"$data/inline.out" 2>"$data/inline.err"
