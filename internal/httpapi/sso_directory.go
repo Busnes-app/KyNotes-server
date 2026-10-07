@@ -307,7 +307,7 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 // revokeForRoleChange: promotion and demotion both require fresh sessions, device pairing
 // and login proofs.
 func revokeForRoleChange(tx *sql.Tx, issuer, subject, userID, now string) error {
-	if _, err := tx.Exec(`UPDATE sso_directory_state SET revoked_before=max(revoked_before,?) WHERE issuer=? AND subject=?`, time.Now().Unix(), issuer, subject); err != nil {
+	if _, err := tx.Exec(`INSERT INTO sso_login_cutoffs(issuer,subject,revoked_before) VALUES(?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revoked_before=max(revoked_before,excluded.revoked_before)`, issuer, subject, time.Now().Unix()); err != nil {
 		return err
 	}
 	for _, table := range []string{"sessions", "devices"} {

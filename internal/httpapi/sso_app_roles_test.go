@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/kynotes-server/internal/applysetup"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
@@ -290,4 +291,59 @@ func TestDirectoryAppRoleShapes(t *testing.T) {
 			t.Fatalf("role=%s want=%s err=%v", role, tc.want, err)
 		}
 	}
+}
+
+// pendingAdminCallback auto-provisions subject with no directory state, then starts an
+// app-admin login whose proof predates any later promotion.
+func pendingAdminCallback(f *logoutFixture, subject string) *http.Request {
+	f.t.Helper()
+	if r := roleCallback(f, subject, nil, ""); r.Code != 302 {
+		f.t.Fatalf("auto-provision: %d %s", r.Code, r.Body.String())
+	}
+	var states int
+	if err := f.db.QueryRow(`SELECT count(*) FROM sso_directory_state WHERE subject=?`, subject).Scan(&states); err != nil || states != 0 {
+		f.t.Fatalf("fixture has directory state: %d %v", states, err)
+	}
+	pending := f.beginLogin(subject, "pre-promotion", time.Now().Add(-time.Second))
+	f.mu.Lock()
+	f.proofs[pending.URL.Query().Get("state")]["roles"] = []string{sso.AdminAppRole}
+	f.mu.Unlock()
+	return pending
+}
+
+func assertPromotionRefusesCallback(f *logoutFixture, pending *http.Request) {
+	f.t.Helper()
+	if res := f.send(pending); res.Code != 403 {
+		f.t.Fatalf("pre-promotion callback admitted: %d %s", res.Code, res.Body.String())
+	}
+	var n int
+	if err := f.db.QueryRow(`SELECT count(*) FROM sessions WHERE sso_sid='pre-promotion'`).Scan(&n); err != nil || n != 0 {
+		f.t.Fatalf("pre-promotion session created: %d %v", n, err)
+	}
+}
+
+func TestSSOAppRolesApplySetupPromotionFencesPendingCallback(t *testing.T) {
+	f := newLogoutFixture(t)
+	pending := pendingAdminCallback(f, "bob")
+	res, _ := applyAdmin(f.db, f.cfg, f.issuer.URL, applysetup.Admin{Issuer: f.issuer.URL, Subject: "bob", Username: "bob"})
+	if res.Status != applysetup.Created {
+		t.Fatalf("grant: %+v", res)
+	}
+	assertPromotionRefusesCallback(f, pending)
+}
+
+func TestSSOAppRolesDirectoryPromotionFencesPendingCallback(t *testing.T) {
+	f := newLogoutFixture(t)
+	settings := f.settings.Load()
+	settings.HMACSecret = strings.Repeat("s", 32)
+	if err := f.settings.Save(settings); err != nil {
+		t.Fatal(err)
+	}
+	pending := pendingAdminCallback(f, "bob")
+	p := directoryPayload("bob", "bob", 1, true)
+	p["roles"] = []any{map[string]any{"value": sso.AdminAppRole}}
+	if r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "promote-bob", "user.updated", p); r.Code != 200 {
+		t.Fatalf("promote: %d %s", r.Code, r.Body.String())
+	}
+	assertPromotionRefusesCallback(f, pending)
 }

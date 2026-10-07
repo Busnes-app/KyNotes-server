@@ -230,7 +230,10 @@ another login. Local password sessions use the local account role.
 
 Versioned directory role changes normally replace the local role, revoke all existing
 sessions/device credentials, and advance the login-proof cutoff in the same
-transaction as the attributed audit. Both promotion and demotion require fresh
+transaction as the attributed audit. Role changes store that cutoff per issuer/subject
+apart from directory revisions, so it also fences subjects directory sync never saw
+(auto-provisioned accounts promoted by `apply-setup`); callback and step-up admission
+check it under the writer lock. Both promotion and demotion require fresh
 login/device pairing, and a later re-grant cannot revive a revoked credential or
 pre-change callback. A stale token cannot overwrite newer directory permissions.
 Readback reports the current local role, not a particular session's token ceiling.

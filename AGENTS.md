@@ -301,7 +301,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   in the audit, but still revokes credentials and requires the OIDC ceiling. Inactive
   events always disable/revoke, and never preserve an active administrator.
   Changes revoke sessions/devices and advance the callback cutoff atomically with
-  audit. Readback includes the local role. Verify `TestSSOAppRoles*`,
+  audit. `revokeForRoleChange` (directory and apply-setup grants) upserts the cutoff into
+  `sso_login_cutoffs` (migration 0020), independent of directory state, so auto-provisioned
+  subjects are fenced too; `checkSSOIdentityTx` enforces it with the directory cutoff.
+  Readback includes the local role. Verify `TestSSOAppRoles*`,
   `TestDirectoryAppRoleShapes`, `TestDirectoryDeactivationIgnoresRoles`,
   `TestDirectoryRetainsLastActiveAdminGrant`, `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin`
   and existing directory race/rollback checks. OIDC step-up uses the separate
