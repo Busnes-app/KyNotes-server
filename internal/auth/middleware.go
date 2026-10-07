@@ -76,7 +76,25 @@ func RequireStepUp(db *sql.DB, next http.Handler) http.Handler {
 			requireSSOStepUp(db, s, next, w, r)
 			return
 		}
-		if s.StepUpAt.IsZero() || time.Since(s.StepUpAt) > StepUpWindow {
+		if !freshLocalProof(s) {
+			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+func freshLocalProof(s Session) bool {
+	return !s.StepUpAt.IsZero() && time.Since(s.StepUpAt) <= StepUpWindow
+}
+
+// RequireUserStepUp gates one-way doors on the caller's own account: any local
+// session that re-proved its login secret within StepUpWindow. SSO sessions are
+// refused; their step-up proves the IdP, not the password these routes rely on.
+func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
+	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := SessionFromContext(r)
+		if s.SSOIssuer != "" || !freshLocalProof(s) {
 			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return
 		}
@@ -136,7 +154,7 @@ func resolveDevice(db *sql.DB, r *http.Request) (Device, bool) {
 	var d Device
 	var stored, status, revoked string
 	now := time.Now().UTC()
-	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=? AND (d.sso_session_id='' OR EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.sso_session_id AND s.user_id=d.user_id AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>?))`, id, now.Format(time.RFC3339), now.Format(time.RFC3339)).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
+	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=? AND d.platform<>'identity' AND (d.sso_session_id='' OR EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.sso_session_id AND s.user_id=d.user_id AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>?))`, id, now.Format(time.RFC3339), now.Format(time.RFC3339)).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
 		return Device{}, false
 	}
 	key := id + "\x00" + clientIP(r)
@@ -199,4 +217,48 @@ func CheckCSRF(r *http.Request) error {
 		return errors.New("csrf")
 	}
 	return nil
+}
+
+var (
+	ErrSessionInvalid = errors.New("session no longer valid")
+	ErrStepUpInvalid  = errors.New("step-up no longer valid")
+)
+
+// RecheckSessionTx repeats the session check inside the writing transaction: a
+// revocation or password change can commit between the middleware and the write.
+// It returns the user's current password verifier for the caller to compare.
+func RecheckSessionTx(tx *sql.Tx, s Session, now time.Time) (passwordHash string, err error) {
+	_, passwordHash, err = liveSessionTx(tx, s, now)
+	return passwordHash, err
+}
+
+// RecheckUserStepUpTx re-proves, inside the writing transaction, what
+// RequireUserStepUp authorized: the session is live, its step-up is the one the
+// middleware read and still in window, and the password it proved is current.
+func RecheckUserStepUpTx(tx *sql.Tx, s Session, now time.Time) error {
+	stepUp, passwordHash, err := liveSessionTx(tx, s, now)
+	if err != nil {
+		return err
+	}
+	if s.passwordHash == "" || passwordHash != s.passwordHash || stepUp != s.stepUpRaw || s.StepUpAt.IsZero() || now.Sub(s.StepUpAt) > StepUpWindow {
+		return ErrStepUpInvalid
+	}
+	return nil
+}
+
+func liveSessionTx(tx *sql.Tx, s Session, now time.Time) (stepUp, passwordHash string, err error) {
+	var expires, hard string
+	err = tx.QueryRow(`SELECT s.stepup_at,s.expires_at,s.hard_expires_at,u.auth_secret_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.revoked_at='' AND u.status='active'`, s.ID, s.UserID).Scan(&stepUp, &expires, &hard, &passwordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrSessionInvalid
+	}
+	if err != nil {
+		return "", "", err
+	}
+	e, err1 := time.Parse(time.RFC3339, expires)
+	h, err2 := time.Parse(time.RFC3339, hard)
+	if err1 != nil || err2 != nil || now.After(e) || now.After(h) {
+		return "", "", ErrSessionInvalid
+	}
+	return stepUp, passwordHash, nil
 }

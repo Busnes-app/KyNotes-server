@@ -17,6 +17,10 @@ import (
 	"time"
 )
 
+// missingEnvelopesSQL is the save gate: members' devices lacking an envelope at
+// the current generation. Identity rows are excluded until phase 2 replaces it.
+const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
+
 func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.Handle("GET /api/v1/devices/{id}/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
@@ -30,7 +34,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var owner string
-		if db.QueryRow(`SELECT user_id FROM devices WHERE id=?`, id).Scan(&owner) != nil || owner != uid {
+		if db.QueryRow(`SELECT user_id FROM devices WHERE id=? AND platform<>'identity'`, id).Scan(&owner) != nil || owner != uid {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -64,7 +68,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var owner string
-		if db.QueryRow(`SELECT user_id FROM devices WHERE id=?`, id).Scan(&owner) != nil || owner != uid {
+		if db.QueryRow(`SELECT user_id FROM devices WHERE id=? AND platform<>'identity'`, id).Scan(&owner) != nil || owner != uid {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -205,7 +209,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	})))
 	mux.Handle("GET /api/v1/devices", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
-		rows, e := db.Query(`SELECT id,fingerprint,platform,created_at,last_seen_at,revoked_at FROM devices WHERE user_id=?`, s.UserID)
+		rows, e := db.Query(`SELECT id,fingerprint,platform,created_at,last_seen_at,revoked_at FROM devices WHERE user_id=? AND platform<>'identity'`, s.UserID)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -237,7 +241,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		auditID, _ := ids.Mint("aud")
 		e := dbTx(db, func(tx *sql.Tx) error {
 			var n int
-			if e := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE id=? AND user_id=?`, id, s.UserID).Scan(&n); e != nil || n == 0 {
+			if e := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE id=? AND user_id=? AND platform<>'identity'`, id, s.UserID).Scan(&n); e != nil || n == 0 {
 				return sql.ErrNoRows
 			}
 			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), id); e != nil {
@@ -293,7 +297,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			PairingToken, PublicKey, Platform string
 			LabelCiphertext                   string `json:"labelCiphertext"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Platform == "identity" {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -364,7 +368,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return e
 			}
 			var existing string
-			if scanErr := tx.QueryRow(`SELECT id FROM devices WHERE user_id=? AND fingerprint=?`, userID, hex.EncodeToString(fp[:])).Scan(&existing); scanErr == nil {
+			if scanErr := tx.QueryRow(`SELECT id FROM devices WHERE user_id=? AND fingerprint=? AND platform<>'identity'`, userID, hex.EncodeToString(fp[:])).Scan(&existing); scanErr == nil {
 				deviceID = existing
 				_, e = tx.Exec(`UPDATE devices SET public_key=?,secret_hash=?,label_ciphertext=?,platform=?,revoked_at='',sso_session_id=? WHERE id=?`, in.PublicKey, "sha256:"+hex.EncodeToString(sh[:]), label, in.Platform, originSession, existing)
 				return e

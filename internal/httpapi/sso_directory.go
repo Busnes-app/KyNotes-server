@@ -204,8 +204,9 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		}
 		if err == nil && !*u.Active {
 			now := time.Now().UTC().Format(time.RFC3339)
-			for _, table := range []string{"sessions", "devices"} {
-				if _, err = tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE revoked_at='' AND user_id IN (SELECT id FROM users WHERE sso_issuer=? AND sso_subject=?)`, now, settings.IssuerURL, u.ID); err != nil {
+			// The identity is not a credential and nothing un-revokes it; spare it.
+			for _, q := range []string{`UPDATE sessions SET revoked_at=? WHERE`, `UPDATE devices SET revoked_at=? WHERE platform<>'identity' AND`} {
+				if _, err = tx.Exec(q+` revoked_at='' AND user_id IN (SELECT id FROM users WHERE sso_issuer=? AND sso_subject=?)`, now, settings.IssuerURL, u.ID); err != nil {
 					break
 				}
 			}
@@ -310,8 +311,8 @@ func revokeForRoleChange(tx *sql.Tx, issuer, subject, userID, now string) error 
 	if _, err := tx.Exec(`INSERT INTO sso_login_cutoffs(issuer,subject,revoked_before) VALUES(?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revoked_before=max(revoked_before,excluded.revoked_before)`, issuer, subject, time.Now().Unix()); err != nil {
 		return err
 	}
-	for _, table := range []string{"sessions", "devices"} {
-		if _, err := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, userID); err != nil {
+	for _, q := range []string{`UPDATE sessions SET revoked_at=? WHERE`, `UPDATE devices SET revoked_at=? WHERE platform<>'identity' AND`} {
+		if _, err := tx.Exec(q+` user_id=? AND revoked_at=''`, now, userID); err != nil {
 			return err
 		}
 	}

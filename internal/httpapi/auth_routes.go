@@ -73,7 +73,6 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 
 		var in struct {
 			Username   string `json:"username"`
-			Password   string `json:"password"`
 			AuthSecret string `json:"authSecret"`
 			LoginSalt  string `json:"loginSalt"`
 			Iterations int    `json:"iterations"`
@@ -97,17 +96,10 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			iterations = 600000
 		}
 
+		// The password never reaches the server: it also derives the userKEK.
 		authSecret := in.AuthSecret
-		if authSecret == "" && in.Password != "" {
-			var err error
-			authSecret, err = auth.DeriveAuthSecret(in.Password, salt, iterations)
-			if err != nil {
-				WriteError(w, r, 500, "internal", "failed to derive auth secret")
-				return
-			}
-		}
 		if len(authSecret) != 64 {
-			WriteError(w, r, 400, "invalid_request", "authSecret or password required")
+			WriteError(w, r, 400, "invalid_request", "authSecret required")
 			return
 		}
 
@@ -206,13 +198,30 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		recoveryLockout.Success(key)
-		s, err := auth.MintSession(db, w, id, cfg.Server.DevInsecureCookies, time.Now().UTC())
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
+		}
+		// Bound to the verified hash: a password changed since then mints nothing and returns no identity.
+		var identity map[string]string
+		s, err := auth.MintPasswordSession(db, w, id, stored, cfg.Server.DevInsecureCookies, time.Now().UTC(), func(tx *sql.Tx) (err error) {
+			identity, err = loadIdentity(tx, id, true)
+			return err
+		})
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
+			return
+		}
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, id, "auth.login", "", "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
+		recordAudit(db, id, "auth.login", "", "", RequestID(r))
+		out := map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)}
+		if identity != nil {
+			out["identity"] = identity
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, out)
 	}
 	mux.HandleFunc("POST /api/v1/auth/login", handleLogin)
 	mux.HandleFunc("POST /api/auth/login", handleLogin)
@@ -257,10 +266,30 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		s, _ := auth.SessionFromContext(r)
 		var in struct {
 			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
-			Iterations                                     int `json:"iterations"`
+			WrappedIdentityKey                             string `json:"wrappedIdentityKey"`
+			IdentityDeviceID                               string `json:"identityDeviceId"`
+			Iterations                                     int    `json:"iterations"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.CurrentAuthSecret) != 64 || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		var wrapped []byte
+		if (in.WrappedIdentityKey == "") != (in.IdentityDeviceID == "") {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		if in.WrappedIdentityKey != "" {
+			var ok bool
+			if wrapped, ok = decodeWrappedIdentity(in.WrappedIdentityKey); !ok {
+				WriteError(w, r, 400, "invalid_request", "invalid request")
+				return
+			}
+		}
+		// Shares the step-up budget: both verify the current password for a live session.
+		key := s.UserID + "\x00" + clientIP(r)
+		if !loginLockout.Try(key, time.Now().UTC()) {
+			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
 		}
 		var stored string
@@ -271,19 +300,71 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		if err != nil || verifyErr != nil {
+			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
 			return
 		}
+		loginLockout.Success(key)
 		hash, err := auth.HashAuthSecret(in.NewAuthSecret)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		if _, err = db.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), s.UserID); err != nil {
+		// The identity is re-wrapped under the new userKEK in the same commit, or the change is refused.
+		now := time.Now().UTC().Format(time.RFC3339)
+		err = dbTx(db, func(tx *sql.Tx) error {
+			// Recovery or another password change may have committed since the verify.
+			current, err := auth.RecheckSessionTx(tx, s, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if current != stored {
+				return errPasswordChanged
+			}
+			var identities int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=?`, s.UserID).Scan(&identities); err != nil {
+				return err
+			}
+			if (identities == 1) != (wrapped != nil) {
+				return errIdentityRewrap
+			}
+			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=0,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
+				return err
+			}
+			// A step-up proved the old password; it must not authorize an identity wrapped under it.
+			if _, err := tx.Exec(`UPDATE sessions SET stepup_at='' WHERE user_id=?`, s.UserID); err != nil {
+				return err
+			}
+			if wrapped == nil {
+				return nil
+			}
+			// Bound to the identity the client unwrapped, so a concurrent re-create is not overwritten.
+			res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=?`, wrapped, now, s.UserID, in.IdentityDeviceID)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n != 1 {
+				return errIdentityRewrap
+			}
+			return nil
+		})
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			auth.WriteAuthError(w, "unauthenticated", "authentication required")
+			return
+		}
+		if errors.Is(err, errPasswordChanged) {
+			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
+			return
+		}
+		if errors.Is(err, errIdentityRewrap) {
+			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and change the password again")
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "account.password_change", "", "", r.Header.Get("X-Request-Id"))
+		recordAudit(db, s.UserID, "account.password_change", "", "", RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +401,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		s, _ := auth.SessionFromContext(r)
 		key := s.UserID + "\x00" + clientIP(r)
 		if !loginLockout.Try(key, time.Now().UTC()) {
-			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", r.Header.Get("X-Request-Id"))
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", RequestID(r))
 			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
 		}
@@ -333,18 +414,49 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		if err != nil || verifyErr != nil {
 			loginLockout.Fail(key, time.Now().UTC())
-			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", r.Header.Get("X-Request-Id"))
+			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", RequestID(r))
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
 		}
 		loginLockout.Success(key)
-		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err := db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now, s.ID); err != nil {
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
+		}
+		// Step-up and the identity it returns are bound to the hash just verified.
+		var identity map[string]string
+		err = dbTx(db, func(tx *sql.Tx) error {
+			now := time.Now().UTC()
+			current, err := auth.RecheckSessionTx(tx, s, now)
+			if err != nil {
+				return err
+			}
+			if current != stored {
+				return errPasswordChanged
+			}
+			if _, err := tx.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now.Format(time.RFC3339), s.ID); err != nil {
+				return err
+			}
+			// SSO sessions never receive the wrapped identity (none exists for them in P1).
+			if s.SSOIssuer == "" {
+				identity, err = loadIdentity(tx, s.UserID, true)
+			}
+			return err
+		})
+		if errors.Is(err, auth.ErrSessionInvalid) || errors.Is(err, errPasswordChanged) {
+			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "auth.step_up", "", "", r.Header.Get("X-Request-Id"))
-		w.WriteHeader(http.StatusNoContent)
+		recordAudit(db, s.UserID, "auth.step_up", "", "", RequestID(r))
+		if identity == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, map[string]any{"identity": identity})
 	})))
 
 	mux.HandleFunc("POST /api/v1/auth/recover", func(w http.ResponseWriter, r *http.Request) {
@@ -399,10 +511,15 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		auditID, _ := ids.Mint("aud")
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,recovery_hash=?,recovery_used_at='',updated_at=? WHERE id=?`, newHash, in.NewLoginSalt, in.Iterations, recoveryHash, now, uid); e != nil {
+			if _, e := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,recovery_hash=?,recovery_used_at='',password_admin_known=0,updated_at=? WHERE id=?`, newHash, in.NewLoginSalt, in.Iterations, recoveryHash, now, uid); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
+				return e
+			}
+			// Without the old password the wrapped identity is unrecoverable; delete it
+			// instead of leaving a revoked row.
+			if e := deleteIdentityTx(tx, uid, uid, RequestID(r)); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
@@ -412,7 +529,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if e != nil {
 				return e
 			}
-			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, r.Header.Get("X-Request-Id"), "")
+			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, RequestID(r), "")
 			return e
 		})
 		if e != nil {

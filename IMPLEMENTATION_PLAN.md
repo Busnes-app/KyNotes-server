@@ -194,9 +194,15 @@ authSecret = hex( HKDF-SHA256(
                     L    = 32 ) )
 ```
 
+```
+userKEK = HKDF-SHA256( ikm = <the same PBKDF2 output>, salt = <empty>,
+                       info = "kynotes/user-kek/v1", L = 32 )   // never leaves the browser
+```
+
 | Constant | Frozen value |
 |---|---|
 | HKDF info label | `kynotes/auth/v1` (differs from KyPost's `kypost/auth/v1` on purpose: a KyPost verifier must never authenticate to KyNotes) |
+| userKEK HKDF info label | `kynotes/user-kek/v1` (additive; wraps the user identity key; never sent) |
 | PBKDF2 stretch output | 32 bytes |
 | Auth secret output | 32 bytes, lowercase hex (64 chars) |
 | Iterations served to new clients | `600_000` |
@@ -276,6 +282,8 @@ set in config, which is refused when `server.bind` is not a loopback address
 | Device secret storage | `"sha256:" + hex(sha256(secret))`. **Not** scrypt: the secret is 192 bits of `crypto/rand`, so a password KDF buys nothing and costs ~50 ms on every device request |
 | Device public key | X25519, raw 32 bytes, standard base64 on the wire |
 | Device fingerprint | lowercase hex SHA-256 of the raw 32 public-key bytes; server-computed only |
+| User identity row | `platform = 'identity'`, X25519 public key, server-computed fingerprint, `secret_hash = "identity:" + hex(32 random bytes)`; one per user (`devices_one_identity`); its wrapped private key lives in `user_identities` (`wrap_alg = aes-256-gcm`, 60 bytes). Migration `0021_identity_keys.sql` |
+| Identity exclusions | never accepted by device auth; omitted from `GET /devices`; `DELETE /devices/{id}` and `/devices/{id}/containers` answer 404; `/devices/register` refuses `platform = "identity"` and never re-pairs onto an identity row; excluded from the device-envelope save gate |
 | Identity rule | the server derives device identity from the registered public key. Client-supplied identity fields are display-only and are stored encrypted (`label_ciphertext`) |
 
 Device credentials and session cookies are **different credentials**. A device
@@ -365,6 +373,7 @@ probing for object existence across accounts.
 | Envelope read (`GET .../envelopes`) | either | either | a device may read only envelopes sealed for **itself** |
 | Container/object/attachment sync | either | either | — |
 | Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
+| Own identity (`GET`/`PUT /me/identity`) | required, local session | rejected | `PUT`: CSRF + `stepup_at` within `StepUpWindow`; SSO sessions refused |
 
 "Fresh session" = `now - session.created_at < 5 * time.Minute`, else `403
 forbidden` with message `re-authentication required`.
@@ -1123,7 +1132,8 @@ the test hook can never silently become production.
 | Method | Path | Credential | Body → Response |
 |---|---|---|---|
 | POST | `/api/v1/auth/login-params` | none | `{"username":"..."}` → `{"loginSalt":"<b64>","iterations":600000}` |
-| POST | `/api/v1/auth/login` | none | `{"username":"...","authSecret":"<hex64>"}` → sets cookies, `{"user":{"id":"usr_...","role":"user"}}` |
+| POST | `/api/v1/auth/login` | none | `{"username":"...","authSecret":"<hex64>"}` → sets cookies, `{"user":{"id":"usr_...","role":"user"}}`, plus `"identity":{deviceId,publicKey,fingerprint,wrapAlg,wrappedPrivateKey}` (`no-store`) when one exists |
+| POST | `/api/v1/auth/step-up` | session + CSRF | `{"authSecret"}` → `204`, or `200 {"identity":{...}}` (as login) for a local session whose user has an identity; shares the per-user/IP lockout with `POST /auth/password` |
 | GET | `/api/v1/auth/session` | session | → `{"user":{...},"expiresAt":"...","hardExpiresAt":"..."}` |
 | POST | `/api/v1/auth/logout` | session + CSRF | → `204`, clears both cookies, revokes the row |
 | POST | `/api/v1/auth/logout-all` | session + CSRF + fresh | → `204`, revokes every session for the user |
@@ -1220,6 +1230,8 @@ deliberately every phase).
 | DELETE | `/api/v1/devices/{id}` | session + CSRF + fresh | revoke: set `revoked_at`, delete envelopes, delete `device_containers` |
 | GET | `/api/v1/devices/{id}/containers` | session, or that device | selected container IDs |
 | PUT | `/api/v1/devices/{id}/containers` | session + CSRF, or that device | `{"containerIds":[...]}`, replaces the selection |
+| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
+| PUT | `/api/v1/me/identity` | session + CSRF + user step-up | create only: `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`; `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
 | PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + fresh | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}` |
 
@@ -1238,6 +1250,11 @@ deliberately every phase).
   selection delete, audit row.
 * A device credential may never write envelopes, mint pairing tokens, list other
   devices, or read another device's envelope. Each of those is a named test.
+* Identity rows (`platform = 'identity'`) are excluded from device auth, device listing, revocation (per-device, directory deactivation and SSO role change), selection and re-pairing.
+* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No identity is created while it is `1`.
+* A successful password change clears `stepup_at` on every session of the user.
+* `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has an identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
+* Recovery and admin password reset delete the identity row in the same transaction and write an audit row.
 
 ### 5.3 Tests
 
@@ -1262,6 +1279,22 @@ deliberately every phase).
 - `TestOversizedEnvelopeIsRejected`
 - `TestSyncSelectionLimitsDeviceContainerListing`
 - `TestContainerMetaUsesBaseVersionConflictRule`
+- `TestIdentityCreateRequiresStepUpCSRFAndIsCreateOnly`
+- `TestUserStepUpRefusesSSOSession`
+- `TestIdentityGetNeverReturnsWrappedKey`
+- `TestWrappedIdentityOnlyInPasswordProofs`
+- `TestLoginIdentityErrorMintsNoSession`
+- `TestIdentityCreateRefusesPairedDeviceKey`
+- `TestAdminKnownPasswordGatesIdentityUntilOwnChange`
+- `TestDirectoryRevocationsSpareIdentity`
+- `TestPasswordChangeSharesStepUpLockout`
+- `TestIdentityRowCannotAuthenticateAsDevice`
+- `TestIdentityRowHiddenFromDeviceRoutes`
+- `TestRegisterCannotClaimIdentity`
+- `TestIdentityDoesNotBlockSaves`
+- `TestPasswordChangeRewrapsIdentityAtomically`
+- `TestRecoveryAndAdminResetDeleteIdentity`
+- `TestEnvelopeVectors`
 
 ---
 

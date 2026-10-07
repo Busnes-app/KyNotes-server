@@ -198,3 +198,48 @@ func TestDisabledUserCannotUseValidSessionOrDevice(t *testing.T) {
 		t.Fatal("disabled user session accepted")
 	}
 }
+
+// The writing transaction must see what the middleware could not: changes committed after it ran.
+func TestRecheckTxSeesCommitsAfterMiddleware(t *testing.T) {
+	f := newSessionFixture(t)
+	defer f.close()
+	now := time.Now().UTC()
+	_, r := mintFixtureSession(t, &f, now, true)
+	if _, err := f.db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, now.Format(time.RFC3339), f.session.ID); err != nil {
+		t.Fatal(err)
+	}
+	s, err := ResolveSession(f.db, &r, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recheck := func(change string) (string, error, error) {
+		t.Helper()
+		if change != "" {
+			if _, err := f.db.Exec(change, s.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		tx, err := f.db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		hash, sessErr := RecheckSessionTx(tx, s, now)
+		return hash, sessErr, RecheckUserStepUpTx(tx, s, now)
+	}
+	if hash, sessErr, stepErr := recheck(""); hash != "hash" || sessErr != nil || stepErr != nil {
+		t.Fatalf("unchanged: %q %v %v", hash, sessErr, stepErr)
+	}
+	if _, sessErr, stepErr := recheck(`UPDATE users SET auth_secret_hash='changed' WHERE id=(SELECT user_id FROM sessions WHERE id=?)`); sessErr != nil || stepErr != ErrStepUpInvalid {
+		t.Fatalf("password changed: %v %v", sessErr, stepErr)
+	}
+	if _, err := f.db.Exec(`UPDATE users SET auth_secret_hash='hash'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, stepErr := recheck(`UPDATE sessions SET stepup_at='' WHERE id=?`); stepErr != ErrStepUpInvalid {
+		t.Fatalf("step-up cleared: %v", stepErr)
+	}
+	if _, sessErr, stepErr := recheck(`UPDATE sessions SET revoked_at='now' WHERE id=?`); sessErr != ErrSessionInvalid || stepErr != ErrSessionInvalid {
+		t.Fatalf("revoked: %v %v", sessErr, stepErr)
+	}
+}

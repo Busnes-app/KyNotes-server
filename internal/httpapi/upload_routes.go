@@ -273,7 +273,7 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 				return
 			}
 			var missing int
-			if db.QueryRow(`SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`, cid, cid, generation).Scan(&missing) != nil || missing > 0 {
+			if db.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing) != nil || missing > 0 {
 				WriteError(w, r, 409, "already_exists", "key rotation incomplete")
 				return
 			}

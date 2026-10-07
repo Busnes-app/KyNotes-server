@@ -53,7 +53,7 @@ func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'admin', 'active', ?, ?)`,
+	_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, password_admin_known, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'admin', 'active', 1, ?, ?)`,
 		id, strings.ToLower(username), hash, salt, iterations, now, now)
 	if err != nil {
 		return fmt.Errorf("failed to insert bootstrap admin user: %w", err)

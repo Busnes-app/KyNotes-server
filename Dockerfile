@@ -3,6 +3,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY web .
+# teamKeys.test.ts type-checks against the shared protocol vectors at ../../testdata.
+COPY testdata/protocol /src/testdata/protocol
 RUN npm run build
 
 FROM golang:1.26.6@sha256:640a234f4bea3e399c056b7b8f9c667c4939befae8db2f14e9785e16eccd4205 AS build

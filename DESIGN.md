@@ -127,6 +127,29 @@ Each container has a randomly generated content-encryption key. That key is
 wrapped for each authorized device and member using public-key envelopes. A
 device can decrypt only the containers explicitly enrolled on that device.
 
+Each user also holds an X25519 identity keypair, represented on the server as a
+`devices` row with `platform = 'identity'` and an unusable `secret_hash`. Its
+private key is wrapped (AES-256-GCM, AAD `kynotes/identity/v1` || user ID) under
+a `userKEK` that the browser derives from the same PBKDF2 output as the login
+verifier, with HKDF label `kynotes/user-kek/v1`. The server stores only the
+wrapped key and never sees `userKEK`. The wrapped key is returned only in the
+bodies of local password login and step-up, never by `GET /me/identity`, so a
+session cookie alone yields no offline-guessing target. The browser caches it
+in the IndexedDB vault with the other device secrets; "Forget this device"
+clears it, and logout keeps it. Identity rows never authenticate as a device,
+are not listed, revoked or selected through device routes or directory
+deactivation and role changes, and are excluded from the device-envelope save
+gate. No identity is created while someone other than the user knows the
+password (`users.password_admin_known`: admin create and reset, bootstrap,
+`user add`); the user's own password change or recovery clears the flag, and
+the browser then creates the identity under the new password. Envelopes are
+`0x01 | ephPub | nonce | ChaCha20-Poly1305(CK)` (93 bytes), bound by AAD to
+container, key generation and recipient (IDs in the AAD are fixed-length);
+`testdata/protocol/envelope_vectors.json` pins the bytes. A password change
+re-wraps the identity in the same transaction; recovery and administrator
+password resets delete it and write an audit row. SSO-only users have no
+password, hence no `userKEK` and no identity yet (open question).
+
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks
 equality of identical encrypted attachments; the tradeoff is documented in
@@ -168,7 +191,7 @@ storage on the next successful connection. Local memory and browser storage
 wiping are best effort.
 
 Recovery uses an exported recovery code. Using recovery revokes all device
-keys and all active web sessions. The recovery code is single-use and must be
+keys and all active web sessions, and deletes the user's identity key and its envelopes. The recovery code is single-use and must be
 replaced after successful recovery. Existing devices must be enrolled again.
 
 ### Teams and revocation limits

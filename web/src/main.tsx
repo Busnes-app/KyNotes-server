@@ -58,7 +58,10 @@ import {
   type Note,
   type Session,
   type SSOSettings,
+  identityAPI,
 } from "./api";
+import { ensureIdentity, rewrapIdentity, type IdentityRecord } from "./identity";
+import { PASSWORD_CHANGE_WARNING, passwordChangeProblem } from "./passwordChange";
 import {
   decryptComment,
   decryptAttachment,
@@ -67,6 +70,8 @@ import {
   decryptObject,
   decryptSharePayload,
   deriveAuthSecret,
+  deriveLoginKeys,
+  type LoginKeys,
   digestSha256Hex,
   encryptComment,
   encryptAttachment,
@@ -88,6 +93,7 @@ import {
   clearQueuedSave,
   deleteNote as deleteCachedNote,
   getDeviceKey,
+  getIdentityKey,
   getNote,
   clearUpload,
   pendingSaves,
@@ -95,8 +101,17 @@ import {
   putNote,
   putUpload,
   queueSave,
+  rememberAfter,
   storeDeviceKey,
+  storeIdentityKey,
 } from "./storage";
+
+/** Loads or creates the identity after a password sign-in. P1 has no consumer, so failures stay silent. */
+function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord) {
+  void ensureIdentity(identityAPI, userID, keys, fromLogin)
+    .then((identity) => identity && storeIdentityKey(username, userID, identity))
+    .catch(() => undefined);
+}
 import {
   applyStoredTheme,
   applyTheme,
@@ -294,11 +309,13 @@ function Login({
       }));
       const salt = params.loginSalt || randomLoginSalt();
       const iterations = params.iterations || 600000;
-      const authSecret = await deriveAuthSecret(password, salt, iterations);
-      const result = await setupInit(name, password, authSecret, salt, iterations);
-      await storeDeviceKey(name, authSecret);
+      const keys = await deriveLoginKeys(password, salt, iterations);
+      const authSecret = keys.authSecret;
+      // The password stays in the browser; the server only ever sees authSecret.
+      const result = await rememberAfter(() => setupInit(name, undefined, authSecret, salt, iterations), name, authSecret);
       sessionStorage.setItem("kynotes-last-username", name);
       onLogin({ username: name, authSecret, user: result.user });
+      settleIdentity(name, result.user.id, keys);
       setPassword("");
       setConfirmPassword("");
     } catch (error) {
@@ -315,27 +332,26 @@ function Login({
     try {
       const activeName = username.trim() || sessionUser?.username || "";
       const params = await loginParams(activeName);
-      const authSecret = await deriveAuthSecret(
-        password,
-        params.loginSalt,
-        params.iterations,
-      );
-      await storeDeviceKey(activeName, authSecret);
+      const keys = await deriveLoginKeys(password, params.loginSalt, params.iterations);
+      const authSecret = keys.authSecret;
       if (sessionUser) {
         // If SSO session is active, verify credentials or enter directly
         try {
-          const result = await login(activeName, authSecret);
+          const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
           sessionStorage.setItem("kynotes-last-username", activeName);
           onLogin({ username: activeName, authSecret, user: result.user });
+          settleIdentity(activeName, result.user.id, keys, result.identity);
         } catch {
           // If login endpoint failed but SSO session is valid, allow user entry with their derived key
+          await storeDeviceKey(activeName, authSecret).catch(() => undefined);
           sessionStorage.setItem("kynotes-last-username", activeName);
           onLogin({ username: activeName, authSecret, user: sessionUser });
         }
       } else {
-        const result = await login(activeName, authSecret);
+        const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
         sessionStorage.setItem("kynotes-last-username", activeName);
         onLogin({ username: activeName, authSecret, user: result.user });
+        settleIdentity(activeName, result.user.id, keys, result.identity);
       }
       setPassword("");
     } catch (error) {
@@ -2279,6 +2295,7 @@ function Workspace({
             admin={view === "admin"}
             authSecret={auth.authSecret}
             username={auth.username}
+            userID={auth.user.id}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
           />
@@ -2298,11 +2315,12 @@ function Workspace({
   );
 }
 
-function PasswordSettings({ username }: { username: string }) {
+function PasswordSettings({ username, userID }: { username: string; userID: string }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const confirmation = (
@@ -2310,8 +2328,9 @@ function PasswordSettings({ username }: { username: string }) {
         "confirm",
       ) as HTMLInputElement
     )?.value;
-    if (!next || next !== confirmation) {
-      setStatus("New passwords do not match.");
+    const problem = passwordChangeProblem(next, confirmation, acknowledged);
+    if (problem) {
+      setStatus(problem);
       return;
     }
     setBusy(true);
@@ -2319,25 +2338,25 @@ function PasswordSettings({ username }: { username: string }) {
       const name = username || prompt("Username")?.trim();
       if (!name) throw new Error("Username is required");
       const oldParams = await loginParams(name);
-      const currentAuthSecret = await deriveAuthSecret(
-        current,
-        oldParams.loginSalt,
-        oldParams.iterations,
-      );
+      const currentKeys = await deriveLoginKeys(current, oldParams.loginSalt, oldParams.iterations);
       const newLoginSalt = randomLoginSalt();
-      const newAuthSecret = await deriveAuthSecret(next, newLoginSalt, 600000);
-      await changePassword({
-        currentAuthSecret,
-        newAuthSecret,
+      const newKeys = await deriveLoginKeys(next, newLoginSalt, 600000);
+      const cached = await getIdentityKey(name, userID).catch(() => undefined);
+      const rewrapped = await rewrapIdentity(identityAPI, userID, currentKeys, newKeys.userKEK, cached);
+      await rememberAfter(() => changePassword({
+        currentAuthSecret: currentKeys.authSecret,
+        newAuthSecret: newKeys.authSecret,
         newLoginSalt,
         iterations: 600000,
-      });
-      await storeDeviceKey(name, newAuthSecret);
+        identityDeviceId: rewrapped?.identityDeviceId,
+        wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
+      }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
+      // No identity yet (e.g. an administrator set the old password): create it under the new one.
+      if (!rewrapped) settleIdentity(name, userID, newKeys);
       setCurrent("");
       setNext("");
-      setStatus(
-        "Password changed. Existing encrypted notes may require the device re-key flow.",
-      );
+      setAcknowledged(false);
+      setStatus("Password changed.");
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Unable to change password",
@@ -2376,7 +2395,18 @@ function PasswordSettings({ username }: { username: string }) {
           <span>Confirm new password</span>
           <input name="confirm" type="password" required />
         </label>
-        <button disabled={busy}>
+        <p className="config-muted" role="alert">{PASSWORD_CHANGE_WARNING}</p>
+        <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+            style={{ width: "18px", height: "18px" }}
+            required
+          />
+          <span>I understand my existing notes will become unreadable.</span>
+        </label>
+        <button disabled={busy || !acknowledged}>
           {busy ? "Changing…" : "Change password"}
         </button>
       </form>
@@ -2456,7 +2486,7 @@ function AdminUserActions({
         iterations: 600000,
       });
       onReset();
-      alert("Password reset. All existing sessions were revoked.");
+      alert("Password reset. All existing sessions were revoked. The account's encryption identity was deleted; it is recreated at the user's next sign-in.");
     } catch (error) {
       alert(
         error instanceof Error ? error.message : "Unable to reset password",
@@ -2741,12 +2771,14 @@ function SettingsView({
   authSecret,
   onBack,
   username,
+  userID,
   onForgetDevice,
 }: {
   admin: boolean;
   authSecret: string;
   onBack: () => void;
   username: string;
+  userID: string;
   onForgetDevice?: () => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
@@ -2837,7 +2869,7 @@ function SettingsView({
               <button onClick={() => applyTheme(theme)}>Apply theme</button>
             </section>
             <div id="password">
-              <PasswordSettings username={username} />
+              <PasswordSettings username={username} userID={userID} />
             </div>
             <section id="device" className="config-card">
               <h2>Trusted Device & SSO</h2>

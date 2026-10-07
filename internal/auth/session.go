@@ -21,6 +21,8 @@ type Session struct {
 	SSOIssuer, SSOClientID, SSOSubject  string
 	CreatedAt, ExpiresAt, HardExpiresAt time.Time
 	StepUpAt                            time.Time // zero until the login secret was re-proven
+	// What the request was authorized against, for RecheckUserStepUpTx.
+	stepUpRaw, passwordHash string
 }
 
 type sessionCredentials struct {
@@ -72,6 +74,36 @@ func MintSession(db *sql.DB, w http.ResponseWriter, userID string, insecure bool
 	return s, nil
 }
 
+// MintPasswordSession mints a session only if the password verifier is still
+// passwordHash, running within in the same transaction; cookies follow the commit.
+func MintPasswordSession(db *sql.DB, w http.ResponseWriter, userID, passwordHash string, insecure bool, now time.Time, within func(*sql.Tx) error) (Session, error) {
+	c, err := prepareSession(userID, now)
+	if err != nil {
+		return Session{}, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback()
+	s := c.session
+	result, err := tx.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND auth_secret_hash=?)`, s.ID, userID, c.tokenHash, c.csrfHash, s.CreatedAt.UTC().Format(time.RFC3339), s.ExpiresAt.UTC().Format(time.RFC3339), s.HardExpiresAt.UTC().Format(time.RFC3339), userID, passwordHash)
+	if err != nil {
+		return Session{}, err
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		return Session{}, ErrSessionInvalid
+	}
+	if err = within(tx); err != nil {
+		return Session{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Session{}, err
+	}
+	c.setCookies(w, insecure)
+	return s, nil
+}
+
 func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -84,13 +116,14 @@ func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error)
 	h := sha256.Sum256(raw)
 	var s Session
 	var created, expires, hard, revoked, status, stepup string
-	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject)
+	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash)
 	if err != nil || revoked != "" || status != "active" {
 		return Session{}, errors.New("unauthenticated")
 	}
 	s.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	s.ExpiresAt, _ = time.Parse(time.RFC3339, expires)
 	s.HardExpiresAt, _ = time.Parse(time.RFC3339, hard)
+	s.stepUpRaw = stepup
 	if stepup != "" {
 		s.StepUpAt, _ = time.Parse(time.RFC3339, stepup)
 	}

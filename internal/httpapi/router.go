@@ -50,6 +50,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 		CollabRoutes(mux, db)
 		PushRoutes(mux, db)
 		DeviceRoutes(mux, db, cfg)
+		IdentityRoutes(mux, db)
 		if blobs != nil {
 			ObjectRoutes(mux, db, blobs, cfg.Limits.ObjectMaxBytes)
 			ShareLinkRoutes(mux, db, blobs)

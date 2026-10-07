@@ -146,7 +146,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		id, _ := ids.Mint("usr")
 		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err = db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, id, strings.ToLower(strings.TrimSpace(in.Username)), hash, in.LoginSalt, in.Iterations, in.Role, now, now); err != nil {
+		if _, err = db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)`, id, strings.ToLower(strings.TrimSpace(in.Username)), hash, in.LoginSalt, in.Iterations, in.Role, now, now); err != nil {
 			WriteError(w, r, 409, "already_exists", "username already exists")
 			return
 		}
@@ -255,13 +255,19 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		if _, err = db.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
+		s, _ := auth.SessionFromContext(r)
+		// An admin cannot re-wrap the user's identity, so the reset deletes it in the same commit.
+		if err = dbTx(db, func(tx *sql.Tx) error {
+			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=1,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
+				return err
+			}
+			return deleteIdentityTx(tx, r.PathValue("id"), s.UserID, RequestID(r))
+		}); err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"))
-		s, _ := auth.SessionFromContext(r)
-		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), r.Header.Get("X-Request-Id"))
+		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/admin/audit", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

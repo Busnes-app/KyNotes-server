@@ -337,3 +337,33 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestApply*`, `TestSetupHandler*`, `TestAdminSocket*`, `TestServeOwnsAdminSocketLifecycle`,
   `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
   `scripts/apply-setup-container-check.sh`.
+- Team keys P1: `internal/httpapi/identity_routes.go` serves `GET`/`PUT /api/v1/me/identity`
+  (create-only, `auth.RequireUserStepUp`: local session + `stepup_at`, SSO refused). `GET`
+  is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a
+  `devices` row with `platform='identity'` and an unusable `secret_hash` (migration 0021,
+  `user_identities`); device auth, device list/revoke/selection, directory deactivation and role
+  changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
+  and `wrappedIdentityKey` when one exists (`409 identity_rewrap_required`), clears every session's
+  step-up and shares the step-up lockout; recovery and admin reset delete it with an audit row.
+  `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
+  `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
+  or a password/step-up changed (403 for `PUT`) after the middleware writes nothing.
+  Login (`auth.MintPasswordSession`) and step-up mint the session or set `stepup_at` and load the
+  wrapped identity in one transaction bound to the hash they verified; a change in between gets
+  401, no cookie, no step-up and no wrapped key (`Test*RejectsConcurrentPasswordChange`).
+  `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
+  recovery) makes `PUT` answer `409 password_change_required`; the browser then creates the identity
+  after the user's own password change. Any new path that sets a password for someone else must
+  set the flag. `/setup` accepts only `authSecret`. Until shared keys land, the password form warns
+  that existing notes become unreadable and needs an acknowledgement (`web/src/passwordChange.ts`).
+  `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
+  (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
+  or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
+  ("Forget this device" clears it). SSO-only users have no identity (open question).
+  `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
+  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserStepUpRefusesSSOSession`,
+  `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
+  `TestRecoveryAndAdminResetDeleteIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
+  `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
+  `TestUserAddFlagsOperatorKnownPassword`, `TestEnvelopeVectors` and `npm test` (which also keeps
+  `*ForVector` exports out of non-test sources).
