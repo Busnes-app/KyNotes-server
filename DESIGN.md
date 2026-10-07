@@ -46,9 +46,16 @@ clients are designed as later phases unless required by the client teams.
 - A **Project** is a separate top-level container. It may contain notes, task
   data, folders, and attachments.
 - A **Section** is an encrypted `folder` object inside a workbook. Its payload
-  `{type:"section", title, color, order}` is ciphertext; the server sees only the kind.
+  `{type:"section", title, color, order, group?}` is ciphertext; the server sees only the kind.
+- A **Section group** is also an encrypted `folder` object, payload
+  `{type:"group", title, color, order, group?}`; a section's or group's optional `group` names
+  its parent group. Groups nest at most 4 deep. A missing parent, a cycle or a chain past the
+  cap shows the item at the notebook root, without writing anything; deleting a group first
+  moves its sections and groups up one level.
 - A **Page** is an encrypted `note` object. Its payload carries `section` (a section
-  object ID) and a fractional `order` key, so each page owns its placement and no shared
+  object ID), a fractional `order` key and an optional subpage `level` (0-2; missing is 0). The
+  client displays each page at most one level below the page before it and writes `level` only
+  when a page is indented, outdented or moved, so each page owns its placement and no shared
   manifest is written. Pages without a live section appear in the client's virtual
   Quick Notes section; deleting a section never deletes pages. The first reorder of a
   section that holds legacy unordered pages renumbers every page in it: a one-time burst of

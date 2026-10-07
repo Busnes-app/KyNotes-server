@@ -112,8 +112,20 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   (`flushUntilStable`, at most 5 rounds); otherwise the page stays open and dirty, the error
   says why, and a refused hash navigation restores the URL with `replaceState`. A notebook switch clears
   the previous notebook's state, drops superseded loads and reapplies versions saved during
-  the read (`carryAll`). Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
+  the read (`carryAll` for pages, `carryVersions` for sections and groups; `writeObject`
+  records every write made during a load). Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
   and the section/page browser checks in `UI-VERIFICATION.md`.
+- `web/` subpages: `outline.ts` derives display levels from each page's `level` without
+  writing (legacy pages open with no PUT); indent and outdent use Ctrl+Alt+] / Ctrl+Alt+[
+  (not Tab, by recorded ruling) or the editor's Indent/Outdent buttons, and reveal the page's collapsed ancestors.
+  A parent moves with its block (drag, Alt+Arrow, section change), all through `moveChain`,
+  with levels clamped at the target. Collapse state is browser-local per user and notebook.
+- `web/` section groups are `folder` objects of type `group`; `groupParents` resolves the
+  `group` fields (missing parent, cycle or over-depth falls back to the root). Group tabs nest
+  under a breadcrumb (`aria-current="location"`; the open section tab keeps `page`). Deleting a
+  group reparents its children first and stops before the delete on any failed write. An
+  open group without sections shows no page list and disables new pages. "Move to section"
+  labels sections with their group path (`sectionTargets`). Verify `outline.test.ts`.
 - `web/` exposes a client-only work queue for open checklist items across
   personal notebooks; task parsing remains browser-side because the server
   never sees plaintext. Inbox folders still require the planned folder-object
