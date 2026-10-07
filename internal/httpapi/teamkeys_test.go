@@ -850,6 +850,19 @@ func TestUserIdentityVisibility(t *testing.T) {
 	if code, _ := get(tm.admin.pairClient, stranger.id); code != http.StatusNotFound {
 		t.Fatalf("another steward resolved someone else's invitee: %d", code)
 	}
+	// A pending invitation stops resolving once its inviter is no longer a steward.
+	if _, code := invite(t, tm.admin.pairClient, tm.id, stranger.id); code != http.StatusOK {
+		t.Fatalf("admin invite=%d", code)
+	}
+	if code, _ := get(tm.admin.pairClient, stranger.id); code != http.StatusOK {
+		t.Fatalf("inviting admin could not resolve the invitee: %d", code)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='editor' WHERE container_id=? AND user_id=?`, tm.id, tm.admin.id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := get(tm.admin.pairClient, stranger.id); code != http.StatusNotFound {
+		t.Fatalf("demoted inviter resolved the invitee: %d", code)
+	}
 	if code, _ := get(stranger.pairClient, tm.editor.id); code != http.StatusNotFound {
 		t.Fatalf("stranger without a container saw a user: %d", code)
 	}
