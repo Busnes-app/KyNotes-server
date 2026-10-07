@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 const pairUser = "usr_pair_test"
@@ -364,4 +365,57 @@ func TestLoginIdentityErrorMintsNoSession(t *testing.T) {
 	if res.StatusCode != http.StatusInternalServerError || len(res.Header.Values("Set-Cookie")) != 0 || after != before {
 		t.Fatalf("login=%d cookies=%v sessions %d->%d", res.StatusCode, res.Header.Values("Set-Cookie"), before, after)
 	}
+}
+
+// Directory deactivation and role changes revoke sessions and paired devices, never the
+// identity: nothing un-revokes it, and later envelope writes would refuse it.
+func TestDirectoryRevocationsSpareIdentity(t *testing.T) {
+	f := newLogoutFixture(t)
+	settings := f.settings.Load()
+	settings.HMACSecret = strings.Repeat("s", 32)
+	if err := f.settings.Save(settings); err != nil {
+		t.Fatal(err)
+	}
+	login := roleCallback(f, "alice", nil, "")
+	if login.Code != 302 {
+		t.Fatal(login.Code)
+	}
+	if r := f.register(f.pairing(login.Result().Cookies())); r.Code != 200 {
+		t.Fatal(r.Body.String())
+	}
+	var uid string
+	if err := f.db.QueryRow(`SELECT id FROM users WHERE username='alice'`).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES('dev_identity',?,'pk','fp','identity:00','identity','now')`,
+		`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,'dev_identity',x'00','aes-256-gcm','now','now')`,
+	} {
+		if _, err := f.db.Exec(q, uid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(step string) {
+		t.Helper()
+		var live, identity int
+		if err := f.db.QueryRow(`SELECT (SELECT count(*) FROM devices WHERE user_id=? AND platform<>'identity' AND revoked_at=''),(SELECT count(*) FROM devices WHERE id='dev_identity' AND revoked_at='')`, uid).Scan(&live, &identity); err != nil {
+			t.Fatal(err)
+		}
+		if live != 0 || identity != 1 {
+			t.Fatalf("%s: live devices=%d identity live=%d", step, live, identity)
+		}
+	}
+	promote := directoryPayload("alice", "alice", 1, true)
+	promote["roles"] = []any{sso.AdminAppRole}
+	if r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "promote", "user.updated", promote); r.Code != 200 {
+		t.Fatalf("promote: %d %s", r.Code, r.Body.String())
+	}
+	check("role change")
+	if _, err := f.db.Exec(`UPDATE devices SET revoked_at='' WHERE user_id=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "disable", "user.updated", directoryPayload("alice", "alice", 2, false)); r.Code != 200 {
+		t.Fatalf("disable: %d %s", r.Code, r.Body.String())
+	}
+	check("deactivation")
 }
