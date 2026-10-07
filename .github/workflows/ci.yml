@@ -77,6 +77,7 @@ jobs:
           for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then ready=1; break; fi; sleep 1; done
           test "$ready" -eq 1
           go run ./cmd/kynotes-probe -url http://127.0.0.1:8080 -username probe -password 'correct horse battery staple' -config /data/kynotes.yaml -server docker
+          bash scripts/apply-setup-container-check.sh "$image"
 
       # Hand the exact image the probe above ran against to the publish job,
       # so what gets pushed is what was tested, never a second build. Before the
