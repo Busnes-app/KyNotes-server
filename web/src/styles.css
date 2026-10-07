@@ -116,7 +116,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
 .note-row-wrap.selected { border-left-color: var(--accent); background: var(--accent-soft); }
 .note-row-wrap .note-row { flex: 1; margin-bottom: 0; }
-.pin-button { width: 36px; color: var(--accent); background: transparent; font-size: 18px; }
 .format-toolbar { display: flex; gap: 6px; margin-top: 18px; }
 .format-toolbar button { padding: 6px 9px; color: var(--ink); background: var(--accent-soft); font-size: 12px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -168,7 +167,7 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .brand-mark, .icon-button, .avatar { border-radius: 12px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .note-row, .account-chip, .member-row, .admin-user, .audit-row { border-radius: 14px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .config-card, .auth-card { overflow: hidden; }
-.format-toolbar button, .pin-button { border-radius: 10px; corner-shape: squircle; }
+.format-toolbar button { border-radius: 10px; corner-shape: squircle; }
 .markdown-preview, .markdown-editor, .comments, .comment { border-radius: 16px; corner-shape: squircle; }
 .comment { overflow: hidden; }
 .note-search { min-width: 110px; width: 150px; padding: 7px 9px; border: 1px solid var(--line); color: var(--ink-strong); background: var(--panel); }

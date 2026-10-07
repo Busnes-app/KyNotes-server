@@ -1281,13 +1281,18 @@ function Workspace({
   async function moveSection(id: string, index: number) {
     for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order }).catch(reportSection);
   }
-  async function movePage(pageID: string, target: string, index: number) {
-    const list = pagesInSection(notes, sections, target);
-    const section = target === QUICK_NOTES ? undefined : target;
-    for (const update of reorder(list, pageID, index)) {
-      const entry = notes.find((note) => note.id === update.id);
-      await placePage(update.id, { section: update.id === pageID ? section : entry?.section, order: update.order });
-    }
+  const moveChain = useRef(Promise.resolve());
+  function movePage(pageID: string, target: string, index: number) {
+    const run = moveChain.current.then(async () => {
+      const list = pagesInSection(notesRef.current, sectionsRef.current, target);
+      const section = target === QUICK_NOTES ? undefined : target;
+      for (const update of reorder(list, pageID, index)) {
+        const entry = notesRef.current.find((note) => note.id === update.id);
+        await placePage(update.id, { section: update.id === pageID ? section : entry?.section, order: update.order });
+      }
+    });
+    moveChain.current = run.catch(() => {});
+    return run.catch((error) => setError(error instanceof Error ? error.message : "Unable to move page"));
   }
   function editBody(value: string) {
     if (selectedNote) {
@@ -1671,7 +1676,7 @@ function Workspace({
                 <button
                   className="note-row"
                   draggable={!queueMode}
-                  onDragStart={(event) => event.dataTransfer.setData(PAGE_DRAG, note.id)}
+                  onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
                     if (!reorderable || !event.altKey) return;
                     if (event.key === "ArrowUp" && index > 0) { event.preventDefault(); void movePage(note.id, sectionID, index - 1); }
