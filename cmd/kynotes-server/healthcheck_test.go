@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,7 +44,7 @@ func TestProbeHealthTimeout(t *testing.T) {
 }
 
 func TestProbeHealthRefusesNonLoopback(t *testing.T) {
-	for _, u := range []string{"http://example.com/healthz", "http://10.0.0.5:8080/healthz", "http://0.0.0.0:8080/healthz", "https://127.0.0.1/healthz", "file:///etc/passwd"} {
+	for _, u := range []string{"http://example.com/healthz", "http://10.0.0.5:8080/healthz", "http://0.0.0.0:8080/healthz", "https://127.0.0.1/healthz", "file:///etc/passwd", "http://127.0.0.1@evil.com/healthz", "http://127.0.0.1.evil.com/healthz", "http://localhost.evil.com/healthz", "http://localhost:8080/healthz"} {
 		if probeHealth(u) == nil {
 			t.Fatal("accepted", u)
 		}
@@ -54,5 +55,20 @@ func TestDefaultHealthURL(t *testing.T) {
 	got, err := defaultHealthURL("0.0.0.0:9090")
 	if err != nil || got != "http://127.0.0.1:9090/healthz" {
 		t.Fatal(got, err)
+	}
+}
+
+func TestProbeHealthIPv6Loopback(t *testing.T) {
+	l, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skip("no IPv6 loopback")
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Listener.Close()
+	srv.Listener = l
+	srv.Start()
+	defer srv.Close()
+	if err := probeHealth(srv.URL + "/healthz"); err != nil {
+		t.Fatal(err)
 	}
 }

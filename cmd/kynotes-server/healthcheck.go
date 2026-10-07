@@ -54,7 +54,7 @@ func probeHealth(raw string) error {
 		return errors.New("healthcheck: url must be http://loopback-host:port/path")
 	}
 	host := u.Hostname()
-	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
 		return fmt.Errorf("healthcheck: refusing non-loopback host %q", host)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), healthTimeout)
