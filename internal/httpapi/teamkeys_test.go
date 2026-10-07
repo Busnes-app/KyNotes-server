@@ -802,3 +802,46 @@ func TestInvitationEnvelopesMoveOnlyAtTheirGeneration(t *testing.T) {
 		t.Fatalf("stale team envelope installed=%d, child=%d, leftover=%d", teamStale, childStale, left)
 	}
 }
+
+func TestUserIdentityVisibility(t *testing.T) {
+	tm := newTeam(t)
+	get := func(c *pairClient, uid string) (int, string) {
+		return status(t, c.do(t, http.MethodGet, "/api/v1/users/"+uid+"/identity", nil, false, false))
+	}
+	if code, body := get(tm.viewer.pairClient, tm.editor.id); code != http.StatusOK || !strings.Contains(body, tm.editorID) || !strings.Contains(body, `"fingerprint"`) || strings.Contains(body, "wrapped") {
+		t.Fatalf("co-member=%d %s", code, body)
+	}
+	if code, _ := get(tm.editor.pairClient, tm.viewer.id); code != http.StatusNotFound {
+		t.Fatalf("member without identity=%d", code)
+	}
+	stranger := tm.owner.addUser(t, "stranger")
+	stranger.createIdentity(t)
+	if code, _ := get(tm.editor.pairClient, stranger.id); code != http.StatusNotFound {
+		t.Fatalf("editor saw a stranger: %d", code)
+	}
+	if code, _ := get(tm.owner, stranger.id); code != http.StatusOK {
+		t.Fatalf("steward could not resolve an invite target: %d", code)
+	}
+	if code, _ := get(stranger.pairClient, tm.editor.id); code != http.StatusNotFound {
+		t.Fatalf("stranger without a container saw a user: %d", code)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE devices SET revoked_at='2026-10-07T00:00:00Z' WHERE id=?`, tm.adminID); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := get(tm.viewer.pairClient, tm.admin.id); code != http.StatusNotFound {
+		t.Fatalf("revoked identity visible: %d", code)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE users SET status='disabled' WHERE id=?`, tm.editor.id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := get(tm.viewer.pairClient, tm.editor.id); code != http.StatusNotFound {
+		t.Fatalf("disabled user visible: %d", code)
+	}
+	if code, _ := get(tm.viewer.pairClient, "usr_bad"); code != http.StatusBadRequest {
+		t.Fatalf("invalid ID: %d", code)
+	}
+	tm.viewer.deviceID, tm.viewer.deviceSecret, _ = tm.viewer.register(t, tm.viewer.mintToken(t), bytes.Repeat([]byte{6}, 32))
+	if res := tm.viewer.doDeviceOnly(t, http.MethodGet, "/api/v1/users/"+tm.admin.id+"/identity", nil); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("device credential=%d", res.StatusCode)
+	}
+}

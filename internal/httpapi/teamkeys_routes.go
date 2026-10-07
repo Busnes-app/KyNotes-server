@@ -249,6 +249,30 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
+	// Visible to the user, to anyone sharing a live container with them, and to
+	// any container owner or admin (who could invite them). Public keys are not
+	// secret; integrity comes from client-side fingerprint pins.
+	mux.Handle("GET /api/v1/users/{id}/identity", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := auth.SessionFromContext(r)
+		target := r.PathValue("id")
+		if ids.Validate("usr", target) != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		var deviceID, publicKey, fingerprint string
+		err := db.QueryRow(`SELECT d.id,d.public_key,d.fingerprint FROM devices d JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.user_id=?1 AND d.platform='identity' AND d.revoked_at='' AND (?1=?2
+ OR EXISTS(SELECT 1 FROM memberships a JOIN memberships b ON b.container_id=a.container_id AND b.user_id=?1 AND b.revoked_at='' JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.user_id=?2 AND a.revoked_at='')
+ OR EXISTS(SELECT 1 FROM memberships a JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.user_id=?2 AND a.revoked_at='' AND a.role IN ('owner','admin')))`, target, s.UserID).Scan(&deviceID, &publicKey, &fingerprint)
+		if errors.Is(err, sql.ErrNoRows) {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		writeJSON(w, map[string]string{"userId": target, "deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint})
+	})))
 }
 
 // missingEnvelopesSQL is the legacy save gate for containers that never rotated
