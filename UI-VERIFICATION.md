@@ -54,6 +54,7 @@ Not run: none of the listed checks were skipped.
 ### Open items
 
 - CSP `style-src 'self'` blocks inline styles from the app and BlockNote bundles, producing console errors and a BlockNote placeholder-CSS `insertRule` warning during editing. Not introduced by this branch; whether it predates it was not checked.
+- These results predate the page-list reconciliation and notebook-load isolation commits that follow 6f7e6f6; those are covered by `notes.test.ts` and have not been re-run in a browser.
 - Mobile layout is cramped: sidebar plus tabs take about 500 px and the page list and editor sit in nested scrollers below the fold. Pre-existing and unchanged.
 
 No complete end-to-end product workflow or accessibility audit is claimed.
