@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/Busnes-app/ky-primitives/syncauth"
+	"github.com/Busnes-app/kynotes-server/internal/applysetup"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
@@ -38,9 +38,7 @@ type directoryUser struct {
 	} `json:"meta"`
 }
 
-func directoryIdentifier(s string) bool {
-	return s != "" && len(s) <= 256 && strings.TrimSpace(s) == s && !strings.ContainsFunc(s, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })
-}
+func directoryIdentifier(s string) bool { return applysetup.Identifier(s) }
 
 func (u directoryUser) revision(kind string) (int64, error) {
 	n, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(u.Meta.Version, `W/"`), `"`), 10, 64)
