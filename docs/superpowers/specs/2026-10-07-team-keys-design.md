@@ -54,6 +54,8 @@ key      = HKDF-SHA256(ikm = X25519(ephPriv, recipientPub), salt = ephPub || rec
 aad      = "kynotes/envelope/v1" | containerID | u32be(keyGeneration) | recipientDeviceID
 ```
 
+`containerID`, `recipientDeviceID` and `userID` (identity AAD, §1) are exact 30-byte ASCII IDs matching `^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`, validated before the AAD is built. The fixed length is what makes the unprefixed concatenation unambiguous; every client must reject any other length.
+
 The AAD binding stops a malicious server from replaying an envelope into a different container, generation or recipient.
 
 **Crypto library.** WebCrypto has no ChaCha20-Poly1305, X25519 support varies across browsers, and LAN `http://` deployments already rely on `fallbackCrypto.ts`. Recommendation: add `@noble/curves` (x25519) and `@noble/ciphers` (chacha20poly1305). Both are audited, have no dependencies and work in every context. Do not hand-roll these primitives.

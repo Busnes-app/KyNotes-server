@@ -45,10 +45,9 @@ function envelopeKey(ephemeralPrivate: Uint8Array, peerPublic: Uint8Array, ephem
   return hkdfSha256(shared, 32, concat(ephemeralPublic, recipientPublic), encoder.encode(ENVELOPE_LABEL));
 }
 
-/** `ephemeralPrivateKey` and `nonce` are injectable for fixed test vectors only. */
-export function wrapEnvelope(
+function sealEnvelope(
   contentKey: Uint8Array, recipientPublicKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string,
-  ephemeralPrivateKey: Uint8Array = x25519.utils.randomSecretKey(), nonce: Uint8Array = randomBytes(12),
+  ephemeralPrivateKey: Uint8Array, nonce: Uint8Array,
 ): Uint8Array {
   if (contentKey.length !== 32 || recipientPublicKey.length !== 32 || nonce.length !== 12) throw new Error("invalid envelope input");
   const aad = envelopeAAD(containerID, keyGeneration, recipientDeviceID);
@@ -57,6 +56,13 @@ export function wrapEnvelope(
   const sealed = chacha20poly1305(key, nonce, aad).encrypt(contentKey);
   return concat(Uint8Array.of(ENVELOPE_VERSION), ephemeralPublic, nonce, sealed);
 }
+
+export function wrapEnvelope(contentKey: Uint8Array, recipientPublicKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string): Uint8Array {
+  return sealEnvelope(contentKey, recipientPublicKey, containerID, keyGeneration, recipientDeviceID, x25519.utils.randomSecretKey(), randomBytes(12));
+}
+
+/** Test-only: fixed ephemeral key and nonce for cross-implementation vectors. */
+export const wrapEnvelopeForVector = sealEnvelope;
 
 export function unwrapEnvelope(envelope: Uint8Array, recipientPrivateKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string): Uint8Array {
   if (envelope.length !== ENVELOPE_BYTES || envelope[0] !== ENVELOPE_VERSION) throw new Error("unsupported envelope");
@@ -72,11 +78,17 @@ function identityAAD(userID: string): Uint8Array {
   return concat(encoder.encode(IDENTITY_LABEL), idBytes("usr", userID));
 }
 
-/** `nonce` is injectable for fixed test vectors only. */
-export function wrapIdentity(userKEK: Uint8Array, privateKey: Uint8Array, userID: string, nonce: Uint8Array = randomBytes(12)): Uint8Array {
+function sealIdentity(userKEK: Uint8Array, privateKey: Uint8Array, userID: string, nonce: Uint8Array): Uint8Array {
   if (userKEK.length !== 32 || privateKey.length !== 32 || nonce.length !== 12) throw new Error("invalid identity input");
   return concat(nonce, gcm(userKEK, nonce, identityAAD(userID)).encrypt(privateKey));
 }
+
+export function wrapIdentity(userKEK: Uint8Array, privateKey: Uint8Array, userID: string): Uint8Array {
+  return sealIdentity(userKEK, privateKey, userID, randomBytes(12));
+}
+
+/** Test-only: fixed nonce for cross-implementation vectors. */
+export const wrapIdentityForVector = sealIdentity;
 
 export function unwrapIdentity(userKEK: Uint8Array, wrapped: Uint8Array, userID: string): Identity {
   if (userKEK.length !== 32 || wrapped.length !== WRAPPED_IDENTITY_BYTES) throw new Error("invalid wrapped identity");

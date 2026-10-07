@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"regexp"
 	"testing"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -18,6 +19,15 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/pbkdf2"
 )
+
+var idPattern = regexp.MustCompile(`^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`)
+
+func mustID(t *testing.T, prefix, id string) {
+	t.Helper()
+	if !idPattern.MatchString(id) || id[:3] != prefix {
+		t.Fatalf("invalid %s id %q", prefix, id)
+	}
+}
 
 const vectorFile = "../../testdata/protocol/envelope_vectors.json"
 
@@ -95,6 +105,7 @@ func login(t *testing.T, password, salt string, iterations int) loginVector {
 }
 
 func identity(t *testing.T, userID, kek, priv, nonce string) identityVector {
+	mustID(t, "usr", userID)
 	block, err := aes.NewCipher(unhex(t, kek))
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +121,11 @@ func identity(t *testing.T, userID, kek, priv, nonce string) identityVector {
 }
 
 func envelope(t *testing.T, containerID string, generation uint32, deviceID, recipientPriv, ephPriv, nonce, contentKey string) envelopeVector {
+	mustID(t, "cnt", containerID)
+	mustID(t, "dev", deviceID)
+	if generation == 0 {
+		t.Fatal("key generation must be >= 1")
+	}
 	recipientPub := x25519(t, unhex(t, recipientPriv), curve25519.Basepoint)
 	ephPub := x25519(t, unhex(t, ephPriv), curve25519.Basepoint)
 	shared := x25519(t, unhex(t, ephPriv), recipientPub)

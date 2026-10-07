@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import vectors from "../../testdata/protocol/envelope_vectors.json";
+import authVectors from "../../testdata/protocol/auth_vectors.json";
 import { deriveLoginKeys } from "./crypto";
-import { ENVELOPE_BYTES, envelopeAAD, generateIdentity, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapIdentity, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
+import { ENVELOPE_BYTES, envelopeAAD, generateIdentity, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
 
 const h = hexToBytes;
 
@@ -46,9 +47,24 @@ describe("Go cross-implementation vectors", () => {
     }
   });
 
+  it("pins authSecret to auth_vectors.json", () => {
+    expect(vectors.login[0].authSecret).toBe(authVectors[0].authSecret);
+  });
+
+  describe("without WebCrypto", () => {
+    afterEach(() => vi.unstubAllGlobals());
+    it("pure-JS fallback derives the same keys", async () => {
+      vi.stubGlobal("crypto", {});
+      const v = vectors.login[0];
+      const keys = await deriveLoginKeys(v.password, v.loginSalt, v.iterations);
+      expect(keys.authSecret).toBe(v.authSecret);
+      expect(bytesToHex(keys.userKEK)).toBe(v.userKEK);
+    });
+  });
+
   it("wraps and unwraps the identity exactly like Go", () => {
     for (const v of vectors.identity) {
-      const wrapped = wrapIdentity(h(v.userKEK), h(v.privateKey), v.userId, h(v.nonce));
+      const wrapped = wrapIdentityForVector(h(v.userKEK), h(v.privateKey), v.userId, h(v.nonce));
       expect(bytesToHex(wrapped)).toBe(v.wrapped);
       expect(wrapped.length).toBe(WRAPPED_IDENTITY_BYTES);
       const back = unwrapIdentity(h(v.userKEK), h(v.wrapped), v.userId);
@@ -59,7 +75,7 @@ describe("Go cross-implementation vectors", () => {
 
   it("seals and opens envelopes exactly like Go", () => {
     for (const v of vectors.envelopes) {
-      const sealed = wrapEnvelope(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.ephemeralPrivateKey), h(v.nonce));
+      const sealed = wrapEnvelopeForVector(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.ephemeralPrivateKey), h(v.nonce));
       expect(bytesToHex(sealed)).toBe(v.envelope);
       expect(sealed.length).toBe(ENVELOPE_BYTES);
       expect(bytesToHex(unwrapEnvelope(h(v.envelope), h(v.recipientPrivateKey), v.containerId, v.keyGeneration, v.recipientDeviceId))).toBe(v.contentKey);
