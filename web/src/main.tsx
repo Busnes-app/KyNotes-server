@@ -76,7 +76,8 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, endOrder, pagesInSection, resolveSection, type ObjectPayload, type PagePayload, type Route, type Section } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, endOrder, pagesInSection, reorder, resolveSection, sortedSections, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { SectionTabs } from "./components/SectionTabs";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -518,6 +519,8 @@ function Workspace({
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const notesRef = useRef<Note[]>([]);
+  notesRef.current = notes;
   const [sections, setSections] = useState<Section[]>([]);
   const sectionsRef = useRef<Section[]>([]);
   // Writes read sectionsRef synchronously, so every change goes through here.
@@ -1199,6 +1202,114 @@ function Workspace({
       )
       .catch(() => {});
   }
+  /** Encrypted write for an object that is not the open page (sections, moved pages). */
+  async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
+    if (!selected) return null;
+    const encrypted = await encryptNote(auth.authSecret, selected.id, payload);
+    const updatedAt = new Date().toISOString();
+    await putNote({ id, containerID: selected.id, version, payload: encrypted, updatedAt });
+    try {
+      const result = await saveObject(id, encrypted, version, selected.keyGeneration);
+      await clearQueuedSave(id);
+      return result.version;
+    } catch (error) {
+      if (error instanceof APIRequestError && error.code === "version_conflict") {
+        setConflicted((value) => new Set(value).add(id));
+        setSyncStatus("attention");
+        setError("This item changed on another device. Reopen the notebook before changing it again.");
+      } else {
+        await queueSave({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: selected.keyGeneration });
+        syncChannel.current?.postMessage({ type: "queued", id });
+        setSyncStatus("local");
+      }
+      return null;
+    }
+  }
+
+  function updateSection(id: string, change: Partial<SectionPayload>) {
+    patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
+    const queued = saveChain.current.then(async () => {
+      const current = sectionsRef.current.find((entry) => entry.id === id);
+      if (!current) return;
+      const { id: _id, version, ...payload } = current;
+      const saved = await writeObject(id, version, payload);
+      if (saved !== null) patchSections((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
+    });
+    saveChain.current = queued.catch(() => {});
+    return queued;
+  }
+
+  /** The newest local copy of a page: an offline draft may be ahead of `notes`. */
+  async function latestLocal(note: Note, containerID: string): Promise<Note> {
+    const cached = await getNote(note.id);
+    if (!cached || cached.version < note.version) return note;
+    const payload = await decryptObject(auth.authSecret, containerID, cached.payload).catch(() => undefined);
+    return payload?.type === "page" ? { ...note, title: payload.title, body: payload.body } : note;
+  }
+
+  async function placePage(id: string, change: { section?: string; order: string }) {
+    const open = selectedNoteRef.current;
+    if (open?.id === id) {
+      const next = { ...open, ...change };
+      selectedNoteRef.current = next;
+      setSelectedNote(next);
+      setNotes((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
+      await save(next, true);
+      return;
+    }
+    const entry = notesRef.current.find((note) => note.id === id);
+    if (!entry || !selected) return;
+    const next = { ...(await latestLocal(entry, selected.id)), ...change };
+    setNotes((value) => value.map((note) => (note.id === id ? next : note)));
+    const saved = await writeObject(id, next.version, notePayload(next));
+    if (saved !== null) setNotes((value) => value.map((note) => (note.id === id ? { ...note, version: saved } : note)));
+  }
+  const orderedSections = useMemo(() => sortedSections(sections), [sections]);
+  async function newSection() {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const object = await createObject(selected.id, "folder");
+      const section: Section = {
+        id: object.id, version: object.version, type: "section", title: "New section",
+        color: SECTION_COLORS[sections.length % SECTION_COLORS.length], order: endOrder(sections),
+      };
+      patchSections((value) => [...value, section]);
+      setSectionID(section.id);
+      await updateSection(section.id, {});
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to create section");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function renameSection(section: Section) {
+    const title = prompt("Section name", section.title)?.trim();
+    if (title) void updateSection(section.id, { title });
+  }
+  async function removeSection(section: Section) {
+    const count = pagesInSection(notes, sections, section.id).length;
+    if (!confirm(`Delete section "${section.title}"? Its ${count} page${count === 1 ? "" : "s"} will move to Quick Notes.`)) return;
+    try {
+      await deleteObject(section.id);
+      await deleteCachedNote(section.id);
+      patchSections((value) => value.filter((entry) => entry.id !== section.id));
+      setSectionID(QUICK_NOTES);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to delete section");
+    }
+  }
+  async function moveSection(id: string, index: number) {
+    for (const update of reorder(orderedSections, id, index)) await updateSection(update.id, { order: update.order });
+  }
+  async function movePage(pageID: string, target: string, index: number) {
+    const list = pagesInSection(notes, sections, target);
+    const section = target === QUICK_NOTES ? undefined : target;
+    for (const update of reorder(list, pageID, index)) {
+      const entry = notes.find((note) => note.id === update.id);
+      await placePage(update.id, { section: update.id === pageID ? section : entry?.section, order: update.order });
+    }
+  }
   function editBody(value: string) {
     if (selectedNote) {
       const next = { ...selectedNote, body: value };
@@ -1521,6 +1632,25 @@ function Workspace({
               </div>
             </div>
           </aside>
+          {selected && !queueMode && (
+            <SectionTabs
+              sections={orderedSections}
+              current={sectionID}
+              busy={busy}
+              onSelect={(id) => void (async () => {
+                // Leaving the open page: finish its save first, as selectNote does.
+                if (dirty && selectedNoteRef.current) await save(selectedNoteRef.current, true);
+                setSectionID(id);
+                setSelectedNote(null);
+              })()}
+              onCreate={() => void newSection()}
+              onRename={renameSection}
+              onColor={(section, color) => void updateSection(section.id, { color })}
+              onDelete={(section) => void removeSection(section)}
+              onMove={(id, index) => void moveSection(id, index)}
+              onDropPage={(pageID, target) => void movePage(pageID, target, pagesInSection(notes, sections, target).length)}
+            />
+          )}
           <section className="note-list">
             <div className="list-header">
               <div>

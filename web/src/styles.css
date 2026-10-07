@@ -263,3 +263,23 @@ body { color: var(--ink-strong); background: var(--bg); }
   color-scheme: dark;
 }
 }
+
+/* OneNote-style layout: notebooks | section tabs over pages + page. */
+:root { --section-orange: #d9822b; --section-blue: #3f7cc4; --section-green: #4f9a5a; --section-purple: #8a63c4; --section-red: #c4523f; --section-teal: #2f9a95; --section-yellow: #c9a227; --section-gray: #8a877d; }
+.workspace { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "nav tabs tabs" "nav pages page"; }
+.workspace > .sidebar { grid-area: nav; }
+.workspace > .section-tabs { grid-area: tabs; }
+.workspace > .note-list { grid-area: pages; }
+.workspace > .editor { grid-area: page; }
+.section-tabs { display: flex; align-items: flex-end; gap: 6px; padding: 10px 18px 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
+.section-tabs ul { display: flex; align-items: flex-end; gap: 2px; margin: 0; padding: 0; list-style: none; overflow-x: auto; min-width: 0; }
+.section-tab-item { display: flex; align-items: center; }
+.section-tab { padding: 7px 14px; border-top: 4px solid var(--tab-color); border-radius: 8px 8px 0 0; background: transparent; color: var(--ink); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+[class].section-tab.ky-nav-item[aria-current="page"] { box-shadow: inset 0 -3px var(--accent); font-weight: 600; }
+.section-tab-menu, .section-add { background: transparent; color: var(--ink); padding: 6px 8px; }
+.section-menu { padding: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); display: grid; gap: 4px; min-width: 180px; }
+.section-menu > button { background: transparent; color: inherit; text-align: left; padding: 8px; }
+.section-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; }
+.section-swatch { width: 20px; height: 20px; border-radius: 50%; padding: 0; }
+.section-swatch[aria-pressed="true"] { outline: 2px solid var(--ink-strong); outline-offset: 2px; }
+@media (max-width: 800px) { .workspace { grid-template-rows: none; grid-template-areas: "nav" "tabs" "pages" "page"; } .section-tabs { padding: 8px 12px 0; } }
