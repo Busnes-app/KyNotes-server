@@ -691,3 +691,52 @@ func TestSaveRacingDemotionIsRefused(t *testing.T) {
 		t.Fatalf("versions=%d %v", versions, err)
 	}
 }
+
+func TestAdminMemberRemovalRotatesLikeOwnerRemoval(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("admin remove=%d %s", code, body)
+	}
+	if g, _ := generationOf(t, tm.owner, tm.id); g != 3 {
+		t.Fatalf("team generation=%d, want 3", g)
+	}
+	if g, _ := generationOf(t, tm.owner, tm.child); g != 2 {
+		t.Fatalf("child generation=%d, want 2", g)
+	}
+	var memberships, envelopes, audits int
+	if err := tm.owner.db.QueryRow(`SELECT (SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at=''),(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?2),(SELECT COUNT(*) FROM audit_events WHERE event='admin.team.member_remove' AND object_id=?1)`, tm.editor.id, tm.editorID).Scan(&memberships, &envelopes, &audits); err != nil {
+		t.Fatal(err)
+	}
+	if memberships != 0 || envelopes != 0 || audits != 1 {
+		t.Fatalf("memberships=%d envelopes=%d audits=%d", memberships, envelopes, audits)
+	}
+	if code, _ := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNotFound {
+		t.Fatalf("second removal=%d", code)
+	}
+	if code, _ := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+pairUser, nil, true, false)); code != http.StatusBadRequest {
+		t.Fatalf("invalid user ID=%d", code)
+	}
+}
+
+func TestRemovedMemberCannotWriteAnywhereInTheTeam(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.child, "", 1)
+	cmt, _ := tm.editor.comment(t, oid, 1)
+	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d %s", code, body)
+	}
+	g, _ := generationOf(t, tm.owner, tm.child)
+	if _, code := tm.editor.save(t, tm.child, oid, g); code != http.StatusNotFound {
+		t.Fatalf("removed member saved in the child workspace: %d", code)
+	}
+	if code, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":`+strconv.FormatInt(g, 10)+`}`), true, false)); code != http.StatusNotFound {
+		t.Fatalf("removed member rewrote a comment: %d", code)
+	}
+	if err := checkWriteGate(tm.owner.db, tm.child, tm.editor.id, g); err != errNotMember {
+		t.Fatalf("gate admitted a removed member (upload finalize path): %v", err)
+	}
+}

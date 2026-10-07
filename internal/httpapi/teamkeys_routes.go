@@ -292,3 +292,29 @@ func checkWriteGate(q rowQuerier, cid, userID string, requested int64) error {
 	}
 	return nil
 }
+
+// removeMemberTx revokes target from team cid and its child workspaces, bumps
+// their key generations and deletes target's envelopes and device selections
+// there. Owners are never removed; sql.ErrNoRows when nothing was revoked.
+func removeMemberTx(tx *sql.Tx, cid, target string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := tx.Exec(`UPDATE memberships SET revoked_at=? WHERE container_id=? AND user_id=? AND role<>'owner' AND revoked_at=''`, now, cid, target)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return sql.ErrNoRows
+	}
+	const scope = `(SELECT id FROM containers WHERE id=?1 OR team_id=?1)`
+	for _, q := range []string{
+		`UPDATE memberships SET revoked_at=?3 WHERE container_id IN ` + scope + ` AND user_id=?2 AND revoked_at=''`,
+		`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?3 WHERE id=?1 OR (team_id=?1 AND deleted_at='')`,
+		`DELETE FROM key_envelopes WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
+		`DELETE FROM device_containers WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
+	} {
+		if _, err := tx.Exec(q, cid, target, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
