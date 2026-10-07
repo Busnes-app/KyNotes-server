@@ -168,7 +168,10 @@ func (p *client) pair() error {
 	if err = decode(res, &token); err != nil {
 		return err
 	}
-	if p.deviceKey, err = ecdh.X25519().GenerateKey(rand.Reader); err != nil {
+	// Derived from the login secret so a re-run re-pairs the same device rather than
+	// leaving an envelope-less one behind that blocks the legacy save gate.
+	seed := sha256.Sum256([]byte("kynotes-probe/device/v1" + p.authSecret))
+	if p.deviceKey, err = ecdh.X25519().NewPrivateKey(seed[:]); err != nil {
 		return err
 	}
 	publicKey := base64.StdEncoding.EncodeToString(p.deviceKey.PublicKey().Bytes())
