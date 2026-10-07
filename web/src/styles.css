@@ -192,6 +192,11 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 @media (max-width: 800px) { .note-search { width: 100%; } .list-actions { flex-wrap: wrap; } }
 .editor-actions .danger.quiet { color: #b42318; background: transparent; border: 1px solid transparent; }
 .editor-actions .danger.quiet:hover, .editor-actions .danger.quiet:focus-visible { color: #9b1c12; background: color-mix(in srgb, #b42318 12%, var(--panel)); border-color: color-mix(in srgb, #b42318 30%, var(--line)); }
+.editor-actions { flex-wrap: wrap; gap: 0 8px; }
+.editor-actions select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.editor-actions button { white-space: nowrap; }
+.editor-actions .quiet:not(.danger) { color: var(--ink-strong); background: transparent; border: 1px solid transparent; }
+.editor-actions .quiet:not(.danger):hover, .editor-actions .quiet:not(.danger):focus-visible { background: var(--accent-soft); border-color: var(--line); }
 .admin-settings-layout .settings-nav { display: flex; gap: 6px; overflow-x: auto; margin: 18px 0 4px; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: var(--sidebar-end); corner-shape: squircle; }
 .admin-settings-layout .settings-nav a { flex: 0 0 auto; padding: 10px 14px; border-radius: 10px; color: var(--ink); font: 12px Mono, monospace; }
 .admin-settings-layout .settings-nav a:hover, .admin-settings-layout .settings-nav a:focus-visible, .admin-settings-layout .settings-nav a:active { color: var(--ink-strong); background: var(--panel); }
