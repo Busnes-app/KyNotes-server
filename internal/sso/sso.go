@@ -168,6 +168,9 @@ type DiscoveryDoc struct {
 	BackchannelLogoutSessionSupported bool   `json:"backchannel_logout_session_supported"`
 }
 
+// ErrIssuerUnavailable marks a discovery failure worth retrying: transport, 5xx or 429.
+var ErrIssuerUnavailable = errors.New("issuer unavailable")
+
 // DiscoverEndpoints fetches the OpenID configuration from the issuer URL.
 func DiscoverEndpoints(ctx context.Context, issuerURL string) (*DiscoveryDoc, error) {
 	if err := requireHTTPS(issuerURL); err != nil {
@@ -183,10 +186,13 @@ func DiscoverEndpoints(ctx context.Context, issuerURL string) (*DiscoveryDoc, er
 	client := oidcClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("discovery request failed: %w", err)
+		return nil, fmt.Errorf("%w: discovery request failed: %w", ErrIssuerUnavailable, err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("%w: discovery returned HTTP %d", ErrIssuerUnavailable, resp.StatusCode)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("discovery returned HTTP %d", resp.StatusCode)
 	}

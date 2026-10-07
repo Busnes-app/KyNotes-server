@@ -36,6 +36,9 @@ func applySSO(ctx context.Context, db *sql.DB, store *sso.Store, want applysetup
 	}
 	if _, err := sso.DiscoverEndpoints(ctx, next.IssuerURL); err != nil {
 		res.Status, res.Detail = applysetup.Invalid, "issuer metadata probe failed: "+err.Error()
+		if errors.Is(err, sso.ErrIssuerUnavailable) {
+			res.Status = applysetup.Failed
+		}
 		return res
 	}
 	if err := store.Save(next); err != nil {

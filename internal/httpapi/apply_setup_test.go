@@ -39,16 +39,21 @@ func TestRouterUsesSuppliedSSOStore(t *testing.T) {
 func setupIssuer(t *testing.T, mismatch bool) string {
 	t.Helper()
 	var issuer string
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	issuer = routeIssuer(t, func(w http.ResponseWriter, r *http.Request) {
 		doc := issuer
 		if mismatch {
 			doc = "https://other.example"
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"issuer": doc, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/jwks"})
-	}))
+	})
+	return issuer
+}
+
+func routeIssuer(t *testing.T, h http.HandlerFunc) string {
+	t.Helper()
+	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
-	issuer = "https://example.com:" + port
 	tr := srv.Client().Transport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{RootCAs: tr.TLSClientConfig.RootCAs, ServerName: "example.com"}
 	addr := srv.Listener.Addr().String()
@@ -58,7 +63,7 @@ func setupIssuer(t *testing.T, mismatch bool) string {
 	old := http.DefaultTransport
 	http.DefaultTransport = tr
 	t.Cleanup(func() { http.DefaultTransport = old })
-	return issuer
+	return "https://example.com:" + port
 }
 
 func setupAuditCount(t *testing.T, db *sql.DB, event string) int {
@@ -111,6 +116,33 @@ func TestApplySSOProbeFailureStoresNothing(t *testing.T) {
 	}
 	if store.Load().IssuerURL != "" || setupAuditCount(t, db, "admin.sso_update") != 0 {
 		t.Fatal("probe failure stored or audited settings")
+	}
+}
+
+// An issuer that is down or overloaded is retryable (failed, exit 1); only a definite
+// bad configuration is invalid (exit 2).
+func TestApplySSOProbeOutageIsFailedNotInvalid(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		h    http.HandlerFunc
+	}{
+		{"503", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }},
+		{"transport", func(w http.ResponseWriter, r *http.Request) {
+			conn, _, _ := http.NewResponseController(w).Hijack()
+			_ = conn.Close()
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			db, _ := setupTestDB(t)
+			store := sso.NewStore(db)
+			r := applySSO(context.Background(), db, store, setupSSO(routeIssuer(t, c.h)))
+			if r.Status != applysetup.Failed || !strings.Contains(r.Detail, "issuer metadata probe failed") {
+				t.Fatalf("%+v", r)
+			}
+			if store.Load().IssuerURL != "" {
+				t.Fatal("outage stored settings")
+			}
+		})
 	}
 }
 
