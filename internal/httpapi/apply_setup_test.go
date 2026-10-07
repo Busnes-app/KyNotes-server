@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/applysetup"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
@@ -108,5 +109,91 @@ func TestApplySSOProbeFailureStoresNothing(t *testing.T) {
 	}
 	if store.Load().IssuerURL != "" || setupAuditCount(t, db, "admin.sso_update") != 0 {
 		t.Fatal("probe failure stored or audited settings")
+	}
+}
+
+const setupTestIssuer = "https://id.example"
+
+func TestApplyAdminCreatesBindingWithoutPassword(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	want := applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-owner", Username: "Owner-Admin"}
+	res, name := applyAdmin(db, cfg, setupTestIssuer, want)
+	if res.Status != applysetup.Created || name != "owner-admin" {
+		t.Fatalf("%+v %q", res, name)
+	}
+	var role, status, issuer, subject, hash string
+	if err := db.QueryRow(`SELECT role,status,sso_issuer,sso_subject,auth_secret_hash FROM users WHERE username='owner-admin'`).Scan(&role, &status, &issuer, &subject, &hash); err != nil {
+		t.Fatal(err)
+	}
+	if role != "admin" || status != "active" || issuer != setupTestIssuer || subject != "sub-owner" || hash == "" {
+		t.Fatal(role, status, issuer, subject)
+	}
+	if res, _ = applyAdmin(db, cfg, setupTestIssuer, want); res.Status != applysetup.Present {
+		t.Fatalf("%+v", res)
+	}
+	if n := setupAuditCount(t, db, "admin.user.create"); n != 1 {
+		t.Fatalf("audit rows: %d", n)
+	}
+}
+
+func TestApplyAdminGrantRevokesCredentials(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,sso_issuer,sso_subject,created_at,updated_at) VALUES('usr_b','owner','x','salt',600000,'user','active',?,'sub-owner',?,?)`, setupTestIssuer, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('ses_b','usr_b','tok','csrf',?,?,?)`, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	res, name := applyAdmin(db, cfg, setupTestIssuer, applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-owner", Username: "owner-admin"})
+	if res.Status != applysetup.Created || name != "owner" {
+		t.Fatalf("%+v %q", res, name)
+	}
+	var role, revoked string
+	_ = db.QueryRow(`SELECT role FROM users WHERE id='usr_b'`).Scan(&role)
+	_ = db.QueryRow(`SELECT revoked_at FROM sessions WHERE id='ses_b'`).Scan(&revoked)
+	if role != "admin" || revoked == "" {
+		t.Fatalf("role=%q revoked_at=%q", role, revoked)
+	}
+	if n := setupAuditCount(t, db, "admin.user.update"); n != 1 {
+		t.Fatalf("audit rows: %d", n)
+	}
+}
+
+func TestApplyAdminNeverAdoptsByUsername(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	createAdminUser(t, db) // local, unbound account named "admin"
+	res, name := applyAdmin(db, cfg, setupTestIssuer, applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-x", Username: "ADMIN"})
+	if res.Status != applysetup.Conflict || name != "" {
+		t.Fatalf("%+v %q", res, name)
+	}
+	var subject string
+	_ = db.QueryRow(`SELECT coalesce(sso_subject,'') FROM users WHERE username='admin'`).Scan(&subject)
+	if subject != "" || setupAuditCount(t, db, "admin.user.create")+setupAuditCount(t, db, "admin.user.update") != 0 {
+		t.Fatal("local account was bound or audited")
+	}
+}
+
+func TestApplyAdminRefusesDisabledBindingAndForeignIssuer(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,sso_issuer,sso_subject,created_at,updated_at) VALUES('usr_d','gone','x','salt',600000,'user','disabled',?,'sub-gone',?,?)`, setupTestIssuer, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := applyAdmin(db, cfg, setupTestIssuer, applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-gone", Username: "gone"}); res.Status != applysetup.Conflict {
+		t.Fatalf("%+v", res)
+	}
+	// The configured issuer is the stored SSO setting: none stored, or a different one, is
+	// invalid even when the bundle carries no sso section.
+	want := applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-new", Username: "new"}
+	for _, configured := range []string{"", "https://other.example"} {
+		if res, _ := applyAdmin(db, cfg, configured, want); res.Status != applysetup.Invalid {
+			t.Fatalf("issuer %q: %+v", configured, res)
+		}
+	}
+	var n int
+	_ = db.QueryRow(`SELECT count(*) FROM users WHERE username='new'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("invalid admin was created")
 	}
 }

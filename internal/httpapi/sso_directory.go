@@ -294,18 +294,26 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 	}
 	// A retained recovery grant still invalidates earlier proofs and credentials.
 	if u.localRole() != existingRole {
-		if _, err := db.Exec(`UPDATE sso_directory_state SET revoked_before=max(revoked_before,?) WHERE issuer=? AND subject=?`, time.Now().Unix(), issuer, u.ID); err != nil {
+		if err := revokeForRoleChange(db, issuer, u.ID, existingID, now); err != nil {
 			return false, err
-		}
-		// Both promotion and demotion require fresh sessions and device pairing.
-		for _, table := range []string{"sessions", "devices"} {
-			if _, err := db.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, existingID); err != nil {
-				return false, err
-			}
 		}
 	}
 	// Update existing user
 	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, sso_issuer=?, updated_at=? WHERE id=?`,
 		username, role, status, u.ID, issuer, now, existingID)
 	return retained, err
+}
+
+// revokeForRoleChange: promotion and demotion both require fresh sessions, device pairing
+// and login proofs.
+func revokeForRoleChange(tx *sql.Tx, issuer, subject, userID, now string) error {
+	if _, err := tx.Exec(`UPDATE sso_directory_state SET revoked_before=max(revoked_before,?) WHERE issuer=? AND subject=?`, time.Now().Unix(), issuer, subject); err != nil {
+		return err
+	}
+	for _, table := range []string{"sessions", "devices"} {
+		if _, err := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
