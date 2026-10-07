@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"net/http"
@@ -104,12 +105,18 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		var role string
-		if db.QueryRow(`SELECT m.role FROM memberships m WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
+		var shared int64
+		if db.QueryRow(`SELECT m.role,c.shared_generation FROM memberships m JOIN containers c ON c.id=m.container_id WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &shared) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
 		if role != "owner" && role != "admin" && role != "editor" {
 			WriteError(w, r, 403, "forbidden", "insufficient role")
+			return
+		}
+		current := r.Header.Get(keySchemeHeader) == keySchemeShared
+		if shared != 0 && !current {
+			writeTeamKeyError(w, r, errStaleClient)
 			return
 		}
 		var in struct {
@@ -137,12 +144,14 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		var seq int64
 		if e = dbTx(db, func(tx *sql.Tx) error {
-			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=?,updated_at=? WHERE id=? RETURNING change_seq`, meta, cur+1, now, cid).Scan(&seq); e != nil {
-				return e
+			// The shared_generation guard catches a rotation that landed after the check above.
+			e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=?,updated_at=? WHERE id=? AND (shared_generation=0 OR ?) RETURNING change_seq`, meta, cur+1, now, cid, current).Scan(&seq)
+			if errors.Is(e, sql.ErrNoRows) {
+				return errStaleClient
 			}
-			return nil
+			return e
 		}); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+			writeTeamKeyError(w, r, e)
 			return
 		}
 		writeJSON(w, map[string]any{"metaVersion": cur + 1, "changeSeq": seq})

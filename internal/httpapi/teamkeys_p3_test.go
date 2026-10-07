@@ -47,6 +47,9 @@ func TestSharedContainerRefusesStaleClientWrites(t *testing.T) {
 		"comment": func() (int, string) {
 			return tm.editor.rawWrite(t, http.MethodPost, "/api/v1/objects/"+oid+"/comments", nil, `{"bodyCiphertext":"Y3Q=","keyGeneration":2}`)
 		},
+		"meta": func() (int, string) {
+			return tm.editor.rawWrite(t, http.MethodPatch, "/api/v1/containers/"+tm.id, nil, `{"metaCiphertext":"Y3Q=","baseVersion":0}`)
+		},
 		"comment rewrite": func() (int, string) {
 			return tm.editor.rawWrite(t, http.MethodPut, "/api/v1/comments/"+cmt, nil, `{"bodyCiphertext":"Y3Q=","keyGeneration":2}`)
 		},
