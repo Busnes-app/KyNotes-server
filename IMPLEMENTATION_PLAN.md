@@ -1625,6 +1625,10 @@ Rules:
   `envelopes:[{containerId,deviceId,keyGeneration,alg,envelope}]` for the
   invitee's live identity, one per container (the team or its child workspaces)
   at that container's current generation, where the inviter is owner or admin.
+  With envelopes, create needs the envelope `PUT` step-up (local password,
+  SSO refused, `403 step_up_required`), rechecked in the insert transaction;
+  without envelopes it stays session-only. Accept needs no step-up: it only
+  moves envelopes already authorized at insertion.
   Accept rechecks, in the membership transaction, that the inviter is still an
   owner or admin of the live container (`404` otherwise), installs the
   envelopes still at their generation and drops the rest. A consumed or void

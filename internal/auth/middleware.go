@@ -94,12 +94,18 @@ func freshLocalProof(s Session) bool {
 func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
 	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
-		if s.SSOIssuer != "" || !freshLocalProof(s) {
+		if !HasUserStepUp(s) {
 			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return
 		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+// HasUserStepUp is the RequireUserStepUp test, for routes that need it only for
+// some request bodies.
+func HasUserStepUp(s Session) bool {
+	return s.SSOIssuer == "" && freshLocalProof(s)
 }
 
 func SessionFromContext(r *http.Request) (Session, bool) {

@@ -974,3 +974,43 @@ func TestCollaboratorRemovalRulesAndAcceptOutcomes(t *testing.T) {
 		t.Fatalf("re-invited former member=%d", code)
 	}
 }
+
+// Invitation envelopes reach key_envelopes on acceptance, so inserting them
+// needs the same password step-up as a direct envelope write.
+func TestInvitationEnvelopesRequireUserStepUp(t *testing.T) {
+	tm := newTeam(t)
+	invitee := tm.owner.addUser(t, "invitee")
+	inviteeID := invitee.createIdentity(t)
+	withEnvelope := []byte(`{"inviteeId":` + quote(invitee.id) + `,"role":"editor","envelopes":[{"containerId":` + quote(tm.id) + `,` + envJSON(inviteeID, 1, 1)[1:] + `]}`)
+	persisted := func() int {
+		var n int
+		if err := tm.owner.db.QueryRow(`SELECT (SELECT COUNT(*) FROM invitations)+(SELECT COUNT(*) FROM invitation_envelopes)`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	clear := func() {
+		if _, err := tm.owner.db.Exec(`UPDATE sessions SET stepup_at=''`); err != nil {
+			t.Error(err)
+		}
+	}
+	clear()
+	if code, body := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/invitations", withEnvelope, true, false)); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("envelope invitation without step-up: %d %s", code, body)
+	}
+	if n := persisted(); n != 0 {
+		t.Fatalf("refused invitation persisted %d rows", n)
+	}
+	tm.owner.stepUp(t)
+	hdr := map[string]string{"Content-Type": "application/json"}
+	if code, body := tm.owner.sendRacing(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/invitations", hdr, withEnvelope, clear); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+		t.Fatalf("envelope invitation after step-up was cleared: %d %s", code, body)
+	}
+	if n := persisted(); n != 0 {
+		t.Fatalf("stale step-up persisted %d rows", n)
+	}
+	// Without envelopes an invitation installs no key material: session suffices.
+	if _, code := invite(t, tm.owner, tm.id, invitee.id); code != http.StatusOK {
+		t.Fatalf("plain invitation without step-up=%d", code)
+	}
+}

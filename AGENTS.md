@@ -383,7 +383,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   removal (children revoked, generations bumped, envelopes, selections and the removed user's
   pending invitations deleted, audited in the same transaction). Invitations may carry identity
   envelopes (`invitation_envelopes`, moved on accept only at their generation and only while the
-  inviter is still a steward). `PUT /comments/{id}` is author-only; `GET /users/{id}/identity`
+  inviter is still a steward); creating one with envelopes needs `auth.HasUserStepUp` plus
+  `RecheckUserStepUpTx`, while accept only moves envelopes authorized at insertion. `PUT /comments/{id}` is author-only; `GET /users/{id}/identity`
   answers self, live co-members and an inviting steward, else a uniform 404;
   `object_versions.author_user_id` is written, not yet read. Shared 409 `already_exists` covers
   moved generations, duplicates and incomplete rotations. Known limits are listed in

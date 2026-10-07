@@ -116,6 +116,11 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
+		// Envelopes reach key_envelopes on acceptance: same proof as an envelope PUT.
+		if len(in.Envelopes) > 0 && !auth.HasUserStepUp(s) {
+			auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
+			return
+		}
 		raw := make([]byte, 32)
 		_, _ = rand.Read(raw)
 		token := base64.RawURLEncoding.EncodeToString(raw)
@@ -123,6 +128,11 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 		id, _ := ids.Mint("inv")
 		now := time.Now().UTC()
 		e := dbTx(db, func(tx *sql.Tx) error {
+			if len(in.Envelopes) > 0 {
+				if e := auth.RecheckUserStepUpTx(tx, s, time.Now().UTC()); e != nil {
+					return e
+				}
+			}
 			if _, e := tx.Exec(`INSERT INTO invitations(id,container_id,inviter_id,invitee_id,token_hash,role,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)`, id, cid, s.UserID, in.InviteeID, hex.EncodeToString(sum[:]), in.Role, now.Format(time.RFC3339), now.Add(24*time.Hour).Format(time.RFC3339)); e != nil {
 				return e
 			}

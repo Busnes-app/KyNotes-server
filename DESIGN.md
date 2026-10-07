@@ -219,7 +219,8 @@ owner or admin or by a server administrator, revokes the team and child-workspac
 memberships, advances their key generations, deletes the member's envelopes and
 device selections there, and deletes the pending invitations that member issued.
 A steward then rotates to a new key for the remaining members. An invitation may
-carry envelopes for the invitee's identity. They are installed when the
+carry envelopes for the invitee's identity; creating it then needs the same
+password step-up as a direct envelope write. They are installed when the
 invitation is accepted, only while the generation is unchanged and the inviter
 is still an owner or admin of the live container.
 

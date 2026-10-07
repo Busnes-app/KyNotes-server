@@ -86,7 +86,7 @@ The fallback rule ("unnamed until the owner opens it") is shown in the UI.
 This single routine covers admin-added members, invitees, members whose identity was reset, and interrupted rotations.
 
 **Add a member.** Two paths:
-- **Invitation from an owner or admin member:** an invitation to someone the inviter does not already share a live container with goes out without envelopes: `GET /users/{id}/identity` answers only co-members and a steward holding a pending invitation they issued, and no route adds envelopes to an existing invitation. The steward sweep wraps `CK` after accept. When the invitee is already a co-member, the inviter's browser may fetch their identity key and wrap `CK` for the team and each child workspace; those envelopes are stored in `invitation_envelopes` and moved into `key_envelopes` in the accept transaction, only if the generation still matches. Otherwise they are dropped and the sweep fills the gap.
+- **Invitation from an owner or admin member:** an invitation to someone the inviter does not already share a live container with goes out without envelopes: `GET /users/{id}/identity` answers only co-members and a steward holding a pending invitation they issued, and no route adds envelopes to an existing invitation. The steward sweep wraps `CK` after accept. When the invitee is already a co-member, the inviter's browser may fetch their identity key and wrap `CK` for the team and each child workspace; creating an invitation with envelopes needs the same local-password step-up as an envelope `PUT` (SSO sessions are refused), rechecked in the insert transaction; those envelopes are stored in `invitation_envelopes` and moved into `key_envelopes` in the accept transaction, only if the generation still matches. Otherwise they are dropped and the sweep fills the gap.
 - **Admin add (admin holds no key) or invitee without an identity yet:** the membership is created without keys and the steward sweep wraps later. The member's UI shows "Waiting for a team owner to share keys".
 
 **Remove a member: forward-only rotation, no bulk re-encryption.**
@@ -136,7 +136,7 @@ The migration is lazy, idempotent and never destructive.
   - `GET /users/{id}/identity`: device ID, public key and fingerprint of an active user, for the user, a co-member of a live container, and a team or project owner or admin holding a pending invitation they issued to the user; a uniform 404 otherwise.
   - `POST /containers/{id}/key-rotations`.
   - `PUT /comments/{id}`.
-  - Invitation create and accept accept and move envelopes.
+  - Invitation create and accept accept and move envelopes. Create with envelopes needs local-password step-up, rechecked in its transaction; create without envelopes stays session-only. Accept needs no step-up: it only moves envelopes the steward authorized at insertion.
   - `POST /auth/password` takes `wrappedIdentityKey` and `identityDeviceId` (both or neither). The re-wrap updates only that identity in the password's transaction; a missing, stale or mismatched identity returns 409 `identity_rewrap_required` and changes nothing. It sets `password_admin_known=0`, clears every session's step-up window (an old-password proof must not authorize a wrap under the new one) and shares the step-up lockout.
   - Recovery and admin password reset delete the identity (and, by cascade, its envelopes), audited as `identity.delete`.
 - Rule changes:
