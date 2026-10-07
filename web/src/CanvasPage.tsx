@@ -142,7 +142,10 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   }, []);
   const placeBox = (x: number, y: number, blocks?: PartialBlock[]) => {
     if (!editable) return;
-    const added = addBox(pruneEmpty(pageRef.current), x, y, blocks, fitWidth(x, DEFAULT_BOX_WIDTH));
+    const width = fitWidth(x, DEFAULT_BOX_WIDTH);
+    const visible = surfaceRef.current?.parentElement?.clientWidth ?? 0;
+    const left = visible > 0 ? Math.max(0, Math.min(x, visible - 24 - width)) : x; // keep a min-width box inside the canvas
+    const added = addBox(pruneEmpty(pageRef.current), left, y, blocks, width);
     if (!added) return onError("This page has the maximum number of text boxes.");
     setFocusID(added.id);
     commit(added.page);
@@ -201,7 +204,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   undoKeys.current = (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest?.(".bn-container, input, textarea, select, [contenteditable]:not([contenteditable=false])")) return; // text undo belongs to the editor
+    if (target?.closest?.(".bn-container, dialog, input, textarea, select, [contenteditable]:not([contenteditable=false])")) return; // text undo belongs to the editor
     event.preventDefault();
     if (event.shiftKey) redo();
     else undo();
