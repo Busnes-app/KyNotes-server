@@ -82,6 +82,7 @@ import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflic
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { carryAll, carrySaved, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
 import { ancestors, blockRange, displayLevels, dropBefore, parseCollapsed, placeBlock, shiftLevel, siblingMove, visibleRows } from "./outline";
+import { readChoice, saveChoice } from "./ky-ui/theme";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -602,13 +603,14 @@ function Workspace({
   const collapsedKey = selected ? `kynotes-collapsed-${auth.user.id}-${selected.id}` : "";
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   useEffect(() => {
-    setCollapsed(parseCollapsed(collapsedKey ? localStorage.getItem(collapsedKey) : null));
+    setCollapsed(parseCollapsed(collapsedKey ? readChoice(collapsedKey) : null));
   }, [collapsedKey]);
   function toggleCollapsed(id: string) {
     const ids = new Set(notesRef.current.map((note) => note.id));
     const next = [...collapsed].filter((entry) => entry !== id && ids.has(entry));
     if (!collapsed.has(id)) next.push(id);
-    if (collapsedKey) localStorage.setItem(collapsedKey, JSON.stringify(next));
+    // Blocked storage just leaves collapse unpersisted.
+    if (collapsedKey) saveChoice(collapsedKey, JSON.stringify(next));
     setCollapsed(new Set(next));
   }
   // A page opened from search, resurfacing or a link is never hidden under a collapsed parent.
@@ -1337,7 +1339,7 @@ function Workspace({
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
-  async function placePage(id: string, placement: { section?: string; order: string; level?: 0 | 1 | 2 }) {
+  async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }) {
     // An undefined level keeps the page's own; an undefined section means Quick Notes.
     const { level, ...rest } = placement;
     const change = level === undefined ? rest : placement;
@@ -1435,7 +1437,7 @@ function Workspace({
       if (!page) return;
       const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
       const level = shiftLevel(displayLevels(list), list.findIndex((note) => note.id === pageID), delta);
-      if (level !== undefined) await placePage(pageID, { section: page.section, order: page.order ?? endOrder(list), level: level as 0 | 1 | 2 });
+      if (level !== undefined) await placePage(pageID, { section: page.section, order: page.order, level: level as 0 | 1 | 2 });
     });
   }
   /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
@@ -1490,7 +1492,7 @@ function Workspace({
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
           const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(current)), current, group.payload);
           const object = await createObject(containerID);
-          const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, version: 0, updatedAt: new Date().toISOString() };
+          const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, level: page.level, version: 0, updatedAt: new Date().toISOString() };
           if (sameNotebook()) patchNotes((value) => [...value, copy]);
           const saved = await writeObject(object.id, 0, page);
           if (saved === null) { failed += 1; continue; }
@@ -1935,9 +1937,11 @@ function Workspace({
                   onKeyDown={(event) => {
                     if (!reorderable) return;
                     const index = sectionIndex(note.id);
-                    if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
-                      const delta = event.shiftKey ? -1 : 1;
-                      // A refused shift leaves Tab to move focus.
+                    const bracket = event.ctrlKey && event.altKey
+                      ? (event.key === "]" || event.code === "BracketRight" ? 1 : event.key === "[" || event.code === "BracketLeft" ? -1 : 0)
+                      : 0;
+                    if (bracket) {
+                      const delta = bracket as 1 | -1;
                       if (!canShift(note.id, delta)) return;
                       event.preventDefault();
                       void indentPage(note.id, delta);
@@ -1950,7 +1954,7 @@ function Workspace({
                     void movePage(note.id, sectionID, before).then(() =>
                       document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
                   }}
-                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Tab Shift+Tab" : undefined}
+                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
                   <strong>{title}</strong>
@@ -2053,6 +2057,7 @@ function Workspace({
                   <button
                     className="quiet"
                     disabled={!canShift(selectedNote.id, 1)}
+                    title="Indent page (Ctrl+Alt+])"
                     onClick={() => void indentPage(selectedNote.id, 1)}
                   >
                     Indent page
@@ -2060,6 +2065,7 @@ function Workspace({
                   <button
                     className="quiet"
                     disabled={!canShift(selectedNote.id, -1)}
+                    title="Outdent page (Ctrl+Alt+[)"
                     onClick={() => void indentPage(selectedNote.id, -1)}
                   >
                     Outdent page

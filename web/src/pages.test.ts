@@ -106,6 +106,13 @@ describe("conflictCopy", () => {
     const list = [page(1, "c"), page(2, "i")];
     expect(conflictCopy(list, list[1], rejected).page.order! > "i").toBe(true);
   });
+  it("goes after the original's whole block at the original's level", () => {
+    const list = [{ ...page(1, "c"), level: 0 }, { ...page(2, "f"), level: 1 }, { ...page(3, "i"), level: 1 }, { ...page(4, "l"), level: 2 }, { ...page(5, "p"), level: 1 }];
+    const { page: copy, moves } = conflictCopy(list, list[2], rejected);
+    expect(copy.order! > "l" && copy.order! < "p").toBe(true);
+    expect(copy.level).toBe(1);
+    expect(moves).toEqual([]);
+  });
   it("copies the original's section, including none", () => {
     const sectionID = id(5);
     const placed = page(1, "i", sectionID);

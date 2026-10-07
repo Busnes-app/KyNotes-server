@@ -1,4 +1,5 @@
 import { isOrderKey, keyBetween } from "./order";
+import { blockRange, displayLevels } from "./outline";
 
 export const QUICK_NOTES = "quick";
 export const SECTION_COLORS = ["orange", "blue", "green", "purple", "red", "teal", "yellow", "gray"] as const;
@@ -9,7 +10,7 @@ export type PagePayload = { type: "page"; title: string; body: string; section?:
 export type ObjectPayload = SectionPayload | GroupPayload | PagePayload;
 export type Section = SectionPayload & { id: string; version: number };
 export type Group = GroupPayload & { id: string; version: number };
-type Placed = { id: string; section?: string; order?: string };
+type Placed = { id: string; section?: string; order?: string; level?: number };
 
 // Crockford base32, lowercase, as minted by internal/ids.
 const OBJECT_ID = /^obj_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
@@ -86,13 +87,17 @@ export function reorder<T extends { id: string; order?: string }>(list: T[], mov
 export function conflictCopy<T extends Placed>(list: T[], original: T, rejected: { title: string; body: string }) {
   // Placed before the object exists, so an exhausted key never leaves an empty page behind.
   const copyID = "";
-  const updates = reorder(list, copyID, list.findIndex((item) => item.id === original.id) + 1);
+  // After the original's whole block, at the original's level, so its subpages stay its own.
+  const levels = displayLevels(list);
+  const index = list.findIndex((item) => item.id === original.id);
+  const updates = reorder(list, copyID, index < 0 ? list.length : blockRange(levels, index)[1]);
   const page: PagePayload = {
     type: "page",
     title: `${rejected.title || "Untitled page"} (conflicting copy)`,
     body: rejected.body,
     section: original.section,
     order: updates.find((update) => update.id === copyID)?.order,
+    level: index < 0 ? undefined : levels[index] as 0 | 1 | 2,
   };
   return { page, moves: updates.filter((update) => update.id !== copyID) };
 }
