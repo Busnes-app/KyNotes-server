@@ -203,6 +203,12 @@ describe("keyring", () => {
     await expect(openFirst(readKeys(shared, ring, legacy, 3), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
   });
 
+  it("reads a personal container with the legacy key even without a row generation", () => {
+    // Old cache entries carry no keyGeneration; a never-shared container has only the legacy key.
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, undefined)).toEqual([legacy]);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, Number.NaN)).toEqual([legacy]);
+  });
+
   it("never opens a newer row with a removed member's older key", async () => {
     const k2 = newContainerKey();
     const removed = new Map([[2, k2]]); // keys a member held before removal re-keyed to generation 3

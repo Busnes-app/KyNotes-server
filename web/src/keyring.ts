@@ -126,8 +126,10 @@ export function writeKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
  * member's older CK can stand in for a newer generation. Older rows are legacy.
  */
 export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined): KeyRef[] {
+  // A never-shared container has only the legacy key, so a row without a generation (old cache) still reads.
+  if (container.sharedGeneration === 0) return [legacy];
   if (generation === undefined || !Number.isInteger(generation)) return [];
-  if (container.sharedGeneration === 0 || generation < container.sharedGeneration) return [legacy];
+  if (generation < container.sharedGeneration) return [legacy];
   const key = ring.get(generation);
   return key ? [key] : [];
 }
