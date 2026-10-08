@@ -251,6 +251,19 @@ it and the garbage-collection retention period has elapsed. Garbage collection
 is controlled globally and uses a configurable retention period. It may be
 disabled, with unreferenced storage growth as the explicit trade-off.
 
+### Device linking
+
+A browser that does not hold the account's identity asks a trusted browser of the same account
+for it. The server relays only public keys and one sealed bundle (`/api/v1/me/link-requests`,
+migration `0024_device_linking.sql`). The newcomer first posts a commitment to its one-time
+X25519 key; the trusted browser claims the request with its own one-time key; the newcomer then
+reveals its key, which must match the commitment. Both screens show a six-digit check code over the
+account, the request and both keys, and the user confirms it on both. The commitment means a relay
+cannot pick a key to fit the code after seeing the other one. Only then is the identity private key
+sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
+step-up, and collected once. Requests are per user, single use, expire after ten minutes, need a
+live session of that user on both sides, are rate-limited with device pairing and are audited.
+
 ### Device enrollment and revocation
 
 Enrollment is initiated on the authenticated website. The web client creates

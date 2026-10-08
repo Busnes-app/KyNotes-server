@@ -1,11 +1,15 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -424,5 +428,393 @@ func TestPendingRefusalSpendsNoChallengeBudget(t *testing.T) {
 	// The second token is still there: the refusals did not drain it.
 	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
 		t.Fatal("pending refusals spent the challenge budget", r.Code, r.Body.String())
+	}
+}
+
+// firstLinkVector is links[0] of the shared vector file: the server must accept its commitment.
+func firstLinkVector(t *testing.T) (commitment, newcomerKey, approverKey []byte) {
+	t.Helper()
+	raw, err := os.ReadFile("../../testdata/protocol/link_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Links []struct{ Commitment, NewcomerPublicKey, ApproverPublicKey string } `json:"links"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	decode := func(s string) []byte { b, _ := hex.DecodeString(s); return b }
+	v := file.Links[0]
+	return decode(v.Commitment), decode(v.NewcomerPublicKey), decode(v.ApproverPublicKey)
+}
+
+// secondSession signs the pair user in again in a fresh cookie jar: another browser of one account.
+func (p *pairClient) secondSession(t *testing.T) *pairClient {
+	t.Helper()
+	jar, _ := cookiejar.New(nil)
+	q := &pairClient{hc: &http.Client{Jar: jar}, db: p.db, url: p.url}
+	if code, body := status(t, q.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)); code != http.StatusOK {
+		t.Fatalf("second login=%d %s", code, body)
+	}
+	return q
+}
+
+func linkPath(id, suffix string) string { return "/api/v1/me/link-requests/" + id + suffix }
+
+func createLinkRequest(t *testing.T, p *pairClient, commitment []byte) string {
+	t.Helper()
+	code, body := status(t, p.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false))
+	var out struct{ ID, ExpiresAt string }
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &out) != nil || !strings.HasPrefix(out.ID, "lnk_") || out.ExpiresAt == "" {
+		t.Fatalf("create=%d %s", code, body)
+	}
+	return out.ID
+}
+
+// openLink: a request from a second session of pair, claimed by the first and revealed.
+func openLink(t *testing.T) (trusted, newcomer *pairClient, id string) {
+	t.Helper()
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	trusted = newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	newcomer = trusted.secondSession(t)
+	id = createLinkRequest(t, newcomer, commitment)
+	if code, body := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false)); code != http.StatusNoContent {
+		t.Fatalf("claim=%d %s", code, body)
+	}
+	if code, body := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/reveal"), []byte(`{"newcomerKey":`+quote(b64(newcomerKey))+`}`), true, false)); code != http.StatusNoContent {
+		t.Fatalf("reveal=%d %s", code, body)
+	}
+	return
+}
+
+// audited counts successful audit rows of event.
+func audited(t *testing.T, p *pairClient, event string) int {
+	t.Helper()
+	var n int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event=? AND outcome='success'`, event).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// refused counts denied audit rows of event with reason.
+func refused(t *testing.T, p *pairClient, event, reason string) int {
+	t.Helper()
+	var n int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event=? AND outcome='denied' AND reason_code=?`, event, reason).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// auditLeaks returns any audit value carrying one of secrets, in base64 or hex.
+func auditLeaks(t *testing.T, p *pairClient, secrets ...[]byte) string {
+	t.Helper()
+	rows, err := p.db.Query(`SELECT event||' '||container_id||' '||object_id||' '||reason_code||' '||request_id FROM audit_events`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row string
+		if err := rows.Scan(&row); err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range secrets {
+			if strings.Contains(row, b64(s)) || strings.Contains(row, hex.EncodeToString(s)) || strings.Contains(row, base64.RawURLEncoding.EncodeToString(s)) {
+				return row
+			}
+		}
+	}
+	return ""
+}
+
+func TestLinkRelayHandsOverOnlyPublicKeys(t *testing.T) {
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	newcomer := trusted.secondSession(t)
+	id := createLinkRequest(t, newcomer, commitment)
+	get := func(p *pairClient, path string) (int, string) {
+		return status(t, p.do(t, http.MethodGet, path, nil, false, false))
+	}
+	// The newcomer does not see its own request in the approver list; the trusted session does.
+	if _, body := get(newcomer, "/api/v1/me/link-requests"); strings.TrimSpace(body) != "[]" {
+		t.Fatal("newcomer listed its own request", body)
+	}
+	if _, body := get(trusted, "/api/v1/me/link-requests"); !strings.Contains(body, id) || !strings.Contains(body, b64(commitment)) || !strings.Contains(body, `"claimed":false`) || !strings.Contains(body, `"newcomerKey":""`) {
+		t.Fatal("trusted list", body)
+	}
+	claim := func(p *pairClient) int {
+		code, _ := status(t, p.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false))
+		return code
+	}
+	if claim(newcomer) != http.StatusNotFound {
+		t.Fatal("the newcomer claimed its own request")
+	}
+	if claim(trusted) != http.StatusNoContent {
+		t.Fatal("claim")
+	}
+	if claim(trusted) != http.StatusNotFound {
+		t.Fatal("claimed twice")
+	}
+	third := trusted.secondSession(t)
+	if claim(third) != http.StatusNotFound {
+		t.Fatal("a second approver claimed a claimed request")
+	}
+	if _, body := get(third, "/api/v1/me/link-requests"); strings.Contains(body, id) {
+		t.Fatal("another session lists a request claimed by someone else", body)
+	}
+	// The newcomer learns the approver key and nothing else yet.
+	if code, body := get(newcomer, linkPath(id, "")); code != 200 || !strings.Contains(body, `"state":"claimed"`) || !strings.Contains(body, b64(approverKey)) || strings.Contains(body, "bundle") {
+		t.Fatal("newcomer state", code, body)
+	}
+	reveal := func(p *pairClient) int {
+		code, _ := status(t, p.do(t, http.MethodPost, linkPath(id, "/reveal"), []byte(`{"newcomerKey":`+quote(b64(newcomerKey))+`}`), true, false))
+		return code
+	}
+	if reveal(trusted) != http.StatusNotFound {
+		t.Fatal("the approver revealed")
+	}
+	if reveal(newcomer) != http.StatusNoContent || reveal(newcomer) != http.StatusNotFound {
+		t.Fatal("reveal is not once")
+	}
+	if _, body := get(trusted, "/api/v1/me/link-requests"); !strings.Contains(body, b64(newcomerKey)) || !strings.Contains(body, `"claimed":true`) {
+		t.Fatal("revealed key not listed to its approver", body)
+	}
+	for _, event := range []string{"identity.link.request", "identity.link.claim", "identity.link.reveal"} {
+		if audited(t, trusted, event) != 1 {
+			t.Fatal("audit", event)
+		}
+	}
+}
+
+func TestLinkRequestRefusals(t *testing.T) {
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	newcomer := trusted.secondSession(t)
+	create := func(p *pairClient, value []byte, csrf bool) int {
+		code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(value))+`}`), csrf, false))
+		return code
+	}
+	if create(newcomer, commitment, true) != http.StatusNotFound {
+		t.Fatal("a link request for an account with no identity")
+	}
+	trusted.createIdentity(t)
+	if create(newcomer, commitment[:31], true) != http.StatusBadRequest || create(newcomer, commitment, false) != http.StatusForbidden {
+		t.Fatal("malformed commitment or missing CSRF accepted")
+	}
+	// Another account sees none of it, by any route.
+	other := trusted.addUser(t, "other")
+	id := createLinkRequest(t, newcomer, commitment)
+	for _, call := range [][2]string{{http.MethodPost, "/claim"}, {http.MethodPost, "/reveal"}, {http.MethodGet, ""}, {http.MethodDelete, ""}} {
+		if code, _ := status(t, other.do(t, call[0], linkPath(id, call[1]), []byte(`{"approverKey":`+quote(b64(approverKey))+`,"newcomerKey":`+quote(b64(newcomerKey))+`}`), true, false)); code != http.StatusNotFound {
+			t.Fatal("another account reached", call, code)
+		}
+	}
+	// Expired requests are gone for everyone.
+	if _, err := trusted.db.Exec(`UPDATE link_requests SET expires_at='2000-01-01T00:00:00Z' WHERE id=?`, id); err != nil {
+		t.Fatal(err)
+	}
+	claim := func(p *pairClient, id string) int {
+		code, _ := status(t, p.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false))
+		return code
+	}
+	if claim(trusted, id) != http.StatusNotFound {
+		t.Fatal("expired request claimed")
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != http.StatusNotFound {
+		t.Fatal("expired request collected")
+	}
+	// A key that does not match the commitment ends the attempt.
+	id = createLinkRequest(t, newcomer, commitment)
+	if claim(trusted, id) != http.StatusNoContent {
+		t.Fatal("claim")
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/reveal"), []byte(`{"newcomerKey":`+quote(b64(approverKey))+`}`), true, false)); code != http.StatusBadRequest {
+		t.Fatal("a key that does not match its commitment was revealed", code)
+	}
+	var rows int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests WHERE id=?`, id).Scan(&rows); err != nil || rows != 0 || refused(t, trusted, "identity.link.refuse", "commitment") != 1 {
+		t.Fatal("refused attempt kept", rows, err)
+	}
+	// Both sessions must be live: a revoked newcomer cannot be claimed, a revoked approver cannot be revealed to.
+	approver := trusted.secondSession(t)
+	id = createLinkRequest(t, newcomer, commitment)
+	if _, err := trusted.db.Exec(`UPDATE sessions SET revoked_at='x' WHERE id=(SELECT newcomer_session_id FROM link_requests WHERE id=?)`, id); err != nil {
+		t.Fatal(err)
+	}
+	if claim(approver, id) != http.StatusNotFound {
+		t.Fatal("claimed for a revoked newcomer session")
+	}
+	fresh := trusted.secondSession(t)
+	id = createLinkRequest(t, fresh, commitment)
+	if claim(approver, id) != http.StatusNoContent {
+		t.Fatal("claim")
+	}
+	if _, err := trusted.db.Exec(`UPDATE sessions SET revoked_at='x' WHERE id=(SELECT approver_session_id FROM link_requests WHERE id=?)`, id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := status(t, fresh.do(t, http.MethodPost, linkPath(id, "/reveal"), []byte(`{"newcomerKey":`+quote(b64(newcomerKey))+`}`), true, false)); code != http.StatusNotFound {
+		t.Fatal("revealed to a revoked approver session", code)
+	}
+	// At most three live requests per account; the same browser restarting replaces its own.
+	if _, err := trusted.db.Exec(`DELETE FROM link_requests`); err != nil {
+		t.Fatal(err)
+	}
+	extra := trusted.secondSession(t)
+	for _, p := range []*pairClient{trusted, fresh, extra} {
+		createLinkRequest(t, p, commitment)
+	}
+	if code, body := status(t, trusted.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false)); code != http.StatusOK {
+		t.Fatal("the same browser restarting was refused", code, body)
+	}
+	fourth := trusted.secondSession(t)
+	if code, body := status(t, fourth.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false)); code != http.StatusConflict || !strings.Contains(body, "already_exists") {
+		t.Fatal("a fourth live request", code, body)
+	}
+	// Any session of the account cancels ("Not me"); once.
+	id = createLinkRequest(t, fresh, commitment)
+	if code, _ := status(t, trusted.do(t, http.MethodDelete, linkPath(id, ""), nil, true, false)); code != http.StatusNoContent {
+		t.Fatal("cancel")
+	}
+	if code, _ := status(t, trusted.do(t, http.MethodDelete, linkPath(id, ""), nil, true, false)); code != http.StatusNotFound || audited(t, trusted, "identity.link.cancel") != 1 {
+		t.Fatal("cancelled twice")
+	}
+	// Device credentials never reach the relay.
+	trusted.deviceID, trusted.deviceSecret, _ = trusted.register(t, trusted.mintToken(t), bytes.Repeat([]byte{7}, 32))
+	if code, _ := status(t, trusted.doDeviceOnly(t, http.MethodGet, "/api/v1/me/link-requests", nil)); code != http.StatusUnauthorized {
+		t.Fatal("device credential listed link requests", code)
+	}
+}
+
+func TestLinkCreationIsRateLimitedPerAccount(t *testing.T) {
+	commitment, _, _ := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	for i := 0; i < 20; i++ { // config.Defaults: pairing_per_hour 20
+		createLinkRequest(t, trusted, commitment)
+	}
+	res := trusted.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false)
+	if code, body := status(t, res); code != http.StatusTooManyRequests || res.Header.Get("Retry-After") != "180" { // refills 20 an hour
+		t.Fatal("21st link request in an hour", code, body, res.Header.Get("Retry-After"))
+	}
+	other := trusted.addUser(t, "other")
+	if code, _ := status(t, other.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false)); code == http.StatusTooManyRequests {
+		t.Fatal("another account shares the bucket")
+	}
+}
+
+// Each step moves the row forward once; nothing replaces a key a step already fixed.
+func TestLinkStepsRunInOrderOnce(t *testing.T) {
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	newcomer := trusted.secondSession(t)
+	id := createLinkRequest(t, newcomer, commitment)
+	send := func(p *pairClient, suffix, field string, key []byte) int {
+		code, _ := status(t, p.do(t, http.MethodPost, linkPath(id, suffix), []byte(`{`+quote(field)+`:`+quote(b64(key))+`}`), true, false))
+		return code
+	}
+	if send(newcomer, "/reveal", "newcomerKey", newcomerKey) != http.StatusNotFound {
+		t.Fatal("revealed before a claim")
+	}
+	if send(trusted, "/claim", "approverKey", approverKey) != http.StatusNoContent || send(newcomer, "/reveal", "newcomerKey", newcomerKey) != http.StatusNoContent {
+		t.Fatal("claim and reveal")
+	}
+	other := bytes.Repeat([]byte{3}, 32)
+	if send(newcomer, "/reveal", "newcomerKey", other) != http.StatusNotFound || send(trusted, "/claim", "approverKey", other) != http.StatusNotFound {
+		t.Fatal("a fixed key was offered again")
+	}
+	var nk, ak []byte
+	if err := trusted.db.QueryRow(`SELECT newcomer_key,approver_key FROM link_requests WHERE id=?`, id).Scan(&nk, &ak); err != nil || !bytes.Equal(nk, newcomerKey) || !bytes.Equal(ak, approverKey) {
+		t.Fatal("stored keys moved", err)
+	}
+}
+
+// Refusals are audited under the step's event with the response status, never with key material.
+func TestLinkRefusalsAreAuditedWithoutSecrets(t *testing.T) {
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	newcomer := trusted.secondSession(t)
+	id := createLinkRequest(t, newcomer, commitment)
+	other := trusted.addUser(t, "other")
+	if code, _ := status(t, other.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false)); code != http.StatusNotFound {
+		t.Fatal("other claimed", code)
+	}
+	var actor, object string
+	if err := trusted.db.QueryRow(`SELECT actor_user_id,object_id FROM audit_events WHERE event='identity.link.claim' AND outcome='denied' AND reason_code='404'`).Scan(&actor, &object); err != nil || actor != other.id || object != id {
+		t.Fatal("claim refusal audit", actor, object, err)
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":"short"}`), true, false)); code != http.StatusBadRequest || refused(t, trusted, "identity.link.request", "400") != 1 {
+		t.Fatal("create refusal not audited", code)
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath("not-an-id", "/reveal"), []byte(`{}`), true, false)); code != http.StatusNotFound {
+		t.Fatal("malformed id", code)
+	}
+	var stray int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE object_id='not-an-id'`).Scan(&stray); err != nil || stray != 0 || refused(t, trusted, "identity.link.reveal", "404") != 1 {
+		t.Fatal("a caller-chosen path reached the audit", stray, err)
+	}
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false)); code != http.StatusNoContent {
+		t.Fatal("claim", code)
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/reveal"), []byte(`{"newcomerKey":`+quote(b64(approverKey))+`}`), true, false)); code != http.StatusBadRequest {
+		t.Fatal("mismatch", code)
+	}
+	if leak := auditLeaks(t, trusted, commitment, newcomerKey, approverKey); leak != "" {
+		t.Fatal("audit carries key material:", leak)
+	}
+}
+
+// Claim, reveal, approve and cancel share one per-account bucket, which also bounds refusal audit rows.
+func TestLinkStepsAreRateLimitedPerAccount(t *testing.T) {
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	limit := config.Defaults().RateLimit.LoginPerMinute
+	for i := 0; i < limit; i++ {
+		if code, _ := status(t, trusted.do(t, http.MethodDelete, linkPath(mint(t, "lnk"), ""), nil, true, false)); code != http.StatusNotFound {
+			t.Fatal(i, code)
+		}
+	}
+	res := trusted.do(t, http.MethodDelete, linkPath(mint(t, "lnk"), ""), nil, true, false)
+	if code, _ := status(t, res); code != http.StatusTooManyRequests || res.Header.Get("Retry-After") != "6" { // refills 10 a minute
+		t.Fatal("step past the account's bucket", code, res.Header.Get("Retry-After"))
+	}
+	if n := refused(t, trusted, "identity.link.cancel", "404"); n != limit {
+		t.Fatal("refusal audits", n)
+	}
+	other := trusted.addUser(t, "other")
+	if code, _ := status(t, other.do(t, http.MethodDelete, linkPath(mint(t, "lnk"), ""), nil, true, false)); code != http.StatusNotFound {
+		t.Fatal("another account shares the bucket", code)
+	}
+}
+
+// A password an administrator knows proves nothing about the user: it cannot start a link.
+func TestAdminKnownPasswordCannotStartALink(t *testing.T) {
+	commitment, _, _ := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	if _, err := trusted.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	newcomer := trusted.secondSession(t)
+	code, body := status(t, newcomer.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false))
+	if code != http.StatusConflict || !strings.Contains(body, "password_change_required") || refused(t, trusted, "identity.link.request", "409") != 1 {
+		t.Fatal("admin-known password started a link", code, body)
+	}
+}
+
+// The approver list shows only the caller's own account.
+func TestLinkCrossAccountList(t *testing.T) {
+	commitment, _, _ := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	id := createLinkRequest(t, trusted.secondSession(t), commitment)
+	other := trusted.addUser(t, "other")
+	if code, body := status(t, other.do(t, http.MethodGet, "/api/v1/me/link-requests", nil, false, false)); code != http.StatusOK || strings.Contains(body, id) {
+		t.Fatal("another account listed the request", code, body)
 	}
 }

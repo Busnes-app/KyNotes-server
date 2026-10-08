@@ -380,6 +380,7 @@ probing for object existence across accounts.
 | Container/object/attachment sync | either | either | — |
 | Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
 | Own identity (`GET`/`PUT /me/identity`) | required | rejected | `PUT`: CSRF + fresh step-up as above; local sessions create `aes-256-gcm`, SSO sessions `none` (device-only) |
+| Device link relay (`/me/link-requests…`) | required | rejected | CSRF on mutations; approve: fresh step-up (`RequireUserActionStepUp`), rechecked in the transaction |
 
 "Fresh session" = `now - session.created_at < 5 * time.Minute`, else `403
 forbidden` with message `re-authentication required`.
@@ -480,6 +481,7 @@ Secrets are 32 random bytes generated on first start with mode `0600` under
 | request | `req` |
 | invitation | `inv` |
 | comment | `cmt` |
+| device link request | `lnk` |
 
 IDs are opaque, log-safe, and never encode user data. `ids.Validate(prefix, s)`
 checks prefix, separator, length (26 chars of base32), and alphabet. Every
@@ -1243,6 +1245,12 @@ deliberately every phase).
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
 | PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; legacy containers: the current generation only; shared containers: any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
+| POST | `/api/v1/me/link-requests` | session + CSRF | newcomer: `{"commitment":"<b64 32>"}` → `{"id","expiresAt"}`; `404` without an identity; `409 already_exists` at 3 live requests; `409 password_change_required` for a local session while `password_admin_known` |
+| GET | `/api/v1/me/link-requests` | session | trusted side: live requests of the account's other live sessions, unclaimed or claimed by the caller: `[{"id","commitment","createdAt","expiresAt","claimed","newcomerKey"}]` (`newcomerKey` `""` until revealed) |
+| POST | `/api/v1/me/link-requests/{id}/claim` | session + CSRF | trusted side: `{"approverKey":"<b64 32>"}` → `204`; once; not the newcomer session; newcomer session live |
+| POST | `/api/v1/me/link-requests/{id}/reveal` | session + CSRF | newcomer: `{"newcomerKey":"<b64 32>"}` → `204`; after a claim, once, only the committed key (`400` and the row is deleted otherwise); approver session live |
+| GET | `/api/v1/me/link-requests/{id}` | session | newcomer: `{"state":"pending\|claimed\|revealed\|approved","expiresAt","approverKey"?,"bundle"?}`; an approved row is returned once and deleted in the same transaction |
+| DELETE | `/api/v1/me/link-requests/{id}` | session + CSRF | any session of the account → `204` |
 | GET | `/api/v1/users/{id}/identity` | session | `{"userId","deviceId","publicKey","fingerprint"}` of an active user's live identity, for the user, a co-member of a live container, or a team/project owner/admin holding a pending, unexpired invitation they issued to the user; otherwise a uniform `404` |
 
 ### 5.2 Rules
@@ -1266,6 +1274,7 @@ deliberately every phase).
 * `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
 * Recovery and admin password reset delete the identity row (device-only included) in the same transaction and write an audit row. `identity.create` audits `wrap=<alg>,proof=password|sso:<challenge ID>`.
 * Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
+* Link requests (migration `0024_device_linking.sql`): session-only, one user, TTL 10 minutes, at most 3 live per user (`409 already_exists`), a session's new request replaces its own; claim needs the newcomer session live and refuses the newcomer itself; reveal only by the newcomer, only after a claim, only the committed key (`SHA-256("kynotes/link-commit/v1" ‖ key)`; mismatch deletes the row, `400`); every miss, another user's ID included, is `404`; TTL and liveness are checked in the step's transaction. A local newcomer session is refused while `password_admin_known` (`409 password_change_required`). Creation has its own `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a per-account `link-step` bucket at `ratelimit.login_per_minute`. Every step is audited (`identity.link.request|claim|reveal|cancel|collect`, `.refuse` for a commitment mismatch); a refusal is audited under the step's event with outcome `denied` and the HTTP status as `reason_code`, object ID only when well formed. Collect misses are not audited (polled). Audits never carry keys, commitments or bundles. GC deletes expired rows.
 * `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
 
 ### 5.3 Tests
@@ -1328,6 +1337,15 @@ deliberately every phase).
 - `TestRevokedIdentityNeitherWritesNorBlocksRotation`
 - `TestUserIdentityVisibility`
 - `TestOpenEnvelopeAgreesWithVectors`
+- `TestLinkRelayHandsOverOnlyPublicKeys`
+- `TestLinkRequestRefusals`
+- `TestLinkCreationIsRateLimitedPerAccount`
+- `TestLinkStepsRunInOrderOnce`
+- `TestLinkRefusalsAreAuditedWithoutSecrets`
+- `TestLinkStepsAreRateLimitedPerAccount`
+- `TestAdminKnownPasswordCannotStartALink`
+- `TestLinkCrossAccountList`
+- `TestGCDeletesExpiredLinkRequests`
 
 ---
 

@@ -25,8 +25,8 @@ gc:
   retention: "168h"
   interval: "1h"
 ratelimit:
-  login_per_minute: 10
-  pairing_per_hour: 20
+  login_per_minute: 10 # also browser link-relay steps (claim, reveal, approve, cancel), per account
+  pairing_per_hour: 20 # device pairing tokens and browser link requests, per account
   upload_per_minute: 60
   invitation_per_hour: 30 # invitation creation; accepts get their own bucket at this rate
 log:

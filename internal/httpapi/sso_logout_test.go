@@ -115,6 +115,7 @@ func (f *logoutFixture) restartRouter() {
 	AuthRoutes(mux, f.db, f.cfg)
 	DeviceRoutes(mux, f.db, f.cfg)
 	IdentityRoutes(mux, f.db)
+	LinkRoutes(mux, f.db)
 	TeamKeyRoutes(mux, f.db)
 	CollabRoutes(mux, f.db)
 	mux.Handle("GET /protected", auth.RequireSession(f.db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
