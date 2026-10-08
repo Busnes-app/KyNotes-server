@@ -23,8 +23,8 @@ export type PinStore = {
   load: () => Promise<Pins>;
   /** Add-only and atomic: a member already pinned to a different key is a conflict, and nothing is written. */
   addFresh: (pins: Pins) => Promise<PinsStored>;
-  /** Replaces one pin; only a confirmFingerprintChange result. */
-  confirm: (confirmation: PinConfirmation) => Promise<boolean>;
+  /** Replaces one pin; only a confirmFingerprintChange result, and only while the pin is still expected (the one the dialog showed). */
+  confirm: (confirmation: PinConfirmation, expected: string) => Promise<boolean>;
   loadKeyState: (containerID: string) => Promise<KeyState>;
   saveKeyState: (containerID: string, state: KeyState) => Promise<boolean>;
 };
@@ -139,7 +139,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       if ((await confirmChanged(pending)) !== true) return stopped({ kind: "untrusted", members: pending.map((change) => displayName(change.member.username, change.member.userId)) }, []);
       for (const change of pending) {
         const confirmation = confirmFingerprintChange(pins, change.member);
-        if (!(await store.confirm(confirmation))) return stopped({ kind: "pins-unsaved" }, []);
+        if (!(await store.confirm(confirmation, change.pinned))) return stopped({ kind: "pins-unsaved" }, []);
         pins = confirmation.pins;
       }
       opened = open(pins, envelopes);
@@ -264,7 +264,7 @@ export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invit
   if (changed.length) {
     if ((await confirmChanged(changed)) !== true) return plain("untrusted");
     const confirmation = confirmFingerprintChange(pins, member);
-    if (!(await store.confirm(confirmation))) return plain("pins-unsaved");
+    if (!(await store.confirm(confirmation, changed[0].pinned))) return plain("pins-unsaved");
     pins = confirmation.pins;
   }
   const sealed = sealFor(member, container.id, container.keyGeneration, key, { ...caller.identity, userId: caller.userId }, pins);

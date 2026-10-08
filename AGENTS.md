@@ -495,7 +495,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   address bar, also in an open tab; the token goes only in the accept body; `replaceState` clears only this
   tab's history. `inviteWithKeys` (`keyService.ts`) seals only the chosen team's current key (never
   children picked by `teamId`), gated by `keysAllowed` against this device's loaded floor and an accepted
-  key matching the stored digest, for a visible invitee; a changed pin needs confirmation and a first-seen
+  key matching the stored digest, for a visible invitee; a changed pin needs confirmation (stored
+  compare-and-swap against the pin the dialog showed, as in the sweep and re-trust) and a first-seen
   pin goes through `storePins` (a conflict sends no keys) before the step-up; anything else sends a keyless
   invitation with copy saying why; re-invited members receive history like any newcomer;
   `memberKeyStatus` labels member rows (informational). Settings colleague keys (`components/PinnedKeys.tsx`,

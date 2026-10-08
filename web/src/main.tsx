@@ -745,7 +745,7 @@ function Workspace({
   const pinStore: PinStore = {
     load: () => getPins(auth.username, auth.user.id),
     addFresh: (pins) => storePins(auth.username, auth.user.id, pins),
-    confirm: (confirmation) => storeConfirmedPin(auth.username, auth.user.id, confirmation),
+    confirm: (confirmation, expected) => storeConfirmedPin(auth.username, auth.user.id, confirmation, expected),
     loadKeyState: (containerID) => getKeyState(auth.username, auth.user.id, containerID),
     saveKeyState: (containerID, state) => storeKeyState(auth.username, auth.user.id, containerID, state),
   };

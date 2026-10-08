@@ -6,7 +6,7 @@ import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";
-import { displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
+import { confirmFingerprintChange, displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
 import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
 
@@ -62,7 +62,7 @@ const memoryStore = (initial: Pins = {}, known: KeyState = { mark: 0, digests: {
       pins = { ...next, ...pins };
       return { ok: true };
     }),
-    confirm: vi.fn(async (confirmation: PinConfirmation) => { if (!isPinConfirmation(confirmation)) return false; pins = { ...pins, [confirmation.userId]: confirmation.key }; return true; }),
+    confirm: vi.fn(async (confirmation: PinConfirmation, expected: string) => { if (!isPinConfirmation(confirmation) || pins[confirmation.userId] !== expected) return false; pins = { ...pins, [confirmation.userId]: confirmation.key }; return true; }),
     loadKeyState: async () => state,
     saveKeyState: vi.fn(async (_cid: string, next: KeyState) => { state = next; return true; }),
     get: () => pins,
@@ -281,7 +281,7 @@ vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined
 const vault = (u: User): PinStore => ({
   load: () => getPins("me", u.member.userId),
   addFresh: (pins) => storePins("me", u.member.userId, pins),
-  confirm: (confirmation) => storeConfirmedPin("me", u.member.userId, confirmation),
+  confirm: (confirmation, expected) => storeConfirmedPin("me", u.member.userId, confirmation, expected),
   loadKeyState: (id) => getKeyState("me", u.member.userId, id),
   saveKeyState: (id, state) => storeKeyState("me", u.member.userId, id, state),
 });
@@ -628,6 +628,27 @@ describe("inviteWithKeys", () => {
     expect(store.confirm).toHaveBeenCalledTimes(1);
     expect(store.get()[invitee.member.userId]).toBe(invitee.public!.publicKey);
     expect(confirmed.calls[0].envelopes).toHaveLength(1);
+  });
+
+  it("confirms a changed invitee key only while the pin is still the one the dialog showed", async () => {
+    await clearAllDeviceKeys();
+    await storeDeviceKey("me", "a".repeat(64));
+    const me = owner.member.userId;
+    const stale = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+    const meanwhile = btoa(String.fromCharCode(...new Uint8Array(32).fill(8)));
+    expect(await storePins("me", me, { [invitee.member.userId]: stale })).toEqual({ ok: true });
+    expect(await storeKeyState("me", me, team.id, known)).toBe(true);
+    const { api, calls } = inviteAPI();
+    // Another tab re-trusts a different key while this dialog is open.
+    const ask = async () => {
+      const other = { ...invited, identity: { deviceId: invitee.public!.deviceId, publicKey: meanwhile } };
+      expect(await storeConfirmedPin("me", me, confirmFingerprintChange(await getPins("me", me), other), stale)).toBe(true);
+      return true;
+    };
+    expect((await inviteWithKeys(api, target, invited, as(owner), vault(owner), ask)).keys).toBe("pins-unsaved");
+    expect(calls).toEqual([{ envelopes: [] }]);
+    expect(api.stepUp).not.toHaveBeenCalled();
+    expect((await getPins("me", me))[invitee.member.userId]).toBe(meanwhile);
   });
 
   it("never sends keys whose recipient pin this device could not keep", async () => {
