@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { base64, type LoginKeys } from "./crypto";
-import { currentCopy, DEVICE_ONLY_WRAP, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
+import { currentCopy, DEVICE_ONLY_WRAP, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
 import { generateIdentity } from "./teamKeys";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
@@ -166,6 +166,26 @@ describe("device-only identities", () => {
     expect(api.putMyIdentity).not.toHaveBeenCalled();
     expect(await rewrapIdentity(api, userID, keys(1), new Uint8Array(32), undefined)).toBeUndefined();
     expect(api.stepUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("settlePasswordIdentity", () => {
+  it("keeps the server's identity, compare-and-swap against the copy read first", async () => {
+    const server = fakeServer();
+    const v = vault();
+    expect(await settlePasswordIdentity(server.api, v.store, userID, keys(1), undefined)).toBe(true);
+    expect(base64(v.get()!.publicKey)).toBe(server.record().publicKey);
+  });
+
+  it("never overwrites a key another tab kept while it was signing in", async () => {
+    const server = fakeServer();
+    await ensure(server.api, userID, keys(1), undefined);
+    const v = vault();
+    const other = heldOf();
+    // Another tab (a link, an SSO set-up) keeps a key between this run's read and its write.
+    server.api.stepUp.mockImplementationOnce(async () => { await v.store.save(other, null); return server.record(); });
+    expect(await settlePasswordIdentity(server.api, v.store, userID, keys(1), undefined)).toBe(false);
+    expect(v.get()).toBe(other);
   });
 });
 

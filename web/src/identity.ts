@@ -111,6 +111,17 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
   }
 }
 
+/**
+ * After a password sign-in: opens or creates the account's identity and keeps it, compare-and-swap
+ * against the vault copy read before the server round trips, so a key another tab kept meanwhile is
+ * never overwritten. False when nothing was kept.
+ */
+export async function settlePasswordIdentity(api: IdentityAPI, store: IdentityStore, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<boolean> {
+  const before = await store.load();
+  const identity = await ensureIdentity(api, userID, keys, fromLogin);
+  return identity ? store.save(identity, before ?? null) : false;
+}
+
 const holdsLive = (local: HeldIdentity | undefined, live: PublicIdentity) => local !== undefined && sameBytes(local.publicKey, fromBase64(live.publicKey));
 
 /** Records the server's device ID on the vault copy. Held only while the vault still keeps this key; else unsaved. */

@@ -58,7 +58,7 @@ import {
   myIdentity,
   putDeviceOnlyIdentity,
 } from "./api";
-import { currentCopy, ensureIdentity, identityStatus, rewrapIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore } from "./identity";
+import { currentCopy, identityStatus, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
 import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
@@ -133,8 +133,8 @@ import {
 /** Opens or creates the identity after a password sign-in and keeps it on this browser; failures stay silent (the workspace offers linking). */
 async function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<void> {
   try {
-    const identity = await ensureIdentity(identityAPI, userID, keys, fromLogin);
-    if (identity) await storeIdentityKey(username, userID, identity);
+    const store: IdentityStore = { load: () => loadIdentityRecord(username, userID), save: (identity, expected) => storeIdentityKey(username, userID, identity, expected) };
+    await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin);
   } catch { /* the workspace shows what this browser can do instead */ }
 }
 import {
