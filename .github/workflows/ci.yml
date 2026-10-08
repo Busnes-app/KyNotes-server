@@ -61,6 +61,11 @@ jobs:
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
+      - name: Team keys in three real browsers
+        run: |
+          cd web
+          npx playwright install --with-deps chromium
+          npm run e2e
       - run: go test -fuzz=FuzzParsePairingToken -fuzztime=150000x ./internal/auth
       - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=100000x ./internal/auth
       - run: go test -fuzz=FuzzParseID -fuzztime=6000000x ./internal/ids

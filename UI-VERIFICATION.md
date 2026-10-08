@@ -170,3 +170,31 @@ Scratch server with throwaway data (never production), Playwright MCP, Chromium,
 | ![Subpages desktop light](docs/subpages-light-desktop.png) | ![Subpages desktop dark](docs/subpages-dark-desktop.png) |
 | ![Subpages mobile light](docs/subpages-light-mobile.png) | ![Subpages mobile dark](docs/subpages-dark-mobile.png) |
 | ![Section groups](docs/section-groups.png) | |
+
+## Team keys P3a (2026-10-07)
+
+Scratch server from `web/e2e/server.sh` (fresh `/tmp` data, `127.0.0.1:18080`, never production), driven by a scratch Playwright library script, Chromium headless. Busnes Light and Dark follow the emulated OS scheme; no saved theme choice. Captured at 1280x900 and 390x844 CSS pixels, device scale 1, from the bundle embedded at this branch. State: an owner, a member who never signed in (blocked team), and a newcomer added after the first key and before any steward reopened the team.
+
+| Check | Result |
+| --- | --- |
+| "Not end-to-end shared yet" notice renders in the notebook header | Pass in all four; wraps inside the list header, no document or element overflow |
+| Key-wait line ("Waiting for a team owner…") renders in the notebook header; New page disabled | Pass in all four; no overflow |
+| Settings shows the fingerprint in `<code>` inside its card at 390 px | Pass; wraps by group, stays inside the card, light and dark |
+
+Overflow was measured in the page (`documentElement.scrollWidth` against the viewport, the element's own scroll width, and its box against the enclosing card or header), not judged by eye alone.
+
+### Open items
+
+- In the key-wait state the empty editor still offers "Create a note"; only the list's New page button is disabled. Not exercised.
+- The newcomer's waiting notebook shows the fallback label `Notebook <id>` until keys arrive, as designed: the name is sealed with the container key.
+
+### Screenshots
+
+| Light | Dark |
+| --- | --- |
+| ![Notice desktop light](docs/team-keys-notice-light-desktop.png) | ![Notice desktop dark](docs/team-keys-notice-dark-desktop.png) |
+| ![Notice mobile light](docs/team-keys-notice-light-mobile.png) | ![Notice mobile dark](docs/team-keys-notice-dark-mobile.png) |
+| ![Key wait desktop light](docs/team-keys-wait-light-desktop.png) | ![Key wait desktop dark](docs/team-keys-wait-dark-desktop.png) |
+| ![Key wait mobile light](docs/team-keys-wait-light-mobile.png) | ![Key wait mobile dark](docs/team-keys-wait-dark-mobile.png) |
+| ![Fingerprint desktop light](docs/team-keys-fingerprint-light-desktop.png) | ![Fingerprint desktop dark](docs/team-keys-fingerprint-dark-desktop.png) |
+| ![Fingerprint mobile light](docs/team-keys-fingerprint-light-mobile.png) | ![Fingerprint mobile dark](docs/team-keys-fingerprint-dark-mobile.png) |

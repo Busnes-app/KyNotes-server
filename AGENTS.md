@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the three-browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -412,6 +412,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestStewardBackfillsSharedHistoryOnly`, `TestSharedGenerationIsMintedOnlyByRotation`,
   `TestContainersReportSharedGeneration`, `TestSharedNameNeedsCurrentGeneration`,
   `TestConflictListingReportsKeyGeneration` and `npm test` (keyring, keyService, pins, crypto, storage).
+  `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
+  Chromium contexts against `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, serves the
+  embedded bundle: build and sync `internal/web/dist` first). It checks server bytes: shared rows open
+  with the container key and not the writer's login key, a newcomer gets history, removal re-mints, and a
+  write without the key-scheme header gets 409. Every browser dialog must be expected by the test.
+  `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
   (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
   owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,
