@@ -1,6 +1,6 @@
 import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
-import type { Envelope, InvitationEnvelope } from "./keyring";
+import type { Envelope, InvitationEnvelope, Member } from "./keyring";
 import type { RecoveryAPI, RecoveryCopy } from "./recovery";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
@@ -189,7 +189,7 @@ export async function userIdentity(userID: string): Promise<PublicIdentity | und
   try { return await request<PublicIdentity>(`/api/v1/users/${encodeURIComponent(userID)}/identity`); }
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
-export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
+export const members = (containerID: string) => request<Array<Member>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
 export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }

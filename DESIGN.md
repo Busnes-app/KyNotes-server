@@ -181,7 +181,10 @@ copies and link requests, and revokes the account's other sessions and paired
 device credentials with their envelopes. It refuses the old identity's own key. Like a member
 removal, it advances the key generation of every keyed container the user belongs to, so a stolen
 browser holding the old identity opens nothing written afterwards: the new generation has no
-envelopes and takes no writes until a steward mints it. Personal notebooks are then lost, and
+envelopes and takes no writes until a steward mints it. A steward's browser mints on its next
+open and wraps the team's history for the new key in the same pass. An account may reset at most
+three times a rolling day, so one member cannot keep a team waiting, and owners and admins see in
+the member list and on the waiting notice who reset and when. Personal notebooks are then lost, and
 stewards re-share team keys. An SSO session creates a
 device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
 request; no password copy exists on the server, and other

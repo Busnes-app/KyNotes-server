@@ -712,17 +712,30 @@ func TestIdentityResetRetiresEveryKeyedContainer(t *testing.T) {
 	unkeyed := seedContainer(t, tm.owner, "workbook", "", map[string]string{tm.editor.id: "owner"})
 	elsewhere := seedContainer(t, tm.owner, "workbook", "", map[string]string{pairUser: "owner"})
 	keyForTest(t, tm.owner.db, elsewhere, pairUser)
+	// A keyed notebook the editor was removed from, and a deleted one it still lists: neither moves.
+	left := seedContainer(t, tm.owner, "workbook", "", map[string]string{pairUser: "owner", tm.editor.id: "editor"})
+	keyForTest(t, tm.owner.db, left, pairUser)
+	deleted := seedContainer(t, tm.owner, "workbook", "", map[string]string{tm.editor.id: "owner"})
+	keyForTest(t, tm.owner.db, deleted, tm.editor.id)
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET revoked_at='now' WHERE container_id=? AND user_id=?`, left, tm.editor.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, deleted); err != nil {
+		t.Fatal(err)
+	}
 	oid, code := tm.editor.save(t, tm.id, "", 2)
 	if code != http.StatusOK {
 		t.Fatalf("save before the reset=%d", code)
 	}
 	tm.editor.stepUp(t)
-	code, out := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(bytes.Repeat([]byte{8}, 32), expecting(tm.editorID)+resetRecovery+b64s(recoveryCopy)+`"}`), true, false))
+	// The body cannot steer the retirement: only the session user's live memberships move.
+	steer := `,"containerId":` + quote(elsewhere) + `,"userId":` + quote(pairUser)
+	code, out := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(bytes.Repeat([]byte{8}, 32), expecting(tm.editorID)+steer+resetRecovery+b64s(recoveryCopy)+`"}`), true, false))
 	var created struct{ DeviceID string }
 	if code != http.StatusOK || json.Unmarshal([]byte(out), &created) != nil {
 		t.Fatal("reset", code, out)
 	}
-	for cid, want := range map[string]int64{tm.id: 3, tm.child: 3, unkeyed: 1, elsewhere: 1} {
+	for cid, want := range map[string]int64{tm.id: 3, tm.child: 3, unkeyed: 1, elsewhere: 1, left: 1, deleted: 1} {
 		if g, _ := generationOf(t, tm.owner, cid); g != want {
 			t.Fatalf("container %s at generation %d, want %d", cid, g, want)
 		}
@@ -748,5 +761,81 @@ func TestIdentityResetRetiresEveryKeyedContainer(t *testing.T) {
 	}
 	if _, code := tm.editor.save(t, tm.id, oid, 4); code != http.StatusOK {
 		t.Fatalf("save after the mint=%d", code)
+	}
+}
+
+// Each reset retires every keyed notebook the user belongs to, so an account gets a few a day: one
+// member cannot keep a team waiting for keys. The limit is counted in the reset's transaction.
+func TestIdentityResetIsLimitedPerDay(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	ed := tm.editor
+	current := tm.editorID
+	reset := func(fill byte) (int, string, *http.Response) {
+		ed.stepUp(t)
+		res := ed.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(bytes.Repeat([]byte{fill}, 32), expecting(current)+resetRecovery+b64s(recoveryCopy)+`"}`), true, false)
+		code, out := status(t, res)
+		return code, out, res
+	}
+	for i := 0; i < identityResetsPerDay; i++ {
+		code, out, _ := reset(byte(20 + i))
+		var created struct{ DeviceID string }
+		if code != http.StatusOK || json.Unmarshal([]byte(out), &created) != nil {
+			t.Fatal("reset", i, code, out)
+		}
+		current = created.DeviceID
+	}
+	generation, _ := generationOf(t, tm.owner, tm.id)
+	code, out, res := reset(40)
+	if code != http.StatusTooManyRequests || !strings.Contains(out, "rate_limited") || res.Header.Get("Retry-After") == "" {
+		t.Fatal("a reset over the daily limit", code, out)
+	}
+	var device string
+	if err := tm.owner.db.QueryRow(`SELECT device_id FROM user_identities WHERE user_id=?`, ed.id).Scan(&device); err != nil || device != current {
+		t.Fatal("a refused reset replaced the identity", device, err)
+	}
+	if g, _ := generationOf(t, tm.owner, tm.id); g != generation {
+		t.Fatalf("a refused reset retired the team: %d -> %d", generation, g)
+	}
+	// Resets older than a day no longer count.
+	if _, err := tm.owner.db.Exec(`UPDATE audit_events SET created_at='2020-01-01T00:00:00Z' WHERE user_id=? AND event='identity.create'`, ed.id); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := reset(41); code != http.StatusOK {
+		t.Fatal("a reset after the window", code, out)
+	}
+}
+
+// Stewards see who reset and when, the cause of a notebook waiting for keys; other members do not.
+func TestStewardsSeeWhoResetTheirKey(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	tm.editor.stepUp(t)
+	if code, out := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(bytes.Repeat([]byte{8}, 32), expecting(tm.editorID)+resetRecovery+b64s(recoveryCopy)+`"}`), true, false)); code != http.StatusOK {
+		t.Fatal("reset", code, out)
+	}
+	resetAt := func(p *pairClient) map[string]string {
+		var list []struct{ UserID, KeyResetAt string }
+		code, out := status(t, p.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/members", nil, false, false))
+		if code != http.StatusOK || json.Unmarshal([]byte(out), &list) != nil {
+			t.Fatal("members", code, out)
+		}
+		seen := map[string]string{}
+		for _, m := range list {
+			if m.KeyResetAt != "" {
+				seen[m.UserID] = m.KeyResetAt
+			}
+		}
+		return seen
+	}
+	for name, p := range map[string]*pairClient{"owner": tm.owner, "admin": tm.admin.pairClient} {
+		if seen := resetAt(p); len(seen) != 1 || seen[tm.editor.id] == "" {
+			t.Fatalf("%s sees resets %v", name, seen)
+		}
+	}
+	for name, p := range map[string]*pairClient{"editor": tm.editor.pairClient, "viewer": tm.viewer.pairClient} {
+		if seen := resetAt(p); len(seen) != 0 {
+			t.Fatalf("%s sees resets %v", name, seen)
+		}
 	}
 }

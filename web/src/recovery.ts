@@ -145,6 +145,10 @@ export const RECOVERY_MOVED = "Your recovery code was changed in another tab or 
 export const RECOVERY_STALE = "The server's recovery copy is not for your account's current key. Reload and try again.";
 export const RECOVERY_NEWER = "This recovery code was saved by a newer version of KyNotes. Update this browser's page and try again.";
 export const RECOVERY_RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
+/** The action RecoveryCode.tsx names for the self-service reset; its rate limit is per day. */
+export const RESET_ACTION = "reset your encryption key";
+// Mirrors identityResetsPerDay in internal/httpapi/identity_routes.go.
+export const RESET_RATE_LIMITED = "Too many key resets. Each reset makes your teams wait for a new key, so an account can reset at most 3 times a day. Try again later.";
 export const RESET_PHRASE = "RESET";
 export const RESET_CONFIRM = `Reset your encryption key? Your personal notebooks become unreadable for good, on every browser, and so does any team notebook whose keys no other owner or admin holds. Unsent edits waiting for a notebook's keys are never sent afterwards: export them first. Team owners must share each team's keys with you again, and colleagues are asked to trust your new key. Type ${RESET_PHRASE} to continue.`;
 export const RESET_UNCONFIRMED = `Type ${RESET_PHRASE} to confirm the reset.`;
@@ -324,7 +328,7 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
  */
 export function recoveryRefusal(error: unknown, action: string): { message: string; cancel?: () => Promise<void> } {
   if (error instanceof APIRequestError) {
-    if (error.status === 429 || error.code === "rate_limited") return { message: RECOVERY_RATE_LIMITED };
+    if (error.status === 429 || error.code === "rate_limited") return { message: action === RESET_ACTION ? RESET_RATE_LIMITED : RECOVERY_RATE_LIMITED };
     if (error.code === "sso_step_up_required") return { message: `Confirm with KySignOn to ${action}. The confirmation window did not finish; allow pop-ups for this site and try again.` };
     if (error.code === "step_up_required") return { message: `Confirm your password to ${action}.` };
     if (error.code === "already_exists") return { message: "Your encryption key changed in another tab or browser. Reload and check before trying again." };

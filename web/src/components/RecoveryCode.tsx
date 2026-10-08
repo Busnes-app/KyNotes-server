@@ -3,7 +3,7 @@ import { recoveryAPI } from "../api";
 import type { LoginKeys } from "../crypto";
 import { downloadFile } from "../download";
 import type { HeldIdentity, IdentityStore, PublicIdentity } from "../identity";
-import { confirmRecoverySaved, parseRecoveryCode, prepareRecovery, recheck, recoveryRefusal, recoveryTypeBack, RESET_CONFIRM, RESET_PHRASE, resetConfirmed, resetIdentity, restoreIdentity, saveRecovery, type PreparedRecovery } from "../recovery";
+import { confirmRecoverySaved, parseRecoveryCode, prepareRecovery, recheck, recoveryRefusal, recoveryTypeBack, RESET_ACTION, RESET_CONFIRM, RESET_PHRASE, resetConfirmed, resetIdentity, restoreIdentity, saveRecovery, type PreparedRecovery } from "../recovery";
 import { generateIdentity } from "../teamKeys";
 
 export { RESET_CONFIRM, resetConfirmed };
@@ -62,7 +62,7 @@ export async function checkedPasswordKeys(password: { derive: (password: string)
     return keys;
   } catch (error) {
     keys.userKEK.fill(0);
-    return (error as { code?: string }).code === "unauthenticated" ? RESET_WRONG_PASSWORD : recoveryRefusal(error, "reset your encryption key").message;
+    return (error as { code?: string }).code === "unauthenticated" ? RESET_WRONG_PASSWORD : recoveryRefusal(error, RESET_ACTION).message;
   }
 }
 
@@ -247,7 +247,7 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
       hold(await prepareRecovery(generateIdentity(), userID));
       setHidden(false);
     } catch (error) {
-      setStatus(recoveryRefusal(error, "reset your encryption key").message);
+      setStatus(recoveryRefusal(error, RESET_ACTION).message);
     }
   }
   async function finish() {
@@ -264,7 +264,7 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
       onReset(identity);
     } catch (error) {
       // Never discarded here: the server may have taken it (ResetUncertainError), and a retry needs the same key.
-      const message = recoveryRefusal(error, "reset your encryption key").message;
+      const message = recoveryRefusal(error, RESET_ACTION).message;
       setStatus(error instanceof Error && error.name === "ResetUncertainError" ? message : `${message} ${RESET_RETRY}`);
       setFailed(true);
     }

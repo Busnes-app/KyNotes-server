@@ -1,4 +1,5 @@
 import { isSteward, type Member } from "./keyring";
+import { displayName } from "./pins";
 
 /**
  * Whether this user is an owner or admin of the open notebook, from its member list (never from kind:
@@ -27,6 +28,17 @@ export function waitingNotice(input: { steward: boolean | undefined; held: boole
   if (!input.held) return { text: STEWARD_NO_KEY, action: "settings" };
   if (input.shared) return { text: STEWARD_SHARED, action: "ask" };
   return input.recoverable ? { text: STEWARD_UNKEYED } : { text: UNRECOVERABLE, action: "settings" };
+}
+
+export const resetWhen = (at: string): string => new Date(at).toLocaleString();
+
+/**
+ * For owners and admins (the server sends keyResetAt to them only): the member whose own key reset
+ * most recently retired this notebook's key, so the cause of a wait is visible.
+ */
+export function resetNotice(members: ReadonlyArray<Pick<Member, "userId" | "username" | "keyResetAt">>): string | undefined {
+  const latest = members.filter((member) => member.keyResetAt).sort((a, b) => Date.parse(b.keyResetAt!) - Date.parse(a.keyResetAt!))[0];
+  return latest && `${displayName(latest.username, latest.userId)} reset their encryption key on ${resetWhen(latest.keyResetAt!)}, which retired this notebook's key; an owner's next open shares a new one.`;
 }
 
 /** The toast after an edit is kept only on this device. */

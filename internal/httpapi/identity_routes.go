@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
@@ -52,6 +54,36 @@ var (
 type errResetWrap struct{ linked bool }
 
 func (errResetWrap) Error() string { return "reset wrap does not match the account" }
+
+// identityResetsPerDay bounds the self-service reset per account and rolling day. Each reset
+// retires every keyed notebook the user belongs to until a steward mints, so one member must not
+// be able to hold a team in waiting. Counted from the audit rows in the reset's own transaction,
+// so it survives restarts and concurrent requests.
+// ponytail: a constant; upgrade to a ratelimit key if operators need to tune it.
+const identityResetsPerDay = 3
+
+// errResetLimit: the account used its resets for the day; until is when the oldest one ages out.
+type errResetLimit struct{ until time.Time }
+
+func (errResetLimit) Error() string { return "identity reset limit reached" }
+
+// checkResetLimitTx refuses a reset once userID completed identityResetsPerDay of them in the
+// last 24 hours. Every completed reset writes one identity.create audit row whose reason has ",reset".
+func checkResetLimitTx(tx *sql.Tx, userID string, now time.Time) error {
+	var count int
+	var oldest string
+	if err := tx.QueryRow(`SELECT COUNT(*),COALESCE(MIN(created_at),'') FROM audit_events WHERE user_id=? AND event='identity.create' AND outcome='success' AND reason_code LIKE '%,reset%' AND created_at>?`, userID, now.Add(-24*time.Hour).Format(time.RFC3339)).Scan(&count, &oldest); err != nil {
+		return err
+	}
+	if count < identityResetsPerDay {
+		return nil
+	}
+	first, err := time.Parse(time.RFC3339, oldest)
+	if err != nil {
+		return err
+	}
+	return errResetLimit{until: first.Add(24 * time.Hour)}
+}
 
 func decodeWrappedIdentity(value string) ([]byte, bool) {
 	wrapped, err := base64.StdEncoding.DecodeString(value)
@@ -197,6 +229,9 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 				}
 			}
 			if in.Replace {
+				if err := checkResetLimitTx(tx, s.UserID, time.Now().UTC()); err != nil {
+					return err
+				}
 				// Compare-and-swap: only the identity this browser saw listed is replaced.
 				var current string
 				if err := tx.QueryRow(`SELECT device_id FROM user_identities WHERE user_id=?`, s.UserID).Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -279,6 +314,16 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		if errors.Is(err, errIdentityExists) {
 			WriteError(w, r, 409, "identity_exists", "an identity already exists for this account")
+			return
+		}
+		var limit errResetLimit
+		if errors.As(err, &limit) {
+			wait := time.Until(limit.until)
+			if wait < time.Second {
+				wait = time.Second
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+			WriteError(w, r, 429, "rate_limited", fmt.Sprintf("You reset your encryption key %d times in the last day, and each reset makes your teams wait for new keys. Try again after %s.", identityResetsPerDay, limit.until.UTC().Format("2006-01-02 15:04 UTC")))
 			return
 		}
 		var wrapErr errResetWrap

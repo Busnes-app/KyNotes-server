@@ -8,7 +8,7 @@ import { base64, deriveRecoveryKEK } from "./crypto";
 import { pbkdf2Sha256 } from "./fallbackCrypto";
 import { DEVICE_ONLY_WRAP, type HeldIdentity, type IdentityStore, type PublicIdentity } from "./identity";
 import { OTHER_COPY } from "./linkFlow";
-import { CONFIRM_FIRST, confirmRecoverySaved, recheck, RESET_UNCERTAIN, ResetUncertainError, formatRecoveryCode, newRecoveryCode, openRecovery, parseRecoveryCode, prepareRecovery, RECOVERY_ALG, RECOVERY_BYTES, RECOVERY_MOVED, RECOVERY_NONE, RECOVERY_RATE_LIMITED, RECOVERY_STALE, RECOVERY_TYPO, RECOVERY_WRONG, RecoveryCodeError, RecoveryMovedError, recoveryRefusal, resetConfirmed, RESET_CONFIRM, RESET_UNCONFIRMED, resetIdentity, restoreIdentity, saveRecovery, sealRecovery, sealRecoveryForVector, type PreparedRecovery, type RecoveryAPI, type ReplaceInput } from "./recovery";
+import { CONFIRM_FIRST, confirmRecoverySaved, recheck, RESET_UNCERTAIN, ResetUncertainError, formatRecoveryCode, newRecoveryCode, openRecovery, parseRecoveryCode, prepareRecovery, RECOVERY_ALG, RECOVERY_BYTES, RECOVERY_MOVED, RECOVERY_NONE, RECOVERY_RATE_LIMITED, RECOVERY_STALE, RESET_ACTION, RESET_RATE_LIMITED, RECOVERY_TYPO, RECOVERY_WRONG, RecoveryCodeError, RecoveryMovedError, recoveryRefusal, resetConfirmed, RESET_CONFIRM, RESET_UNCONFIRMED, resetIdentity, restoreIdentity, saveRecovery, sealRecovery, sealRecoveryForVector, type PreparedRecovery, type RecoveryAPI, type ReplaceInput } from "./recovery";
 import source from "./recovery.ts?raw";
 import { generateIdentity, unwrapIdentity } from "./teamKeys";
 
@@ -501,6 +501,7 @@ describe("refusals", () => {
     expect(message("step_up_required", 403)).toMatch(/Confirm your password to restore your key/);
     expect(message("password_change_required", 409)).toMatch(/Change your password before you restore your key/);
     expect(message("rate_limited", 429)).toBe(RECOVERY_RATE_LIMITED);
+    expect(recoveryRefusal(apiError("rate_limited", 429), RESET_ACTION).message).toBe(RESET_RATE_LIMITED);
     expect(message("already_exists", 409)).toMatch(/another tab or browser/);
     expect(message("identity_exists", 409)).toBe("Start the reset again: a new key is needed.");
     expect(message("unauthenticated", 401)).toMatch(/Sign in again/);

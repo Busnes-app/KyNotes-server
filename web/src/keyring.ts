@@ -14,7 +14,8 @@ export type KeyedContainer = { id: string; keyGeneration: number; sharedGenerati
 /** Container keys this browser unwrapped, by generation. */
 export type Keyring = ReadonlyMap<number, KeyRef>;
 export type WriteKey = { key: KeyRef; generation: number };
-export type Member = { userId: string; username: string; role: string };
+/** keyResetAt: shown to owners and admins only, the member's last own key reset (it retires the notebook's key). */
+export type Member = { userId: string; username: string; role: string; keyResetAt?: string };
 /** A member and its identity, when it has one the server shows us. */
 export type MemberKey = Member & { identity?: Pick<PublicIdentity, "deviceId" | "publicKey"> };
 

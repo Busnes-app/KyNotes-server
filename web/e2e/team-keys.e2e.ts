@@ -621,6 +621,8 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   await openTeam(editor.page, `Notebook ${cid.slice(4, 10)}`, cid);
   await expect(editor.page.getByText(WAITING)).toBeVisible();
   await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("waiting for key");
+  // Only owners and admins are told who reset: an editor's list does not say.
+  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).not.toContainText("reset their key");
   const renewed = await ownSettings(newcomer.page);
   expect(renewed.fingerprint).not.toBe(newcomerOwn.fingerprint);
 
@@ -643,6 +645,7 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   // No fingerprint dialog may appear now (unexpected dialogs fail the run): the sweep wraps for the new key.
   await openTeam(owner.page, TEAM, cid);
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
+  await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("reset their key");
   // That one pass minted the generation the reset retired and wrapped the team's history for the new key.
   await openTeam(newcomer.page, TEAM, cid);
   await readPage(newcomer.page, "Owner page", ["owner comment"]);

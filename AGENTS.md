@@ -606,7 +606,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   recovery copy and (password users) its password copy, revokes other sessions and paired devices with
   their envelopes, advances `key_generation` in every keyed container the user belongs to (`retireKeysTx`,
   as a removal; stewards mint the next key), refuses the old key and audits `identity.reset`
-  (`containers_retired=N`; verify `TestIdentityResetRetiresEveryKeyedContainer`). Recovery and administrator resets keep
+  (`containers_retired=N`), at most `identityResetsPerDay` (3) a rolling day (`429`); members lists give stewards
+  `keyResetAt`; a minting sweep also wraps history in that pass. Verify `TestIdentityReset*`,
+  `TestStewardsSeeWhoResetTheirKey`, keyService and keyNotices tests. Recovery and administrator resets keep
   the identity and remove only its password copy; the user's own password change re-adds it when
   `GET /me/identity` says `passwordCopy:"addable"` (never for KySignOn-linked accounts). Web:
   `recovery.ts` (128-bit Crockford code, 10-bit checksum, PBKDF2-SHA256 600000 over a labelled salt with

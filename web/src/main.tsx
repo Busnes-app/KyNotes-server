@@ -65,7 +65,7 @@ import {
 import { currentCopy, identityStatus, recoverable, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, unfinishedReset, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore, type PublicIdentity } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
-import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
+import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type Member, type MemberKey, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
@@ -76,7 +76,7 @@ import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { createKeyed, listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
 import { passwordChangeProblem } from "./passwordChange";
-import { queuedNotice, stewardOf, UNRECOVERABLE, WAITING, waitingNotice } from "./keyNotices";
+import { queuedNotice, resetNotice, resetWhen, stewardOf, UNRECOVERABLE, WAITING, waitingNotice } from "./keyNotices";
 import {
   decryptComment,
   decryptAttachment,
@@ -640,9 +640,7 @@ function Workspace({
   selectedRef.current = selected;
   selectedNoteRef.current = selectedNote;
   const [notificationCount, setNotificationCount] = useState(0);
-  const [membersForTeam, setMembersForTeam] = useState<
-    Array<{ userId: string; username: string; role: string }>
-  >([]);
+  const [membersForTeam, setMembersForTeam] = useState<Member[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -2476,6 +2474,7 @@ function Workspace({
                     <span>
                       {displayName(member.username, member.userId)} · {member.role}
                       {keyMembers?.containerID === selected.id && keyMembers.status[member.userId] && ` · ${KEY_STATUS[keyMembers.status[member.userId]]}`}
+                      {member.keyResetAt && ` · reset their key ${resetWhen(member.keyResetAt)}`}
                     </span>
                     {teamSteward && member.userId !== auth.user.id && (
                       <button
@@ -2532,7 +2531,8 @@ function Workspace({
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
                   const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
-                  return <>{notice.text}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
+                  const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
+                  return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
                 })()}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with KySignOn)</button></div>}
