@@ -175,10 +175,10 @@ export const rotateKeys = (containerID: string, expectedGeneration: number, enve
 /** A shared notebook's rows below its sharing generation, as the server lists them: a hint for the review (migration.ts), never proof. */
 export type LegacyRows = {
   complete: boolean;
-  objects: Array<{ id: string; version: number; keyGeneration?: number }>;
+  objects: Array<{ id: string; keyGeneration?: number }>;
   comments: Array<{ id: string; objectId: string; authorUserId: string; bodyCiphertext: string; keyGeneration?: number }>;
-  attachments: Array<{ id: string; objectIds: string[]; bytes: number; metadataCiphertext: string; keyGeneration?: number }>;
-  conflicts: Array<{ id: string; objectId: string; keyGeneration?: number; createdAt: string }>;
+  attachments: Array<{ id: string; objectIds: string[]; metadataCiphertext: string; keyGeneration?: number }>;
+  conflicts: Array<{ id: string; objectId: string; keyGeneration?: number }>;
 };
 const wireID = /^[a-z]{3}_[0-9a-hjkmnp-tv-z]{26}$/;
 const isID = (value: unknown): value is string => typeof value === "string" && wireID.test(value);

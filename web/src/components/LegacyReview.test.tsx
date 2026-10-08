@@ -24,13 +24,13 @@ async function review(complete = true): Promise<Review> {
   const api: ReviewAPI = {
     legacyRows: async () => ({
       complete,
-      objects: [{ id: id("obj", "a"), version: 3, keyGeneration: 1 }],
+      objects: [{ id: id("obj", "a"), keyGeneration: 1 }],
       comments: [{ id: id("cmt", "a"), objectId: id("obj", "a"), authorUserId: me, bodyCiphertext: base64(await encryptComment(mine, cnt, "Check the totals")), keyGeneration: 1 }],
       attachments: [
-        { id: id("att", "a"), objectIds: [id("obj", "a")], bytes: 4, metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "chart.png", type: "image/png", size: 2048 })), keyGeneration: 1 },
-        { id: id("att", "b"), objectIds: [id("obj", "a")], bytes: 1, metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "logo.svg", type: "image/svg+xml", size: 1 })), keyGeneration: 1 },
+        { id: id("att", "a"), objectIds: [id("obj", "a")], metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "chart.png", type: "image/png", size: 2048 })), keyGeneration: 1 },
+        { id: id("att", "b"), objectIds: [id("obj", "a")], metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "logo.svg", type: "image/svg+xml", size: 1 })), keyGeneration: 1 },
       ],
-      conflicts: [{ id: id("cfl", "a"), objectId: id("obj", "a"), keyGeneration: 1, createdAt: "t" }],
+      conflicts: [{ id: id("cfl", "a"), objectId: id("obj", "a"), keyGeneration: 1 }],
     }),
     readObject: async () => ({ bytes: page, version: 3, keyGeneration: 1 }),
     conflictBytes: async () => conflict,

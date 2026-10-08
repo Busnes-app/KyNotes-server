@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -14,7 +15,6 @@ type legacyList struct {
 	Complete bool `json:"complete"`
 	Objects  []struct {
 		ID            string `json:"id"`
-		Version       int64  `json:"version"`
 		KeyGeneration int64  `json:"keyGeneration"`
 	} `json:"objects"`
 	Comments []struct {
@@ -98,6 +98,26 @@ func TestLegacyRowsListOnlyRowsBelowSharing(t *testing.T) {
 	}
 	if len(got.Conflicts) != 1 || got.Conflicts[0].ObjectID != page || got.Conflicts[0].KeyGeneration != 1 {
 		t.Fatalf("conflicts: %+v", got.Conflicts)
+	}
+	// Only the fields the review reads: no version, size or timestamp the client would have to ignore.
+	_, raw := status(t, tm.viewer.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/legacy", nil, false, false))
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &wire); err != nil {
+		t.Fatal(err)
+	}
+	for kind, fields := range map[string]string{"objects": "id keyGeneration", "comments": "authorUserId bodyCiphertext id keyGeneration objectId", "attachments": "id keyGeneration metadataCiphertext objectIds", "conflicts": "id keyGeneration objectId"} {
+		var rows []map[string]any
+		if err := json.Unmarshal(wire[kind], &rows); err != nil || len(rows) == 0 {
+			t.Fatalf("%s: %v %s", kind, err, wire[kind])
+		}
+		keys := []string{}
+		for key := range rows[0] {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		if strings.Join(keys, " ") != fields {
+			t.Fatalf("%s fields: %v", kind, keys)
+		}
 	}
 
 	// Re-sealing each row at the shared generation takes it off the list.

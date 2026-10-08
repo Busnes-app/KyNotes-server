@@ -36,13 +36,13 @@ describe("reviewLegacy", () => {
       [id("obj", "c")]: { bytes: await encryptNote(mine, cnt, page("Relabelled")), version: 1, keyGeneration: 2 },
     };
     const rows: Partial<LegacyRows> = {
-      objects: Object.entries(objects).map(([oid, row]) => ({ id: oid, version: row.version, keyGeneration: 1 })),
+      objects: Object.entries(objects).map(([oid, row]) => ({ id: oid, keyGeneration: 1 })),
       comments: [
         { id: id("cmt", "a"), objectId: id("obj", "a"), authorUserId: me, bodyCiphertext: base64(await encryptComment(mine, cnt, "my note")), keyGeneration: 1 },
         { id: id("cmt", "b"), objectId: id("obj", "b"), authorUserId: other, bodyCiphertext: base64(await encryptComment(theirs, cnt, "their note")), keyGeneration: 1 },
       ],
-      attachments: [{ id: id("att", "a"), objectIds: [id("obj", "a")], bytes: 4, metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "a.txt", type: "text/plain", size: 4 })), keyGeneration: 1 }],
-      conflicts: [{ id: id("cfl", "a"), objectId: id("obj", "a"), keyGeneration: 1, createdAt: "t" }],
+      attachments: [{ id: id("att", "a"), objectIds: [id("obj", "a")], metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "a.txt", type: "text/plain", size: 4 })), keyGeneration: 1 }],
+      conflicts: [{ id: id("cfl", "a"), objectId: id("obj", "a"), keyGeneration: 1 }],
     };
     const conflicts = { [id("cfl", "a")]: await encryptNote(mine, cnt, page("Older mine")) };
     const files = { [id("att", "a")]: await encryptAttachment(mine, cnt, new Uint8Array([1, 2, 3, 4])) };
@@ -65,27 +65,27 @@ describe("reviewLegacy", () => {
 
   it("never closes by itself on an incomplete list or a row it could not fetch", async () => {
     expect(autoCloses(await reviewLegacy(server({}, { complete: false }), { container, floorNow: () => floor, legacy: mine, userId: me }), floor)).toBe(false);
-    const missing = await reviewLegacy(server({}, { objects: [{ id: id("obj", "z"), version: 1, keyGeneration: 1 }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
+    const missing = await reviewLegacy(server({}, { objects: [{ id: id("obj", "z"), keyGeneration: 1 }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
     expect(missing.complete).toBe(false);
     expect(autoCloses(missing, floor)).toBe(false);
-    const conflict = await reviewLegacy(server({}, { conflicts: [{ id: id("cfl", "z"), objectId: id("obj", "a"), keyGeneration: 1, createdAt: "t" }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
+    const conflict = await reviewLegacy(server({}, { conflicts: [{ id: id("cfl", "z"), objectId: id("obj", "a"), keyGeneration: 1 }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
     expect(autoCloses(conflict, floor)).toBe(false);
     expect(autoCloses(await reviewLegacy(server({}, {}), { container, floorNow: () => floor, legacy: mine, userId: me }), floor)).toBe(true);
   });
 
   it("reads nothing once this device closed, and counts every listed row as someone else's", async () => {
-    const api = server({}, { objects: [{ id: id("obj", "a"), version: 1, keyGeneration: 1 }], comments: [{ id: id("cmt", "a"), objectId: id("obj", "a"), authorUserId: me, bodyCiphertext: "", keyGeneration: 1 }] });
+    const api = server({}, { objects: [{ id: id("obj", "a"), keyGeneration: 1 }], comments: [{ id: id("cmt", "a"), objectId: id("obj", "a"), authorUserId: me, bodyCiphertext: "", keyGeneration: 1 }] });
     api.readObject = async () => { throw new Error("must not read"); };
     expect(await reviewLegacy(api, { container, floorNow: () => ({ ...floor, closed: 2 }), legacy: mine, userId: me })).toEqual({ mine: [], others: 2, refused: 0, complete: true, shared: 2 });
   });
 
   it("lists nothing for a notebook this device has never seen shared", async () => {
-    const api = server({}, { objects: [{ id: id("obj", "a"), version: 1, keyGeneration: 1 }] });
+    const api = server({}, { objects: [{ id: id("obj", "a"), keyGeneration: 1 }] });
     expect(await reviewLegacy(api, { container: { ...container, sharedGeneration: 0, keyGeneration: 1 }, floorNow: () => ({}), legacy: mine, userId: me })).toEqual({ mine: [], others: 0, refused: 0, complete: true, shared: 0 });
   });
 
   it("offers an attachment with the bytes it opened, so sharing seals what the dialog opens", async () => {
-    const row = (c: string) => ({ id: id("att", c), objectIds: [id("obj", "a")], bytes: 4, keyGeneration: 1 });
+    const row = (c: string) => ({ id: id("att", c), objectIds: [id("obj", "a")], keyGeneration: 1 });
     const meta = base64(await encryptAttachmentMetadata(mine, cnt, { name: "a", type: "", size: 4 }));
     const api = server({}, { attachments: [{ ...row("a"), metadataCiphertext: meta }, { ...row("b"), metadataCiphertext: meta }, { ...row("c"), metadataCiphertext: meta }] }, {}, {
       [id("att", "a")]: await encryptAttachment(mine, cnt, new Uint8Array([7, 7])),
@@ -137,7 +137,7 @@ describe("review binding and closure (fix round 1)", () => {
 
   it("an object with no valid generation leaves the review incomplete (M1)", async () => {
     const objects = { [id("obj", "a")]: { bytes: await encryptNote(mine, cnt, page("Mine")), version: 1, keyGeneration: undefined as unknown as number } };
-    const review = await reviewLegacy(server(objects, { objects: [{ id: id("obj", "a"), version: 1, keyGeneration: 1 }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
+    const review = await reviewLegacy(server(objects, { objects: [{ id: id("obj", "a"), keyGeneration: 1 }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
     expect(review).toMatchObject({ mine: [], complete: false });
     expect(autoCloses(review, floor)).toBe(false);
   });
@@ -148,7 +148,7 @@ describe("review binding and closure (fix round 1)", () => {
       [id("obj", "b")]: { bytes: await encryptNote(mine, cnt, page("Second")), version: 1, keyGeneration: 1 },
     };
     let now: KeyFloor = floor;
-    const api = server(objects, { objects: Object.keys(objects).map((oid) => ({ id: oid, version: 1, keyGeneration: 1 })) });
+    const api = server(objects, { objects: Object.keys(objects).map((oid) => ({ id: oid, keyGeneration: 1 })) });
     const read = api.readObject;
     // Another tab presses Stop while the second row is fetched.
     api.readObject = async (oid) => { if (oid === id("obj", "b")) now = { ...floor, closed: 2 }; return read(oid); };
@@ -188,10 +188,10 @@ function liveServer() {
   const api: MigrationAPI & ReviewAPI = {
     legacyRows: async () => ({
       complete: true,
-      objects: [...objects].filter(([, row]) => row.keyGeneration < 2).map(([oid, row]) => ({ id: oid, version: row.version, keyGeneration: row.keyGeneration })),
+      objects: [...objects].filter(([, row]) => row.keyGeneration < 2).map(([oid, row]) => ({ id: oid, keyGeneration: row.keyGeneration })),
       comments: [...comments].filter(([, row]) => row.keyGeneration < 2).map(([cid, row]) => ({ id: cid, objectId: row.objectId, authorUserId: row.authorUserId, bodyCiphertext: row.body, keyGeneration: row.keyGeneration })),
-      attachments: [...attachments].filter(([, row]) => row.keyGeneration < 2 && row.objectIds.length).map(([aid, row]) => ({ id: aid, objectIds: [...row.objectIds], bytes: row.bytes.byteLength, metadataCiphertext: row.meta, keyGeneration: row.keyGeneration })),
-      conflicts: [...conflicts].filter(([, row]) => row.keyGeneration < 2).map(([fid, row]) => ({ id: fid, objectId: row.objectId, keyGeneration: row.keyGeneration, createdAt: "t" })),
+      attachments: [...attachments].filter(([, row]) => row.keyGeneration < 2 && row.objectIds.length).map(([aid, row]) => ({ id: aid, objectIds: [...row.objectIds], metadataCiphertext: row.meta, keyGeneration: row.keyGeneration })),
+      conflicts: [...conflicts].filter(([, row]) => row.keyGeneration < 2).map(([fid, row]) => ({ id: fid, objectId: row.objectId, keyGeneration: row.keyGeneration })),
     }),
     readObject: async (oid) => ({ ...objects.get(oid)! }),
     conflictBytes: async (fid) => conflicts.get(fid)!.bytes,

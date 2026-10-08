@@ -344,11 +344,11 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 			name, query string
 			scan        func(*sql.Rows) (map[string]any, error)
 		}{
-			{"objects", `SELECT o.id,o.current_version,v.key_generation FROM objects o JOIN object_versions v ON v.object_id=o.id AND v.version=o.current_version WHERE o.container_id=?1 AND o.deleted_at='' AND v.key_generation<?2 ORDER BY o.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
+			{"objects", `SELECT o.id,v.key_generation FROM objects o JOIN object_versions v ON v.object_id=o.id AND v.version=o.current_version WHERE o.container_id=?1 AND o.deleted_at='' AND v.key_generation<?2 ORDER BY o.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
 				var id string
-				var version, generation int64
-				err := rows.Scan(&id, &version, &generation)
-				return map[string]any{"id": id, "version": version, "keyGeneration": generation}, err
+				var generation int64
+				err := rows.Scan(&id, &generation)
+				return map[string]any{"id": id, "keyGeneration": generation}, err
 			}},
 			{"comments", `SELECT c.id,c.object_id,c.author_user_id,c.body_ciphertext,c.key_generation FROM comments c JOIN objects o ON o.id=c.object_id AND o.deleted_at='' WHERE c.container_id=?1 AND c.deleted_at='' AND c.key_generation<?2 ORDER BY c.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
 				var id, object, author string
@@ -357,18 +357,18 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 				err := rows.Scan(&id, &object, &author, &body, &generation)
 				return map[string]any{"id": id, "objectId": object, "authorUserId": author, "bodyCiphertext": base64.StdEncoding.EncodeToString(body), "keyGeneration": generation}, err
 			}},
-			{"attachments", `SELECT a.id,group_concat(DISTINCT ar.object_id),a.ciphertext_bytes,a.metadata_ciphertext,a.key_generation FROM attachments a JOIN attachment_refs ar ON ar.attachment_id=a.id JOIN objects o ON o.id=ar.object_id AND o.deleted_at='' WHERE a.container_id=?1 AND a.deleted_at='' AND a.key_generation<?2 GROUP BY a.id ORDER BY a.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
+			{"attachments", `SELECT a.id,group_concat(DISTINCT ar.object_id),a.metadata_ciphertext,a.key_generation FROM attachments a JOIN attachment_refs ar ON ar.attachment_id=a.id JOIN objects o ON o.id=ar.object_id AND o.deleted_at='' WHERE a.container_id=?1 AND a.deleted_at='' AND a.key_generation<?2 GROUP BY a.id ORDER BY a.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
 				var id, objects string
-				var size, generation int64
-				var meta []byte
-				err := rows.Scan(&id, &objects, &size, &meta, &generation)
-				return map[string]any{"id": id, "objectIds": strings.Split(objects, ","), "bytes": size, "metadataCiphertext": base64.StdEncoding.EncodeToString(meta), "keyGeneration": generation}, err
-			}},
-			{"conflicts", `SELECT f.id,f.object_id,f.key_generation,f.created_at FROM conflicts f JOIN objects o ON o.id=f.object_id AND o.deleted_at='' WHERE f.container_id=?1 AND f.resolved_at='' AND f.key_generation<?2 ORDER BY f.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, object, created string
 				var generation int64
-				err := rows.Scan(&id, &object, &generation, &created)
-				return map[string]any{"id": id, "objectId": object, "keyGeneration": generation, "createdAt": created}, err
+				var meta []byte
+				err := rows.Scan(&id, &objects, &meta, &generation)
+				return map[string]any{"id": id, "objectIds": strings.Split(objects, ","), "metadataCiphertext": base64.StdEncoding.EncodeToString(meta), "keyGeneration": generation}, err
+			}},
+			{"conflicts", `SELECT f.id,f.object_id,f.key_generation FROM conflicts f JOIN objects o ON o.id=f.object_id AND o.deleted_at='' WHERE f.container_id=?1 AND f.resolved_at='' AND f.key_generation<?2 ORDER BY f.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
+				var id, object string
+				var generation int64
+				err := rows.Scan(&id, &object, &generation)
+				return map[string]any{"id": id, "objectId": object, "keyGeneration": generation}, err
 			}},
 		}
 		out := map[string]any{"complete": true}
