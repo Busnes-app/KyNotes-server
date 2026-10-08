@@ -368,3 +368,10 @@ body { color: var(--ink-strong); background: var(--bg); }
 .link-status { overflow-wrap: anywhere; }
 .link-actions button + button { margin-left: 0; }
 .check-code-input { border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); padding: 13px 14px; }
+.legacy-review { max-width: min(560px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 16px; corner-shape: squircle; background: var(--panel); color: var(--ink); }
+.legacy-review ul { list-style: none; margin: 12px 0; padding: 0; max-height: 50vh; overflow: auto; }
+.legacy-review li { padding: 6px 0; overflow-wrap: anywhere; }
+.legacy-label { font: 11px Mono, monospace; letter-spacing: .04em; color: var(--ink); }
+.legacy-preview { white-space: pre-wrap; max-height: 12em; overflow: auto; margin: 4px 0 0; }
+.legacy-image { display: block; max-width: 100%; max-height: 12em; margin-top: 4px; }
+.legacy-banner button { margin-left: 4px; }

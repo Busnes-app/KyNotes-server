@@ -1,0 +1,166 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import { APIRequestError } from "../api";
+import { encryptAttachment, encryptAttachmentMetadata, encryptComment, encryptNote, base64, legacyKeyRef } from "../crypto";
+import { isReopenConfirmation, type ReopenConfirmation } from "../keyring";
+import { isMigrationApproval, reviewLegacy, type LegacyReview as Review, type MigrationApproval, type Migrated, type ReviewAPI } from "../migration";
+import {
+  checkFailure, LEGACY_BLOCKED, LEGACY_CHECKING, LEGACY_CLOSED, LEGACY_INCOMPLETE, LEGACY_LABEL, LEGACY_SHARE_INCOMPLETE, LEGACY_UNCHECKED, LegacyItems, legacyLeave, LegacyReview,
+  REOPEN_CONFIRM, REOPEN_LEGACY, SHARE_BUTTON, shareOutcomeText, STOP_BUTTON, submitReopen, submitShare, TICK_THESE, tickThese,
+} from "./LegacyReview";
+
+const cnt = `cnt_${"a".repeat(26)}`;
+const me = `usr_${"a".repeat(26)}`;
+const mine = legacyKeyRef("a".repeat(64));
+const id = (prefix: string, c: string) => `${prefix}_${c.repeat(26)}`;
+const container = { id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 };
+
+/** A real (branded) review of a page, a comment, a PNG, an SVG and a conflict, all this user's. */
+async function review(complete = true): Promise<Review> {
+  const page = await encryptNote(mine, cnt, { type: "page", title: "Budget", body: "Line one of the budget" });
+  const png = await encryptAttachment(mine, cnt, new Uint8Array([137, 80, 78, 71]));
+  const svg = await encryptAttachment(mine, cnt, new Uint8Array([60]));
+  const conflict = await encryptNote(mine, cnt, { type: "page", title: "Old budget", body: "Older line" });
+  const api: ReviewAPI = {
+    legacyRows: async () => ({
+      complete,
+      objects: [{ id: id("obj", "a"), version: 3, keyGeneration: 1 }],
+      comments: [{ id: id("cmt", "a"), objectId: id("obj", "a"), authorUserId: me, bodyCiphertext: base64(await encryptComment(mine, cnt, "Check the totals")), keyGeneration: 1 }],
+      attachments: [
+        { id: id("att", "a"), objectIds: [id("obj", "a")], bytes: 4, metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "chart.png", type: "image/png", size: 2048 })), keyGeneration: 1 },
+        { id: id("att", "b"), objectIds: [id("obj", "a")], bytes: 1, metadataCiphertext: base64(await encryptAttachmentMetadata(mine, cnt, { name: "logo.svg", type: "image/svg+xml", size: 1 })), keyGeneration: 1 },
+      ],
+      conflicts: [{ id: id("cfl", "a"), objectId: id("obj", "a"), keyGeneration: 1, createdAt: "t" }],
+    }),
+    readObject: async () => ({ bytes: page, version: 3, keyGeneration: 1 }),
+    conflictBytes: async () => conflict,
+    downloadAttachment: async (aid) => (aid === id("att", "a") ? png : svg),
+  };
+  return reviewLegacy(api, { container, floorNow: () => ({ shared: 2, generation: 2 }), legacy: mine, userId: me });
+}
+const noop = async () => {};
+const banner = (props: Partial<Parameters<typeof LegacyReview>[0]>) =>
+  renderToStaticMarkup(<LegacyReview userID={me} containerID={cnt} review={undefined} checking={false} closed={false} onShare={noop} onStop={noop} onReopen={noop} {...props} />);
+const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
+const outcome = (result: Partial<Migrated>): Migrated => ({ shared: [], failed: [], closed: false, incomplete: false, blockedBy: [], ...result });
+
+describe("the pre-sharing banner", () => {
+  it("shows while the check runs, with Stop and without a review button", () => {
+    const html = text(banner({ checking: true }));
+    expect(html).toContain(LEGACY_CHECKING);
+    expect(html).toContain(STOP_BUTTON);
+    expect(html).not.toContain("Review and share");
+  });
+
+  it("a failed check shows the banner, the reason and Stop (N2)", () => {
+    for (const error of [new APIRequestError("slow", {}, 429), new APIRequestError("boom", {}, 500), new TypeError("Failed to fetch")]) {
+      const html = text(banner({ failure: checkFailure(error) }));
+      expect(html).toContain(LEGACY_UNCHECKED);
+      expect(html).toContain(checkFailure(error));
+      expect(html).toContain(STOP_BUTTON);
+    }
+    expect(checkFailure(new APIRequestError("slow", {}, 429))).toMatch(/limiting/);
+    expect(checkFailure(new APIRequestError("boom", {}, 500))).toMatch(/500/);
+    expect(checkFailure(new TypeError("Failed to fetch"))).toMatch(/could not reach/);
+  });
+
+  it("an incomplete check shows the banner and Stop, with or without items of this user's", async () => {
+    const empty = { ...(await review(false)) };
+    const partial = await review(false);
+    for (const value of [partial, { ...empty, mine: [] } as Review]) {
+      const html = text(banner({ review: value }));
+      expect(html).toContain(LEGACY_INCOMPLETE);
+      expect(html).toContain(STOP_BUTTON);
+    }
+  });
+
+  it("a closed notebook offers only \"Show pre-sharing items again\"", async () => {
+    const html = text(banner({ review: await review(), closed: true }));
+    expect(html).toContain(LEGACY_CLOSED);
+    expect(html).toContain(REOPEN_LEGACY);
+    expect(html).not.toContain(STOP_BUTTON);
+    expect(html).not.toContain("Review and share");
+    expect(text(banner({ review: await review() }))).not.toContain(REOPEN_LEGACY);
+  });
+
+  it("says why a share did not close: incomplete, or named pages that still use a shared attachment", async () => {
+    const html = text(banner({ review: await review(), outcome: outcome({ incomplete: true, blockedBy: [{ id: id("obj", "a"), title: "Budget", attachment: id("att", "a") }, { id: id("obj", "z"), attachment: id("att", "a") }] }) }));
+    expect(html).toContain(LEGACY_SHARE_INCOMPLETE);
+    expect(html).toContain(LEGACY_BLOCKED);
+    expect(html).toContain("Budget");
+    expect(html).toContain("Untitled page");
+    expect(html).toContain(TICK_THESE);
+    expect(shareOutcomeText(outcome({ shared: ["x"], incomplete: true }))).toBe(`Shared 1 item. ${LEGACY_SHARE_INCOMPLETE}`);
+    expect(shareOutcomeText(outcome({ shared: ["x", "y"], closed: true }))).toBe(`Shared 2 items. ${LEGACY_CLOSED}`);
+    expect(shareOutcomeText(outcome({ failed: [{ id: "x", reason: "offline" }] }))).toMatch(/^1 of the ticked items could not be shared \(offline\)/);
+  });
+
+  it("\"Tick these too\" ticks the blocked pages and their attachments that the review still offers", async () => {
+    const value = await review();
+    expect([...tickThese(value, [{ id: id("obj", "a"), attachment: id("att", "a") }, { id: id("obj", "z"), attachment: id("att", "z") }])].sort()).toEqual([id("att", "a"), id("obj", "a")]);
+  });
+});
+
+describe("the review dialog", () => {
+  it("shows each item's actual content, labelled unverified, unticked, with an image preview for raster images only", async () => {
+    const value = await review();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:preview" }));
+    const html = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set()} busy={false} onToggle={() => {}} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
+    vi.unstubAllGlobals();
+    const shown = text(html);
+    for (const expected of ["Page: Budget", "Line one of the budget", "Comment: Check the totals", "Attachment: chart.png (2 KB)", "Attachment: logo.svg (1 KB)", "Conflicting version: Old budget", "Older line"]) expect(shown).toContain(expected);
+    expect(shown.split(LEGACY_LABEL)).toHaveLength(value.mine.length + 1);
+    expect(html.match(/type="checkbox"/g)).toHaveLength(value.mine.length);
+    expect(html).not.toMatch(/checked=""/);
+    expect(html.match(/<img /g)).toHaveLength(1);
+    expect(html).toContain('alt="chart.png"');
+    // Share is disabled until something is ticked.
+    expect(html).toMatch(new RegExp(`<button disabled="">${SHARE_BUTTON}</button>`));
+    const ticked = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set([id("obj", "a")])} busy={false} onToggle={() => {}} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
+    expect(ticked).toContain(`<button>${SHARE_BUTTON}</button>`);
+  });
+
+  it("shares nothing with nothing ticked, and asks before hiding the unticked count", async () => {
+    const value = await review();
+    const onShare = vi.fn(async (_approval: MigrationApproval) => {});
+    const ask = vi.fn(() => false);
+    expect(await submitShare({ userID: me, containerID: cnt, review: value, picked: new Set(), ask, onShare })).toBe(false);
+    expect(ask).not.toHaveBeenCalled();
+    // Two ticked of five: the user is asked about three, and declining sends nothing.
+    const picked = new Set([id("obj", "a"), id("cmt", "a")]);
+    expect(await submitShare({ userID: me, containerID: cnt, review: value, picked, ask, onShare })).toBe(false);
+    expect(ask).toHaveBeenCalledWith(legacyLeave(value.mine.length - 2));
+    expect(onShare).not.toHaveBeenCalled();
+    // Confirmed: the approval is minted for this user and notebook with the confirmed count.
+    expect(await submitShare({ userID: me, containerID: cnt, review: value, picked, ask: () => true, onShare })).toBe(true);
+    const approval = onShare.mock.calls[0][0];
+    expect(isMigrationApproval(approval, me, cnt)).toBe(true);
+    expect(approval).toMatchObject({ unticked: value.mine.length - 2, hideConfirmed: value.mine.length - 2, complete: true, shared: 2 });
+    // Everything ticked: nothing is hidden, so nothing to confirm.
+    const all = vi.fn(() => false);
+    expect(await submitShare({ userID: me, containerID: cnt, review: value, picked: new Set(value.mine.map((item) => item.id)), ask: all, onShare })).toBe(true);
+    expect(all).not.toHaveBeenCalled();
+  });
+
+  it("mints a reopen confirmation only after the user confirms the unverified warning", async () => {
+    expect(REOPEN_CONFIRM).toMatch(/not end-to-end verified/);
+    const onReopen = vi.fn(async (_confirmation: ReopenConfirmation) => {});
+    expect(await submitReopen(me, cnt, () => false, onReopen)).toBe(false);
+    expect(onReopen).not.toHaveBeenCalled();
+    const ask = vi.fn(() => true);
+    expect(await submitReopen(me, cnt, ask, onReopen)).toBe(true);
+    expect(ask).toHaveBeenCalledWith(REOPEN_CONFIRM);
+    expect(isReopenConfirmation(onReopen.mock.calls[0][0], me, cnt)).toBe(true);
+  });
+
+  it("reads content from the review it shows, never from an approval, and mints only in submitShare and submitReopen", () => {
+    const source = import.meta.glob<string>("./LegacyReview.tsx", { query: "?raw", import: "default", eager: true })["./LegacyReview.tsx"];
+    expect(source).not.toMatch(/approval\.\w/);
+    expect(source.match(/\bapproveMigration\(/g)).toHaveLength(1);
+    expect(source.match(/\bconfirmReopenLegacy\(/g)).toHaveLength(1);
+    expect(source).toMatch(/export async function submitShare[^]*?approveMigration\(input\.userID, input\.containerID, input\.review, ticked, hide\)/);
+    expect(source).toMatch(/if \(!ask\(REOPEN_CONFIRM\)\) return false;\n\s*await onReopen\(confirmReopenLegacy\(userID, containerID\)\);/);
+    // The dialog starts with nothing ticked unless "Tick these too" names items.
+    expect(source).toContain("openDialog(new Set())");
+  });
+});
