@@ -29,7 +29,7 @@ export const observeContainers = <C extends Reported>(sink: FloorSink, list: C[]
 export const listContainers = async (sink: FloorSink) => observeContainers(sink, await containers());
 export const newContainer = async (sink: FloorSink, ...args: Parameters<typeof createContainer>) => observeContainer(sink, await createContainer(...args));
 export const listAdminTeams = async (sink: FloorSink) => observeContainers(sink, await adminTeams());
-export const newAdminTeam = async (sink: FloorSink, metaCiphertext: string) => observeContainer(sink, await createAdminTeam(metaCiphertext));
+export const newAdminTeam = async (sink: FloorSink) => observeContainer(sink, await createAdminTeam());
 
 export const NOT_CREATED = "The notebook could not get its own key, so it was not created. Try again.";
 /**

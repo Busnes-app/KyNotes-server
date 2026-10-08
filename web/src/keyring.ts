@@ -1,5 +1,5 @@
 import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
-import { base64, fromBase64, type KeyRef } from "./crypto";
+import { asContentKey, base64, fromBase64, type KeyRef } from "./crypto";
 import { hkdfSha256, sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
@@ -12,7 +12,7 @@ export type InvitationEnvelope = Envelope & { containerId: string };
 /** The fields of a container that decide its keys. */
 export type KeyedContainer = { id: string; keyGeneration: number; sharedGeneration: number };
 /** Container keys this browser unwrapped, by generation. */
-export type Keyring = ReadonlyMap<number, Uint8Array>;
+export type Keyring = ReadonlyMap<number, KeyRef>;
 export type WriteKey = { key: KeyRef; generation: number };
 export type Member = { userId: string; username: string; role: string };
 /** A member and its identity, when it has one the server shows us. */
@@ -50,7 +50,7 @@ export const mergeFloor = <T extends KeyFloor>(floor: KeyFloor | undefined, next
  * The one choke point for a server-reported container: sharing state never goes backwards on
  * this device. rollback is true when the server reports a lower sharedGeneration or
  * keyGeneration than this device has seen; nothing may be written then (writeKey), and reads
- * use the higher sharedGeneration, so a shared container never falls back to the login key.
+ * use the higher sharedGeneration, so a keyed container never reads a row below its first key.
  */
 export function guardContainer<C extends KeyedContainer>(container: C, floor: KeyFloor): { container: C; rollback: boolean } {
   const shared = floor.shared ?? 0, generation = floor.generation ?? 0;
@@ -69,7 +69,6 @@ export type ReportedContainer = KeyedContainer & { kind: string; teamId?: string
 export function keysAllowed(container: KeyedContainer, floor: KeyFloor): boolean {
   return !guardContainer(container, floor).rollback;
 }
-const sharedFloor = (container: Pick<KeyedContainer, "sharedGeneration">, floor: KeyFloor) => Math.max(container.sharedGeneration, floor.shared ?? 0);
 export type OpenKeyringInput = {
   containerID: string; envelopes: Envelope[]; me: Me | undefined; members: MemberKey[]; pins: Pins;
   /** This device's key memory for the container (getKeyState); never taken from the server. */
@@ -91,12 +90,12 @@ export const isSteward = (role: string) => role === "owner" || role === "admin";
  */
 export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   const { containerID, envelopes, me, members, pins } = input;
-  const ring = new Map<number, Uint8Array>();
+  const ring = new Map<number, KeyRef>();
   const known = { ...input.known, mark: Math.max(0, input.known.mark), digests: { ...input.known.digests } };
   const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[], conflicts: [] as number[], known };
   const pinnedKeys = Object.values(pins).flatMap((key) => { try { return [publicKeyBytes(key)]; } catch { return []; } });
   /** First key per generation wins, across reloads through the stored digest. */
-  const accept = (generation: number, key: Uint8Array): boolean => {
+  const accept = (generation: number, key: KeyRef): boolean => {
     const digest = bytesToHex(sha256(key));
     const prior = ring.get(generation);
     const matches = prior ? bytesToHex(sha256(prior)) === digest : (known.digests[generation] ?? digest) === digest;
@@ -112,7 +111,7 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   for (const [generation, key] of input.held ?? []) accept(generation, key);
   if (!me) return out;
   const open = (envelope: Uint8Array, generation: number, sender: Uint8Array) => {
-    try { return unwrapEnvelope(envelope, me.privateKey, containerID, generation, me.deviceId, sender); } catch { return undefined; }
+    try { return asContentKey(unwrapEnvelope(envelope, me.privateKey, containerID, generation, me.deviceId, sender)); } catch { return undefined; }
   };
   // Pass 1: self and current stewards; these alone raise the mark.
   const deferred: Array<{ envelope: Uint8Array; generation: number }> = [];
@@ -162,10 +161,9 @@ export function writeKey(reported: KeyedContainer, ring: Keyring, floor: KeyFloo
 }
 
 /**
- * Generation 0 marks a local edit made while the current key is missing. It is sealed with
- * the identity's waitingKey (the login-derived key only before P5, or on a browser that holds no
- * identity), stays on this device (the server's generations start at 1, and the
- * queue never sends it) and is re-sealed for the current key once that key arrives.
+ * Generation 0 marks a local edit made while the current key is missing. It is sealed with the
+ * identity's waitingKey, stays on this device (server generations start at 1 and the queue never
+ * sends it) and is re-sealed for the current key once that key arrives.
  */
 export const WAITING_GENERATION = 0;
 
@@ -179,49 +177,23 @@ export function localKey(container: KeyedContainer, ring: Keyring, seal: KeyRef,
  * a password change, and "Forget this device" once the identity comes back (link, recovery code, password).
  */
 export const waitingKey = (identity: Pick<Identity, "privateKey">): KeyRef =>
-  hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1"));
+  asContentKey(hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1")));
 
 /**
- * The one key a server row may be read with. Rows at or above sharedGeneration open only with
- * their own generation's CK, so neither a relabelled legacy row nor a removed member's older CK
- * can stand in for a newer generation. Older rows, and never-shared containers, use the login key.
- * Callers label such rows (legacyRow) and re-seal them only on an explicit edit or move.
+ * The one key a server row may be read with: the container key of the row's own generation, at or
+ * above the first keyed generation (the higher of the server's report and this device's floor).
+ * A missing, malformed, waiting or older generation gets no key; nothing else is ever tried.
  */
-export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor): KeyRef[] {
-  // A never-shared container has only the legacy key, so a row without a generation (old cache) still reads.
-  if (sharedFloor(container, floor) === 0) return [legacy];
-  // The same decision labels the row, so a row read with the legacy key is always labelled.
-  if (legacyRow(container, generation, floor)) return [legacy];
-  if (generation === undefined || !Number.isInteger(generation)) return [];
+export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, generation: number | undefined, floor: KeyFloor): KeyRef[] {
+  const shared = Math.max(container.sharedGeneration, floor.shared ?? 0);
+  if (shared === 0 || generation === undefined || !Number.isInteger(generation) || generation < shared) return [];
   const key = ring.get(generation);
   return key ? [key] : [];
 }
 
-/** readKeys for an entry this browser wrote to IndexedDB itself; a waiting entry may try the identity's waiting key first. */
-export const localReadKeys = (container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor, waiting?: KeyRef): KeyRef[] => {
-  const keys = readKeys(container, ring, legacy, generation, floor);
-  return generation === WAITING_GENERATION && waiting ? [waiting, ...keys] : keys;
-};
-
-/**
- * True exactly when readKeys opens a shared container's row with the login-derived key: the
- * reader's own pre-sharing content or waiting edit, or a server forgery. Callers label it as
- * not end-to-end verified and re-seal it only on an explicit edit, move or review.
- */
-export function legacyRow(container: Pick<KeyedContainer, "sharedGeneration">, generation: number | undefined, floor: KeyFloor): boolean {
-  const shared = sharedFloor(container, floor);
-  return shared > 0 && Number.isInteger(generation) && generation! < shared;
-}
-
-/** A block move would re-seal a labelled row the user did not pick: any member but the head. */
-export const movesLabelledSubpage = (block: ReadonlyArray<{ id: string }>, head: string, labelled: ReadonlySet<string>) =>
-  block.some((page) => page.id !== head && labelled.has(page.id));
-
-/** Conflict versions that may become copies: never a legacy-key one, which copying would re-seal unseen. */
-export function copyableConflicts<T extends { keyGeneration?: number }>(container: Pick<KeyedContainer, "sharedGeneration">, conflicts: T[], floor: KeyFloor): { copy: T[]; kept: number } {
-  const copy = conflicts.filter((conflict) => !legacyRow(container, conflict.keyGeneration, floor));
-  return { copy, kept: conflicts.length - copy.length };
-}
+/** Keys for a copy this browser stored itself (cache, queue, upload): the waiting key for a waiting entry, otherwise readKeys. */
+export const ownCopyKeys = (container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, generation: number | undefined, floor: KeyFloor, waiting?: KeyRef): KeyRef[] =>
+  generation === WAITING_GENERATION ? (waiting ? [waiting] : []) : readKeys(container, ring, generation, floor);
 
 /** Runs open with each key in turn; AES-GCM authentication makes a wrong key fail, not misread. */
 export async function openFirst<T>(keys: KeyRef[], open: (key: KeyRef) => Promise<T>): Promise<T> {
@@ -286,7 +258,7 @@ export function sealFor(member: MemberKey, containerID: string, generation: numb
 }
 
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */
-export const newContainerKey = (): Uint8Array => randomBytes(32);
+export const newContainerKey = (): KeyRef => asContentKey(randomBytes(32));
 
 export type MemberKeyStatus = "has-key" | "waiting" | "no-identity";
 

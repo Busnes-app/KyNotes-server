@@ -1,19 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decryptAttachment, decryptAttachmentMetadata, encryptAttachment, encryptAttachmentMetadata, fromBase64, base64, legacyKeyRef } from "./crypto";
+import { decryptAttachment, decryptAttachmentMetadata, encryptAttachment, encryptAttachmentMetadata, fromBase64, base64, type KeyRef } from "./crypto";
 import { attachmentStep, sealAttachment } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
-import { keysAllowed, newContainerKey, writeKey, type ReportedContainer } from "./keyring";
+import { keysAllowed, newContainerKey, WAITING_GENERATION, waitingKey, writeKey, type ReportedContainer } from "./keyring";
+import { generateIdentity } from "./teamKeys";
 import { confirmCheckCode, confirmTypedCheckCode, discardLinkKey, newLinkKey } from "./linking";
 import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
 import type { PendingUpload } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
-const login = legacyKeyRef("a".repeat(64));
+const waiting = waitingKey(generateIdentity());
 const file = { name: "photo.png", type: "image/png", size: 4 };
 const shared: ReportedContainer = { id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 };
 
 describe("outbound ciphertext gate", () => {
-  const ring = new Map<number, Uint8Array>();
+  const ring = new Map<number, KeyRef>();
   let unregister = () => {};
   const fetches = vi.fn(async () => new Response(JSON.stringify({ receivedBytes: 4, nextChunk: 1 }), { status: 200 }));
   beforeEach(() => {
@@ -30,29 +31,29 @@ describe("outbound ciphertext gate", () => {
   });
   afterEach(() => { unregister(); vi.unstubAllGlobals(); });
 
-  it("sends no chunk of a legacy pending upload once sharing is known, and re-seals it for the current key", async () => {
+  it("sends no chunk of a waiting pending upload, and re-seals it for the current key once that arrives", async () => {
     const plaintext = new Uint8Array([1, 2, 3, 4]);
-    // Started before sharing: sealed with the login key at generation 1.
-    const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: 1, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(login, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(login, cnt, file)), ...file };
+    // Started while this browser had no key: sealed with the identity's waiting key.
+    const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     // Keys missing: the resume waits, and the gate refuses the stored chunk outright.
-    expect((await attachmentStep(job, shared, floorOf(cnt), undefined, ring, login)).kind).toBe("wait");
+    expect((await attachmentStep(job, shared, floorOf(cnt), undefined, ring, waiting)).kind).toBe("wait");
     expect(() => sendUploadChunk({ container: shared, generation: job.keyGeneration }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
     expect(fetches).not.toHaveBeenCalled();
     // The key arrives: the payload and metadata are re-sealed before any chunk is sent.
     const key = newContainerKey();
     ring.set(2, key);
     const write = writeKey(shared, ring, floorOf(cnt)!)!;
-    const step = await attachmentStep(job, shared, floorOf(cnt), write, ring, login);
+    const step = await attachmentStep(job, shared, floorOf(cnt), write, ring, waiting);
     expect(step.kind).toBe("reseal");
     if (step.kind !== "reseal") return;
     const resealed = await sealAttachment(write, cnt, step.plaintext, step.file);
     expect(resealed.keyGeneration).toBe(2);
     expect(await decryptAttachment(key, cnt, resealed.payload)).toEqual(plaintext);
     expect(await decryptAttachmentMetadata(key, cnt, fromBase64(resealed.metadataCiphertext))).toEqual(file);
-    await expect(decryptAttachment(login, cnt, resealed.payload)).rejects.toThrow();
+    await expect(decryptAttachment(waiting, cnt, resealed.payload)).rejects.toThrow();
     // The old ciphertext still never passes; the re-sealed one does.
-    expect(() => sendUploadChunk({ container: shared, generation: 1 }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
+    expect(() => sendUploadChunk({ container: shared, generation: WAITING_GENERATION }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
     await sendUploadChunk({ container: shared, generation: 2 }, "upl2", 0, resealed.payload);
     expect(fetches).toHaveBeenCalledOnce();
     expect((fetches.mock.calls[0] as unknown as [string, RequestInit])[1].body).toEqual(resealed.payload);

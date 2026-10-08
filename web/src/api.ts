@@ -8,10 +8,7 @@ export type Container = { id: string; kind: string; teamId?: string; metaCiphert
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
 export type Invitation = { id: string; token: string; expiresAt: string };
 
-/**
- * A row generation from the server: a non-negative safe integer, else undefined, which readKeys
- * never opens. 0 passes: a personal container reads it as before, a shared one labels it (legacyRow).
- */
+/** A row generation from the server: a non-negative safe integer, else undefined, which readKeys never opens. */
 export function serverGeneration(value: unknown): number | undefined {
   const parsed = typeof value === "string" ? (/^\d+$/.test(value) ? Number(value) : Number.NaN) : value;
   return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
@@ -115,9 +112,10 @@ export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/them
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
 export const containers = () => request<Container[]>("/api/v1/containers");
 
-export function createContainer(kind = "workbook", metaCiphertext = "", teamId = "") {
+/** Created without a name: the server refuses one, and the name is sealed only once the first key exists. */
+export function createContainer(kind = "workbook", teamId = "") {
   return request<Container>("/api/v1/containers", {
-    method: "POST", body: JSON.stringify({ kind, metaCiphertext, teamId }),
+    method: "POST", body: JSON.stringify({ kind, teamId }),
   });
 }
 
@@ -137,7 +135,8 @@ export async function serviceStatus() {
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
 export const adminTeams = () => request<AdminTeam[]>("/api/v1/admin/teams");
-export function createAdminTeam(metaCiphertext: string) { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({ metaCiphertext }) }); }
+/** Created without a name, like createContainer. */
+export function createAdminTeam() { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({}) }); }
 export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; role: string }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
 export function resetAdminPassword(id: string, input: { newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(input) }); }
 export function addAdminTeamMember(teamID: string, userID: string, role: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members`, { method: "POST", body: JSON.stringify({ userId: userID, role }) }); }
@@ -222,7 +221,7 @@ export async function readObject(objectID: string, version?: number) {
     credentials: "include", headers: { Accept: "application/octet-stream" },
   });
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
-  // A missing or malformed generation stays undefined so readKeys finds no key, never the legacy one.
+  // A missing or malformed generation stays undefined so readKeys finds no key.
   const keyGeneration = serverGeneration(response.headers.get("X-Kynotes-Key-Generation"));
   return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
 }

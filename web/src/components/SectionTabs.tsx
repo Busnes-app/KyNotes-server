@@ -11,8 +11,6 @@ type Props = {
   path: Array<{ id: string | undefined; title: string }>; // notebook first, current group last
   current: string;
   busy: boolean;
-  /** Sections and groups written before the notebook was shared; labelled as not verified. */
-  unverified: ReadonlySet<string>;
   canCreateGroup: boolean;
   moveTargets: (kind: Kind, id: string) => Array<{ id: string; label: string }>;
   onSelect: (id: string) => void;
@@ -90,7 +88,6 @@ export function SectionTabs(props: Props) {
         onClick={() => onSelect(id)}
       >
         {title || "Untitled section"}
-        {props.unverified.has(id) && <em title="Written before this notebook had its own key; not end-to-end verified."> · not verified</em>}
       </button>
       {section && current === id && (
         <>
@@ -114,7 +111,6 @@ export function SectionTabs(props: Props) {
         onClick={() => props.onOpenGroup(group.id)}
       >
         <span aria-hidden="true">📁 </span>{group.title || "Untitled group"}
-        {props.unverified.has(group.id) && <em title="Written before this notebook had its own key; not end-to-end verified."> · not verified</em>}
       </button>
       <button className="quiet section-tab-menu" style={{ anchorName: `--group-${group.id}` }} popoverTarget={`group-menu-${group.id}`} aria-label={`Group options for ${group.title || "Untitled group"}`}>⋯</button>
       {menu("group", group, index, groups.length, () => props.onDeleteGroup(group))}

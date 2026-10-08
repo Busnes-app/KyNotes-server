@@ -1,14 +1,14 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { legacyKeyRef } from "./crypto";
-import { localKey, newContainerKey, WAITING_GENERATION, writeKey, type KeyFloor } from "./keyring";
+import { localKey, newContainerKey, WAITING_GENERATION, waitingKey, writeKey, type KeyFloor } from "./keyring";
+import { generateIdentity } from "./teamKeys";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
 import { createKeyed, NOT_CREATED, observeContainer, type FloorSink } from "./observe";
 import { clearAllDeviceKeys, getKeyState, storeDeviceKey, storeKeyState } from "./storage";
 
 vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
 const cnt = `cnt_${"a".repeat(26)}`, me = `usr_${"b".repeat(26)}`;
-const login = legacyKeyRef("a".repeat(64));
+const seal = waitingKey(generateIdentity());
 
 /** main.tsx's wiring: the vault's key memory; floors go to the tab-wide store. */
 const sink = (load: (id: string) => Promise<KeyFloor> = (id) => getKeyState("me", me, id)): FloorSink => ({
@@ -31,7 +31,7 @@ describe("observeContainer", () => {
     expect(writeKey(old, ring, floorOf(cnt)!)).toBeUndefined();
   });
 
-  it("never lowers a floor, and a first-sharing report stops the login key", async () => {
+  it("never lowers a floor, and an unkeyed report after a keyed one pauses writes", async () => {
     await storeKeyState("me", me, cnt, { mark: 0, digests: {}, shared: 4, generation: 5 });
     await observeContainer(sink(), { id: cnt, keyGeneration: 1, sharedGeneration: 0 });
     expect(floorOf(cnt)).toMatchObject({ shared: 4, generation: 5 });
@@ -60,7 +60,7 @@ describe("observeContainer", () => {
     await observeContainer(sink(), { id: cnt, kind: "team", ownerUserId: me, keyGeneration: 2, sharedGeneration: 2 });
     expect(writeKey(held, new Map(), floorOf(cnt)!)).toBeUndefined();
     // The edit stays local under the waiting seal, which the queue never sends.
-    expect(localKey(held, new Map(), login, floorOf(cnt)!).generation).toBe(WAITING_GENERATION);
+    expect(localKey(held, new Map(), seal, floorOf(cnt)!).generation).toBe(WAITING_GENERATION);
   });
 
   it("keeps exactly one floor map: main.tsx reads floors only through floors.ts", () => {

@@ -24,13 +24,13 @@ export function setWriteKeySource(source: (container: ReportedContainer) => Writ
 }
 
 /**
- * The one gate in front of every container-key or login-key ciphertext upload: right before the
+ * The one gate in front of every ciphertext upload: right before the
  * request, the sealing generation must be this tab's current write generation under the tab-wide
  * floor (queuedSaveStep "send"). Otherwise it throws KeysWaitingError and nothing is sent.
  */
 export function sendCiphertext(sealed: Sealed): void {
   const write = currentWrite?.(sealed.container);
-  if (queuedSaveStep(sealed.container, floorOf(sealed.container.id), sealed.generation, write) !== "send") throw new KeysWaitingError();
+  if (queuedSaveStep(floorOf(sealed.container.id), sealed.generation, write) !== "send") throw new KeysWaitingError();
 }
 
 // main.tsx reaches these API calls only through the wrappers below (outbound.test.ts).

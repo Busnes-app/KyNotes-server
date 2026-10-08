@@ -28,7 +28,6 @@ describe("workspace keys after P5", () => {
     const creations = main.split("\n").filter((line) => /new(?:Container|AdminTeam)\(floorSink/.test(line));
     expect(creations).toHaveLength(3);
     for (const line of creations) expect(line).toContain("createNamed(");
-    expect(main).not.toMatch(/encrypt\w*\(\s*legacy\b/);
     expect(main).not.toMatch(/nameUnsharedTeam|renameTeam/);
     expect(main).toMatch(/writeKey\(container, ringsRef\.current\[container\.id\] \?\? noKeys, floor\)/);
   });
@@ -37,9 +36,9 @@ describe("workspace keys after P5", () => {
     expect(block("  const localKeyFor")).toContain("writeKeyFor(container) ?? (waitingRef.current && { key: waitingRef.current, generation: WAITING_GENERATION })");
     expect(block("  async function syncKeys(")).toContain("recoverable: recoverable(liveRef.current)");
     expect(main).toContain("canWrap: false, recoverable: false }"); // the list's read-only pass never mints
-    expect(main.match(/waitingRef\.current\)/g)?.length).toBeGreaterThanOrEqual(3); // localReadKeysFor, readyToSend, attachmentStep
+    expect(main.match(/waitingRef\.current\)/g)?.length).toBeGreaterThanOrEqual(3); // ownCopyKeysFor, readyToSend, attachmentStep
     expect(main).toContain("waitingRef.current = identityRef.current && waitingKey(identityRef.current);");
-    expect(main).toMatch(/knownNames\[entry\.id\] \?\? teamNames\[entry\.id\]/); // AdminTeams reads the live prop, not a stale closure
+    expect(main).toContain('{knownNames[entry.id] ?? "Unnamed team"}'); // AdminTeams reads the live prop, not a stale closure
   });
 
   it("checks the account's identity once per session until it changes (M5)", () => {

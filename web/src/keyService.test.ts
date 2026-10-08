@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { sha256 } from "./fallbackCrypto";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { base64, legacyKeyRef } from "./crypto";
+import { base64 } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";
@@ -299,12 +299,11 @@ const vault = (u: User): PinStore => ({
   loadKeyState: (id) => getKeyState("me", u.member.userId, id),
   saveKeyState: (id, state) => storeKeyState("me", u.member.userId, id, state),
 });
-const login = legacyKeyRef("a".repeat(64));
 
 describe("sharing-state rollback", () => {
   beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
 
-  it("never writes with the login key once this device has seen the notebook shared, even after a reload", async () => {
+  it("never writes, or reads below the first key, once this device has seen the notebook keyed, even after a reload", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
     const { state, api } = server([owner, editor]);
     const ownerStore = memoryStore();
@@ -318,7 +317,7 @@ describe("sharing-state rollback", () => {
       const after = await syncContainerKeys(api, cnt, as(who), store, never);
       expect(after.plan).toEqual({ kind: "rollback" });
       expect(writeKey(after.container, after.ring, after.known)).toBeUndefined();
-      expect(readKeys(after.container, after.ring, login, 2, after.known)).not.toContain(login);
+      expect(readKeys(after.container, after.ring, 1, after.known)).toEqual([]);
     }
     // A steward is not tricked into minting a "first" key or uploading anything.
     expect(api.rotate).toHaveBeenCalledOnce();

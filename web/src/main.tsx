@@ -65,7 +65,7 @@ import {
 import { currentCopy, identityStatus, recoverable, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore, type PublicIdentity } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
-import { copyableConflicts, keysAllowed, legacyRow, localReadKeys, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
+import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
@@ -94,7 +94,6 @@ import {
   encryptSharePayload,
   base64,
   fromBase64,
-  legacyKeyRef,
   type KeyRef,
   randomLoginSalt,
   type NotePayload,
@@ -176,8 +175,6 @@ type PlainComment = {
   body: string;
   section?: string;
   createdAt: string;
-  /** Read with the login-derived key in a shared container (legacyRow). */
-  unverified?: boolean;
 };
 type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number };
 type QueueEntry = { note: Note; container: Container };
@@ -185,10 +182,7 @@ const ROLLBACK = "The server reported an older key state for this notebook than 
 const NOT_KEYED = "The notebook was created, but its key is not set up yet. Open it again to finish.";
 const NO_KEY_HERE = "This browser does not hold your encryption key, so it cannot create a notebook. Link it, or restore your key with your recovery code, in Settings.";
 const ADMIN_PASSWORD_FIRST = "An administrator set your password. Change it in Settings before you can write in your notebooks.";
-const UNVERIFIED = "Written before this notebook had its own key; not end-to-end verified.";
-const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook had its own key is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to seal it.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
-const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook had its own key, which are not end-to-end verified. Move or edit those subpages on their own first.";
 /** What Settings suggests without a key: only an action this browser can actually take from here. */
 function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
   if (state === "link") return " Link it from a browser that does (below).";
@@ -605,7 +599,7 @@ function Workspace({
   auth: AuthState;
   onLogout: () => void;
   onForgetDevice?: () => void;
-  /** A password change: the login-derived key moves with it. */
+  /** A password change: the vault keeps the new auth secret. */
   onAuthSecret: (authSecret: string) => void;
 }) {
   const [items, setItems] = useState<Container[]>([]);
@@ -670,15 +664,13 @@ function Workspace({
   // Leave sites read dirtiness synchronously; a closure's `dirty` lags a save that just finished.
   const dirtyRef = useRef(false);
   const markDirty = (value: boolean) => { dirtyRef.current = value; setDirty(value); };
-  // The login-derived key: it reads rows sealed before their notebook had a key. It never seals anything new (keyring.ts writeKey).
-  const legacy = useMemo(() => legacyKeyRef(auth.authSecret), [auth.authSecret]);
   const ringsRef = useRef<Record<string, Keyring>>({});
   const [rings, setRings] = useState(ringsRef.current);
   const putRing = (containerID: string, ring: Keyring) => { ringsRef.current = { ...ringsRef.current, [containerID]: ring }; setRings(ringsRef.current); };
   const noKeys: Keyring = new Map();
   // The sharing state this device has seen per team container (KeyState floor, persisted by the key
-  // pass). Every key choice below goes through it, so a server cannot roll a shared notebook back to
-  // the login key or an older generation. A team container whose floor is not loaded gets no key.
+  // pass). Every key choice below goes through it, so a server cannot roll a keyed notebook back to
+  // unkeyed or an older generation. A team container whose floor is not loaded gets no key.
   // The tab-wide store (floors.ts): subscribed for re-rendering, read by floorFor at decision time.
   useFloors();
   // Add-only: a pass that raised the floor and then failed never leaves memory below storage.
@@ -692,17 +684,17 @@ function Workspace({
     raiseFloorIn(container.id, loaded);
     return loaded;
   }
-  /** Keys a row may be read with: always the row's own generation, never a default. */
+  /** Keys a server row may be read with: its own generation's container key, never a default. */
   const readKeysFor = (container: Container, generation: number | undefined) => {
     const floor = floorFor(container);
-    return floor ? readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
+    return floor ? readKeys(container, ringsRef.current[container.id] ?? noKeys, generation, floor) : [];
   };
-  /** Keys for an entry this browser stored itself (cache, queue): localReadKeys. */
-  const localReadKeysFor = (container: Container, generation: number | undefined) => {
-    const floor = floorFor(container);
-    return floor ? localReadKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor, waitingRef.current) : [];
+  /** Keys for a copy this browser stored itself (cache, queue): as readKeysFor, plus the waiting key for a waiting edit. A notebook no longer listed has no container key here. */
+  const ownCopyKeysFor = (container: Container | undefined, generation: number | undefined): KeyRef[] => {
+    const floor = container && floorFor(container);
+    if (container && !floor) return [];
+    return ownCopyKeys(container ?? { sharedGeneration: 0 }, (container && ringsRef.current[container.id]) ?? noKeys, generation, floor ?? NO_FLOOR, waitingRef.current);
   };
-  const legacyRowFor = (container: Container, generation: number | undefined) => legacyRow(container, generation, floorFor(container) ?? NO_FLOOR);
   const writeKeyFor = (container: ReportedContainer) => {
     const floor = floorFor(container);
     return floor && keysAllowed(container, floor) ? writeKey(container, ringsRef.current[container.id] ?? noKeys, floor) : undefined;
@@ -730,19 +722,6 @@ function Workspace({
     if (!open || writeKeyFor(open)) return false;
     setError(rolledBack(open) ? ROLLBACK : WAITING);
     return true;
-  };
-  // Rows read with the login-derived key in a shared container (legacyRow): labelled, and re-sealed
-  // under the container key only by an explicit edit or move of that row, never as a side effect.
-  const [unverified, setUnverified] = useState<ReadonlySet<string>>(new Set());
-  const unverifiedRef = useRef(unverified);
-  const markLegacy = (ids: Iterable<string>, legacyRead: boolean) => {
-    const next = new Set(unverifiedRef.current);
-    for (const id of ids) {
-      if (legacyRead) next.add(id);
-      else next.delete(id);
-    }
-    unverifiedRef.current = next;
-    setUnverified(next);
   };
   const [keyNotice, setKeyNotice] = useState("");
   // The open notebook's members wait for keys this SSO steward did not share on its own (KySync.deferred).
@@ -921,12 +900,11 @@ function Workspace({
       const ring = ringsRef.current[container.id] ?? noKeys;
       let name = namesRef.current[container.id];
       if (name) {
-        // Older keys, legacy included, are tried only to compare with the name already shown.
-        const floor = floorFor(container);
-        if ((await opened([...(floor ? [legacy] : []), ...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
+        // Older container keys are tried only to compare with the name already shown.
+        if ((await opened([...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
       } else {
         // Not shown (the list could not open it: a re-mint another browser deferred). Only container
-        // keys this browser accepted may supply it, newest first; the forgeable legacy key may not.
+        // keys this browser accepted may supply it, newest first.
         const older = [...ring.entries()].filter(([generation]) => generation < write.generation).sort(([a], [b]) => b - a).map(([, key]) => key);
         name = (await opened(older)) ?? "";
         if (!name) return [current, others ? "This notebook's name could not be shared with its members yet. Rename it so every member can read it." : "This notebook's name could not be sealed with its key yet. Rename it to try again."];
@@ -1285,14 +1263,12 @@ function Workspace({
       );
     }
   }
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; legacyRead: string[] }> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[] }> {
     const loaded: Note[] = [];
     const found: Section[] = [];
     const foundGroups: Group[] = [];
-    const legacyRead: string[] = [];
-    const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string, generation: number | undefined) => {
+    const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
       if (!payload) return;
-      if (legacyRowFor(container, generation)) legacyRead.push(id);
       if (payload.type === "section") found.push({ ...payload, id, version });
       else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
@@ -1304,16 +1280,15 @@ function Workspace({
         try {
           const object = await readObject(change.id);
           const cached = await getNote(auth.user.id, change.id);
-          // A cache entry without its generation cannot be read in a shared container: use the server copy.
-          const useCache = Boolean(cached && cached.version >= object.version && (container.sharedGeneration === 0 || cached.keyGeneration !== undefined));
-          const keys = useCache ? localReadKeysFor(container, cached!.keyGeneration) : readKeysFor(container, object.keyGeneration);
+          const useCache = Boolean(cached && cached.version >= object.version);
+          const keys = useCache ? ownCopyKeysFor(container, cached!.keyGeneration) : readKeysFor(container, object.keyGeneration);
           const payload = await openFirst(keys, (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
-          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString(), useCache ? cached!.keyGeneration : object.keyGeneration);
+          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
         } catch {
           const cached = await getNote(auth.user.id, change.id);
           if (cached) {
             try {
-              add(change.id, await openFirst(localReadKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
+              add(change.id, await openFirst(ownCopyKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -1325,7 +1300,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return { notes: loaded, sections: found, groups: foundGroups, legacyRead };
+    return { notes: loaded, sections: found, groups: foundGroups };
   }
   /** Null when the open page could not be flushed and stays open. */
   async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
@@ -1362,7 +1337,6 @@ function Workspace({
     setCommentsForNote([]);
     setAttachmentsForNote([]);
     loadCarried.current.clear();
-    markLegacy(unverifiedRef.current, false);
     setKeyNotice("");
     setKeyDeferred(false);
     try {
@@ -1379,7 +1353,6 @@ function Workspace({
       const loadedSections = carryVersions(objects.sections, loadCarried.current);
       patchSections(() => loadedSections);
       patchGroups(() => carryVersions(objects.groups, loadCarried.current));
-      markLegacy(objects.legacyRead, true);
       loadCarried.current.clear();
       patchNotes(() => loaded);
       showSection(resolveSection(route?.section, loadedSections));
@@ -1449,7 +1422,6 @@ function Workspace({
             body: decrypted.body,
             section: decrypted.section,
             createdAt: item.createdAt,
-            unverified: Boolean(container && legacyRowFor(container, item.keyGeneration)),
           });
         } catch {
           /* Ignore comments encrypted for another key. */
@@ -1514,7 +1486,7 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      await selectContainer(await createNamed(() => newContainer(floorSink, "workbook", "", teamContainer.id), name));
+      await selectContainer(await createNamed(() => newContainer(floorSink, "workbook", teamContainer.id), name));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to create team notebook");
     } finally {
@@ -1522,7 +1494,7 @@ function Workspace({
     }
   }
   /** The administrator who creates a team owns it, so this browser mints and names it (AdminTeams). */
-  const createTeam = async (name: string) => (await createNamed(async () => currentContainer((await newAdminTeam(floorSink, "")).id), name)).id;
+  const createTeam = async (name: string) => (await createNamed(async () => currentContainer((await newAdminTeam(floorSink)).id), name)).id;
   async function renameWorkspace() {
     if (!selected) return;
     const name = prompt("Notebook name", nameOf(selected))?.trim();
@@ -1606,7 +1578,6 @@ function Workspace({
       try {
         const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version);
         await clearQueuedSave(auth.user.id, note.id);
-        markLegacy([note.id], false);
         setCommitToastAt(Date.now());
         setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
@@ -1691,7 +1662,7 @@ function Workspace({
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
           // first or stays queued (waiting for keys). An edit for a notebook this user lost waits here
           // until Settings → Unsent edits exports or discards it. Waiting edits are sealed with the identity's
-          // waiting key (N3 resolved for them); one sealed with a login key changed in another browser before P5 still never opens.
+          // waiting key.
           const ready = await sendable(item, synced).catch(() => undefined);
           if (!ready) {
             remaining = true;
@@ -1735,15 +1706,14 @@ function Workspace({
   /**
    * A queued save as it may be sent now (readyToSend against the container's current state and
    * this tab's floor), re-sealed for the current write key if needed; undefined keeps it queued.
-   * Waiting edits are sealed with the identity's waiting key (N3 resolved for them); one sealed with a
-   * login key changed in another browser before P5 still never opens.
+   * Waiting edits are sealed with the identity's waiting key.
    */
   async function sendable(item: PendingSave, synced: Map<string, Promise<Container>>): Promise<{ item: PendingSave; container: Container } | undefined> {
     // One background key pass per container per drain; it never opens a dialog.
     if (!synced.has(item.containerID)) synced.set(item.containerID, currentContainer(item.containerID).then((found) => syncKeys(found, true)));
     const container = await synced.get(item.containerID)!;
     adoptGenerations(container);
-    const ready = await readyToSend(item, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, legacy, waitingRef.current);
+    const ready = await readyToSend(item, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, waitingRef.current);
     if (!ready) return undefined;
     // Only drained (owned) entries reach here; a re-sealed copy carries the owner. It replaces the
     // entry only while it is still the one read: a newer save stays.
@@ -1795,7 +1765,6 @@ function Workspace({
     try {
       const result = await sendObject({ container: selected, generation: write.generation }, id, encrypted, version);
       await clearQueuedSave(auth.user.id, id);
-      markLegacy([id], false);
       carryDuringLoad(id, { version: result.version, updatedAt });
       if (uncached) setError(UNCACHED);
       return result.version;
@@ -1816,14 +1785,9 @@ function Workspace({
 
   /**
    * Chained encrypted write of a section or group, from its newest local copy; resolves true once saved.
-   * explicit is false when the entry only moves because another one did: an unverified entry is then left alone.
    */
-  function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>, explicit = true) {
+  function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>) {
     if (readOnlyForKeys()) return Promise.resolve(false);
-    if (!explicit && unverifiedRef.current.has(id)) {
-      setError(UNVERIFIED_SIDE_EFFECT);
-      return Promise.resolve(false);
-    }
     const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
     patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
     const queued = saveChain.current.then(async () => {
@@ -1844,17 +1808,12 @@ function Workspace({
     const cached = await getNote(auth.user.id, id).catch(() => undefined);
     if (!cached) return undefined;
     const containerID = selected.id;
-    const payload = await openFirst(localReadKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
+    const payload = await openFirst(ownCopyKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
-  /** explicit is false when the page only renumbers around another move: an unverified page is then left alone. */
-  async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }, explicit = true) {
+  async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }) {
     if (readOnlyForKeys()) return;
-    if (!explicit && unverifiedRef.current.has(id)) {
-      setError(UNVERIFIED_SIDE_EFFECT);
-      return;
-    }
     // An undefined level keeps the page's own; an undefined section means Quick Notes.
     const { level, ...rest } = placement;
     const change = level === undefined ? rest : placement;
@@ -1936,7 +1895,7 @@ function Workspace({
       const parent = groupParents(groupsRef.current).get(group.id);
       for (const kind of ["section", "group"] as const) {
         for (const child of siblings(kind, group.id)) {
-          if (!(await updateStructure(kind, child.id, { group: parent }, false))) {
+          if (!(await updateStructure(kind, child.id, { group: parent }))) {
             setError((value) => value || "Could not move everything out of the group, so it was kept. Try again.");
             return;
           }
@@ -1956,7 +1915,7 @@ function Workspace({
     const entry = kind === "section" ? sectionsRef.current.find((item) => item.id === id) : groupsRef.current.find((item) => item.id === id);
     if (!entry) return;
     const parent = kind === "section" ? sectionGroup(entry, parents) : parents.get(id);
-    for (const update of reorder(siblings(kind, parent), id, index)) await updateStructure(kind, update.id, { order: update.order }, update.id === id).catch(reportSection);
+    for (const update of reorder(siblings(kind, parent), id, index)) await updateStructure(kind, update.id, { order: update.order }).catch(reportSection);
   }
   async function moveIntoGroup(kind: "section" | "group", id: string, target: string | undefined) {
     if (kind === "group" && !groupMoveAllowed(id, target, groupParents(groupsRef.current))) {
@@ -2003,11 +1962,6 @@ function Workspace({
       const levels = displayLevels(source);
       const [start, end] = blockRange(levels, source.findIndex((note) => note.id === pageID));
       const block = source.slice(start, end);
-      // Moving the block would re-seal every subpage in it: refuse before writing anything.
-      if (movesLabelledSubpage(block, pageID, unverifiedRef.current)) {
-        setError(UNVERIFIED_SUBPAGES);
-        return;
-      }
       const inBlock = new Set(block.map((note) => note.id));
       const list = pagesInSection(notesRef.current, sectionsRef.current, target).filter((note) => !inBlock.has(note.id));
       const before = beforeID === null ? -1 : list.findIndex((note) => note.id === beforeID);
@@ -2016,7 +1970,7 @@ function Workspace({
         const entry = notesRef.current.find((note) => note.id === update.id);
         await placePage(update.id, inBlock.has(update.id)
           ? { section, order: update.order, level: update.level }
-          : { section: entry?.section, order: update.order }, inBlock.has(update.id));
+          : { section: entry?.section, order: update.order });
       }
     });
   }
@@ -2048,7 +2002,7 @@ function Workspace({
     if (saved === null) return false;
     if (sameNotebook()) patchNotes((value) => carrySaved(value, object.id, { version: saved }));
     const run = moveChain.current.then(async () => {
-      for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order }, false);
+      for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order });
     });
     moveChain.current = run.catch(() => {});
     await run;
@@ -2073,7 +2027,6 @@ function Workspace({
       const server = await readObject(open.id);
       const payload = await openFirst(readKeysFor(container, server.keyGeneration), (key) => decryptObject(key, containerID, server.bytes));
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
-      markLegacy([open.id], legacyRowFor(container, server.keyGeneration));
       const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
       if (selectedNoteRef.current?.id === open.id) {
@@ -2087,8 +2040,7 @@ function Workspace({
       let failed = 0;
       let unreadable = 0;
       const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
-      // Copying a legacy-key version would re-seal it under the container key for every member, unseen.
-      const { copy: copyable, kept: unverifiedKept } = copyableConflicts(container, (await objectConflicts(open.id)).filter((item) => !item.resolved), floorFor(container) ?? NO_FLOOR);
+      const copyable = (await objectConflicts(open.id)).filter((item) => !item.resolved);
       for (const conflict of copyable) {
         try {
           const bytes = await conflictCiphertext(conflict.id);
@@ -2124,9 +2076,8 @@ function Workspace({
         showSection(pageSection(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
-      else if (unverifiedKept) setError(`${unverifiedKept} version(s) were written before this notebook had its own key and are not end-to-end verified, so they were not copied. They remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
-      if (!failed && !unreadable && !unverifiedKept) {
+      if (!failed && !unreadable) {
         setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
         setSyncStatus("saved");
       }
@@ -2170,7 +2121,7 @@ function Workspace({
     if (tries > 1) throw new KeysWaitingError();
     // Before the first chunk: the job must still be sealed for this notebook's current key and floor.
     const container = await syncKeys(await currentContainer(job.containerID), true);
-    const step = await attachmentStep(job, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, legacy, waitingRef.current);
+    const step = await attachmentStep(job, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, waitingRef.current);
     if (step.kind === "wait") throw new KeysWaitingError();
     if (step.kind === "reseal") return uploadPending(await resealUpload(job, container, step.plaintext, step.file), tries + 1);
     const sealed = { container, generation: job.keyGeneration };
@@ -2546,7 +2497,6 @@ function Workspace({
               path={groupTrail}
               current={sectionID}
               busy={busy || keyWait}
-              unverified={unverified}
               canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
               moveTargets={moveTargets}
               onSelect={(id) => void selectSection(id)}
@@ -2671,7 +2621,6 @@ function Workspace({
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
                   <strong>{title}</strong>
-                  {unverified.has(note.id) && <em className="page-section" title={UNVERIFIED}>Not verified</em>}
                   {row && (row.level > 0 || row.hasChildren) && (
                     <span className="visually-hidden">
                       {row.level > 0 ? `, subpage level ${row.level}` : ""}
@@ -2745,9 +2694,6 @@ function Workspace({
                     <button disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
                 )}
-                {unverified.has(selectedNote.id) && (
-                  <div className="conflict-banner" role="status">{UNVERIFIED} Editing or moving it seals it with this notebook's key.</div>
-                )}
                 <input
                   className="title-input"
                   readOnly={recovering === selectedNote.id || keyWait}
@@ -2815,7 +2761,6 @@ function Workspace({
                       <strong>
                         {comment.username}
                         {comment.section ? ` · § ${comment.section}` : ""}
-                        {comment.unverified ? " · not verified" : ""}
                       </strong>
                       <span>{comment.body}</span>
                     </div>
@@ -2852,7 +2797,7 @@ function Workspace({
                   {attachmentsForNote.map((attachment) => (
                     <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
                       <strong>{attachment.name}</strong>
-                      <span>{Math.ceil(attachment.size / 1024)} KB{selected && legacyRowFor(selected, attachment.keyGeneration) ? " · not verified" : ""}</span>
+                      <span>{Math.ceil(attachment.size / 1024)} KB</span>
                     </button>
                   ))}
                   <label className="attachment-picker">
@@ -2880,11 +2825,10 @@ function Workspace({
         {view !== "workspace" && (
           <SettingsView
             admin={view === "admin"}
-            authSecret={auth.authSecret}
             username={auth.username}
             userID={auth.user.id}
             colleagueNames={colleagueNames.current}
-            keysFor={(item) => { const container = items.find((entry) => entry.id === item.containerID); return [legacy, ...(container ? localReadKeysFor(container, item.keyGeneration) : [])]; }}
+            keysFor={(item) => ownCopyKeysFor(items.find((entry) => entry.id === item.containerID), item.keyGeneration)}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
@@ -3089,43 +3033,27 @@ function AdminUserActions({
   );
 }
 
-function AdminTeams({ users, authSecret, username, userID, onCreateTeam, knownNames }: { users: AdminUser[]; authSecret: string; username: string; userID: string; onCreateTeam: (name: string) => Promise<string>; knownNames: Record<string, string> }) {
-  // Admin pages hold no team keys: they show names the workspace decrypted, and old never-shared names with the login key through readKeys. They never write a name.
-  const legacy = legacyKeyRef(authSecret);
-  // Observed team floors go to the tab-wide store (floors.ts) the workspace reads; unknown means not named here.
-  const floorSink: FloorSink = {
+function AdminTeams({ users, username, userID, onCreateTeam, knownNames }: { users: AdminUser[]; username: string; userID: string; onCreateTeam: (name: string) => Promise<string>; knownNames: Record<string, string> }) {
+  // Admin pages hold no team keys: they show only names the workspace decrypted, and never write a name.
+  // The list still passes the observer, so its generations raise the tab-wide floors (floors.ts).
+  const sink: FloorSink = {
     load: (containerID) => getKeyState(username, userID, containerID),
     save: (containerID, state) => storeKeyState(username, userID, containerID, state),
   };
   const [teams, setTeams] = useState<AdminTeam[]>([]);
-  const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [team, setTeam] = useState("");
   const [user, setUser] = useState("");
   const [role, setRole] = useState("editor");
   async function reload() {
     try {
-      const nextTeams = await listAdminTeams(floorSink);
-      const nextNames: Record<string, string> = {};
-      for (const entry of nextTeams) {
-        if (!entry.metaCiphertext) continue;
-        try {
-          // Only a team this device has never seen shared is named with the login key; a shared one has no key here.
-          const floor = floorOf(entry.id);
-          const keys = floor && entry.keyGeneration !== undefined ? readKeys({ sharedGeneration: entry.sharedGeneration ?? 0 }, new Map(), legacy, entry.keyGeneration, floor) : [];
-          nextNames[entry.id] = (await openFirst(keys, (key) => decryptContainerMeta(key, entry.id, fromBase64(entry.metaCiphertext!)))).name;
-        } catch {
-          /* Shared teams, and names sealed by another account, stay unnamed here. */
-        }
-      }
-      setTeams(nextTeams);
-      setTeamNames(nextNames);
+      setTeams(await listAdminTeams(sink));
     } catch {
       /* The admin page remains usable if the list refresh is unavailable. */
     }
   }
   useEffect(() => {
     void reload();
-  }, [authSecret]);
+  }, []);
   async function createTeam() {
     const name = prompt("Team name", "New team")?.trim();
     if (!name) return;
@@ -3158,7 +3086,7 @@ function AdminTeams({ users, authSecret, username, userID, onCreateTeam, knownNa
           <option value="">Select team</option>
           {teams.map((entry) => (
             <option key={entry.id} value={entry.id}>
-              {knownNames[entry.id] ?? teamNames[entry.id] ?? "Unnamed team"} · {entry.id}
+              {knownNames[entry.id] ?? "Unnamed team"} · {entry.id}
             </option>
           ))}
         </select>
@@ -3342,7 +3270,6 @@ function AdminSSO() {
 
 function SettingsView({
   admin,
-  authSecret,
   onBack,
   username,
   userID,
@@ -3362,7 +3289,6 @@ function SettingsView({
   recoveryPrompt,
 }: {
   admin: boolean;
-  authSecret: string;
   onBack: () => void;
   username: string;
   userID: string;
@@ -3575,7 +3501,7 @@ function SettingsView({
               ))}
             </section>
             <div id="teams">
-              <AdminTeams users={users} authSecret={authSecret} username={username} userID={userID} onCreateTeam={createTeam} knownNames={knownNames} />
+              <AdminTeams users={users} username={username} userID={userID} onCreateTeam={createTeam} knownNames={knownNames} />
             </div>
             <section id="audit" className="config-card">
               <h2>Audit log</h2>

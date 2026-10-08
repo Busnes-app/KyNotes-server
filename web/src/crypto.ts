@@ -29,12 +29,6 @@ function hasNativeSubtle(): boolean {
   );
 }
 
-function hexBytes(value: string): Uint8Array {
-  const bytes = new Uint8Array(value.length / 2);
-  for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
-  return bytes;
-}
-
 function base64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -155,11 +149,13 @@ async function decryptWithKey(keyBytes: Uint8Array, bytes: Uint8Array): Promise<
   return aes256GcmDecrypt(keyBytes, iv, ciphertextAndTag);
 }
 
-/** HKDF input for content subkeys: a container key (CK) or, for legacy rows, the login secret's bytes. */
-export type KeyRef = Uint8Array;
-
-/** The pre-team-keys content key input. Only legacy reads and personal notebooks use it. */
-export const legacyKeyRef = (authSecret: string): KeyRef => hexBytes(authSecret);
+declare const contentKey: unique symbol;
+/** A container key, or the identity's waiting key: the only input content subkeys derive from. Made only in keyring.ts. */
+export type KeyRef = Uint8Array & { readonly [contentKey]: true };
+export function asContentKey(bytes: Uint8Array): KeyRef {
+  if (bytes.length !== 32) throw new Error("invalid content key");
+  return bytes as KeyRef;
+}
 
 function deriveObjectKeyBytes(key: KeyRef, containerID: string, info: string): Uint8Array {
   if (key.length !== 32) throw new Error("invalid content key");
