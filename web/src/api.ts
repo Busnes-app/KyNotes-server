@@ -27,7 +27,7 @@ type APIError = { error?: { code?: string; message?: string; challenge?: string 
 export class APIRequestError extends Error { code?: string; challenge?: string; conflictId?: string; currentVersion?: number; status?: number; constructor(message: string, detail: APIError, status?: number) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.challenge = typeof detail.error?.challenge === "string" ? detail.error.challenge : undefined; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; this.status = status; } }
 
 /** Marks writes from a bundle that seals shared containers with their container key; the server refuses shared-container writes without it. */
-export const KEY_SCHEME = "shared-v1";
+export const KEY_SCHEME = "shared-v2";
 
 export function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";

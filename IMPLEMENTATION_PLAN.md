@@ -358,7 +358,7 @@ user data.
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
-| `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a shared container written without `X-Kynotes-Key-Scheme: shared-v1` (`this notebook uses shared keys: reload the page`) |
+| `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a content write or name change without `X-Kynotes-Key-Scheme: shared-v2` (`this notebook uses shared keys: reload the page`) |
 | `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
 | `password_change_required` | 409 | an administrator knows the password; the user must change it before a local step-up can create an identity, write envelopes, rotate keys or send invitation keys |
 | `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
@@ -1242,7 +1242,7 @@ deliberately every phase).
 | Method | Path | Credential | Notes |
 |---|---|---|---|
 | GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
-| POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":"<b64>"}` → creates container + `owner` membership + `change_seq` 1 |
+| POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":""}` → creates container + `owner` membership + `change_seq` 1; `metaCiphertext` must be empty (`400`); the name is sealed after the first key |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
 | GET | `/api/v1/devices` | session | id, fingerprint, platform, created/last-seen, revoked; never the secret |
@@ -1256,7 +1256,7 @@ deliberately every phase).
 | PUT | `/api/v1/me/identity/recovery` | session + CSRF + user-action step-up | `{"deviceId","expectedRecoveryId","wrapAlg":"pbkdf2-sha256-600000/aes-256-gcm","wrappedKey":"<b64 76>"}` → `{"recoveryId"}`; compare-and-swap on the identity row and the recovery ID last seen (`""`: none yet), `409 already_exists` otherwise; a re-send of the byte-identical stored copy for the same identity (a lost response) is `200` with the current `recoveryId`, unchanged, audited `replayed`; `404` without an identity; `409 password_change_required` for a local session while `password_admin_known`; audit `identity.recovery.set` (`created`/`replaced`); per-account `recovery` bucket at `pairing_per_hour` (per IP without a session) |
 | POST | `/api/v1/me/identity/recovery/fetch` | session + CSRF + user-action step-up | no body → `{"deviceId","publicKey","recoveryId","wrapAlg","wrappedKey"}`; the same `404` without an identity or without a copy; `409 password_change_required` for a local session while `password_admin_known`; `no-store`; audit `identity.recovery.fetch` (`recovery=<id>`; a miss is `denied`/`none`); same bucket. An SSO browser holding no identity steps up with a KySignOn confirmation of this exact request. The copy is in no other response |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
-| PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; legacy containers: the current generation only; shared containers: any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
+| PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; a container without a key refuses every envelope (`409 already_exists`, `key rotation incomplete`); otherwise any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
 | GET | `/api/v1/containers/{id}/legacy` | session | any live member: rows below `shared_generation` (current object versions, comments, referenced attachments, unresolved conflicts; live objects only), `{"complete","objects":[{"id","keyGeneration"}],"comments":[{"id","objectId","authorUserId","bodyCiphertext","keyGeneration"}],"attachments":[{"id","objectIds","metadataCiphertext","keyGeneration"}],"conflicts":[{"id","objectId","keyGeneration"}]}`; at most 1000 per kind, `complete:false` beyond; a hint for the web client's review, never proof; uniform `404` otherwise, `500` on storage errors; `Cache-Control: no-store`; per-account bucket at `link_poll_per_minute` |
 | POST | `/api/v1/me/link-requests` | session + CSRF | newcomer: `{"commitment":"<b64 32>"}` → `{"id","expiresAt"}`; `404` without an identity; `409 already_exists` at 3 live requests; `409 password_change_required` for a local session while `password_admin_known` |
@@ -1403,7 +1403,7 @@ deliberately every phase).
 | Method | Path | Body | Notes |
 |---|---|---|---|
 | POST | `/api/v1/containers/{id}/objects` | JSON `{"kind":"note\|folder"}` | mints an object ID at version 0; no content |
-| PUT | `/api/v1/objects/{id}` | `application/octet-stream` ciphertext | headers `X-Kynotes-Base-Version`, `X-Kynotes-Key-Generation`, optional `Idempotency-Key`; `X-Kynotes-Key-Scheme` (shared containers) |
+| PUT | `/api/v1/objects/{id}` | `application/octet-stream` ciphertext | headers `X-Kynotes-Base-Version`, `X-Kynotes-Key-Generation`, optional `Idempotency-Key`; `X-Kynotes-Key-Scheme: shared-v2` |
 | GET | `/api/v1/objects/{id}` | — | `?version=` optional, defaults to current; returns `application/octet-stream` + metadata headers |
 | DELETE | `/api/v1/objects/{id}` | — | soft delete, releases attachment refs |
 | GET | `/api/v1/objects/{id}/conflicts` | — | list of conflict records (metadata only: id, versions, bytes, `keyGeneration`, timestamps, resolved) |
@@ -1688,15 +1688,7 @@ Rules:
   both roles in the transaction: an admin cannot remove an owner, nor an admin whose current membership it did not invite (`memberships.invited_by`).
   A steward then calls `POST /containers/{id}/key-rotations`. The server never
   sees the key; it enforces that the generation moved and which envelopes exist.
-* **Write gate**: new content (object save, comment create or rewrite,
-  attachment finalize) needs a live membership and the current
-  `key_generation`. If the container has never rotated
-  (`shared_generation = 0`), every member's paired device also needs an
-  envelope at that generation. Otherwise the writer's own live identity needs
-  one, and the request must carry `X-Kynotes-Key-Scheme: shared-v1`. A failed gate is `409 already_exists` with message `key rotation
-  incomplete`. The gate runs before the body streams and again in the write
-  transaction. Object saves record the session user in
-  `object_versions.author_user_id`, which nothing reads before P4.
+* **Write gate**: new content (object save, comment create, attachment finalize) and container names need a live membership, `X-Kynotes-Key-Scheme: shared-v2` (else `409 already_exists`, `this notebook uses shared keys: reload the page`), a container that has a key (`shared_generation > 0`, set by its first rotation), the current `key_generation`, and an envelope for the writer's own live identity at it. A failed gate is `409 already_exists` with message `key rotation incomplete`. The gate runs before the body streams and again in the write transaction. Object saves record the session user in `object_versions.author_user_id`.
 * **Invitation envelopes**: `POST /containers/{id}/invitations` may carry
   `envelopes:[{containerId,deviceId,keyGeneration,alg,envelope}]` for the
   invitee's live identity, one per container (the team or its child workspaces)
@@ -1739,7 +1731,7 @@ Tests:
 - `TestRemovingMemberIncrementsKeyGeneration`
 - `TestRemovedMemberEnvelopesAreDeleted`
 - `TestNewContentRefusedUntilRotationEnvelopesExist`
-- `TestLegacyContainersKeepTheDeviceGate`
+- `TestUnkeyedContainerRefusesEveryWrite`, `TestEveryWriteNeedsTheCurrentKeyScheme`, `TestContainerCreationTakesNoName`
 - `TestSaveRacingRemovalOrRotationIsRefused`
 - `TestSaveRacingDemotionIsRefused`
 - `TestAdminMemberRemovalRotatesLikeOwnerRemoval`

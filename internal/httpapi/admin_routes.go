@@ -42,20 +42,16 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		var in struct {
 			MetaCiphertext string `json:"metaCiphertext"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.MetaCiphertext) > 8192 {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		meta, err := base64.StdEncoding.DecodeString(in.MetaCiphertext)
-		if err != nil || len(meta) > 4096 {
+		// The team has no name until its owner's browser mints its first key and seals one.
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.MetaCiphertext != "" {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
 		teamID, _ := ids.Mint("cnt")
 		membershipID, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
-		if err = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", s.UserID, 1, meta, 0, now, now); e != nil {
+		if err := dbTx(db, func(tx *sql.Tx) error {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", s.UserID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
 			_, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, membershipID, teamID, s.UserID, "owner", now)
@@ -65,7 +61,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		recordAudit(db, s.UserID, "admin.team.create", teamID, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": in.MetaCiphertext, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
+		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": "", "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
 	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation,shared_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)

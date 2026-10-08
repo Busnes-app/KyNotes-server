@@ -26,6 +26,7 @@ type uploadClient struct {
 	hc             *http.Client
 	url, container string
 	csrf           string
+	generation     int64
 }
 
 func newUploadClient(t *testing.T) *uploadClient {
@@ -70,6 +71,7 @@ func newUploadClient(t *testing.T) *uploadClient {
 	_ = json.NewDecoder(res.Body).Decode(&c)
 	res.Body.Close()
 	u.container = c.ID
+	u.generation = keyForTest(t, s.DB(), c.ID, "usr_upload_test")
 	return u
 }
 
@@ -82,6 +84,7 @@ func (u *uploadClient) do(t *testing.T, method, path string, body []byte, csrf b
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set(keySchemeHeader, keySchemeShared) // a current web client
 	if csrf {
 		for _, c := range u.hc.Jar.Cookies(req.URL) {
 			if c.Name == "csrf_token" {
@@ -315,7 +318,7 @@ func TestCorruptedChunkChangesDigestAndFailsFinalize(t *testing.T) {
 	} else {
 		res.Body.Close()
 	}
-	res = u.do(t, http.MethodPost, "/api/v1/uploads/"+v.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":1}`), true)
+	res = u.do(t, http.MethodPost, "/api/v1/uploads/"+v.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(u.generation, 10)+`}`), true)
 	if res.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("finalize status=%d", res.StatusCode)
 	}

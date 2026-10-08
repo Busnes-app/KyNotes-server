@@ -28,10 +28,10 @@ var (
 	errVersionConflict       = errors.New("version conflict")
 )
 
-// keySchemeHeader marks a write from a client that seals shared containers with
-// their container key. A shared container refuses writes without it, so a tab
-// loaded before team keys cannot store login-key ciphertext at a shared generation.
-const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v1"
+// keySchemeHeader marks a write from a client that seals content only with container keys.
+// Every content write and name change must carry it; a tab from an older build is refused
+// and told to reload.
+const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v2"
 
 type envelopeIn struct {
 	DeviceID      string `json:"deviceId"`
@@ -165,18 +165,16 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 	return nil
 }
 
-// putGenerationTx is the generation a PUT envelope targets. Legacy containers
-// (shared_generation=0) keep the current generation, as before. A shared
-// container accepts any generation from shared_generation to current that
-// already holds an envelope: stewards backfill history for newcomers, but a key
-// is minted only by key-rotations, never by PUT (no split generations).
+// putGenerationTx is the generation a PUT envelope targets: any generation from shared_generation
+// to current that already holds an envelope, so stewards backfill history for newcomers. Keys are
+// minted only by key-rotations, so a container without a key yet takes no envelope here.
 func putGenerationTx(tx *sql.Tx, cid string, current, requested int64) (int64, error) {
 	var shared int64
 	if err := tx.QueryRow(`SELECT shared_generation FROM containers WHERE id=?`, cid).Scan(&shared); err != nil {
 		return 0, err
 	}
 	if shared == 0 {
-		return current, nil
+		return 0, errKeyRotationIncomplete
 	}
 	if requested < shared || requested > current {
 		return 0, errGenerationMoved
@@ -411,20 +409,14 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 	})))
 }
 
-// missingEnvelopesSQL is the legacy save gate for containers that never rotated
-// (shared_generation=0): members' paired devices lacking an envelope at the
-// current generation. Identity rows are excluded.
-const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
-
 type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// checkWriteGate admits a content write by userID into cid at generation
-// requested. Containers that never rotated keep the legacy device rule; once
-// rotated, the writer must send keySchemeShared and its own identity needs an
-// envelope at the current generation. Call it before streaming a body and again
-// inside the write transaction.
+// checkWriteGate admits a content write by userID into cid at generation requested: the writer
+// sends keySchemeShared, the container has a key (shared_generation > 0), requested is its current
+// generation and the writer's own identity holds an envelope there. Call it before streaming a
+// body and again inside the write transaction.
 func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
 	var generation, shared int64
 	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
@@ -434,21 +426,14 @@ func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme st
 	if err != nil {
 		return err
 	}
-	if shared != 0 && scheme != keySchemeShared {
+	if scheme != keySchemeShared {
 		return errStaleClient
 	}
-	if requested != generation {
+	if shared == 0 || requested != generation {
 		return errKeyRotationIncomplete
 	}
-	admitted := false
-	if shared == 0 {
-		var missing int
-		err = q.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing)
-		admitted = missing == 0
-	} else {
-		err = q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted)
-	}
-	if err != nil {
+	var admitted bool
+	if err := q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted); err != nil {
 		return err
 	}
 	if !admitted {

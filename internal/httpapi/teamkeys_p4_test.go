@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -52,99 +51,6 @@ func (l legacyList) objectIDs() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func TestLegacyRowsListOnlyRowsBelowSharing(t *testing.T) {
-	tm := newTeam(t)
-	// Before the first rotation (generation 1) every row is sealed with its author's login key: two authors here.
-	page, _ := tm.editor.save(t, tm.id, "", 1)
-	adminPage, _ := tm.admin.save(t, tm.id, "", 1)
-	cmt, _ := tm.editor.comment(t, page, 1)
-	if code := tm.editor.attach(t, tm.id, 1); code != http.StatusOK {
-		t.Fatalf("attach=%d", code)
-	}
-	var att string
-	if err := tm.owner.db.QueryRow(`SELECT id FROM attachments WHERE container_id=?`, tm.id).Scan(&att); err != nil {
-		t.Fatal(err)
-	}
-	if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/objects/"+page+"/attachments", []byte(`{"attachmentId":"`+att+`","objectVersion":1}`), true, false)); code != http.StatusNoContent {
-		t.Fatalf("ref=%d %s", code, out)
-	}
-	// A stale save leaves a conflict record at generation 1.
-	if code, _ := tm.editor.sendRacing(t, http.MethodPut, "/api/v1/objects/"+page, map[string]string{"X-Kynotes-Key-Generation": "1", "X-Kynotes-Base-Version": "0", keySchemeHeader: keySchemeShared}, []byte("stale"), func() {}); code != http.StatusConflict {
-		t.Fatalf("stale save=%d", code)
-	}
-	// Never shared: nothing is legacy yet.
-	if code, got := legacyOf(t, tm.owner, tm.id); code != http.StatusOK || !got.Complete || len(got.Objects)+len(got.Comments)+len(got.Attachments)+len(got.Conflicts) != 0 {
-		t.Fatalf("never shared: %d %+v", code, got)
-	}
-
-	tm.rotate(t, tm.id, 1) // shared from generation 2
-	if _, code := tm.editor.save(t, tm.id, "", 2); code != http.StatusOK {
-		t.Fatalf("shared save=%d", code)
-	}
-	// Any live member reads the list, a viewer included; rows at the shared generation are not in it.
-	code, got := legacyOf(t, tm.viewer.pairClient, tm.id)
-	want := []string{page, adminPage}
-	sort.Strings(want)
-	if code != http.StatusOK || !got.Complete || len(got.objectIDs()) != 2 || got.objectIDs()[0] != want[0] || got.objectIDs()[1] != want[1] {
-		t.Fatalf("objects: %d %+v", code, got.Objects)
-	}
-	if len(got.Comments) != 1 || got.Comments[0].ID != cmt || got.Comments[0].ObjectID != page || got.Comments[0].AuthorUserID != tm.editor.id || got.Comments[0].KeyGeneration != 1 {
-		t.Fatalf("comments: %+v", got.Comments)
-	}
-	if len(got.Attachments) != 1 || got.Attachments[0].ID != att || len(got.Attachments[0].ObjectIDs) != 1 || got.Attachments[0].ObjectIDs[0] != page {
-		t.Fatalf("attachments: %+v", got.Attachments)
-	}
-	if len(got.Conflicts) != 1 || got.Conflicts[0].ObjectID != page || got.Conflicts[0].KeyGeneration != 1 {
-		t.Fatalf("conflicts: %+v", got.Conflicts)
-	}
-	// Only the fields the review reads: no version, size or timestamp the client would have to ignore.
-	_, raw := status(t, tm.viewer.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/legacy", nil, false, false))
-	var wire map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(raw), &wire); err != nil {
-		t.Fatal(err)
-	}
-	for kind, fields := range map[string]string{"objects": "id keyGeneration", "comments": "authorUserId bodyCiphertext id keyGeneration objectId", "attachments": "id keyGeneration metadataCiphertext objectIds", "conflicts": "id keyGeneration objectId"} {
-		var rows []map[string]any
-		if err := json.Unmarshal(wire[kind], &rows); err != nil || len(rows) == 0 {
-			t.Fatalf("%s: %v %s", kind, err, wire[kind])
-		}
-		keys := []string{}
-		for key := range rows[0] {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		if strings.Join(keys, " ") != fields {
-			t.Fatalf("%s fields: %v", kind, keys)
-		}
-	}
-
-	// Re-sealing each row at the shared generation takes it off the list.
-	if _, code := tm.editor.save(t, tm.id, page, 2); code != http.StatusOK {
-		t.Fatalf("re-seal=%d", code)
-	}
-	if code, out := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"bmV3","keyGeneration":2}`), true, false)); code != http.StatusNoContent {
-		t.Fatalf("comment re-seal=%d %s", code, out)
-	}
-	if code, out := status(t, tm.editor.do(t, http.MethodDelete, "/api/v1/objects/"+page+"/attachments/"+att, nil, true, false)); code != http.StatusNoContent {
-		t.Fatalf("detach=%d %s", code, out)
-	}
-	if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/conflicts/"+got.Conflicts[0].ID+"/resolve", nil, true, false)); code != http.StatusNoContent && code != http.StatusOK {
-		t.Fatalf("resolve=%d %s", code, out)
-	}
-	_, got = legacyOf(t, tm.editor.pairClient, tm.id)
-	if len(got.Objects) != 1 || got.Objects[0].ID != adminPage || len(got.Comments)+len(got.Attachments)+len(got.Conflicts) != 0 {
-		t.Fatalf("after re-seal: %+v", got)
-	}
-
-	// Strangers and malformed IDs get the same 404.
-	stranger := tm.owner.addUser(t, "stranger")
-	for _, cid := range []string{tm.id, "cnt_bad"} {
-		if code, _ := legacyOf(t, stranger.pairClient, cid); code != http.StatusNotFound {
-			t.Fatalf("stranger %s=%d", cid, code)
-		}
-	}
 }
 
 func TestLegacyRowsReportAnIncompleteList(t *testing.T) {

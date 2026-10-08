@@ -201,10 +201,7 @@ re-wrap but never write first: a steward or an accepted invitation supplies
 it. Recipients must be live devices or identities of active members. Any member
 may write envelopes for its own paired devices; owners and admins may write for
 any member. Envelope writes and rotations need a fresh step-up: a password re-proof for
-local sessions, a KySignOn confirmation of the exact request for SSO sessions. The save gate depends on whether the container has ever
-rotated (`containers.shared_generation`). Until it has, every member's paired
-device needs an envelope at the current generation, as before. Afterwards, the
-writer's own identity needs one. Both gates also need a live membership, and
+local sessions, a KySignOn confirmation of the exact request for SSO sessions. A container has no key until its first rotation (`containers.shared_generation`, the first keyed generation); until then it takes no content, name or envelope, and it is created without a name. Afterwards a write needs the writer's own identity to hold an envelope at the current generation. Both gates also need a live membership, and
 the write transaction checks them again. Object saves also recheck the writer's
 role there; comment and attachment writes recheck only the gate.
 
@@ -225,9 +222,7 @@ cannot change anything there: pages, sections, groups, moves, deletes, comments,
 attachments and conflict copies are disabled and their handlers refuse, so no
 empty object is created. Edits already in progress when the key went missing
 wait in the encrypted local queue at generation 0, are never uploaded at that
-generation, and are resealed under the current key when keys arrive; they are sealed with a key derived from the identity (HKDF label `kynotes/waiting/v1`), so a password change leaves them readable; older ones sealed with the login key are re-sealed by a password change in the same browser. Shared containers refuse content writes that lack the
-`X-Kynotes-Key-Scheme: shared-v1` header, so a page loaded before shared keys
-cannot write. A container meta `PATCH` on a shared container must carry
+generation, and are resealed under the current key when keys arrive; they are sealed with a key derived from the identity (HKDF label `kynotes/waiting/v1`), so a password change leaves them readable; older ones sealed with the login key are re-sealed by a password change in the same browser. Every content write and name change carries `X-Kynotes-Key-Scheme: shared-v2`; a tab from an older build is refused and told to reload. A container meta `PATCH` must carry
 `keyGeneration` equal to the current generation; a missing, zero, old or future
 value is refused inside the transaction with `409 already_exists`, so a stale
 tab cannot seal a name under a retired key. The same transaction checks the

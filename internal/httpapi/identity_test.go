@@ -242,24 +242,6 @@ func TestRegisterCannotClaimIdentity(t *testing.T) {
 	}
 }
 
-func TestIdentityDoesNotBlockSaves(t *testing.T) {
-	p := newPairClient(t, strings.Repeat("p", 32))
-	p.createIdentity(t)
-	res := p.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), true, false)
-	var c struct {
-		ID string `json:"id"`
-	}
-	data, _ := io.ReadAll(res.Body)
-	res.Body.Close()
-	if json.Unmarshal(data, &c) != nil || c.ID == "" {
-		t.Fatalf("container=%d %s", res.StatusCode, data)
-	}
-	var missing int
-	if err := p.db.QueryRow(missingEnvelopesSQL, c.ID, c.ID, 1).Scan(&missing); err != nil || missing != 0 {
-		t.Fatalf("identity row trips the save gate: %d %v", missing, err)
-	}
-}
-
 func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	identityID := "dev_00000000000000000000000000"

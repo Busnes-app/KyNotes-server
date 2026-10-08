@@ -33,15 +33,10 @@ func (p *pairClient) rawWrite(t *testing.T, method, path string, headers map[str
 
 func TestSharedContainerRefusesStaleClientWrites(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
-	cmt, _ := tm.editor.comment(t, oid, 1)
-	// Never shared: a client without the header keeps working (personal notebooks, old tabs).
-	legacy := map[string]string{"X-Kynotes-Key-Generation": "1", "X-Kynotes-Base-Version": "1"}
-	if code, body := tm.editor.rawWrite(t, http.MethodPut, "/api/v1/objects/"+oid, legacy, "ciphertext"); code != http.StatusOK {
-		t.Fatalf("legacy container without header=%d %s", code, body)
-	}
 	tm.rotate(t, tm.id, 1)
-	stale := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "2"}
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
+	cmt, _ := tm.editor.comment(t, oid, 2)
+	stale := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1"}
 	for name, write := range map[string]func() (int, string){
 		"save": func() (int, string) {
 			return tm.editor.rawWrite(t, http.MethodPut, "/api/v1/objects/"+oid, stale, "ciphertext")
@@ -61,7 +56,7 @@ func TestSharedContainerRefusesStaleClientWrites(t *testing.T) {
 		}
 	}
 	var versions int
-	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id=? AND key_generation=2`, oid).Scan(&versions); err != nil || versions != 0 {
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id=?`, oid).Scan(&versions); err != nil || versions != 1 {
 		t.Fatalf("stale write stored %d versions: %v", versions, err)
 	}
 	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
@@ -88,10 +83,6 @@ func TestStewardBackfillsSharedHistoryOnly(t *testing.T) {
 		return status(t, c.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(items...), true, false))
 	}
 	tm.owner.stepUp(t)
-	// A legacy-era envelope at generation 1 (the device gate's kind) must not open generation 1 to backfill.
-	if code, body := put(tm.owner, envJSON(tm.editorID, 1, 1)); code != http.StatusNoContent {
-		t.Fatalf("legacy envelope=%d %s", code, body)
-	}
 	tm.rotate(t, tm.id, 1) // shared from generation 2
 	tm.rotate(t, tm.id, 2)
 	newcomer, newcomerID := tm.joinTeam(t, "newcomer")
@@ -121,10 +112,6 @@ func TestSharedGenerationIsMintedOnlyByRotation(t *testing.T) {
 	tm.owner.stepUp(t)
 	put := func(cid string, items ...string) (int, string) {
 		return status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+cid+"/envelopes", envelopesBody(items...), true, false))
-	}
-	// Legacy containers keep today's rule: the first envelope at the current generation is a PUT.
-	if code, body := put(tm.child, envJSON(tm.editorID, 1, 1)); code != http.StatusNoContent {
-		t.Fatalf("legacy first envelope=%d %s", code, body)
 	}
 	tm.rotate(t, tm.id, 1)
 	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.admin.id, nil, true, false)); code != http.StatusNoContent {
@@ -183,37 +170,37 @@ func TestSharedNameNeedsCurrentGeneration(t *testing.T) {
 	rename := func(body string) (int, string) {
 		return status(t, tm.editor.do(t, http.MethodPatch, "/api/v1/containers/"+tm.id, []byte(body), true, false))
 	}
-	// Never shared: a name without a generation is accepted (legacy key).
-	if code, body := rename(`{"metaCiphertext":"Y3Q=","baseVersion":0}`); code != http.StatusOK {
-		t.Fatalf("legacy rename=%d %s", code, body)
+	// Without a key there is no name to seal.
+	if code, body := rename(`{"metaCiphertext":"Y3Q=","baseVersion":0}`); code != http.StatusConflict {
+		t.Fatalf("unkeyed rename=%d %s", code, body)
 	}
 	tm.rotate(t, tm.id, 1) // shared at generation 2
 	for name, body := range map[string]string{
-		"no generation":  `{"metaCiphertext":"Y3Q=","baseVersion":1}`,
-		"retired":        `{"metaCiphertext":"Y3Q=","baseVersion":1,"keyGeneration":1}`,
-		"not yet minted": `{"metaCiphertext":"Y3Q=","baseVersion":1,"keyGeneration":3}`,
+		"no generation":  `{"metaCiphertext":"Y3Q=","baseVersion":0}`,
+		"retired":        `{"metaCiphertext":"Y3Q=","baseVersion":0,"keyGeneration":1}`,
+		"not yet minted": `{"metaCiphertext":"Y3Q=","baseVersion":0,"keyGeneration":3}`,
 	} {
 		if code, out := rename(body); code != http.StatusConflict || !strings.Contains(out, "already_exists") {
 			t.Fatalf("%s=%d %s", name, code, out)
 		}
 	}
 	var version int64
-	if err := tm.owner.db.QueryRow(`SELECT meta_version FROM containers WHERE id=?`, tm.id).Scan(&version); err != nil || version != 1 {
+	if err := tm.owner.db.QueryRow(`SELECT meta_version FROM containers WHERE id=?`, tm.id).Scan(&version); err != nil || version != 0 {
 		t.Fatalf("stale rename stored: version=%d %v", version, err)
 	}
-	if code, body := rename(`{"metaCiphertext":"Y3Q=","baseVersion":1,"keyGeneration":2}`); code != http.StatusOK {
+	if code, body := rename(`{"metaCiphertext":"Y3Q=","baseVersion":0,"keyGeneration":2}`); code != http.StatusOK {
 		t.Fatalf("current rename=%d %s", code, body)
 	}
 }
 
 func TestConflictListingReportsKeyGeneration(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
 	tm.rotate(t, tm.id, 1)
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
 	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
 		t.Fatalf("save=%d", code)
 	}
-	stale := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1", "X-Kynotes-Key-Scheme": "shared-v1"}
+	stale := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1", keySchemeHeader: keySchemeShared}
 	if code, body := tm.editor.rawWrite(t, http.MethodPut, "/api/v1/objects/"+oid, stale, "rejected"); code != http.StatusConflict {
 		t.Fatalf("stale base=%d %s", code, body)
 	}

@@ -226,6 +226,7 @@ func (p *pairClient) saveRacing(t *testing.T, oid string, generation int64, comm
 func TestEnvelopeWriteRequiresUserStepUp(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	cid := seedContainer(t, p, "workbook", "", map[string]string{pairUser: "owner"})
+	keyForTest(t, p.db, cid, pairUser)
 	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{7}, 32))
 	// The session is seconds old: the retired session-age rule would have admitted it.
 	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/containers/"+cid+"/envelopes", envelopesBody(envJSON(p.deviceID, 1, 1)), true, false)); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
@@ -242,6 +243,7 @@ func TestEnvelopeWriteRequiresUserStepUp(t *testing.T) {
 
 func TestEnvelopeWriteIsInsertOnlyExceptOwnIdentity(t *testing.T) {
 	tm := newTeam(t)
+	keyForTest(t, tm.owner.db, tm.id, pairUser)
 	put := func(c *pairClient, body []byte) (int, string) {
 		return status(t, c.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", body, true, false))
 	}
@@ -266,6 +268,7 @@ func TestEnvelopeWriteIsInsertOnlyExceptOwnIdentity(t *testing.T) {
 
 func TestMemberMayWriteOnlyOwnEnvelopes(t *testing.T) {
 	tm := newTeam(t)
+	keyForTest(t, tm.owner.db, tm.id, pairUser)
 	ed := tm.editor
 	ed.deviceID, ed.deviceSecret, _ = ed.register(t, ed.mintToken(t), bytes.Repeat([]byte{8}, 32))
 	ed.stepUp(t)
@@ -282,21 +285,22 @@ func TestMemberMayWriteOnlyOwnEnvelopes(t *testing.T) {
 	if code, body := put(envelopesBody(envJSON(tm.adminID, 1, 1))); code != http.StatusForbidden || !strings.Contains(body, "forbidden") {
 		t.Fatalf("editor wrapped for another member: %d %s", code, body)
 	}
-	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 2 {
-		t.Fatalf("envelopes=%d, want 2", n)
+	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 3 {
+		t.Fatalf("envelopes=%d, want the owner's, the editor's identity and phone", n)
 	}
 }
 
 func TestOwnIdentityWriteIsRewrapOnly(t *testing.T) {
 	tm := newTeam(t)
+	keyForTest(t, tm.owner.db, tm.id, pairUser)
 	ed := tm.editor
 	ed.stepUp(t)
 	path := "/api/v1/containers/" + tm.id + "/envelopes"
 	if code, body := status(t, ed.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false)); code != http.StatusForbidden || !strings.Contains(body, "forbidden") {
 		t.Fatalf("member minted its own first identity envelope: %d %s", code, body)
 	}
-	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 0 {
-		t.Fatalf("envelopes=%d, want 0", n)
+	if n := countEnvelopes(t, tm.owner, tm.id, 1); n != 1 {
+		t.Fatalf("envelopes=%d, want the owner's only", n)
 	}
 	if code, body := status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false)); code != http.StatusNoContent {
 		t.Fatalf("steward wrap=%d %s", code, body)
@@ -378,11 +382,12 @@ func TestEnvelopeWriteRefusals(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			tm := newTeam(t)
+			keyForTest(t, tm.owner.db, tm.id, pairUser)
 			if code, body := c.run(t, tm, "/api/v1/containers/"+tm.id+"/envelopes"); code != c.code || !strings.Contains(body, `"`+c.want+`"`) {
 				t.Fatalf("got %d %s, want %d %s", code, body, c.code, c.want)
 			}
-			if n := countEnvelopes(t, tm.owner, tm.id, 1) + countEnvelopes(t, tm.owner, tm.id, 2); n != 0 {
-				t.Fatalf("refused write stored %d envelopes", n)
+			if n := countEnvelopes(t, tm.owner, tm.id, 1) + countEnvelopes(t, tm.owner, tm.id, 2); n != 1 {
+				t.Fatalf("refused write stored %d envelopes beside the owner's", n-1)
 			}
 		})
 	}
@@ -481,16 +486,17 @@ func TestConcurrentRotationsCannotSplitAGeneration(t *testing.T) {
 
 func TestEnvelopeForNonMemberIsRejected(t *testing.T) {
 	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
 	outsider := tm.owner.addUser(t, "outsider")
 	outsiderID := outsider.createIdentity(t)
-	if code, body := status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(envJSON(outsiderID, 1, 1)), true, false)); code != http.StatusBadRequest {
+	if code, body := status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(envJSON(outsiderID, 2, 1)), true, false)); code != http.StatusBadRequest {
 		t.Fatalf("PUT for non-member=%d %s", code, body)
 	}
-	body := rotationBody(1, envJSON(tm.ownerID, 2, 1), envJSON(tm.adminID, 2, 1), envJSON(tm.editorID, 2, 1), envJSON(outsiderID, 2, 1))
+	body := rotationBody(2, envJSON(tm.ownerID, 3, 1), envJSON(tm.adminID, 3, 1), envJSON(tm.editorID, 3, 1), envJSON(outsiderID, 3, 1))
 	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusBadRequest {
 		t.Fatalf("rotation with non-member=%d %s", code, out)
 	}
-	if g, shared := generationOf(t, tm.owner, tm.id); g != 1 || shared != 0 || countEnvelopes(t, tm.owner, tm.id, 2) != 0 {
+	if g, shared := generationOf(t, tm.owner, tm.id); g != 2 || shared != 2 || countEnvelopes(t, tm.owner, tm.id, 3) != 0 {
 		t.Fatalf("refused rotation left state: generation=%d shared=%d", g, shared)
 	}
 	// A removed member is a non-member too.
@@ -523,54 +529,28 @@ func TestEnvelopeWritesRecheckStepUpInTransaction(t *testing.T) {
 	}
 }
 
-func TestLegacyContainersKeepTheDeviceGate(t *testing.T) {
-	tm := newTeam(t)
-	// Identities without envelopes never block a container that has not rotated.
-	oid, code := tm.editor.save(t, tm.id, "", 1)
-	if code != http.StatusOK {
-		t.Fatalf("legacy save=%d", code)
-	}
-	if _, code := tm.editor.comment(t, oid, 1); code != http.StatusOK {
-		t.Fatalf("legacy comment=%d", code)
-	}
-	if code := tm.editor.attach(t, tm.id, 1); code != http.StatusOK {
-		t.Fatalf("legacy upload=%d", code)
-	}
-	// A removal bumps the generation but leaves the container legacy.
-	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.viewer.id, nil, true, false)); code != http.StatusNoContent {
-		t.Fatalf("remove=%d %s", code, body)
-	}
-	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
-		t.Fatalf("legacy save after removal=%d", code)
-	}
-	// The legacy rule still holds: a member's paired phone without an envelope blocks.
-	tm.editor.deviceID, _, _ = tm.editor.register(t, tm.editor.mintToken(t), bytes.Repeat([]byte{8}, 32))
-	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusConflict {
-		t.Fatalf("legacy save with an unwrapped phone=%d", code)
-	}
-}
-
 func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
-	cmt, _ := tm.editor.comment(t, oid, 1)
 	tm.rotate(t, tm.id, 1)
-	if _, code := tm.editor.save(t, tm.id, oid, 1); code != http.StatusConflict {
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
+	cmt, _ := tm.editor.comment(t, oid, 2)
+	tm.rotate(t, tm.id, 2)
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusConflict {
 		t.Fatalf("save at the old generation=%d", code)
 	}
-	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
+	if _, code := tm.editor.save(t, tm.id, oid, 3); code != http.StatusOK {
 		t.Fatalf("enveloped writer=%d", code)
 	}
-	// The removal bumps to 3 with no envelopes: no one writes until a steward rotates.
+	// The removal bumps to 4 with no envelopes: no one writes until a steward rotates.
 	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.admin.id, nil, true, false)); code != http.StatusNoContent {
 		t.Fatalf("remove=%d %s", code, body)
 	}
 	for name, code := range map[string]int{
-		"save":    func() int { _, c := tm.editor.save(t, tm.id, oid, 3); return c }(),
-		"comment": func() int { _, c := tm.editor.comment(t, oid, 3); return c }(),
-		"upload":  func() int { return tm.editor.attach(t, tm.id, 3) }(),
+		"save":    func() int { _, c := tm.editor.save(t, tm.id, oid, 4); return c }(),
+		"comment": func() int { _, c := tm.editor.comment(t, oid, 4); return c }(),
+		"upload":  func() int { return tm.editor.attach(t, tm.id, 4) }(),
 		"comment rewrite": func() int {
-			c, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":3}`), true, false))
+			c, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":4}`), true, false))
 			return c
 		}(),
 	} {
@@ -578,14 +558,14 @@ func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
 			t.Fatalf("%s without an envelope=%d", name, code)
 		}
 	}
-	body := rotationBody(3, envJSON(tm.ownerID, 4, 1), envJSON(tm.editorID, 4, 1))
+	body := rotationBody(4, envJSON(tm.ownerID, 5, 1), envJSON(tm.editorID, 5, 1))
 	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusOK {
 		t.Fatalf("rotate after removal=%d %s", code, out)
 	}
-	if _, code := tm.editor.save(t, tm.id, oid, 4); code != http.StatusOK {
+	if _, code := tm.editor.save(t, tm.id, oid, 5); code != http.StatusOK {
 		t.Fatalf("save after re-wrap=%d", code)
 	}
-	if code := tm.editor.attach(t, tm.id, 4); code != http.StatusOK {
+	if code := tm.editor.attach(t, tm.id, 5); code != http.StatusOK {
 		t.Fatalf("upload after re-wrap=%d", code)
 	}
 	var author string
@@ -596,17 +576,18 @@ func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
 
 func TestCommentRewriteIsAuthorOnly(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
-	cmt, _ := tm.editor.comment(t, oid, 1)
+	tm.rotate(t, tm.id, 1)
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
+	cmt, _ := tm.editor.comment(t, oid, 2)
 	path := "/api/v1/comments/" + cmt
-	body := []byte(`{"bodyCiphertext":"bmV3","keyGeneration":1}`)
+	body := []byte(`{"bodyCiphertext":"bmV3","keyGeneration":2}`)
 	if code, _ := status(t, tm.owner.do(t, http.MethodPut, path, body, true, false)); code != http.StatusForbidden {
 		t.Fatalf("owner rewrote another author's comment: %d", code)
 	}
 	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, body, false, false)); code != http.StatusForbidden {
 		t.Fatalf("without CSRF: %d", code)
 	}
-	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, []byte(`{"bodyCiphertext":"bmV3","keyGeneration":2}`), true, false)); code != http.StatusConflict {
+	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, []byte(`{"bodyCiphertext":"bmV3","keyGeneration":3}`), true, false)); code != http.StatusConflict {
 		t.Fatalf("future generation: %d", code)
 	}
 	if code, out := status(t, tm.editor.do(t, http.MethodPut, path, body, true, false)); code != http.StatusNoContent {
@@ -623,16 +604,17 @@ func TestCommentRewriteIsAuthorOnly(t *testing.T) {
 
 func TestSaveRacingRemovalOrRotationIsRefused(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
 	tm.rotate(t, tm.id, 1)
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
+	tm.rotate(t, tm.id, 2)
 	rotated := 0
-	if code := tm.editor.saveRacing(t, oid, 2, func() {
-		rotated, _ = tm.owner.send(http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", rotationBody(2, envJSON(tm.ownerID, 3, 1), envJSON(tm.adminID, 3, 1), envJSON(tm.editorID, 3, 1)))
+	if code := tm.editor.saveRacing(t, oid, 3, func() {
+		rotated, _ = tm.owner.send(http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", rotationBody(3, envJSON(tm.ownerID, 4, 1), envJSON(tm.adminID, 4, 1), envJSON(tm.editorID, 4, 1)))
 	}); rotated != http.StatusOK || code != http.StatusConflict {
 		t.Fatalf("save racing a rotation: rotate=%d save=%d", rotated, code)
 	}
 	removed := 0
-	if code := tm.editor.saveRacing(t, oid, 3, func() {
+	if code := tm.editor.saveRacing(t, oid, 4, func() {
 		removed, _ = tm.owner.send(http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil)
 	}); removed != http.StatusNoContent || code != http.StatusNotFound {
 		t.Fatalf("save racing a removal: remove=%d save=%d", removed, code)
@@ -664,8 +646,8 @@ func (p *pairClient) attach(t *testing.T, cid string, generation int64) int {
 
 func TestRevokedIdentityNeitherWritesNorBlocksRotation(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
 	tm.rotate(t, tm.id, 1)
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
 	if _, err := tm.owner.db.Exec(`UPDATE devices SET revoked_at='2026-10-07T00:00:00Z' WHERE id=?`, tm.editorID); err != nil {
 		t.Fatal(err)
 	}
@@ -680,8 +662,9 @@ func TestRevokedIdentityNeitherWritesNorBlocksRotation(t *testing.T) {
 
 func TestSaveRacingDemotionIsRefused(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.id, "", 1)
-	if code := tm.editor.saveRacing(t, oid, 1, func() {
+	tm.rotate(t, tm.id, 1)
+	oid, _ := tm.editor.save(t, tm.id, "", 2)
+	if code := tm.editor.saveRacing(t, oid, 2, func() {
 		if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='viewer' WHERE container_id=? AND user_id=?`, tm.id, tm.editor.id); err != nil {
 			t.Error(err)
 		}
@@ -726,8 +709,9 @@ func TestAdminMemberRemovalRotatesLikeOwnerRemoval(t *testing.T) {
 
 func TestRemovedMemberCannotWriteAnywhereInTheTeam(t *testing.T) {
 	tm := newTeam(t)
-	oid, _ := tm.editor.save(t, tm.child, "", 1)
-	cmt, _ := tm.editor.comment(t, oid, 1)
+	tm.rotate(t, tm.child, 1)
+	oid, _ := tm.editor.save(t, tm.child, "", 2)
+	cmt, _ := tm.editor.comment(t, oid, 2)
 	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
 		t.Fatalf("remove=%d %s", code, body)
 	}

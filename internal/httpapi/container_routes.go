@@ -61,8 +61,8 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		meta, e := base64.StdEncoding.DecodeString(in.Meta)
-		if e != nil || len(meta) > 4096 {
+		// A notebook has no name until its first key exists: the owner's browser seals it then.
+		if in.Meta != "" {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -80,8 +80,9 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		id, _ := ids.Mint("cnt")
 		mem, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
+		var e error
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, meta, 0, now, now); e != nil {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
 			if in.TeamID != "" {
@@ -99,7 +100,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		recordAudit(db, s.UserID, "container.create", id, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
+		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": "", "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
 	})))
 	mux.Handle("PATCH /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
@@ -115,7 +116,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		var in struct {
 			Meta        string `json:"metaCiphertext"`
 			BaseVersion int64  `json:"baseVersion"`
-			// The generation the name was sealed with; required once the container is shared.
+			// The generation the name was sealed with; required.
 			KeyGeneration *int64 `json:"keyGeneration"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
@@ -141,11 +142,12 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			if role != "owner" && role != "admin" && role != "editor" {
 				return errInsufficientRole
 			}
-			if shared != 0 && !current {
+			if !current {
 				return errStaleClient
 			}
-			// A shared name is sealed with the current generation only, so readers never need an older key.
-			if shared != 0 && (in.KeyGeneration == nil || *in.KeyGeneration != generation) {
+			// A name is sealed with the current generation only, so readers never need an older key;
+			// a container without a key has no name to seal.
+			if shared == 0 || in.KeyGeneration == nil || *in.KeyGeneration != generation {
 				return errKeyRotationIncomplete
 			}
 			e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=meta_version+1,updated_at=? WHERE id=? AND meta_version=? RETURNING change_seq`, meta, now, cid, in.BaseVersion).Scan(&seq)
