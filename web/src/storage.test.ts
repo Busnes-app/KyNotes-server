@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, reopenLegacy, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
-import { confirmReopenLegacy, ReopenConfirmation } from "./keyring";
+import { confirmReopenLegacy, ReopenConfirmation, type KeyState } from "./keyring";
+import { clearFloors, raiseFloorIn } from "./floors";
+import { mayAutoClose } from "./migration";
+import { closeLegacy } from "./observe";
 import type { CachedNote, PendingSave } from "./storage";
 
 const shared = indexedDB;
@@ -163,8 +166,8 @@ describe("pin and key-mark writes never downgrade", () => {
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
     const confirmed = confirmReopenLegacy(userID, cnt);
     expect(await reopenLegacy("alice", userID, cnt, confirmed)).toBe(true);
-    // Back to the pre-closure state; the rest of the key memory is untouched.
-    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
+    // Back to the pre-closure state, marked reopened; the rest of the key memory is untouched.
+    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3, reopened: true });
     // Closing again sticks, and the kept confirmation cannot reopen a second time.
     await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: 2 });
     expect(await reopenLegacy("alice", userID, cnt, confirmed)).toBe(false);
@@ -172,6 +175,30 @@ describe("pin and key-mark writes never downgrade", () => {
     // A malformed closure in a write keeps the stored one.
     await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: NaN });
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
+  });
+
+  it("keeps a reopen across reloads and other tabs, so nothing auto-closes it; an explicit close clears it (I1)", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    const tab = () => mayAutoClose(() => getKeyState("alice", userID, cnt)); // what any tab's check reads, after any reload
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 2, closed: 2 });
+    expect(await reopenLegacy("alice", userID, cnt, confirmReopenLegacy(userID, cnt))).toBe(true);
+    expect(await tab()).toBe(false);
+    // Key passes and observed floors (writes without a closure) keep the mark; a write cannot set it.
+    await storeKeyState("alice", userID, cnt, { mark: 2, digests: { 2: "d2" }, shared: 2, generation: 3 });
+    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ reopened: true, generation: 3 });
+    expect(await tab()).toBe(false);
+    // "Stop opening pre-sharing items" (closeLegacy) clears it.
+    clearFloors();
+    raiseFloorIn(cnt, { shared: 2, generation: 3 });
+    const sink = { load: (id: string) => getKeyState("alice", userID, id), save: (id: string, state: KeyState) => storeKeyState("alice", userID, id, state) };
+    expect(await closeLegacy(sink, cnt)).toBe(true);
+    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("reopened");
+    expect(await tab()).toBe(true);
+    clearFloors();
+    // A write never sets the mark, and an unreadable store never allows auto-close.
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, reopened: true } as KeyState);
+    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("reopened");
+    expect(await mayAutoClose(() => Promise.reject(new Error("IndexedDB")))).toBe(false);
   });
 
 });

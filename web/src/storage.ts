@@ -419,6 +419,8 @@ export async function storeKeyState(username: string, userID: string, containerI
     const byContainer = statesOf(record, userID);
     const prior: KeyState = byContainer[containerID] ?? { mark: 0, digests: {} };
     const closed = Math.max(closedOf(prior), closedOf(state));
+    // Only reopenLegacy sets the reopen mark; a write that closes (a user's Stop or share) clears it.
+    const reopened = prior.reopened && closedOf(state) === 0;
     const next: KeyState = {
       mark: Math.max(prior.mark, state.mark),
       digests: { ...state.digests, ...prior.digests },
@@ -426,6 +428,7 @@ export async function storeKeyState(username: string, userID: string, containerI
       shared: Math.max(prior.shared ?? 0, state.shared ?? 0),
       generation: Math.max(prior.generation ?? 0, state.generation ?? 0),
       ...(closed ? { closed } : {}),
+      ...(reopened ? { reopened: true as const } : {}),
     };
     return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } };
   });
@@ -433,8 +436,8 @@ export async function storeKeyState(username: string, userID: string, containerI
 
 /**
  * The one way this device's legacy closure falls: this user confirmed "Show pre-sharing items
- * again" for this container. The confirmation is used up even if the write fails. Everything
- * else in the key memory stays. Call floors.ts reopenFloorIn after a true result: it lowers this
+ * again" for this container. The confirmation is used up even if the write fails. It also marks
+ * the container reopened until a user close (closeLegacy) clears it. Everything else in the key memory stays. Call floors.ts reopenFloorIn after a true result: it lowers this
  * tab and tells the others to re-read storage; without it the tabs stay closed until a reload.
  */
 export async function reopenLegacy(username: string, userID: string, containerID: string, confirmation: ReopenConfirmation): Promise<boolean> {
@@ -442,7 +445,8 @@ export async function reopenLegacy(username: string, userID: string, containerID
   return updateRecord(username, (record) => {
     const byContainer = statesOf(record, userID);
     const { closed: _, ...open } = byContainer[containerID] ?? { mark: 0, digests: {} };
-    return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: open } } };
+    // Persisted beside the floor, so no reload or other tab closes it again by itself (migration.ts mayAutoClose).
+    return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: { ...open, reopened: true } } } };
   });
 }
 

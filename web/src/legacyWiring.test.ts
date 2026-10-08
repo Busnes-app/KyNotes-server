@@ -21,7 +21,9 @@ describe("workspace pre-sharing wiring", () => {
   it("checks after every load, shows the check while it runs, and never closes on a failed check", () => {
     const check = block("  async function checkLegacy(");
     expect(check).toContain("setLegacyCheck({ containerID: container.id, checking: true });");
-    expect(check).toContain("await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, () => stopLegacy(container), !reopenedRef.current.has(container.id));");
+    expect(check).toContain("const autoClose = await mayAutoClose(() => pinStore.loadKeyState(container.id));");
+    expect(check).toContain("await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, () => stopLegacy(container), autoClose);");
+    expect(main).not.toMatch(/reopenedRef/);
     expect(check).toMatch(/if \("failed" in check\) \{[^]*failure: checkFailure\(check\.failed\) \}\);\n\s*return;\n\s*\}/);
     expect(check.match(/stopLegacy/g)).toHaveLength(1); // only as checkLegacyRows' close
     // Only checkLegacyRows decides to close by itself; nothing turns a rejection into a review.
@@ -34,7 +36,10 @@ describe("workspace pre-sharing wiring", () => {
 
   it("reloads the open notebook when its closure rises, here or in another tab", () => {
     expect(main).toContain("const closedNow = selected ? closedOf(floorFor(selected)) : 0;");
-    expect(main).toContain("if (selected && before.id === selected.id && before.closed === 0 && closedNow > 0 && unverifiedRef.current.size > 0) void selectContainer(selected, parseRoute(location.hash));");
+    expect(main).toContain("const rose = before.closed === 0 && closedNow > 0 && unverifiedRef.current.size > 0;");
+    // A reopen here or in another tab (floors.ts adoptStored lowers the closure) refreshes the view too (M2).
+    expect(main).toContain("const fell = before.closed > 0 && closedNow === 0;");
+    expect(main).toContain("if (selected && before.id === selected.id && (rose || fell)) void selectContainer(selected, parseRoute(location.hash));");
     expect(main).toContain("}, [selected?.id, closedNow]);");
   });
 
@@ -64,7 +69,7 @@ describe("workspace pre-sharing wiring", () => {
 
   it("reopens only with the dialog's confirmation, then lowers this tab and tells the others", () => {
     const reopen = block("  async function reopenLegacyReads(");
-    expect(reopen).toMatch(/if \(!\(await reopenLegacy\(auth\.username, auth\.user\.id, container\.id, confirmation\)\)\)[^]*reopenedRef\.current\.add\(container\.id\);\n\s*await reopenFloorIn\(container\.id\);/);
+    expect(reopen).toMatch(/if \(!\(await reopenLegacy\(auth\.username, auth\.user\.id, container\.id, confirmation\)\)\)[^]*return;\n\s*\}\n[^]*await reopenFloorIn\(container\.id\);/);
     expect(main).toContain("onReopen={(confirmation) => reopenLegacyReads(selected, confirmation)}");
   });
 

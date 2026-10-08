@@ -6,7 +6,7 @@ import { isReopenConfirmation, type ReopenConfirmation } from "../keyring";
 import { isMigrationApproval, reviewLegacy, type LegacyReview as Review, type MigrationApproval, type Migrated, type ReviewAPI } from "../migration";
 import {
   checkFailure, LEGACY_BLOCKED, LEGACY_CHECKING, LEGACY_CLOSED, LEGACY_INCOMPLETE, LEGACY_LABEL, LEGACY_SHARE_INCOMPLETE, LEGACY_UNCHECKED, LegacyItems, legacyLeave, LegacyReview,
-  REOPEN_CONFIRM, REOPEN_LEGACY, SHARE_BUTTON, shareOutcomeText, STOP_BUTTON, submitReopen, submitShare, TICK_THESE, tickThese,
+  REOPEN_CONFIRM, REOPEN_LEGACY, REVIEW_BLOCKED, SHARE_BUTTON, shareOutcomeText, STOP_BUTTON, submitReopen, submitShare, TICK_THESE, tickThese,
 } from "./LegacyReview";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -84,20 +84,21 @@ describe("the pre-sharing banner", () => {
   });
 
   it("says why a share did not close: incomplete, or named pages that still use a shared attachment", async () => {
-    const html = text(banner({ review: await review(), outcome: outcome({ incomplete: true, blockedBy: [{ id: id("obj", "a"), title: "Budget", attachment: id("att", "a") }, { id: id("obj", "z"), attachment: id("att", "a") }] }) }));
+    const html = text(banner({ review: await review(), outcome: outcome({ incomplete: true, blockedBy: [{ id: id("obj", "a"), title: "Budget", attachment: id("att", "a") }, { id: id("obj", "z"), title: "", attachment: id("att", "a") }] }) }));
     expect(html).toContain(LEGACY_SHARE_INCOMPLETE);
     expect(html).toContain(LEGACY_BLOCKED);
     expect(html).toContain("Budget");
     expect(html).toContain("Untitled page");
-    expect(html).toContain(TICK_THESE);
+    expect(html).toContain(REVIEW_BLOCKED);
+    expect(html).not.toContain(TICK_THESE); // ticking happens in the dialog, by the user
     expect(shareOutcomeText(outcome({ shared: ["x"], incomplete: true }))).toBe(`Shared 1 item. ${LEGACY_SHARE_INCOMPLETE}`);
     expect(shareOutcomeText(outcome({ shared: ["x", "y"], closed: true }))).toBe(`Shared 2 items. ${LEGACY_CLOSED}`);
     expect(shareOutcomeText(outcome({ failed: [{ id: "x", reason: "offline" }] }))).toMatch(/^1 of the ticked items could not be shared \(offline\)/);
   });
 
-  it("\"Tick these too\" ticks the blocked pages and their attachments that the review still offers", async () => {
+  it("\"Tick these too\" offers only the blocked pages and their attachments that the review still offers", async () => {
     const value = await review();
-    expect([...tickThese(value, [{ id: id("obj", "a"), attachment: id("att", "a") }, { id: id("obj", "z"), attachment: id("att", "z") }])].sort()).toEqual([id("att", "a"), id("obj", "a")]);
+    expect([...tickThese(value, [{ id: id("obj", "a"), title: "", attachment: id("att", "a") }, { id: id("obj", "z"), title: "", attachment: id("att", "z") }])].sort()).toEqual([id("att", "a"), id("obj", "a")]);
   });
 });
 
@@ -105,7 +106,7 @@ describe("the review dialog", () => {
   it("shows each item's actual content, labelled unverified, unticked, with an image preview for raster images only", async () => {
     const value = await review();
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:preview" }));
-    const html = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set()} busy={false} onToggle={() => {}} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
+    const html = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set()} highlight={new Set()} busy={false} onToggle={() => {}} onTickHighlighted={() => {}} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
     vi.unstubAllGlobals();
     const shown = text(html);
     for (const expected of ["Page: Budget", "Line one of the budget", "Comment: Check the totals", "Attachment: chart.png (2 KB)", "Attachment: logo.svg (1 KB)", "Conflicting version: Old budget", "Older line"]) expect(shown).toContain(expected);
@@ -116,7 +117,7 @@ describe("the review dialog", () => {
     expect(html).toContain('alt="chart.png"');
     // Share is disabled until something is ticked.
     expect(html).toMatch(new RegExp(`<button disabled="">${SHARE_BUTTON}</button>`));
-    const ticked = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set([id("obj", "a")])} busy={false} onToggle={() => {}} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
+    const ticked = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set([id("obj", "a")])} highlight={new Set()} busy={false} onToggle={() => {}} onTickHighlighted={() => {}} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
     expect(ticked).toContain(`<button>${SHARE_BUTTON}</button>`);
   });
 
@@ -151,6 +152,32 @@ describe("the review dialog", () => {
     expect(await submitReopen(me, cnt, ask, onReopen)).toBe(true);
     expect(ask).toHaveBeenCalledWith(REOPEN_CONFIRM);
     expect(isReopenConfirmation(onReopen.mock.calls[0][0], me, cnt)).toBe(true);
+  });
+
+  it("highlights blocked pages unticked, and ticks them only on the user's \"Tick these too\" (I2)", async () => {
+    const value = await review();
+    const highlight = new Set([id("obj", "a")]);
+    const onTickHighlighted = vi.fn();
+    const html = renderToStaticMarkup(<LegacyItems items={value.mine} picked={new Set()} highlight={highlight} busy={false} onToggle={() => {}} onTickHighlighted={onTickHighlighted} onSelectAll={() => {}} onCancel={() => {}} onShare={() => {}} />);
+    expect(text(html)).toContain(LEGACY_BLOCKED);
+    expect(text(html)).toContain(TICK_THESE);
+    expect(html.match(/class="legacy-highlight"/g)).toHaveLength(1);
+    expect(html).not.toMatch(/checked=""/);
+    const source = import.meta.glob<string>("./LegacyReview.tsx", { query: "?raw", import: "default", eager: true })["./LegacyReview.tsx"];
+    // Opening never ticks; the only setPicked calls are the user's toggle, Select all and Tick these too.
+    expect(source).toContain("setShown(review); setPicked(new Set()); setHighlight(marked);");
+    expect(source.match(/setPicked\(/g)).toHaveLength(4);
+    expect(source).toContain("onTickHighlighted={() => setPicked((value) => new Set([...value, ...highlight]))}");
+  });
+
+  it("only this component calls submitShare and submitReopen, under any name (M1)", () => {
+    const sources = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../**/*.test.{ts,tsx}", "!../ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    const naming = (all: Record<string, string>, name: string) => Object.entries(all).filter(([file, text]) => new RegExp(`\\b${name}\\b`).test(text) && (!file.endsWith("/components/LegacyReview.tsx") && file !== "./LegacyReview.tsx" || new RegExp(`\\b${name}\\s+as\\b`).test(text))).map(([file]) => file);
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(["../main.tsx", "./LegacyReview.tsx"]));
+    for (const name of ["submitShare", "submitReopen"]) {
+      expect(naming(sources, name)).toEqual([]);
+      expect(naming({ "../main.tsx": `import { ${name} as go } from "./components/LegacyReview"; go();`, "../x.ts": `import * as l from "./components/LegacyReview"; l.${name}();` }, name)).toEqual(["../main.tsx", "../x.ts"]);
+    }
   });
 
   it("reads content from the review it shows, never from an approval, and mints only in submitShare and submitReopen", () => {

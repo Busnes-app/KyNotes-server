@@ -33,7 +33,8 @@ export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; cha
  * generation are the highest sharedGeneration and keyGeneration the server ever reported
  * (KeyFloor); all of it only rises.
  */
-export type KeyState = KeyFloor & { mark: number; digests: Record<number, string> };
+/** reopened: the user chose "Show pre-sharing items again" here (storage.ts reopenLegacy); nothing closes by itself until a user close clears it. */
+export type KeyState = KeyFloor & { mark: number; digests: Record<number, string>; reopened?: true };
 /**
  * The highest sharedGeneration and keyGeneration this device has seen for a container; absent is 0.
  * closed: the shared generation at which this device stopped opening the container's legacy rows

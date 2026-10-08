@@ -71,7 +71,7 @@ import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, se
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
 import { checkFailure, LEGACY_CLOSED, LegacyReview as LegacyReviewBanner, shareOutcomeText } from "./components/LegacyReview";
-import { checkLegacyRows, LegacyClosedError, migrateLegacy, reviewLegacy, type LegacyReview, type Migrated, type MigrationAPI, type MigrationApproval, type ReviewAPI } from "./migration";
+import { checkLegacyRows, LegacyClosedError, mayAutoClose, migrateLegacy, reviewLegacy, type LegacyReview, type Migrated, type MigrationAPI, type MigrationApproval, type ReviewAPI } from "./migration";
 import { clearFloors, floorOf, raiseFloorIn, reopenFloorIn, setClosureReader, useFloors } from "./floors";
 import { closeLegacy, listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -740,8 +740,6 @@ function Workspace({
   const [legacyCheck, setLegacyCheck] = useState<{ containerID: string; review?: LegacyReview; checking: boolean; failure?: string }>();
   // The last share run per notebook, so the banner can say why it did not close.
   const [legacyOutcome, setLegacyOutcome] = useState<{ containerID: string; result: Migrated }>();
-  // Notebooks the user reopened this session: the check does not close them again by itself.
-  const reopenedRef = useRef(new Set<string>());
   const [keyNotice, setKeyNotice] = useState("");
   // The open notebook's members wait for keys this SSO steward did not share on its own (KySync.deferred).
   const [keyDeferred, setKeyDeferred] = useState(false);
@@ -1341,7 +1339,9 @@ function Workspace({
     const floor = floorNow();
     if (!floor || Math.max(container.sharedGeneration, floor.shared ?? 0) === 0) return;
     setLegacyCheck({ containerID: container.id, checking: true });
-    const check = await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, () => stopLegacy(container), !reopenedRef.current.has(container.id));
+    // A notebook the user reopened (stored, so every tab and reload agrees) never closes by itself.
+    const autoClose = await mayAutoClose(() => pinStore.loadKeyState(container.id));
+    const check = await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, () => stopLegacy(container), autoClose);
     if (superseded()) return;
     if ("failed" in check) {
       // Closed while it ran (here or in another tab): nothing failed, the closed banner shows.
@@ -1354,7 +1354,6 @@ function Workspace({
   async function stopLegacy(container: Container): Promise<boolean> {
     const kept = await closeLegacy(floorSink, container.id);
     if (!kept) setError("This browser could not remember that it stopped opening items written before sharing; it checks again after a reload.");
-    else reopenedRef.current.delete(container.id);
     return kept;
   }
   const migrationAPI = (container: Container): MigrationAPI => ({
@@ -1398,18 +1397,20 @@ function Workspace({
       setError("This browser could not show items written before sharing again; try again.");
       return;
     }
-    reopenedRef.current.add(container.id);
+    // Lowers this tab (the effect below reloads it) and tells the others to re-read storage.
     await reopenFloorIn(container.id);
-    await selectContainer(container, parseRoute(location.hash));
   }
   // Closed here or in another tab while this notebook is open: reload once, so rows it read with the
   // login key leave the screen. Cached copies this browser wrote itself may stay (localReadKeys).
+  // Reopened (here or in another tab, adopted from storage): reload, so the pre-sharing rows show again.
   const closedNow = selected ? closedOf(floorFor(selected)) : 0;
   const closedBefore = useRef({ id: "", closed: 0 });
   useEffect(() => {
     const before = closedBefore.current;
     closedBefore.current = { id: selected?.id ?? "", closed: closedNow };
-    if (selected && before.id === selected.id && before.closed === 0 && closedNow > 0 && unverifiedRef.current.size > 0) void selectContainer(selected, parseRoute(location.hash));
+    const rose = before.closed === 0 && closedNow > 0 && unverifiedRef.current.size > 0;
+    const fell = before.closed > 0 && closedNow === 0;
+    if (selected && before.id === selected.id && (rose || fell)) void selectContainer(selected, parseRoute(location.hash));
   }, [selected?.id, closedNow]);
   async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean): Promise<Note[] | null> {
     // Workspace navigation destroys the current editor. Finish its latest

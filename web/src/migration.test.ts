@@ -436,6 +436,25 @@ describe("migrateLegacy", () => {
     expect(live.objects.get(id("obj", "f"))!.keyGeneration).toBe(1);
   });
 
+  it("ignores a page the server claims uses a shared attachment when its text does not (I2)", async () => {
+    const { live, image } = await seeded();
+    const forged = id("obj", "b"), stranger = id("obj", "c");
+    live.objects.set(forged, { bytes: await encryptNote(mine, cnt, page("Forged claim", "no reference here")), version: 1, keyGeneration: 1 });
+    live.objects.set(stranger, { bytes: await encryptNote(theirs, cnt, page("Not mine", `attachment://${image}`)), version: 1, keyGeneration: 1 });
+    live.attachments.get(image)!.objectIds.push(forged, stranger);
+    const close = vi.fn(async () => true);
+    const result = await migrateLegacy(live.api, await prepared(live, [id("obj", "a"), image, id("cmt", "a"), id("cfl", "a")]), close);
+    expect(result.blockedBy).toEqual([]);
+    expect(result.failed).toEqual([]);
+    for (const page of [forged, stranger]) {
+      expect(live.sends).not.toContain(`object:${page}`);
+      expect(live.sends).not.toContain(`detach:${image}:${page}`);
+      expect(live.objects.get(page)!.keyGeneration).toBe(1);
+    }
+    expect(live.attachments.get(image)!.objectIds.sort()).toEqual([forged, stranger].sort()); // they keep the old copy
+    expect(result.closed).toBe(true);
+  });
+
   it("approves only a review that reviewLegacy produced (M3)", async () => {
     const { live } = await seeded();
     const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });

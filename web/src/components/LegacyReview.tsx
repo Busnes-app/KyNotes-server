@@ -23,6 +23,7 @@ export const REOPEN_CONFIRM = "Show items written before this notebook was share
 export const STOP_BUTTON = "Stop opening pre-sharing items";
 export const SHARE_BUTTON = "Share ticked items";
 export const TICK_THESE = "Tick these too";
+export const REVIEW_BLOCKED = "Review these pages";
 
 /** Why the /legacy check did not finish (migration.ts reviewLegacy rejected). Never an empty list. */
 export function checkFailure(error: unknown): string {
@@ -40,7 +41,7 @@ export function shareOutcomeText(result: Migrated): string {
   return `Shared ${items(n)}. This browser still opens the rest; it checks again after a reload.`;
 }
 
-/** The review items "Tick these too" ticks: blocked pages and the attachments they keep, if the review still offers them. */
+/** The review items "Tick these too" offers: blocked pages and the attachments they use, if the review still offers them. */
 export function tickThese(review: Review, blockedBy: Migrated["blockedBy"]): Set<string> {
   const offered = new Set(review.mine.map((item) => item.id));
   return new Set(blockedBy.flatMap((entry) => [entry.id, entry.attachment]).filter((id) => offered.has(id)));
@@ -83,12 +84,15 @@ function content(item: MigrationItem): string {
 }
 
 /** The dialog's list and actions, from the review the dialog opened with. */
-export function LegacyItems({ items: shown, picked, busy, onToggle, onSelectAll, onCancel, onShare }: { items: readonly MigrationItem[]; picked: ReadonlySet<string>; busy: boolean; onToggle: (id: string) => void; onSelectAll: () => void; onCancel: () => void; onShare: () => void }) {
+export function LegacyItems({ items: shown, picked, highlight, busy, onToggle, onTickHighlighted, onSelectAll, onCancel, onShare }: { items: readonly MigrationItem[]; picked: ReadonlySet<string>; highlight: ReadonlySet<string>; busy: boolean; onToggle: (id: string) => void; onTickHighlighted: () => void; onSelectAll: () => void; onCancel: () => void; onShare: () => void }) {
   return (
     <>
+      {highlight.size > 0 && (
+        <p>{LEGACY_BLOCKED} <button disabled={busy} onClick={onTickHighlighted}>{TICK_THESE}</button></p>
+      )}
       <ul>
         {shown.map((item) => (
-          <li key={item.id}>
+          <li key={item.id} className={highlight.has(item.id) ? "legacy-highlight" : undefined}>
             <label><input type="checkbox" checked={picked.has(item.id)} onChange={() => onToggle(item.id)} /> {itemLabel(item)}</label>
             <div className="legacy-label">{LEGACY_LABEL}</div>
             {content(item) && <p className="legacy-preview">{content(item)}</p>}
@@ -118,6 +122,7 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
   const dialog = useRef<HTMLDialogElement>(null);
   const [shown, setShown] = useState<Review>();
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [highlight, setHighlight] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const mine = review?.mine ?? [];
   const others = review?.others ?? 0;
@@ -126,7 +131,8 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
   const open = !closed && (checking || unfinished || mine.length > 0);
   const blocked = outcome?.blockedBy ?? [];
   const run = async (work: () => Promise<unknown>) => { setBusy(true); try { await work(); } finally { setBusy(false); } };
-  const openDialog = (ticked: ReadonlySet<string>) => { if (!review) return; setShown(review); setPicked(ticked); dialog.current?.showModal(); };
+  // Always opens with nothing ticked: blocked pages are only highlighted, and the user ticks them.
+  const openDialog = (marked: ReadonlySet<string>) => { if (!review) return; setShown(review); setPicked(new Set()); setHighlight(marked); dialog.current?.showModal(); };
   const toggle = (id: string) => setPicked((value) => { const next = new Set(value); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   return (
     <>
@@ -139,7 +145,7 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
             <div>
               {LEGACY_BLOCKED}
               <ul>{blocked.map((entry) => <li key={`${entry.id}:${entry.attachment}`}>{entry.title || "Untitled page"}</li>)}</ul>
-              {review && <button disabled={busy} onClick={() => openDialog(tickThese(review, blocked))}>{TICK_THESE}</button>}
+              {review && <button disabled={busy} onClick={() => openDialog(tickThese(review, blocked))}>{REVIEW_BLOCKED}</button>}
             </div>
           )}
           {!checking && mine.length > 0 && <button disabled={busy} onClick={() => openDialog(new Set())}>Review and share…</button>}
@@ -158,7 +164,8 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
         <h2 id="legacy-review-title">Items written before sharing</h2>
         <p>{LEGACY_INTRO}</p>
         {shown && !shown.complete && <p>{LEGACY_INCOMPLETE}</p>}
-        <LegacyItems items={shown?.mine ?? []} picked={picked} busy={busy} onToggle={toggle}
+        <LegacyItems items={shown?.mine ?? []} picked={picked} highlight={highlight} busy={busy} onToggle={toggle}
+          onTickHighlighted={() => setPicked((value) => new Set([...value, ...highlight]))}
           onSelectAll={() => setPicked(new Set((shown?.mine ?? []).map((item) => item.id)))}
           onCancel={() => dialog.current?.close()}
           onShare={() => void run(async () => {

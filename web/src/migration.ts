@@ -108,6 +108,13 @@ export async function reviewLegacy(api: ReviewAPI, input: ReviewInput): Promise<
 export const autoCloses = (review: LegacyReview, current: KeyFloor | undefined): boolean =>
   review.shared > 0 && (current?.shared ?? 0) === review.shared && review.complete === true && review.mine.length === 0;
 
+/**
+ * Whether the check may close a notebook by itself: not while this user's stored key memory says it
+ * was reopened (storage.ts reopenLegacy), read fresh from storage so every tab and reload agrees.
+ * An unreadable store counts as reopened.
+ */
+export const mayAutoClose = (load: () => Promise<{ reopened?: true }>): Promise<boolean> => load().then((stored) => !stored.reopened, () => false);
+
 /** The workspace's check of one notebook: the review, or why it did not finish (never an empty review). */
 export type LegacyCheck = { review: LegacyReview; autoClosed: boolean } | { failed: unknown };
 /**
@@ -138,7 +145,7 @@ const approvals = new WeakSet<MigrationApproval>();
  * Each approval's own copy of the ticked items, plus the titles of the reviewed pages left unticked;
  * nothing outside this module holds it, and migrateLegacy deletes it when it takes it.
  */
-const approvedItems = new WeakMap<MigrationApproval, { items: readonly MigrationItem[]; untickedTitles: ReadonlyMap<string, string> }>();
+const approvedItems = new WeakMap<MigrationApproval, { items: readonly MigrationItem[]; untickedPages: ReadonlyMap<string, { title: string; text: string }> }>();
 let mint: (userID: string, containerID: string, review: LegacyReview, ticked: ReadonlySet<string>, hideConfirmed: number) => MigrationApproval;
 /**
  * One user's ticked items of one notebook's review, as the dialog showed them, at the sharing
@@ -156,8 +163,9 @@ export class MigrationApproval {
       const approval = new MigrationApproval(userID, containerID, review.shared, review.complete === true, review.mine.length - items.length, hideConfirmed);
       // Frozen wrapper: a holder cannot re-target it. The items are not frozen (Uint8Array cannot be) but private.
       Object.freeze(approval);
-      const untickedTitles = new Map(review.mine.flatMap((item) => (item.kind === "object" && !ticked.has(item.id) ? [[item.id, item.payload.title] as const] : [])));
-      approvedItems.set(approval, { items: structuredClone(items), untickedTitles });
+      // Unticked reviewed rows, as decrypted: only their own text can show that they use an attachment.
+      const untickedPages = new Map(review.mine.flatMap((item) => (item.kind === "object" && !ticked.has(item.id) ? [[item.id, { title: item.payload.title, text: JSON.stringify(item.payload) }] as const] : [])));
+      approvedItems.set(approval, { items: structuredClone(items), untickedPages });
       approvals.add(approval);
       return approval;
     };
@@ -209,10 +217,10 @@ export type MigrationInput = ReviewInput & { write: WriteKey; ring: Keyring; app
  * shared: approved rows now sealed with the container key; failed: approved rows (or pages pointing
  * at them) that were not; closed: close() ran and kept. Why it did not close, for the dialog:
  * incomplete: the review did not see the whole list, so nothing closes (Stop is the explicit path);
- * blockedBy: pages left unticked that still use an attachment that was shared (tick them too, or keep
- * the notebook open); title is undefined for a page the review did not show as this user's.
+ * blockedBy: reviewed pages left unticked whose own text uses an attachment that was shared (tick them too, or keep
+ * the notebook open), with the title the review showed.
  */
-export type Migrated = { shared: string[]; failed: Array<{ id: string; reason: string }>; closed: boolean; incomplete: boolean; blockedBy: Array<{ id: string; title?: string; attachment: string }> };
+export type Migrated = { shared: string[]; failed: Array<{ id: string; reason: string }>; closed: boolean; incomplete: boolean; blockedBy: Array<{ id: string; title: string; attachment: string }> };
 
 /**
  * Re-seals the approved pre-sharing items under the current container key, exactly as the review
@@ -231,7 +239,7 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
   const { container, floorNow, legacy, userId, write, ring, approval } = input;
   if (!isMigrationApproval(approval, userId, container.id) || !approvals.delete(approval)) throw new Error("Choose the items to share in the review first.");
   // Taken once and released: the plaintext lives no longer than this run.
-  const { items, untickedTitles } = approvedItems.get(approval)!;
+  const { items, untickedPages } = approvedItems.get(approval)!;
   approvedItems.delete(approval);
   const sameSharing = () => approval.shared > 0 && floorNow()?.shared === approval.shared;
   if (!sameSharing()) throw new Error("This notebook's sharing changed since the review. Review its items again.");
@@ -264,6 +272,7 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
   const blockedBy: Migrated["blockedBy"] = [];
   for (const objectID of new Set([...approvedObjects.keys(), ...pointing])) {
     const approved = approvedObjects.get(objectID);
+    let skipped = false;
     const ok = await attempt(objectID, async () => {
       let version: number;
       let payload: ObjectPayload | undefined;
@@ -273,7 +282,12 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
         const current = await api.readObject(objectID);
         const floor = floorNow();
         if (!floor || legacyRow(container, current.keyGeneration, floor)) {
-          for (const entry of replaced) if (entry.objectIds.includes(objectID)) blockedBy.push({ id: objectID, title: untickedTitles.get(objectID), attachment: entry.old });
+          // The server's attachment list is a claim: a page blocks closing only when its reviewed text
+          // uses the attachment. Any other listed page is left alone, old copy and all.
+          const page = untickedPages.get(objectID);
+          const uses = replaced.filter((entry) => entry.objectIds.includes(objectID) && page?.text.includes(`attachment://${entry.old}`));
+          if (!uses.length) { skipped = true; return; }
+          for (const entry of uses) blockedBy.push({ id: objectID, title: page!.title, attachment: entry.old });
           throw new Error("written before sharing and not ticked");
         }
         payload = await openFirst(readKeys(container, ring, legacy, current.keyGeneration, floor), (key) => decryptObject(key, container.id, current.bytes));
@@ -284,7 +298,7 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
       if (!approved && next === payload) return;
       await api.sendObject(sealed, objectID, await encryptNote(write.key, container.id, next), version);
     }, Boolean(approved));
-    if (!ok) notRewritten.add(objectID);
+    if (!ok || skipped) notRewritten.add(objectID);
   }
 
   // 3. The old copy leaves each page that now points at the new one.
