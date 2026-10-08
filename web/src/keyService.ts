@@ -1,6 +1,6 @@
 import { base64 } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { guardContainer, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type KeyedContainer, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type SweepPlan } from "./keyring";
+import { guardContainer, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type KeyedContainer, type KeyFloor, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type SweepPlan } from "./keyring";
 import { comparePins, confirmFingerprintChange, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import type { PinsStored } from "./storage";
 
@@ -52,8 +52,10 @@ const uniqueBy = <T>(items: T[], id: (item: T) => string) => items.filter((item,
  * wraps for members missing a generation. A changed colleague key stops everything unless
  * the user confirms it. Another steward winning a race (409 already_exists) is retried
  * once from fresh server state. Key memory is written after every attempt, even one that throws.
+ * onFloor receives the raised sharing floor before any envelope fetch, so a pass that later
+ * throws still leaves the caller's floor (merged with mergeFloor) at least as high as stored.
  */
-export async function syncContainerKeys(api: KeyAPI, containerID: string, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>, held?: Keyring): Promise<KeySync> {
+export async function syncContainerKeys(api: KeyAPI, containerID: string, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>, held?: Keyring, onFloor?: (containerID: string, floor: KeyFloor) => void): Promise<KeySync> {
   const identity = caller.identity;
   const me = identity && { ...identity, userId: caller.userId };
   const own = identity && { deviceId: identity.deviceId, publicKey: base64(identity.publicKey) };
@@ -67,6 +69,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     const prior = await store.loadKeyState(container.id);
     const { rollback } = guardContainer(container, prior);
     const known = raiseFloor(prior, container);
+    onFloor?.(container.id, { shared: known.shared, generation: known.generation });
     if (known.shared !== prior.shared || known.generation !== prior.generation) await store.saveKeyState(container.id, known).catch(() => false);
     const envelopes = await api.envelopes(container.id);
     const members: MemberKey[] = await Promise.all((await api.members(container.id)).map(async (member) => ({ ...member, identity: member.userId === caller.userId && own ? own : await api.userIdentity(member.userId) })));

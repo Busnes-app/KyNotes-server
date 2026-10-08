@@ -416,7 +416,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Rollback rule: `KeyState` also keeps the highest `shared`/`generation` the server reported (add-only,
   persisted by `syncContainerKeys` before use); `writeKey`/`readKeys`/`legacyRow` require that floor and
   `guardContainer` applies it, `main.tsx` passes it only through `floorFor`, a thin lookup for every
-  container (no loaded floor, no key; `ensureFloor` before first use), and a lower report is plan
+  container (no loaded floor, no key; `ensureFloor` before first use; `putFloor` merges add-only via
+  `mergeFloor`, and `syncContainerKeys` hands it the raised floor through `onFloor` before any
+  envelope fetch, so a pass that later throws still pauses writes), and a lower report is plan
   `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
   `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
   (`needsKeyPass`) but never skip one.

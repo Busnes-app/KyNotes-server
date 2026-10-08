@@ -4,7 +4,7 @@ import { sha256 } from "./fallbackCrypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
-import { newContainerKey, readKeys, sealFor, writeKey, type Envelope, type KeyState, type Member } from "./keyring";
+import { mergeFloor, newContainerKey, readKeys, sealFor, writeKey, type Envelope, type KeyFloor, type KeyState, type Member } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type PinStore } from "./keyService";
 import { isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
@@ -443,5 +443,33 @@ describe("a pass that stops on an unstored first-contact pin", () => {
     expect(result.plan).toEqual({ kind: "pins-unsaved" });
     expect(result.ring.has(2)).toBe(false);
     expect(result.conflicts).toEqual([2]);
+  });
+});
+
+describe("a pass that fails after raising the floor", () => {
+  it("never lowers a floor it merges", () => {
+    expect(mergeFloor({ shared: 2, generation: 3 }, { shared: 1, generation: 4 })).toMatchObject({ shared: 2, generation: 4 });
+    expect(mergeFloor(undefined, { shared: 2, generation: 2 })).toMatchObject({ shared: 2, generation: 2 });
+  });
+
+  it.each<[string, { id: string; keyGeneration: number; sharedGeneration: number }, KeyState]>([
+    ["a rotation", { id: cnt, keyGeneration: 2, sharedGeneration: 2 }, { mark: 2, digests: {}, shared: 2, generation: 2 }],
+    ["first sharing", { id: cnt, keyGeneration: 1, sharedGeneration: 0 }, { mark: 0, digests: {} }],
+  ])("hands the raised floor to memory before the envelope fetch fails (%s)", async (_name, old, prior) => {
+    const editor = user("editor", "c", "editor");
+    const raised = { id: cnt, keyGeneration: 3, sharedGeneration: old.sharedGeneration || 3 };
+    const api: KeyAPI = {
+      container: async () => raised,
+      envelopes: async () => { throw new Error("offline"); },
+      members: async () => [editor.member], userIdentity: async () => editor.public,
+      stepUp: vi.fn(async () => {}), putEnvelopes: vi.fn(async () => {}), rotate: vi.fn(async () => ({ keyGeneration: 3 })),
+    };
+    let memory: KeyFloor = { shared: prior.shared, generation: prior.generation };
+    const ring = new Map([[2, newContainerKey()]]);
+    expect(writeKey(old, ring, login, memory)).toBeDefined();
+    await expect(syncContainerKeys(api, cnt, as(editor), memoryStore({}, prior), never, ring, (id, floor) => { expect(id).toBe(cnt); memory = mergeFloor(memory, floor); })).rejects.toThrow("offline");
+    expect(memory).toMatchObject({ generation: 3, shared: raised.sharedGeneration });
+    // The open notebook still holds the old container: nothing may be written under its key or the login key.
+    expect(writeKey(old, ring, login, memory)).toBeUndefined();
   });
 });

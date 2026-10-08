@@ -66,7 +66,7 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { copyableConflicts, keysAllowed, legacyRow, mergeFloor, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
@@ -640,7 +640,8 @@ function Workspace({
   // the login key or an older generation. A team container whose floor is not loaded gets no key.
   const floorsRef = useRef<Record<string, KeyFloor>>({});
   const [, setFloors] = useState(floorsRef.current);
-  const putFloor = (containerID: string, floor: KeyFloor) => { floorsRef.current = { ...floorsRef.current, [containerID]: floor }; setFloors(floorsRef.current); };
+  // Add-only: a pass that raised the floor and then failed never leaves memory below storage.
+  const putFloor = (containerID: string, floor: KeyFloor) => { floorsRef.current = { ...floorsRef.current, [containerID]: mergeFloor(floorsRef.current[containerID], floor) }; setFloors(floorsRef.current); };
   // A thin lookup for every container, personal ones included: kind and teamId are server claims.
   const floorFor = (container: Pick<Container, "id">): KeyFloor | undefined => floorsRef.current[container.id];
   /** Loads this device's floor for a container before its first use (normally empty for a new one). */
@@ -772,7 +773,7 @@ function Workspace({
     if (!needsKeyPass(container)) return container;
     return serialized(container.id, async () => {
       const confirmChanged = background ? () => false : confirmChangedKeys(container.id);
-      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id]);
+      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id], putFloor);
       putRing(container.id, result.ring);
       putFloor(container.id, result.known);
       let next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
@@ -1136,7 +1137,7 @@ function Workspace({
           // and member identities for every container in one call.
           if (item.sharedGeneration > 0 || (floor.shared ?? 0) > 0) {
             const result = await serialized(item.id, async () => {
-              const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id]);
+              const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id], putFloor);
               putRing(item.id, pass.ring);
               putFloor(item.id, pass.known);
               return pass;

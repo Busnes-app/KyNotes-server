@@ -41,6 +41,10 @@ export const NO_FLOOR: KeyFloor = {};
 export const raiseFloor = <T extends KeyFloor>(floor: T, container: KeyedContainer): T =>
   ({ ...floor, shared: Math.max(floor.shared ?? 0, container.sharedGeneration), generation: Math.max(floor.generation ?? 0, container.keyGeneration) });
 
+/** Add-only merge of a floor into this device's in-memory one: neither field ever falls. */
+export const mergeFloor = <T extends KeyFloor>(floor: KeyFloor | undefined, next: T): T =>
+  ({ ...next, shared: Math.max(floor?.shared ?? 0, next.shared ?? 0), generation: Math.max(floor?.generation ?? 0, next.generation ?? 0) });
+
 /**
  * The one choke point for a server-reported container: sharing state never goes backwards on
  * this device. rollback is true when the server reports a lower sharedGeneration or
