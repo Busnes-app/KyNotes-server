@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Team keys phase 3c: link a new browser to your account from one you already use. Both screens
+  show a six-digit check code; you type the code from the new browser into the one you already use,
+  and your encryption key moves only after you confirm it matches on both. KyNotes relays it
+  encrypted. Accounts that sign in only through single sign-on can now set up an encryption key
+  (confirmed with KySignOn), receive team keys, and, as team owners, share them with "Share keys".
+  Browsers on HTTPS store your key encrypted under a browser key that pages cannot export; this does
+  not protect it from someone who can read the browser's profile on disk, so use "Forget this device"
+  on shared computers (plain-HTTP sites store it unencrypted, and Settings says so). "Forget this
+  device" keeps unsent edits until they are sent or discarded. A failed local cache write no longer
+  blocks sending an edit. On an account that signs in through KySignOn, changing a password an
+  administrator set needs a KySignOn confirmation. Changing your password signs out your other
+  sessions and revokes your paired device credentials. Link requests are limited at the device-pairing
+  rate (`ratelimit.pairing_per_hour`, own bucket), and collect polls by the new
+  `ratelimit.link_poll_per_minute` (default 60; `KYNOTES_RATELIMIT_LINK_POLL_PER_MINUTE`). Migration
+  `0024` adds `link_requests` and the step-up scope.
 - Team keys phase 3b: invitations send a one-time link, and an invitation from someone who can see
   your encryption key carries the team's keys, so you can read at once. Team member lists show who
   has a key, who is waiting and who has none yet; a member waiting for a key can send an owner a

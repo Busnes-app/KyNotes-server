@@ -43,6 +43,8 @@ export type KeySync = {
   plan: SweepPlan | { kind: "untrusted"; members: string[] } | { kind: "pins-unsaved" } | { kind: "rollback" };
   fresh: MemberKey[]; changed: PinChange[]; conflicts: number[];
   members: MemberKey[]; envelopes: Envelope[];
+  /** A caller that may not wrap (canWrap false) would mint or wrap now: the UI offers to share on request. False when the pass stopped. */
+  deferred: boolean;
 };
 type Pass = Omit<KeySync, "keyStateSaved">;
 type Latest = { saved?: { containerID: string; known: KeyState } };
@@ -105,13 +107,16 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       if (!stored.conflicts.length) return { kind: "pins-unsaved" };
       return { kind: "untrusted", members: members.filter((member) => stored.conflicts.includes(member.userId)).map((member) => displayName(member.username, member.userId)) };
     };
+    let deferred = false;
     // planSweep itself is idle for a caller who is not a steward with an identity.
     const plan = (opened: OpenedKeyring): SweepPlan => {
-      if (!me || !caller.canWrap) return { kind: "idle" };
+      if (!me) return { kind: "idle" };
       const next = planSweep({ container, me: caller.userId, members, envelopes, ring: opened.ring });
-      if (next.kind !== "wrap") return next;
-      const grants = next.grants.filter((grant) => !opened.conflicts.includes(grant.generation));
-      return grants.length ? { kind: "wrap", grants } : { kind: "idle" };
+      const grants = next.kind === "wrap" ? next.grants.filter((grant) => !opened.conflicts.includes(grant.generation)) : [];
+      const work: SweepPlan = next.kind !== "wrap" ? next : grants.length ? { kind: "wrap", grants } : { kind: "idle" };
+      // A caller that may not wrap only reports the work; a blocked first key writes nothing, so it is still explained.
+      deferred = !caller.canWrap && (work.kind === "mint" || work.kind === "wrap");
+      return caller.canWrap || work.kind === "blocked" ? work : { kind: "idle" };
     };
     const targets = (next: SweepPlan): MemberKey[] => (next.kind === "mint" ? next.recipients : next.kind === "wrap" ? next.grants.map((grant) => grant.member) : []).filter((member) => member.userId !== caller.userId);
 
@@ -120,14 +125,15 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     // Reads only: nothing is pinned, wrapped or minted against a rolled-back server.
     if (rollback) {
       const safe = opened.fresh.length ? await persistedOnly() : trusted(opened);
-      return { container, changed: [], conflicts: safe.conflicts, known: raiseFloor(safe.known, container), fresh: [], ring: safe.ring, plan: { kind: "rollback" }, minted: false, members, envelopes };
+      return { container, changed: [], conflicts: safe.conflicts, known: raiseFloor(safe.known, container), fresh: [], ring: safe.ring, plan: { kind: "rollback" }, minted: false, members, envelopes, deferred: false };
     }
     let sweep = plan(opened);
     const changed: PinChange[] = [];
-    const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh" | "members" | "envelopes">, fresh: MemberKey[], last = opened): Pass =>
-      ({ container, changed, conflicts: last.conflicts, known: raiseFloor(last.known, container), fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), members, envelopes: seen, ...rest });
+    const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh" | "members" | "envelopes" | "deferred">, fresh: MemberKey[], last = opened): Pass =>
+      ({ container, changed, conflicts: last.conflicts, known: raiseFloor(last.known, container), fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), members, envelopes: seen, deferred, ...rest });
     /** A pass that stops on a pin it could not keep returns only what the stored pins vouch for. */
     const stopped = async (plan: KeySync["plan"], fresh: MemberKey[]): Promise<Pass> => {
+      deferred = false; // nothing is offered while the pass stopped
       const safe = await persistedOnly();
       return result({ ring: safe.ring, plan, minted: false }, fresh, safe);
     };

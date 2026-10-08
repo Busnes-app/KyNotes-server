@@ -43,3 +43,11 @@ export async function attachmentStep(job: PendingUpload, container: KeyedContain
   const file = await openFirst(keys, (key) => decryptAttachmentMetadata(key, job.containerID, fromBase64(job.metadataCiphertext)));
   return { kind: "reseal", plaintext, file };
 }
+
+/** A failed queue write: the edit is kept nowhere but this tab. */
+export const NOT_SAVED = "Not saved: neither the server nor this browser kept this edit. It exists only in this tab; keep the tab open and copy the edit.";
+export const notSaved = (): never => { throw new Error(NOT_SAVED); };
+/** A version conflict: the draft is preserved only when the local cache write succeeded. */
+export const noteConflictMessage = (uncached: boolean) => uncached
+  ? "This note changed on another device, and this browser could not keep a local copy of your edit. It exists only in this tab: copy or export it now, before closing or reloading."
+  : "This note changed on another device. Your encrypted draft is preserved locally; review the conflict before saving again.";

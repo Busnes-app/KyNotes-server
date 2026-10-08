@@ -20,7 +20,7 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-var idPattern = regexp.MustCompile(`^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`)
+var idPattern = regexp.MustCompile(`^(cnt|dev|usr|lnk)_[0-9a-hjkmnp-tv-z]{26}$`)
 
 func mustID(t *testing.T, prefix, id string) {
 	t.Helper()

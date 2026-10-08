@@ -75,11 +75,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
-- `cmd/kynotes-probe` is the live 12-step client interoperability acceptance
+- `cmd/kynotes-probe` is the live 13-step client interoperability acceptance
   path; it uses the same session, pairing, envelope, sync, upload, and GC
   contracts as external clients. Its X25519 device key is random, persisted 0600
   (`-device-key`, default under the user cache dir per server URL and username),
   never derived from `authSecret`; the device is revoked at the end of every run.
+  An operator-set password (`password_change_required` on an empty envelope PUT,
+  before pairing) is changed to a random one through `POST /api/v1/auth/password`
+  and set back to `-password` after the device is revoked, clearing the admin-known
+  flag so re-runs skip it. The temporary password sits beside the device key
+  (`.takeover`, 0600) until restored; the next run restores it first.
 - `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.
@@ -256,8 +261,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
   with fresh signed auth_time and ordinary assurance through the existing PKCE callback.
-  Migration 0019 stores one expiring challenge per session; creation, verification,
-  cancellation and consumption are audited atomically. Cancellation requires admin and CSRF,
+  Migration 0019 stores one expiring challenge per session; a started one is never replaced (`409 step_up_pending`),
+  and minting uses a per-account `challenge` bucket at the login rate; creation, verification,
+  cancellation and consumption are audited atomically. Challenges are `admin` or `user` scope
+  (`sso_stepup.scope`, 0024); a grant opens only its own scope. Cancellation requires the owning session and CSRF,
   validates the rea ID before SQL, and audits only an owned row actually deleted;
   absent/foreign/repeated valid IDs are unaudited 204 no-ops. Grant admission rechecks local
   admin/token ceiling, session/configuration and directory/logout fences, including the
@@ -341,12 +348,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
   `scripts/apply-setup-container-check.sh`.
 - Team keys P1: `internal/httpapi/identity_routes.go` serves `GET`/`PUT /api/v1/me/identity`
-  (create-only, `auth.RequireUserStepUp`: local session + `stepup_at`, SSO refused). `GET`
+  (create-only, `auth.RequireUserActionStepUp`: a local password step-up creates `aes-256-gcm`, an SSO KySignOn confirmation creates device-only `wrap_alg='none'`). `GET`
   is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a
   `devices` row with `platform='identity'` and an unusable `secret_hash` (migration 0021,
   `user_identities`); device auth, device list/revoke/selection, directory deactivation and role
   changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
-  and `wrappedIdentityKey` when one exists (`409 identity_rewrap_required`), clears every session's
+  and `wrappedIdentityKey` when a password-wrapped one exists (`409 identity_rewrap_required`), clears every session's
   step-up and shares the step-up lockout; recovery and admin reset delete it with an audit row.
   `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
   `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
@@ -355,16 +362,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   wrapped identity in one transaction bound to the hash they verified; a change in between gets
   401, no cookie, no step-up and no wrapped key (`Test*RejectsConcurrentPasswordChange`).
   `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
-  recovery) makes `PUT` answer `409 password_change_required`; the browser then creates the identity
+  recovery) makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
+  invitation keys) answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
   set the flag. `/setup` accepts only `authSecret`. Until shared keys land, the password form warns
   that existing notes become unreadable and needs an acknowledgement (`web/src/passwordChange.ts`).
   `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
   (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
-  ("Forget this device" clears it). SSO-only users have no identity (open question).
+  ("Forget this device" clears it). SSO sessions create device-only identities (P3c).
   `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
-  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserStepUpRefusesSSOSession`,
+  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
   `TestRecoveryAndAdminResetDeleteIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
   `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
@@ -374,8 +382,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   makes envelopes insert-only per container/generation/recipient; a member's own identity envelope
   is re-wrap only (stewards or an accepted invitation write it first). Members wrap for their own
   devices, stewards for any member; recipients must be live devices or identities of active members.
-  `PUT .../envelopes` and `POST .../key-rotations` use `auth.RequireUserStepUp` plus
-  `RecheckUserStepUpTx`. Rotation compares and increments `key_generation`, sets
+  `PUT .../envelopes` and `POST .../key-rotations` use `auth.RequireUserActionStepUp` plus
+  `RecheckUserActionTx` (SSO stewards confirm each request with KySignOn; invitation envelopes stay local-password). Rotation compares and increments `key_generation`, sets
   `containers.shared_generation` (migration 0022) once, and requires the caller and every active
   member identity. `checkWriteGate` serves object saves, comment create/rewrite and attachment
   finalize, before streaming and inside the transaction (object saves also recheck role there):
@@ -456,7 +464,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestMetaPatchRechecksInsideTheTransaction` and `npm test` (keyring, keyService, pins, crypto, storage,
   passwordChange).
   `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
-  Chromium contexts, plus one where another account signs in over an opened invitation link, against
+  Chromium contexts, plus one where another account signs in over an opened invitation link and one
+  second browser of the editor's account, against
   `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, login limit raised because every
   person shares one loopback IP; serves the embedded bundle: build and sync `internal/web/dist` first).
   It checks server bytes: shared rows open
@@ -466,7 +475,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   the team before any owner reopens it, refuses another account and a pre-removal invitation, a link
   pasted into an open tab joins, a re-invited member waits and asks, a declined changed key is never
   sealed, re-trust in Settings, unsent edits export and discard, and a click during the automatic load
-  (held at its last request) leaves the list loaded when it stops being busy. Every browser dialog must
+  (held at its last request) leaves the list loaded when it stops being busy. P3c steps: newcomer Cancel,
+  either side leaving Settings, and approver "Codes differ" each delete the request (collect answers 404);
+  a reload mid-attempt sends a keepalive cancel, so the request is gone (collect answers 404); a relay
+  swapping the approver key (rewritten collect) keeps Approve disabled with the newcomer's code typed and
+  sends nothing; the honest link needs the typed code, keeps the collected bundle unopened until the
+  newcomer's "Codes match", stores the same identity sealed and non-extractable, refuses a second collect,
+  opens the team with one fingerprint; a cache that refuses writes still sends with the no-local-copy text;
+  Forget asks with its exact text and empties the vault. Every browser dialog must
   be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
@@ -520,3 +536,44 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestInvitationCreationIsRateLimitedPerCaller`, `TestRetryAfterFollowsRefillInterval`,
   `TestGCDeletesEnvelopesOfExpiredInvitations`, `npm test` (keyring, keyService, pins, invitations,
   stuckEdits, loadGate) and `npm run e2e --prefix web`.
+- Team keys P3c: device linking and SSO identities. Server: `auth.RequireUserActionStepUp` (local password
+  step-up, or a `user`-scope KySignOn grant bound to action and body, single use, fresh `auth_time`;
+  `sso_stepup.scope`, migration `0024_device_linking.sql`) gates `PUT /me/identity` (SSO sessions create
+  device-only `wrap_alg='none'` identities; a password never unlocks or re-wraps them), envelope `PUT` and
+  key rotations. Step-up start, poll and cancel need a session, not an admin; challenge creation has a
+  per-account `challenge` bucket; the 409 codes are `step_up_pending` (with the challenge ID),
+  `sso_step_up_required`, `sso_sign_in_required` and `password_change_required`; the action body is capped at 64 KiB
+  (`413 payload_too_large`, JSON). `password_admin_known` refuses every local action step-up and the link steps create, claim, reveal, approve and
+  collect (list and cancel accept it); on an SSO-linked account `POST /auth/password` then needs a fresh KySignOn
+  confirmation. Every password change revokes the account's other sessions and non-identity device credentials in
+  its transaction (audit `sessions_revoked=N,devices_revoked=N`). `internal/httpapi/link_routes.go` relays
+  `/api/v1/me/link-requests` (seven routes: create with a commitment, list, claim, reveal, approve after
+  step-up, collect, cancel). Collect is `POST …/collect` with CSRF and `no-store`, once; the relay holds
+  ciphertext only; per user, 10-minute TTL checked in the transaction, 3 live, both sessions live,
+  session-only, audited `identity.link.*` (collect misses are not audited), GC'd, deleted with the identity.
+  Rate limits: own `link` bucket at `pairing_per_hour`, `link-step` at `login_per_minute`, collect at
+  `ratelimit.link_poll_per_minute` (default 60; the newcomer polls every 4 s, so the 3 live requests make 45 a
+  minute).
+  Web: `linking.ts` (commitment, six-digit check code, 61-byte bundle, frozen branded confirmations;
+  `testdata/protocol/link_vectors.json` from `internal/teamkeys`), `linkFlow.ts` (newcomer pins the approver
+  key before revealing, a failed reveal ends the attempt, no auto-retry with a new key; `awaitLinkBundle` keeps the
+  attempt through a 429 or network error and backs off to 30 s, ending on a 404 or a streak past the TTL; a create
+  404 is `LinkNoIdentityError`; the approver types the newcomer's code,
+  NFKC with spaces ignored, there is no "Codes match" on the approver; the newcomer opens a bundle only after its
+  own confirmation and only for the listed identity), `outbound.ts` `sendLinkBundle` and `collectLinkBundle`
+  (only with a typed confirmation, only while the attempt's one-time key is live), `api.ts` `cancelSSOStepUp`
+  (cancels an open confirmation, also after `step_up_pending`), `storage.ts` (identity under a non-extractable
+  device key in the vault record, labels "wrapped"/"plain"; not at-rest protection; plain HTTP unwrapped with a
+  Settings warning; no IndexedDB, no identity; compare-and-swap writes), `identity.ts` (`settlePasswordIdentity` stores compare-and-swap against the copy read first; `settleSSOIdentity`
+  keeps a pending key before the PUT and never overwrites a held identity without "Replace"; `currentCopy` uses
+  the vault copy only while the server lists it), `keyService.ts` `KySync.deferred` (SSO stewards share on a
+  "Share keys" click), `components/DeviceLink.tsx` (a row another tab claimed shows "Being approved in another tab", no Approve), the Forget-this-device confirmation (the encrypted save
+  queue stays), the SSO set-up banners, and N1: a failed local cache write still sends the edit, with copy that
+  says the browser could not keep its copy. The P3a limit "SSO users block sharing" is gone. Verify `TestSSOUserStepUp*`,
+  `TestSSOStepUpScopeIsBoundToTheGrant`, `TestSSOSessionCreatesDeviceOnlyIdentity`,
+  `TestDeviceOnlyIdentityIsNeverWrappedByAPassword`, `TestSSOStewardSharesKeysAfterActionStepUp`,
+  `TestSSOGrantIsRecheckedInTheWriteTransaction`, `TestAdminKnownPasswordChangeNeedsKySignOn`,
+  `TestBackgroundChallengeLeavesAStartedConfirmationAlone`, `TestSSOChallengeCreationIsRateLimitedPerAccount`,
+  `TestLink*`, `TestSSOAccountLinksASecondBrowser`, `TestGCDeletesExpiredLinkRequests`,
+  `TestLinkPollLimitEnvAndValidation`, `go test ./internal/teamkeys`, `npm test` (linking, linkFlow, storage,
+  identity, keyService, outbound, DeviceLink) and `npm run e2e --prefix web`.

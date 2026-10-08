@@ -27,7 +27,9 @@ const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
 
 type client struct {
 	base, user, password, config  string
-	authSecret, keyPath           string
+	original, authSecret, keyPath string
+	iterations                    int
+	takenOver                     bool // the account holds a temporary password until restorePassword
 	deviceKey                     *ecdh.PrivateKey
 	server                        string
 	hc                            *http.Client
@@ -46,7 +48,7 @@ func main() {
 	server := flag.String("server", "kynotes-server", "server binary for maintenance checks")
 	keyPath := flag.String("device-key", "", "device private key file (default: user cache dir, per server URL and username)")
 	flag.Parse()
-	p := &client{base: strings.TrimRight(*base, "/"), user: *user, password: *password, config: *config, server: *server, keyPath: *keyPath, hc: &http.Client{Timeout: 30 * time.Second}}
+	p := &client{base: strings.TrimRight(*base, "/"), user: *user, password: *password, original: *password, config: *config, server: *server, keyPath: *keyPath, hc: &http.Client{Timeout: 30 * time.Second}}
 	if p.keyPath == "" {
 		cache, err := os.UserCacheDir()
 		if err != nil {
@@ -56,12 +58,21 @@ func main() {
 		sum := sha256.Sum256([]byte(p.base + "\x00" + p.user))
 		p.keyPath = filepath.Join(cache, "kynotes-probe", hex.EncodeToString(sum[:])+".key")
 	}
-	steps := []func() error{p.login, p.pair, p.envelope, p.selectContainer, p.saveAndRead, p.conflict, p.upload, p.dedup, p.download, p.preview, p.catchUp, p.deleteAndGC}
+	if err := p.recoverTakeOver(); err != nil {
+		fmt.Fprintf(os.Stderr, "restore password from an interrupted run: %v\n", err)
+		os.Exit(1)
+	}
+	// A password change revokes every device, so the take-over runs before pairing and the
+	// restore after the device is revoked.
+	steps := []func() error{p.login, p.takeOverPassword, p.pair, p.envelope, p.selectContainer, p.saveAndRead, p.conflict, p.upload, p.dedup, p.download, p.preview, p.catchUp, p.deleteAndGC}
 	for i, step := range steps {
 		if err := step(); err != nil {
 			fmt.Fprintf(os.Stderr, "step %d failed: %v\n", i+1, err)
 			if p.deviceID != "" {
 				_ = p.revokeDevice()
+			}
+			if err := p.restorePassword(); err != nil {
+				fmt.Fprintf(os.Stderr, "restore password: %v; re-run the probe to retry\n", err)
 			}
 			os.Exit(1)
 		}
@@ -69,9 +80,141 @@ func main() {
 	}
 	if err := p.revokeDevice(); err != nil {
 		fmt.Fprintf(os.Stderr, "revoke probe device: %v\n", err)
+		_ = p.restorePassword()
 		os.Exit(1)
 	}
 	fmt.Println("probe device revoked")
+	if err := p.restorePassword(); err != nil {
+		fmt.Fprintf(os.Stderr, "restore password: %v; re-run the probe to retry\n", err)
+		os.Exit(1)
+	}
+}
+
+func (p *client) takeOverPath() string { return p.keyPath + ".takeover" }
+
+// takeOverPassword creates the probe's container and makes the first step-up-gated write a
+// real user makes: an empty envelope list, which writes nothing. If an administrator set the
+// password, it is replaced with a temporary one, as a user taking over the account would.
+func (p *client) takeOverPassword() error {
+	res, err := p.request(http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), nil, false)
+	if err != nil {
+		return err
+	}
+	var container struct {
+		ID string `json:"id"`
+	}
+	if err = decode(res, &container); err != nil {
+		return err
+	}
+	p.containerID = container.ID
+	if err = p.stepUp(); err != nil {
+		return err
+	}
+	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", []byte(`{"envelopes":[]}`), nil, false); err != nil {
+		return err
+	}
+	b, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil || res.StatusCode == http.StatusNoContent {
+		return err
+	}
+	var e struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if res.StatusCode != http.StatusConflict || json.Unmarshal(b, &e) != nil || e.Error.Code != "password_change_required" {
+		return fmt.Errorf("status %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+	}
+	temp := make([]byte, 24)
+	if _, err = rand.Read(temp); err != nil {
+		return err
+	}
+	// Written first, so a run that dies after the change can still restore the password.
+	if err = os.MkdirAll(filepath.Dir(p.takeOverPath()), 0o700); err != nil {
+		return err
+	}
+	if err = os.WriteFile(p.takeOverPath(), []byte(hex.EncodeToString(temp)), 0o600); err != nil {
+		return err
+	}
+	if err = p.changePassword(hex.EncodeToString(temp)); err != nil {
+		return err
+	}
+	p.takenOver = true
+	fmt.Println("operator-set password taken over")
+	return nil
+}
+
+// restorePassword sets the original password back over the current session, which a password
+// change keeps; the account then no longer counts as admin-known, so later runs skip the take-over.
+func (p *client) restorePassword() error {
+	if !p.takenOver {
+		return nil
+	}
+	if err := p.changePassword(p.original); err != nil {
+		return err
+	}
+	p.takenOver = false
+	fmt.Println("original password restored")
+	return os.Remove(p.takeOverPath())
+}
+
+// recoverTakeOver restores the password a previous run took over and never restored.
+func (p *client) recoverTakeOver() error {
+	temp, err := os.ReadFile(p.takeOverPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p.password = string(temp)
+	if err = p.login(); errors.Is(err, errInvalidCredentials) {
+		// The change never committed.
+		p.password = p.original
+		return os.Remove(p.takeOverPath())
+	}
+	if err != nil {
+		return err
+	}
+	p.takenOver = true
+	return p.restorePassword()
+}
+
+// changePassword uses the user's own change route; the probe never creates a password-wrapped
+// identity, so there is nothing to re-wrap.
+func (p *client) changePassword(password string) error {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+	loginSalt := base64.StdEncoding.EncodeToString(salt)
+	secret, err := auth.DeriveAuthSecret(password, loginSalt, p.iterations)
+	if err != nil {
+		return err
+	}
+	body, _ := json.Marshal(map[string]any{"currentAuthSecret": p.authSecret, "newAuthSecret": secret, "newLoginSalt": loginSalt, "iterations": p.iterations})
+	res, err := p.request(http.MethodPost, "/api/v1/auth/password", body, nil, false)
+	if err != nil {
+		return err
+	}
+	if err = requireStatus(res, http.StatusNoContent); err != nil {
+		return fmt.Errorf("password change: %w", err)
+	}
+	p.password, p.authSecret = password, secret
+	return nil
+}
+
+func (p *client) stepUp() error {
+	res, err := p.request(http.MethodPost, "/api/v1/auth/step-up", []byte(fmt.Sprintf(`{"authSecret":%q}`, p.authSecret)), nil, false)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("step-up status %d", res.StatusCode)
+	}
+	return nil
 }
 
 // loadOrCreateDeviceKey returns the probe's random X25519 device key, created
@@ -202,6 +345,7 @@ func (p *client) login() error {
 	if err = decode(res, &params); err != nil {
 		return err
 	}
+	p.iterations = params.Iterations
 	if p.authSecret, err = auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations); err != nil {
 		return err
 	}
@@ -209,8 +353,14 @@ func (p *client) login() error {
 	if err != nil {
 		return err
 	}
+	if res.StatusCode == http.StatusUnauthorized {
+		res.Body.Close()
+		return errInvalidCredentials
+	}
 	return requireStatus(res, http.StatusOK)
 }
+
+var errInvalidCredentials = errors.New("login: invalid credentials")
 
 func requireStatus(res *http.Response, code int) error {
 	_, err := expect(res, code)
@@ -218,18 +368,7 @@ func requireStatus(res *http.Response, code int) error {
 }
 
 func (p *client) pair() error {
-	res, err := p.request(http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), nil, false)
-	if err != nil {
-		return err
-	}
-	var container struct {
-		ID string `json:"id"`
-	}
-	if err = decode(res, &container); err != nil {
-		return err
-	}
-	p.containerID = container.ID
-	res, err = p.request(http.MethodPost, "/api/v1/devices/pairing-token", nil, nil, false)
+	res, err := p.request(http.MethodPost, "/api/v1/devices/pairing-token", nil, nil, false)
 	if err != nil {
 		return err
 	}
@@ -265,16 +404,11 @@ func (p *client) pair() error {
 // envelope steps up, installs a real envelope for the paired device, proves the
 // device opens it, and proves a second envelope for that recipient is refused.
 func (p *client) envelope() error {
-	res, err := p.request(http.MethodPost, "/api/v1/auth/step-up", []byte(fmt.Sprintf(`{"authSecret":%q}`, p.authSecret)), nil, false)
-	if err != nil {
+	if err := p.stepUp(); err != nil {
 		return err
 	}
-	res.Body.Close()
-	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("step-up status %d", res.StatusCode)
-	}
 	contentKey := make([]byte, 32)
-	if _, err = rand.Read(contentKey); err != nil {
+	if _, err := rand.Read(contentKey); err != nil {
 		return err
 	}
 	sealed, err := teamkeys.SealEnvelope(contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, 1, p.deviceID, p.deviceKey, p.deviceID)
@@ -282,7 +416,8 @@ func (p *client) envelope() error {
 		return err
 	}
 	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":1,"alg":%q,"envelope":%q}]}`, p.deviceID, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
-	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false); err != nil {
+	res, err := p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false)
+	if err != nil {
 		return err
 	}
 	if err = requireStatus(res, http.StatusNoContent); err != nil {

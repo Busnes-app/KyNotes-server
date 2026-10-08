@@ -73,7 +73,7 @@ func RequireStepUp(db *sql.DB, next http.Handler) http.Handler {
 	return RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
 		if s.SSOIssuer != "" {
-			requireSSOStepUp(db, s, next, w, r)
+			requireSSOStepUp(db, s, stepUpAdmin, next, w, r)
 			return
 		}
 		if !freshLocalProof(s) {
@@ -88,13 +88,23 @@ func freshLocalProof(s Session) bool {
 	return !s.StepUpAt.IsZero() && time.Since(s.StepUpAt) <= StepUpWindow
 }
 
-// RequireUserStepUp gates one-way doors on the caller's own account: any local
-// session that re-proved its login secret within StepUpWindow. SSO sessions are
-// refused; their step-up proves the IdP, not the password these routes rely on.
-func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
+// HasUserStepUp: a local session re-proved its login secret within StepUpWindow. SSO sessions
+// fail; their proof is the IdP, not the password. Invitations need it only when they carry envelopes.
+func HasUserStepUp(s Session) bool {
+	return s.SSOIssuer == "" && freshLocalProof(s)
+}
+
+// RequireUserActionStepUp gates one-way doors on the caller's own account for every kind of
+// session: a local session re-proves its password within StepUpWindow; an SSO session confirms this
+// exact request with a fresh KySignOn proof (user scope: no administrator role involved).
+func RequireUserActionStepUp(db *sql.DB, next http.Handler) http.Handler {
 	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
-		if !HasUserStepUp(s) {
+		if s.SSOIssuer != "" {
+			requireSSOStepUp(db, s, stepUpUser, next, w, r)
+			return
+		}
+		if !freshLocalProof(s) {
 			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return
 		}
@@ -102,10 +112,20 @@ func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
 	}))
 }
 
-// HasUserStepUp is the RequireUserStepUp test, for routes that need it only for
-// some request bodies.
-func HasUserStepUp(s Session) bool {
-	return s.SSOIssuer == "" && freshLocalProof(s)
+// RequireSSOUserStepUp runs next only after a user-scope KySignOn confirmation of this exact request,
+// for routes that need it only in some account states. s must be an SSO session.
+func RequireSSOUserStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseWriter, r *http.Request) {
+	requireSSOStepUp(db, s, stepUpUser, next, w, r)
+}
+
+// RecheckUserActionTx repeats, inside the write transaction, what RequireUserActionStepUp admitted.
+// An SSO grant was consumed in its own transaction just before; the session must still be live.
+func RecheckUserActionTx(tx *sql.Tx, s Session, now time.Time) error {
+	if s.SSOIssuer == "" {
+		return RecheckUserStepUpTx(tx, s, now)
+	}
+	_, _, err := liveSessionTx(tx, s, now)
+	return err
 }
 
 func SessionFromContext(r *http.Request) (Session, bool) {
@@ -145,8 +165,13 @@ func unauthenticated(w http.ResponseWriter) {
 func WriteAuthError(w http.ResponseWriter, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	status := http.StatusUnauthorized
-	if code == "forbidden" || code == "step_up_required" {
+	switch code {
+	case "forbidden", "step_up_required":
 		status = http.StatusForbidden
+	case "rate_limited":
+		status = http.StatusTooManyRequests
+	case "payload_too_large":
+		status = http.StatusRequestEntityTooLarge
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message, "requestId": w.Header().Get("X-Request-Id")}})
@@ -228,6 +253,8 @@ func CheckCSRF(r *http.Request) error {
 var (
 	ErrSessionInvalid = errors.New("session no longer valid")
 	ErrStepUpInvalid  = errors.New("step-up no longer valid")
+	// ErrPasswordAdminKnown: an administrator set the password, so proving it proves nothing about the user.
+	ErrPasswordAdminKnown = errors.New("password known to an administrator")
 )
 
 // RecheckSessionTx repeats the session check inside the writing transaction: a
@@ -238,9 +265,10 @@ func RecheckSessionTx(tx *sql.Tx, s Session, now time.Time) (passwordHash string
 	return passwordHash, err
 }
 
-// RecheckUserStepUpTx re-proves, inside the writing transaction, what
-// RequireUserStepUp authorized: the session is live, its step-up is the one the
-// middleware read and still in window, and the password it proved is current.
+// RecheckUserStepUpTx re-proves, inside the writing transaction, what HasUserStepUp or the
+// local path of RequireUserActionStepUp authorized: the session is live, its step-up is the one
+// the middleware read and still in window, the password it proved is current, and nobody else
+// knows it.
 func RecheckUserStepUpTx(tx *sql.Tx, s Session, now time.Time) error {
 	stepUp, passwordHash, err := liveSessionTx(tx, s, now)
 	if err != nil {
@@ -248,6 +276,13 @@ func RecheckUserStepUpTx(tx *sql.Tx, s Session, now time.Time) error {
 	}
 	if s.passwordHash == "" || passwordHash != s.passwordHash || stepUp != s.stepUpRaw || s.StepUpAt.IsZero() || now.Sub(s.StepUpAt) > StepUpWindow {
 		return ErrStepUpInvalid
+	}
+	var adminKnown int
+	if err := tx.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, s.UserID).Scan(&adminKnown); err != nil {
+		return err
+	}
+	if adminKnown != 0 {
+		return ErrPasswordAdminKnown
 	}
 	return nil
 }

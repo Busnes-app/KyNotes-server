@@ -59,6 +59,7 @@ type RateLimit struct {
 	PairingPerHour    int `yaml:"pairing_per_hour"`
 	UploadPerMinute   int `yaml:"upload_per_minute"`
 	InvitationPerHour int `yaml:"invitation_per_hour"`
+	LinkPollPerMinute int `yaml:"link_poll_per_minute"`
 }
 type Log struct {
 	Level  string `yaml:"level"`
@@ -84,7 +85,7 @@ const AppName = "KyNotes"
 const MinBackupDepositInterval = 15 * time.Minute
 
 func Defaults() Config {
-	return Config{Server: Server{Bind: "0.0.0.0:8080", BehindProxy: true, TrustedProxies: []string{"127.0.0.1/32"}, ReadHeaderTimeout: "10s", ReadTimeout: "60s", WriteTimeout: "120s", IdleTimeout: "120s", ShutdownGrace: "20s", MaxRequestBytes: 1048576}, DataDir: "/data", Limits: Limits{AttachmentMaxBytes: 26214400, ChunkBytes: 4194304, ObjectMaxBytes: 10485760, UploadSessionTTL: "15m", UserQuotaBytes: 1073741824, TeamQuotaBytes: 5368709120}, GC: GC{Enabled: true, Retention: "168h", Interval: "1h"}, RateLimit: RateLimit{LoginPerMinute: 10, PairingPerHour: 20, UploadPerMinute: 60, InvitationPerHour: 30}, Log: Log{Level: "info", Format: "json"}, Backup: Backup{Keep: 7, DepositInterval: "24h"}}
+	return Config{Server: Server{Bind: "0.0.0.0:8080", BehindProxy: true, TrustedProxies: []string{"127.0.0.1/32"}, ReadHeaderTimeout: "10s", ReadTimeout: "60s", WriteTimeout: "120s", IdleTimeout: "120s", ShutdownGrace: "20s", MaxRequestBytes: 1048576}, DataDir: "/data", Limits: Limits{AttachmentMaxBytes: 26214400, ChunkBytes: 4194304, ObjectMaxBytes: 10485760, UploadSessionTTL: "15m", UserQuotaBytes: 1073741824, TeamQuotaBytes: 5368709120}, GC: GC{Enabled: true, Retention: "168h", Interval: "1h"}, RateLimit: RateLimit{LoginPerMinute: 10, PairingPerHour: 20, UploadPerMinute: 60, InvitationPerHour: 30, LinkPollPerMinute: 60}, Log: Log{Level: "info", Format: "json"}, Backup: Backup{Keep: 7, DepositInterval: "24h"}}
 }
 
 func Load(path string) (Config, error) { return load(path, false) }
@@ -246,6 +247,11 @@ func applyEnv(c *Config) error {
 			return err
 		}
 	}
+	if v := os.Getenv("KYNOTES_RATELIMIT_LINK_POLL_PER_MINUTE"); v != "" {
+		if err := parseEnvLimit(v, &c.RateLimit.LinkPollPerMinute, "KYNOTES_RATELIMIT_LINK_POLL_PER_MINUTE"); err != nil {
+			return err
+		}
+	}
 	if v := os.Getenv("KYNOTES_LOG_LEVEL"); v != "" {
 		c.Log.Level = v
 	}
@@ -337,7 +343,7 @@ func Validate(c Config) error {
 	if c.Limits.AttachmentMaxBytes < 0 || c.Limits.ObjectMaxBytes < 0 || c.Limits.UserQuotaBytes < 0 || c.Limits.TeamQuotaBytes < 0 || c.Server.MaxRequestBytes < 0 {
 		return errors.New("limits: byte sizes must not be negative")
 	}
-	if r := c.RateLimit; r.LoginPerMinute < 0 || r.PairingPerHour < 0 || r.UploadPerMinute < 0 || r.InvitationPerHour < 0 {
+	if r := c.RateLimit; r.LoginPerMinute < 0 || r.PairingPerHour < 0 || r.UploadPerMinute < 0 || r.InvitationPerHour < 0 || r.LinkPollPerMinute < 0 {
 		return errors.New("ratelimit: limits must not be negative (0 disables)")
 	}
 	if c.Limits.AttachmentMaxBytes < c.Limits.ChunkBytes {

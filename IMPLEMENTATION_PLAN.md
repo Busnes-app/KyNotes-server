@@ -282,7 +282,7 @@ set in config, which is refused when `server.bind` is not a loopback address
 | Device secret storage | `"sha256:" + hex(sha256(secret))`. **Not** scrypt: the secret is 192 bits of `crypto/rand`, so a password KDF buys nothing and costs ~50 ms on every device request |
 | Device public key | X25519, raw 32 bytes, standard base64 on the wire |
 | Device fingerprint | lowercase hex SHA-256 of the raw 32 public-key bytes; server-computed only |
-| User identity row | `platform = 'identity'`, X25519 public key, server-computed fingerprint, `secret_hash = "identity:" + hex(32 random bytes)`; one per user (`devices_one_identity`); its wrapped private key lives in `user_identities` (`wrap_alg = aes-256-gcm`, 60 bytes). Migration `0021_identity_keys.sql` |
+| User identity row | `platform = 'identity'`, X25519 public key, server-computed fingerprint, `secret_hash = "identity:" + hex(32 random bytes)`; one per user (`devices_one_identity`); its wrapped private key lives in `user_identities` (`wrap_alg = aes-256-gcm`, 60 bytes) or `none` (device-only, empty; SSO sessions). Migration `0021_identity_keys.sql` |
 | Identity exclusions | never accepted by device auth; omitted from `GET /devices`; `DELETE /devices/{id}` and `/devices/{id}/containers` answer 404; `/devices/register` refuses `platform = "identity"` and never re-pairs onto an identity row; excluded from the device-envelope save gate |
 | Identity rule | the server derives device identity from the registered public key. Client-supplied identity fields are display-only and are stored encrypted (`label_ciphertext`) |
 
@@ -343,13 +343,15 @@ user data.
 | `csrf_failed` | 403 | missing or mismatched CSRF token |
 | `step_up_required` | 403 | the route needs a local password step-up within `StepUpWindow` (or refuses an SSO session) |
 | `sso_step_up_required` | 403 | an SSO session must confirm this action with a fresh OIDC proof; carries `challenge` (`docs/SSO.md`) |
+| `sso_sign_in_required` | 409 | a local session asked for something only a KySignOn confirmation can authorize (changing an administrator-set password on an SSO-linked account); no `challenge`: sign in with KySignOn and retry |
+| `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; carries its `challenge` ID; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
 | `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a shared container written without `X-Kynotes-Key-Scheme: shared-v1` (`this notebook uses shared keys: reload the page`) |
 | `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
-| `password_change_required` | 409 | an administrator knows the password; the user must change it before creating an identity |
+| `password_change_required` | 409 | an administrator knows the password; the user must change it before a local step-up can create an identity, write envelopes, rotate keys or send invitation keys |
 | `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
 | `pairing_token_used` | 409 | pairing nonce already redeemed |
 | `gone` | 410 | upload session expired or object hard-deleted |
@@ -374,11 +376,12 @@ probing for object existence across accounts.
 | Login, login-params, recovery | none | none | — |
 | Device list, revoke, pairing-token mint | required | rejected | fresh session (< 5 min since login) for mint and revoke |
 | Device registration (redeem pairing token) | none | none (mints one) | pairing token |
-| Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required, local session | rejected | CSRF + `stepup_at` within `StepUpWindow`, rechecked in the write transaction; SSO sessions refused |
+| Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required | rejected | CSRF + fresh step-up (`RequireUserActionStepUp`): local `stepup_at` within `StepUpWindow`, or an SSO KySignOn grant bound to this request (user scope); rechecked in the write transaction |
 | Envelope read (`GET .../envelopes`) | either | either | a device may read only envelopes sealed for **itself** |
 | Container/object/attachment sync | either | either | — |
 | Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
-| Own identity (`GET`/`PUT /me/identity`) | required, local session | rejected | `PUT`: CSRF + `stepup_at` within `StepUpWindow`; SSO sessions refused |
+| Own identity (`GET`/`PUT /me/identity`) | required | rejected | `PUT`: CSRF + fresh step-up as above; local sessions create `aes-256-gcm`, SSO sessions `none` (device-only) |
+| Device link relay (`/me/link-requests…`) | required | rejected | CSRF on mutations; approve: fresh step-up (`RequireUserActionStepUp`), rechecked in the transaction |
 
 "Fresh session" = `now - session.created_at < 5 * time.Minute`, else `403
 forbidden` with message `re-authentication required`.
@@ -426,6 +429,7 @@ ratelimit:
   pairing_per_hour: 20
   upload_per_minute: 60
   invitation_per_hour: 30
+  link_poll_per_minute: 60        # device-link collect polls, per account
 
 log:
   level: "info"                   # debug|info|warn|error
@@ -479,6 +483,7 @@ Secrets are 32 random bytes generated on first start with mode `0600` under
 | request | `req` |
 | invitation | `inv` |
 | comment | `cmt` |
+| device link request | `lnk` |
 
 IDs are opaque, log-safe, and never encode user data. `ids.Validate(prefix, s)`
 checks prefix, separator, length (26 chars of base32), and alphabet. Every
@@ -1237,11 +1242,18 @@ deliberately every phase).
 | DELETE | `/api/v1/devices/{id}` | session + CSRF + fresh | revoke: set `revoked_at`, delete envelopes, delete `device_containers` |
 | GET | `/api/v1/devices/{id}/containers` | session, or that device | selected container IDs |
 | PUT | `/api/v1/devices/{id}/containers` | session + CSRF, or that device | `{"containerIds":[...]}`, replaces the selection |
-| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
-| PUT | `/api/v1/me/identity` | session + CSRF + user step-up | create only: `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`; `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set |
+| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint, wrapAlg`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
+| PUT | `/api/v1/me/identity` | session + CSRF + user-action step-up | create only: local `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`, SSO `{"publicKey","wrapAlg":"none"}` (each `400` from the other session kind); `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set (password wraps only) |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
 | PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; legacy containers: the current generation only; shared containers: any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
+| POST | `/api/v1/me/link-requests` | session + CSRF | newcomer: `{"commitment":"<b64 32>"}` → `{"id","expiresAt"}`; `404` without an identity; `409 already_exists` at 3 live requests; `409 password_change_required` for a local session while `password_admin_known` |
+| GET | `/api/v1/me/link-requests` | session | trusted side: live requests of the account's other live sessions, unclaimed or claimed by the caller: `[{"id","commitment","createdAt","expiresAt","claimed","newcomerKey"}]` (`newcomerKey` `""` until revealed) |
+| POST | `/api/v1/me/link-requests/{id}/claim` | session + CSRF | trusted side: `{"approverKey":"<b64 32>"}` → `204`; once; not the newcomer session; newcomer session live; `409 password_change_required` for a local session while `password_admin_known` |
+| POST | `/api/v1/me/link-requests/{id}/reveal` | session + CSRF | newcomer: `{"newcomerKey":"<b64 32>"}` → `204`; after a claim, once, only the committed key (`400` and the row is deleted otherwise); approver session live; `409 password_change_required` for a local session while `password_admin_known` |
+| POST | `/api/v1/me/link-requests/{id}/approve` | session + CSRF + user-action step-up | claiming session: `{"bundle":"<b64 61>"}` → `204`; after reveal, once, newcomer session live; `409 password_change_required` while `password_admin_known` (local sessions) |
+| POST | `/api/v1/me/link-requests/{id}/collect` | session + CSRF | newcomer, polled (no body): `{"state":"pending\|claimed\|revealed\|approved","expiresAt","approverKey"?,"bundle"?}`; a plain read until a bundle is ready, then the approved row is returned once and deleted in one transaction; `409 password_change_required` for a local session while `password_admin_known`; `no-store` |
+| DELETE | `/api/v1/me/link-requests/{id}` | session + CSRF | any session of the account → `204` |
 | GET | `/api/v1/users/{id}/identity` | session | `{"userId","deviceId","publicKey","fingerprint"}` of an active user's live identity, for the user, a co-member of a live container, or a team/project owner/admin holding a pending, unexpired invitation they issued to the user; otherwise a uniform `404` |
 
 ### 5.2 Rules
@@ -1260,11 +1272,13 @@ deliberately every phase).
 * A device credential may never write envelopes, mint pairing tokens, list other
   devices, or read another device's envelope. Each of those is a named test.
 * Identity rows (`platform = 'identity'`) are excluded from device auth, device listing, revocation (per-device, directory deactivation and SSO role change), selection and re-pairing.
-* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No identity is created while it is `1`.
+* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is. While it is `1`, every local password step-up for an identity action (identity create, envelope `PUT`, rotation, invitation envelopes) answers `409 password_change_required`, checked in the write transaction. On an account with a KySignOn subject (`users.sso_subject`), `POST /auth/password` while it is `1` needs a user-scope KySignOn confirmation of that exact request from an SSO session (local sessions: `409 sso_sign_in_required`, no challenge; rechecked in the write transaction), so the administrator who set the password cannot clear the flag. A local-only account has no such proof: whoever set its password acts as the user until the user changes it (documented residual).
 * A successful password change clears `stepup_at` on every session of the user.
-* `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has an identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
-* Recovery and admin password reset delete the identity row in the same transaction and write an audit row.
+* `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
+* Recovery and admin password reset delete the identity row (device-only included) in the same transaction and write an audit row. `identity.create` audits `wrap=<alg>,proof=password|sso:<challenge ID>`.
 * Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
+* Link requests (migration `0024_device_linking.sql`): session-only, one user, TTL 10 minutes, at most 3 live per user (`409 already_exists`), a session's new request replaces its own; claim needs the newcomer session live and refuses the newcomer itself; reveal only by the newcomer, only after a claim, only the committed key (`SHA-256("kynotes/link-commit/v1" ‖ key)`; mismatch deletes the row, `400`); every miss, another user's ID included, is `404`; TTL and liveness are checked in the step's transaction. A local session is refused on create, claim, reveal and collect while `password_admin_known` (`409 password_change_required`). Creation has its own `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a per-account `link-step` bucket at `ratelimit.login_per_minute`; collect has a per-account `link-poll` bucket at `ratelimit.link_poll_per_minute` (default 60: at most three live requests polling every 4 seconds make 45 a minute; the browser keeps the attempt and backs off to 30 seconds on a 429 or network error). Every step is audited (`identity.link.request|claim|reveal|approve|cancel|collect`, `.refuse` for a commitment mismatch, which is that attempt's only refusal row); a refusal is audited under the step's event with outcome `denied` and the HTTP status as `reason_code`, object ID only when well formed. A KySignOn confirmation in progress (`sso_step_up_required`, `step_up_pending`) is not a refusal; `auth.sso_step_up.start` audits it. Collect misses are not audited (polled). Reveal and collect write behind state guards with a rows-affected check. Audits never carry keys, commitments or bundles. GC deletes expired rows. Approve only by the claiming session, after a fresh user-action step-up rechecked in the transaction (`RecheckUserActionTx`), while the newcomer session is live, once, with exactly 61 bundle bytes; collect only by the newcomer's own live session, which deletes the row in the same transaction; deleting the identity (recovery, admin reset) deletes the user's link requests in the same transaction.
+* `sso_stepup.scope` (migration `0024_device_linking.sql`, `NOT NULL DEFAULT 'admin'`) separates `admin` challenges (`RequireStepUp`, verified `kynotes.admin`) from `user` challenges (`RequireUserActionStepUp`, the session's own account); the consume query matches the scope, and the start, poll and cancel routes need a session, not an admin. The browser stores the identity under a non-extractable device key in the same vault record (not at-rest protection), raw on plain HTTP, and holds none without IndexedDB.
 * `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
 
 ### 5.3 Tests
@@ -1291,7 +1305,15 @@ deliberately every phase).
 - `TestSyncSelectionLimitsDeviceContainerListing`
 - `TestContainerMetaUsesBaseVersionConflictRule`
 - `TestIdentityCreateRequiresStepUpCSRFAndIsCreateOnly`
-- `TestUserStepUpRefusesSSOSession`
+- `TestUserActionStepUpRefusesUngrantedSSOSession`
+- `TestSSOSessionCreatesDeviceOnlyIdentity`
+- `TestDeviceOnlyIdentityIsNeverWrappedByAPassword`
+- `TestSSOStewardSharesKeysAfterActionStepUp`
+- `TestSSOGrantIsRecheckedInTheWriteTransaction`
+- `TestAdminKnownPasswordCannotActForDeviceOnlyIdentity`
+- `TestSSOChallengeCreationIsRateLimitedPerAccount`
+- `TestBackgroundChallengeLeavesAStartedConfirmationAlone`
+- `TestPendingRefusalSpendsNoChallengeBudget`
 - `TestIdentityGetNeverReturnsWrappedKey`
 - `TestWrappedIdentityOnlyInPasswordProofs`
 - `TestLoginIdentityErrorMintsNoSession`
@@ -1319,6 +1341,32 @@ deliberately every phase).
 - `TestRevokedIdentityNeitherWritesNorBlocksRotation`
 - `TestUserIdentityVisibility`
 - `TestOpenEnvelopeAgreesWithVectors`
+- `TestLinkRelayHandsOverOnlyPublicKeys`
+- `TestLinkRequestRefusals`
+- `TestLinkCreationIsRateLimitedPerAccount`
+- `TestLinkStepsRunInOrderOnce`
+- `TestLinkRefusalsAreAuditedWithoutSecrets`
+- `TestLinkStepsAreRateLimitedPerAccount`
+- `TestAdminKnownPasswordCannotStartALink`
+- `TestLinkCrossAccountList`
+- `TestGCDeletesExpiredLinkRequests`
+- `TestLinkApprovalNeedsStepUpAndIsCollectedOnce`
+- `TestLinkApprovalNeedsTheNewcomerLive`
+- `TestLinkRequestsDieWithTheIdentity`
+- `TestSSOAccountLinksASecondBrowser`
+- `TestLinkApprovalRefusesOutOfOrder`
+- `TestLinkApprovalIsRefusedAfterExpiry`
+- `TestLinkApprovalRefusesAdminKnownPassword`
+- `TestLinkCollectNeedsTheLiveNewcomerSession`
+- `TestAdminResetClearsLinkRequests`
+- `TestLinkCollectIsOnceUnderConcurrency`
+- `TestAdminKnownPasswordChangeNeedsKySignOn`
+- `TestPasswordChangeRechecksTheKySignOnFenceInTransaction`
+- `TestLinkClaimRefusesAdminKnownPassword`
+- `TestLinkCollectIsRateLimitedPerAccount`
+- `TestLinkCollectPollReadsWithoutTheWriteLock`
+- `TestLinkCollectNeedsCSRF`
+- `TestLinkCollectRefusesAdminKnownPassword`
 
 ---
 
@@ -1629,8 +1677,8 @@ Rules:
   at that container's current generation, where the inviter is owner or admin.
   The P3b web client seals the team container only; child workspaces get keys
   from the steward sweep after accept.
-  With envelopes, create needs the envelope `PUT` step-up (local password,
-  SSO refused, `403 step_up_required`), rechecked in the insert transaction;
+  With envelopes, create needs a local password step-up (SSO sessions
+  refused, `403 step_up_required`), rechecked in the insert transaction;
   without envelopes it stays session-only. Accept needs no step-up: it only
   moves envelopes already authorized at insertion.
   Accept rechecks, in the membership transaction, that the inviter is still an
@@ -1706,7 +1754,7 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, and invitation accepts at the same rate in their own bucket per user (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation at `ratelimit.pairing_per_hour`, link steps at `ratelimit.login_per_minute` and link collect polls at `ratelimit.link_poll_per_minute` per user (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
   `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds

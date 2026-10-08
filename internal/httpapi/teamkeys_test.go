@@ -353,7 +353,7 @@ func TestEnvelopeWriteRefusals(t *testing.T) {
 				t.Fatal(err)
 			}
 			return status(t, tm.owner.do(t, http.MethodPut, path, envelopesBody(envJSON(tm.editorID, 1, 1)), true, false))
-		}, http.StatusForbidden, "step_up_required"},
+		}, http.StatusForbidden, "sso_step_up_required"},
 		{"device credential", func(t *testing.T, tm team, path string) (int, string) {
 			p := tm.owner
 			p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{7}, 32))

@@ -136,13 +136,28 @@ wrapped key and never sees `userKEK`. The wrapped key is returned only in the
 bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
-clears it, and logout keeps it. Identity rows never authenticate as a device,
+clears it, and logout keeps it. In secure contexts the vault stores the private key
+encrypted under a non-extractable WebCrypto key kept in the same record; that is not
+at-rest protection (browsers write the key's bytes into the same profile and page script
+can call `decrypt`), it only keeps the raw key out of the record's plain values. On
+plain-HTTP origins the key is stored unwrapped and Settings says so (an interim that awaits
+Yoshi's decision: refusing to keep it there is the more secure default); without IndexedDB
+the browser holds no identity. "Forget this device" keeps the encrypted save queue. Identity rows never authenticate as a device,
 are not listed, revoked or selected through device routes or directory
 deactivation and role changes, and are excluded from the device-envelope save
-gate. No identity is created while someone other than the user knows the
-password (`users.password_admin_known`: admin create and reset, bootstrap,
-`user add`); the user's own password change or recovery clears the flag, and
-the browser then creates the identity under the new password. Envelopes are
+gate. No password-wrapped identity is created while someone other than the
+user knows the password (`users.password_admin_known`: admin create and reset,
+bootstrap, `user add`), and no local password step-up admits an identity action
+(identity creation, envelope writes, rotations, invitation keys; `409
+password_change_required`), so that password never acts for an SSO user's
+device-only identity. The user's own password change or recovery clears the
+flag, and the browser then creates the identity under the new password. On an
+account that signs in through KySignOn, changing a password an administrator set
+also needs a KySignOn confirmation of that request, so the administrator cannot
+clear the flag by changing the password. A local-only account has no second proof:
+until its user changes the password, whoever set it can act as the user. That is
+an accepted residual of administrator-set passwords. The change revokes every
+other session and device credential of the account in the same transaction. Envelopes are
 `0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
 keyed by both an ephemeral and the sender identity's X25519 agreement and bound
 by AAD to container, key generation, recipient and sender (IDs in the AAD are
@@ -153,8 +168,12 @@ history below the device's high-water mark, from an identity already pinned
 (see below), and reads rows at or above `shared_generation` only with that
 generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
-password resets delete it and write an audit row. SSO-only users have no
-password, hence no `userKEK` and no identity yet (open question).
+password resets delete it and write an audit row. Device-only identities are
+deleted too: until P5's recovery code that is how an SSO user who has lost every
+browser starts over, with a new identity that stewards re-share keys to. An SSO session creates a
+device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
+request; no copy exists on the server until P5's recovery code, and other
+browsers receive it by device linking. A password never unlocks or re-wraps it.
 
 An owner or admin mints a container's content key for each key generation
 through `POST /containers/{id}/key-rotations`. In one transaction it advances
@@ -164,8 +183,8 @@ The one exception is a member's own identity envelope, which that member may
 re-wrap but never write first: a steward or an accepted invitation supplies
 it. Recipients must be live devices or identities of active members. Any member
 may write envelopes for its own paired devices; owners and admins may write for
-any member. Envelope writes and rotations need a local password step-up; SSO
-sessions are refused. The save gate depends on whether the container has ever
+any member. Envelope writes and rotations need a fresh step-up: a password re-proof for
+local sessions, a KySignOn confirmation of the exact request for SSO sessions. The save gate depends on whether the container has ever
 rotated (`containers.shared_generation`). Until it has, every member's paired
 device needs an envelope at the current generation, as before. Afterwards, the
 writer's own identity needs one. Both gates also need a live membership, and
@@ -244,6 +263,25 @@ it and the garbage-collection retention period has elapsed. Garbage collection
 is controlled globally and uses a configurable retention period. It may be
 disabled, with unreferenced storage growth as the explicit trade-off.
 
+### Device linking
+
+A browser that does not hold the account's identity asks a trusted browser of the same account
+for it. The server relays only public keys and one sealed bundle (`/api/v1/me/link-requests`,
+migration `0024_device_linking.sql`). The newcomer first posts a commitment to its one-time
+X25519 key; the trusted browser claims the request with its own one-time key; the newcomer then
+reveals its key, which must match the commitment. Both screens show a six-digit check code over the
+account, the request and both keys. The newcomer confirms its code; the approver types the
+code shown on the newcomer's screen, so a click cannot replace the comparison. The newcomer pins
+the approver's key before it reveals its own, and a failed reveal ends the attempt. The commitment means a relay
+cannot pick a key to fit the code after seeing the other one. Only then is the identity private key
+sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
+step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer polls). Requests are per user, single use, expire after ten minutes (checked in the step's transaction), need a
+live session of that user on both sides, are rate-limited (creation with device pairing, collect polls
+by `ratelimit.link_poll_per_minute`) and are audited, except collect misses. Relay success
+without the user's help is about 10^-6 per visible attempt.
+Deleting the identity (recovery or an administrator reset) deletes the account's open link requests
+in the same transaction.
+
 ### Device enrollment and revocation
 
 Enrollment is initiated on the authenticated website. The web client creates
@@ -272,8 +310,8 @@ owner or admin or by a server administrator, revokes the team and child-workspac
 memberships, advances their key generations, deletes the member's envelopes and
 device selections there, and deletes the pending invitations that member issued.
 A steward then rotates to a new key for the remaining members. An invitation may
-carry envelopes for the invitee's identity; creating it then needs the same
-password step-up as a direct envelope write. They are installed when the
+carry envelopes for the invitee's identity; creating it then needs a local
+password step-up; invitations from SSO sessions carry no envelopes. They are installed when the
 invitation is accepted, only while the generation is unchanged and the inviter
 is still an owner or admin of the live container. Accepting checks the invitation's invitee and expiry inside that transaction. Removing a member deletes pending invitations addressed to them, and accepting is audited. A member who was removed is admitted again by reactivating their revoked membership, with the new role and no keys. A team admin may remove another admin only when its own invitation admitted that admin's current membership; owners and server administrators may remove any non-owner. Invitation creation is rate-limited per account. Envelopes of expired invitations are deleted by the periodic garbage collection.
 
@@ -563,7 +601,10 @@ Keep an unlinked local administrator available for recovery; see [SSO roles](doc
 ## Action-bound OIDC step-up
 
 Backup/recovery step-up routes, local user creation and password reset require a one-use OIDC proof for SSO
-sessions. Migration 0019 binds the exact request digest to the original session;
+sessions. A `user`-scope challenge (`sso_stepup.scope`, migration 0024) proves only the session's own
+account, bound to the action and body (64 KiB at most), with a fresh `auth_time`; it covers identity creation,
+envelope writes, rotations and changing an administrator-set password on an SSO-linked account. A grant opens
+only its own scope, and challenge creation is rate-limited per account. Migration 0019 binds the exact request digest to the original session;
 fresh signed auth_time and ordinary assurance, identity and app-admin permission
 are required. Issuance time is never substituted for authentication time. Creation,
 verification, cancellation and consumption are audited atomically. Admission

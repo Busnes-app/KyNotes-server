@@ -118,7 +118,7 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		// Envelopes reach key_envelopes on acceptance: same proof as an envelope PUT.
+		// Envelopes reach key_envelopes on acceptance: local password step-up only (ruling 13); SSO invitations carry no envelopes.
 		if len(in.Envelopes) > 0 && !auth.HasUserStepUp(s) {
 			auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return

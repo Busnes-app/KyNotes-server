@@ -13,23 +13,31 @@ const ENVELOPE_LABEL = "kynotes/envelope/v2";
 const IDENTITY_LABEL = "kynotes/identity/v1";
 const ENVELOPE_VERSION = 0x02;
 const ID_BYTES = 30;
-const ID = /^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$/;
+const ID = /^(cnt|dev|usr|lnk)_[0-9a-hjkmnp-tv-z]{26}$/;
 const encoder = new TextEncoder();
 
 export type Identity = { publicKey: Uint8Array; privateKey: Uint8Array };
 /** The sealing identity: its device row ID and private key. */
 export type Sender = { deviceId: string; privateKey: Uint8Array };
 
-function idBytes(prefix: "cnt" | "dev" | "usr", value: string): Uint8Array {
+export function idBytes(prefix: "cnt" | "dev" | "usr" | "lnk", value: string): Uint8Array {
   if (!value.startsWith(`${prefix}_`) || !ID.test(value)) throw new Error(`invalid ${prefix} id`);
   return encoder.encode(value);
 }
 
-function concat(...parts: Uint8Array[]): Uint8Array {
+export function concat(...parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of parts) { out.set(p, at); at += p.length; }
   return out;
+}
+
+/** Same length and bytes, with no early exit, so commitments and keys compare without a timing oracle. */
+export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
 }
 
 export function generateIdentity(): Identity {

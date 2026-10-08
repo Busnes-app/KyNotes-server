@@ -362,3 +362,9 @@ body { color: var(--ink-strong); background: var(--bg); }
 .section-add { anchor-name: --section-add; }
 @supports (anchor-name: --a) { .section-add-menu { position-anchor: --section-add; } }
 .section-menu > select { margin: 4px 8px; }
+
+.check-code { font-size: 1.5rem; letter-spacing: .12em; }
+.link-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.link-status { overflow-wrap: anywhere; }
+.link-actions button + button { margin-left: 0; }
+.check-code-input { border: 1px solid var(--line); background: var(--panel); color: var(--ink-strong); padding: 13px 14px; }

@@ -23,12 +23,12 @@ const (
 	wrappedIdentityBytes = 60
 )
 
+const deviceOnlyWrapAlg = "none" // created by an SSO session: no server copy until P5's recovery code
+
 var (
 	errIdentityExists  = errors.New("identity exists")
 	errIdentityRewrap  = errors.New("identity rewrap mismatch")
 	errPasswordChanged = errors.New("password changed concurrently")
-	// errPasswordChangeRequired: someone other than the user knows the password.
-	errPasswordChangeRequired = errors.New("password change required")
 )
 
 func decodeWrappedIdentity(value string) ([]byte, bool) {
@@ -51,9 +51,8 @@ func loadIdentity(db interface {
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "createdAt": created, "updatedAt": updated}
+	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "wrapAlg": alg, "createdAt": created, "updatedAt": updated}
 	if withWrapped {
-		out["wrapAlg"] = alg
 		out["wrappedPrivateKey"] = base64.StdEncoding.EncodeToString(wrapped)
 	}
 	return out, nil
@@ -74,7 +73,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, identity)
 	})))
-	mux.Handle("PUT /api/v1/me/identity", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PUT /api/v1/me/identity", auth.RequireUserActionStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -85,13 +84,26 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			WrapAlg           string `json:"wrapAlg"`
 			WrappedPrivateKey string `json:"wrappedPrivateKey"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.WrapAlg != identityWrapAlg {
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
+		sso := s.SSOIssuer != ""
 		pub, err := base64.StdEncoding.DecodeString(in.PublicKey)
-		wrapped, ok := decodeWrappedIdentity(in.WrappedPrivateKey)
-		if err != nil || len(pub) != 32 || !ok {
+		var wrapped []byte
+		ok := err == nil && len(pub) == 32
+		switch {
+		case !sso && in.WrapAlg == identityWrapAlg:
+			var good bool
+			wrapped, good = decodeWrappedIdentity(in.WrappedPrivateKey)
+			ok = ok && good
+		case sso && in.WrapAlg == deviceOnlyWrapAlg && in.WrappedPrivateKey == "":
+			// Nothing an SSO session proves could wrap a key: the identity lives only in browsers.
+			wrapped = []byte{}
+		default:
+			ok = false
+		}
+		if !ok {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -109,27 +121,29 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		err = dbTx(db, func(tx *sql.Tx) error {
 			// Recovery or a password change may have committed since the middleware ran.
-			if err := auth.RecheckUserStepUpTx(tx, s, time.Now().UTC()); err != nil {
+			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
 				return err
 			}
-			var taken, adminKnown int
-			if err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)),(SELECT password_admin_known FROM users WHERE id=?)`, s.UserID, fingerprint, s.UserID).Scan(&taken, &adminKnown); err != nil {
+			var taken int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)`, s.UserID, fingerprint).Scan(&taken); err != nil {
 				return err
 			}
 			if taken > 0 {
 				return errIdentityExists
 			}
-			if adminKnown != 0 {
-				return errPasswordChangeRequired
-			}
 			// secret_hash never carries the "sha256:" prefix device auth compares against.
 			if _, err := tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES(?,?,?,?,?,'identity',?)`, deviceID, s.UserID, base64.StdEncoding.EncodeToString(pub), fingerprint, "identity:"+hex.EncodeToString(unusable), now); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, identityWrapAlg, now, now); err != nil {
+			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, in.WrapAlg, now, now); err != nil {
 				return err
 			}
-			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "", RequestID(r))
+			// Which proof created it: the password, or the KySignOn grant (decision 4's trace). No key material.
+			proof := "proof=password"
+			if sso {
+				proof = "proof=sso:" + r.Header.Get("X-Kynotes-Step-Up")
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "wrap="+in.WrapAlg+","+proof, RequestID(r))
 		})
 		if errors.Is(err, auth.ErrSessionInvalid) {
 			auth.WriteAuthError(w, "unauthenticated", "authentication required")
@@ -139,7 +153,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return
 		}
-		if errors.Is(err, errPasswordChangeRequired) {
+		if errors.Is(err, auth.ErrPasswordAdminKnown) {
 			WriteError(w, r, 409, "password_change_required", "change the password an administrator set before creating an identity")
 			return
 		}
@@ -158,6 +172,10 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 // deleteIdentityTx deletes the user's identity (cascading to its wrapped key and
 // envelopes) when its wrapping password is gone, and audits the deletion.
 func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID string) error {
+	// Open link requests would hand out the identity being deleted.
+	if _, err := tx.Exec(`DELETE FROM link_requests WHERE user_id=?`, userID); err != nil {
+		return err
+	}
 	var deviceID string
 	err := tx.QueryRow(`DELETE FROM devices WHERE user_id=? AND platform='identity' RETURNING id`, userID).Scan(&deviceID)
 	if errors.Is(err, sql.ErrNoRows) {

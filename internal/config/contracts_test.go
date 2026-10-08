@@ -164,3 +164,26 @@ func TestRateLimitEnvRejectsInvalidAndNegative(t *testing.T) {
 		t.Fatal("negative yaml limit accepted")
 	}
 }
+
+func TestLinkPollLimitEnvAndValidation(t *testing.T) {
+	if Defaults().RateLimit.LinkPollPerMinute != 60 {
+		t.Fatal("default link_poll_per_minute")
+	}
+	for _, v := range []string{"abc", "-1"} {
+		t.Setenv("KYNOTES_RATELIMIT_LINK_POLL_PER_MINUTE", v)
+		c := Defaults()
+		if err := applyEnv(&c); err == nil {
+			t.Fatalf("%q accepted", v)
+		}
+	}
+	t.Setenv("KYNOTES_RATELIMIT_LINK_POLL_PER_MINUTE", "30")
+	c := Defaults()
+	if err := applyEnv(&c); err != nil || c.RateLimit.LinkPollPerMinute != 30 {
+		t.Fatal(err, c.RateLimit.LinkPollPerMinute)
+	}
+	c.RateLimit.LinkPollPerMinute = -1
+	c.DataDir = t.TempDir()
+	if err := Validate(c); err == nil {
+		t.Fatal("negative link_poll_per_minute accepted")
+	}
+}

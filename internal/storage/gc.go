@@ -30,6 +30,8 @@ func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Dur
 	_, _ = db.Exec(`DELETE FROM idempotency_keys WHERE created_at<?`, now.Add(-24*time.Hour).UTC().Format(time.RFC3339))
 	// An expired invitation can never be accepted; its envelopes are dead weight.
 	_, _ = db.Exec(`DELETE FROM invitation_envelopes WHERE invitation_id IN (SELECT id FROM invitations WHERE status='pending' AND expires_at<=?)`, now.UTC().Format(time.RFC3339))
+	// An expired link request can never complete.
+	_, _ = db.Exec(`DELETE FROM link_requests WHERE expires_at<=?`, now.UTC().Format(time.RFC3339))
 	if !blobsEnabled {
 		return st, nil
 	}
