@@ -585,12 +585,38 @@ func TestCreatorDeletesABlankNotebookWithoutARecentSignIn(t *testing.T) {
 		return code
 	}
 	blank, withNote, keyed, ownerBlank := create(tm.admin.pairClient), create(tm.admin.pairClient), create(tm.admin.pairClient), create(tm.owner)
+	enveloped, invited, demoted := create(tm.admin.pairClient), create(tm.admin.pairClient), create(tm.admin.pairClient)
 	if _, code := tm.admin.save(t, withNote, "", 1); code == 0 {
 		t.Fatal("object")
 	}
 	if _, err := tm.owner.db.Exec(`UPDATE containers SET shared_generation=1 WHERE id=?`, keyed); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := tm.owner.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES(?,?,?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01','now')`, mint(t, "env"), enveloped, tm.adminID); err != nil {
+		t.Fatal(err)
+	}
+	outsider := tm.owner.addUser(t, "outsider")
+	if code, out := status(t, tm.admin.do(t, http.MethodPost, "/api/v1/containers/"+invited+"/invitations", []byte(`{"inviteeId":`+quote(outsider.id)+`,"role":"viewer"}`), true, false)); code != http.StatusOK {
+		t.Fatal("invite", code, out)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='editor' WHERE container_id=? AND user_id=?`, demoted, tm.admin.id); err != nil {
+		t.Fatal(err)
+	}
+	// Teams the owner created: one alone, one with another member.
+	newTeamOf := func(withMember bool) string {
+		code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"team"}`), true, false))
+		var c struct{ ID string }
+		if code != http.StatusOK || json.Unmarshal([]byte(out), &c) != nil {
+			t.Fatal("create team", code, out)
+		}
+		if withMember {
+			if _, err := tm.owner.db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,'viewer','now')`, mint(t, "mem"), c.ID, tm.viewer.id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return c.ID
+	}
+	loneTeam, sharedTeam := newTeamOf(false), newTeamOf(true)
 	// Every session is older than the five-minute window.
 	if _, err := tm.owner.db.Exec(`UPDATE sessions SET created_at='2020-01-01T00:00:00Z'`); err != nil {
 		t.Fatal(err)
@@ -598,11 +624,22 @@ func TestCreatorDeletesABlankNotebookWithoutARecentSignIn(t *testing.T) {
 	if code := del(tm.editor.pairClient, ownerBlank); code != http.StatusForbidden {
 		t.Fatal("a member who did not create it", code)
 	}
+	if code := del(tm.owner, blank); code != http.StatusForbidden {
+		t.Fatal("a steward who did not create it, outside the window", code)
+	}
 	if code := del(tm.admin.pairClient, withNote); code != http.StatusForbidden {
 		t.Fatal("not empty", code)
 	}
-	if code := del(tm.admin.pairClient, keyed); code != http.StatusForbidden {
-		t.Fatal("keyed", code)
+	for name, cid := range map[string]string{"keyed": keyed, "an envelope": enveloped, "an invitation": invited, "a creator no longer a steward": demoted} {
+		if code := del(tm.admin.pairClient, cid); code != http.StatusForbidden {
+			t.Fatal(name, code)
+		}
+	}
+	if code := del(tm.owner, sharedTeam); code != http.StatusForbidden {
+		t.Fatal("a team with another member", code)
+	}
+	if code := del(tm.owner, loneTeam); code != http.StatusNoContent {
+		t.Fatal("a team with no other member", code)
 	}
 	if code := del(tm.owner, tm.id); code != http.StatusForbidden {
 		t.Fatal("the owner outside the window, a team that holds notebooks", code)
@@ -619,6 +656,14 @@ func TestCreatorDeletesABlankNotebookWithoutARecentSignIn(t *testing.T) {
 	}
 	if code := del(tm.admin.pairClient, blank); code != http.StatusNotFound {
 		t.Fatal("deleted twice", code)
+	}
+	var audited int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='container.delete' AND reason_code='blank' AND container_id IN (?,?,?)`, blank, ownerBlank, loneTeam).Scan(&audited); err != nil || audited != 3 {
+		t.Fatal("blank deletes audited", audited, err)
+	}
+	var refusedChanged int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM containers WHERE id IN (?,?,?,?,?,?,?) AND deleted_at<>''`, withNote, keyed, enveloped, invited, demoted, sharedTeam, tm.id).Scan(&refusedChanged); err != nil || refusedChanged != 0 {
+		t.Fatal("a refused delete deleted", refusedChanged, err)
 	}
 }
 

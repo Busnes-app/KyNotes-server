@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"strings"
 	"time"
@@ -174,11 +175,18 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		e := dbTx(db, func(tx *sql.Tx) error {
-			// blank: this user created it, it was never keyed and holds nothing, so a failed creation
-			// can be undone by its creator (a team admin included) at any time: there is nothing to lose.
+			// blank: this user created it, still stewards it, and it was never keyed or named and holds
+			// nothing (no rows of any kind, no invitations, no child notebooks; a team has no other active
+			// member). Its creator may undo a failed creation at any time: there is nothing to lose.
 			var role string
 			var blank bool
-			if e := tx.QueryRow(`SELECT m.role,c.owner_user_id=m.user_id AND c.shared_generation=0 AND NOT EXISTS(SELECT 1 FROM objects o WHERE o.container_id=c.id) AND NOT EXISTS(SELECT 1 FROM containers t WHERE t.team_id=c.id AND t.deleted_at='') FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &blank); e != nil {
+			if e := tx.QueryRow(`SELECT m.role,c.owner_user_id=m.user_id AND m.role IN ('owner','admin') AND c.shared_generation=0 AND c.meta_version=0`+
+				` AND NOT EXISTS(SELECT 1 FROM objects WHERE container_id=c.id) AND NOT EXISTS(SELECT 1 FROM comments WHERE container_id=c.id)`+
+				` AND NOT EXISTS(SELECT 1 FROM attachments WHERE container_id=c.id) AND NOT EXISTS(SELECT 1 FROM upload_sessions WHERE container_id=c.id)`+
+				` AND NOT EXISTS(SELECT 1 FROM key_envelopes WHERE container_id=c.id) AND NOT EXISTS(SELECT 1 FROM invitations WHERE container_id=c.id)`+
+				` AND NOT EXISTS(SELECT 1 FROM containers t WHERE t.team_id=c.id AND t.deleted_at='')`+
+				` AND (c.kind<>'team' OR NOT EXISTS(SELECT 1 FROM memberships o WHERE o.container_id=c.id AND o.user_id<>m.user_id AND o.revoked_at=''))`+
+				` FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &blank); e != nil {
 				return e
 			}
 			if !blank && role != "owner" {
@@ -188,8 +196,14 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 				return errDeleteReauth
 			}
 			now := time.Now().UTC().Format(time.RFC3339)
-			_, e := tx.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, now, now, cid)
-			return e
+			reason := ""
+			if blank {
+				reason = "blank"
+			}
+			if _, e := tx.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, now, now, cid); e != nil {
+				return e
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.delete", cid, "", "success", reason, RequestID(r))
 		})
 		if errors.Is(e, errDeleteReauth) {
 			WriteError(w, r, 403, "forbidden", "re-authentication required")
