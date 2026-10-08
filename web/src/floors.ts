@@ -6,17 +6,22 @@ import { mergeFloor, type KeyFloor } from "./keyring";
  * a floor only rises until clearFloors (sign-out). Key decisions read floorOf at decision time.
  */
 let floors: Readonly<Record<string, KeyFloor>> = {};
+/** Peer raises for containers this tab has not loaded: never a loaded floor, only a minimum applied on load. */
+let pending: Record<string, KeyFloor> = {};
 const listeners = new Set<() => void>();
 const changed = () => { for (const listener of listeners) listener(); };
 const merge = (containerID: string, floor: KeyFloor) => {
-  floors = { ...floors, [containerID]: mergeFloor(floors[containerID], floor) };
+  const minimum = pending[containerID];
+  if (minimum) delete pending[containerID];
+  floors = { ...floors, [containerID]: mergeFloor(mergeFloor(floors[containerID], floor), minimum ?? {}) };
   changed();
 };
 
 /**
  * Other tabs of this origin hear every raise: numbers only, nothing secret. A message is a server
- * claim relayed by a peer: validated here, merged add-only, and only into a floor this tab already
- * holds, so a forged one can at most raise a floor (denial of service, never a key).
+ * claim relayed by a peer: validated here and merged add-only. For a container this tab has not
+ * loaded it is kept as a minimum applied when the stored floor loads; it never makes a floor known.
+ * A forged one can at most raise a floor (denial of service, never a key).
  */
 const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("kynotes-floors");
 const containerIDPattern = /^cnt_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
@@ -25,6 +30,7 @@ if (channel) channel.onmessage = (event: MessageEvent) => {
   const { containerID, shared, generation } = (event.data ?? {}) as Record<string, unknown>;
   if (typeof containerID !== "string" || !containerIDPattern.test(containerID) || !count(shared) || !count(generation)) return;
   if (floors[containerID]) merge(containerID, { shared, generation });
+  else pending[containerID] = mergeFloor(pending[containerID], { shared, generation });
 };
 
 /** undefined: not loaded in this tab, so no key. */
@@ -40,6 +46,7 @@ export function publishFloor(containerID: string, floor: KeyFloor, loaded: boole
 }
 export function clearFloors(): void {
   floors = {};
+  pending = {};
   changed();
 }
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };

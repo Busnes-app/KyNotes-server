@@ -36,11 +36,18 @@ describe("floors across tabs", () => {
     expect(b.floorOf(cnt)).toMatchObject({ shared: 2, generation: 3 });
   });
 
-  it("does not create a floor a tab has not loaded, and works without a channel", async () => {
+  it("does not create a floor a tab has not loaded, applies a peer raise as a minimum on load, and works without a channel", async () => {
     vi.stubGlobal("BroadcastChannel", FakeChannel);
     const [a, b] = [await tab(), await tab()];
     a.raiseFloorIn(cnt, { shared: 2, generation: 2 });
     expect(b.floorOf(cnt)).toBeUndefined();
+    // Held as a minimum: a lower stored floor loading later still comes out at the peer's floor.
+    b.publishFloor(cnt, { shared: 0, generation: 1 }, true);
+    expect(b.floorOf(cnt)).toMatchObject({ shared: 2, generation: 2 });
+    // Unreadable storage keeps an unloaded container unknown, minimum or not.
+    a.raiseFloorIn(`cnt_${"b".repeat(26)}`, { shared: 3, generation: 3 });
+    b.publishFloor(`cnt_${"b".repeat(26)}`, { shared: 0, generation: 0 }, false);
+    expect(b.floorOf(`cnt_${"b".repeat(26)}`)).toBeUndefined();
     vi.stubGlobal("BroadcastChannel", undefined);
     const alone = await tab();
     alone.raiseFloorIn(cnt, { shared: 1, generation: 1 });
