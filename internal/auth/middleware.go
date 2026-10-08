@@ -73,7 +73,7 @@ func RequireStepUp(db *sql.DB, next http.Handler) http.Handler {
 	return RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
 		if s.SSOIssuer != "" {
-			requireSSOStepUp(db, s, next, w, r)
+			requireSSOStepUp(db, s, stepUpAdmin, next, w, r)
 			return
 		}
 		if !freshLocalProof(s) {
@@ -106,6 +106,34 @@ func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
 // some request bodies.
 func HasUserStepUp(s Session) bool {
 	return s.SSOIssuer == "" && freshLocalProof(s)
+}
+
+// RequireUserActionStepUp gates one-way doors on the caller's own account for every kind of
+// session: a local session re-proves its password within StepUpWindow; an SSO session confirms this
+// exact request with a fresh KySignOn proof (user scope: no administrator role involved).
+func RequireUserActionStepUp(db *sql.DB, next http.Handler) http.Handler {
+	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := SessionFromContext(r)
+		if s.SSOIssuer != "" {
+			requireSSOStepUp(db, s, stepUpUser, next, w, r)
+			return
+		}
+		if !freshLocalProof(s) {
+			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// RecheckUserActionTx repeats, inside the write transaction, what RequireUserActionStepUp admitted.
+// An SSO grant was consumed in its own transaction just before; the session must still be live.
+func RecheckUserActionTx(tx *sql.Tx, s Session, now time.Time) error {
+	if s.SSOIssuer == "" {
+		return RecheckUserStepUpTx(tx, s, now)
+	}
+	_, _, err := liveSessionTx(tx, s, now)
+	return err
 }
 
 func SessionFromContext(r *http.Request) (Session, bool) {

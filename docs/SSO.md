@@ -276,11 +276,11 @@ KySignOn in a separate window with its opener detached; cancellation burns the c
 callback that races cancellation. Reloading abandons the in-memory request.
 
 `POST /api/v1/auth/oidc/step-up` takes `{ "challenge": "rea_..." }`, requires
-current admin and CSRF, and returns an authorization URL using PKCE, state, nonce,
+a session and CSRF, and returns an authorization URL using PKCE, state, nonce,
 `prompt=login`, `max_age=0`, and `acr_values=urn:kysignon:acr:password`. It uses the
 same registered callback as ordinary login. The callback must arrive with the
 original live local session, authenticate the same issuer/client/subject, and
-include verified `kynotes.admin`. It never creates or replaces a local session.
+include verified `kynotes.admin` for an admin challenge. It never creates or replaces a local session.
 
 The signed integer `auth_time` must be at or after challenge creation (epoch-second
 precision), no later than now or `iat`. Issuance time alone proves nothing.
@@ -293,12 +293,12 @@ minimum and accepts ordinary MFA when the issuer requires it.
 
 The browser polls `GET /api/v1/auth/oidc/step-up/{id}` and retries the identical
 request once with `X-Kynotes-Step-Up: <id>`. A verified grant expires after at most
-one minute. Consumption checks current admin permission, session lifetimes,
+one minute. Consumption checks the challenge's scope (and, for admin challenges, current admin permission), session lifetimes,
 configuration and directory/logout fences, including logout of the fresh proof's
 `sid`, then deletes the grant with an audit in the same writer transaction. One
 concurrent request wins. The protected operation follows that committed admission;
 a later logout cannot undo an already admitted operation. A failed operation needs
-a new proof. `DELETE` requires admin access, the owning session and CSRF, and validates
+a new proof. `DELETE` requires the owning session and CSRF, and validates
 the `rea_` ID format before database access. A well-formed absent, foreign-session or
 repeated ID returns 204 without an audit write; only actual deletion is audited.
 
@@ -309,6 +309,13 @@ middleware-established request ID, never an untrusted caller header. Restart los
 restart the action. Verified grants remain bounded by their persisted expiry and
 parent-session revocation. Restoring a database revokes the parent sessions through
 the existing restore procedure. Older receiver binaries do not enforce this policy.
+
+Challenges carry a scope (migration `0024_device_linking.sql`, `sso_stepup.scope`). `admin`
+challenges come from `RequireStepUp` routes and are unchanged. `user` challenges come from
+`RequireUserActionStepUp` routes (identity creation, envelope writes, key rotations, device-link
+approval): they prove the session's own account with the same fresh-login, PKCE, nonce, assurance
+and action-binding rules, and need no `kynotes.admin`. A grant is consumed only by a route of its
+own scope.
 
 ## Adoption boundary and verification
 

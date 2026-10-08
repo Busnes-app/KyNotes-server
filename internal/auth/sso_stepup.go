@@ -18,6 +18,11 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
+const (
+	stepUpAdmin = "admin" // RequireStepUp: the session's verified kynotes.admin ceiling and local admin role
+	stepUpUser  = "user"  // RequireUserActionStepUp: the session's own account
+)
+
 // The digest binds the exact attempted operation without storing its potentially secret body.
 func stepUpAction(w http.ResponseWriter, r *http.Request) (string, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
@@ -31,7 +36,7 @@ func stepUpAction(w http.ResponseWriter, r *http.Request) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func requireSSOStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseWriter, r *http.Request) {
+func requireSSOStepUp(db *sql.DB, s Session, scope string, next http.Handler, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if CheckCSRF(r) != nil {
 		WriteAuthError(w, "forbidden", "CSRF validation failed")
@@ -44,7 +49,7 @@ func requireSSOStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseW
 	}
 	grant := r.Header.Get("X-Kynotes-Step-Up")
 	if grant != "" {
-		if err = consumeSSOStepUp(r.Context(), db, s, grant, action, reqid.FromContext(r.Context())); err != nil {
+		if err = consumeSSOStepUp(r.Context(), db, s, grant, action, scope, reqid.FromContext(r.Context())); err != nil {
 			if errors.Is(err, sql.ErrNoRows) || errors.Is(err, ErrSSOLoginRejected) {
 				WriteAuthError(w, "forbidden", "reauthentication grant is expired, revoked or does not match this action")
 			} else {
@@ -69,7 +74,7 @@ func requireSSOStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseW
 	now := time.Now().UTC()
 	_, err = tx.Exec(`DELETE FROM sso_stepup WHERE session_id=? OR expires_at<=?`, s.ID, now.Unix())
 	if err == nil {
-		_, err = tx.Exec(`INSERT INTO sso_stepup(id,session_id,action,created_at,expires_at) VALUES(?,?,?,?,?)`, id, s.ID, action, now.Unix(), now.Add(SSOLoginLifetime).Unix())
+		_, err = tx.Exec(`INSERT INTO sso_stepup(id,session_id,action,scope,created_at,expires_at) VALUES(?,?,?,?,?,?)`, id, s.ID, action, scope, now.Unix(), now.Add(SSOLoginLifetime).Unix())
 	}
 	if err == nil {
 		err = storage.RecordAuditOutcomeTx(tx, s.UserID, "auth.sso_step_up.start", "", id, "success", r.Method+" "+r.URL.Path, reqid.FromContext(r.Context()))
@@ -116,10 +121,11 @@ func CancelSSOStepUp(ctx context.Context, db *sql.DB, s Session, id, requestID s
 	return err
 }
 
-// liveStepUpSession requires the original still-live admin session, never a replacement login.
-func liveStepUpSession(tx *sql.Tx, s Session, now time.Time) error {
+// liveStepUpSession requires the original still-live session, never a replacement login. Admin
+// challenges also need the session's verified administrator ceiling and the local admin role.
+func liveStepUpSession(tx *sql.Tx, s Session, now time.Time, scope string) error {
 	var count int
-	err := tx.QueryRow(`SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>? AND s.sso_issuer=? AND s.sso_client_id=? AND s.sso_subject=? AND s.sso_app_admin=1 AND u.status='active' AND u.role='admin'`, s.ID, s.UserID, now.Format(time.RFC3339), now.Format(time.RFC3339), s.SSOIssuer, s.SSOClientID, s.SSOSubject).Scan(&count)
+	err := tx.QueryRow(`SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>? AND s.sso_issuer=? AND s.sso_client_id=? AND s.sso_subject=? AND u.status='active' AND (?<>'admin' OR (s.sso_app_admin=1 AND u.role='admin'))`, s.ID, s.UserID, now.Format(time.RFC3339), now.Format(time.RFC3339), s.SSOIssuer, s.SSOClientID, s.SSOSubject, scope).Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -136,10 +142,20 @@ func CompleteSSOStepUp(ctx context.Context, db *sql.DB, s Session, id string, id
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	if identity.Issuer != s.SSOIssuer || identity.ClientID != s.SSOClientID || identity.Subject != s.SSOSubject || !identity.AppAdmin || !now.Before(identity.LoginExpires) {
+	if identity.Issuer != s.SSOIssuer || identity.ClientID != s.SSOClientID || identity.Subject != s.SSOSubject || !now.Before(identity.LoginExpires) {
 		return ErrSSOLoginRejected
 	}
-	if err = liveStepUpSession(tx, s, now); err != nil {
+	var scope string
+	if err = tx.QueryRow(`SELECT scope FROM sso_stepup WHERE id=? AND session_id=?`, id, s.ID).Scan(&scope); errors.Is(err, sql.ErrNoRows) {
+		return ErrSSOLoginRejected
+	} else if err != nil {
+		return err
+	}
+	// Admin challenges need the verified kynotes.admin role; user challenges prove only the account.
+	if scope == stepUpAdmin && !identity.AppAdmin {
+		return ErrSSOLoginRejected
+	}
+	if err = liveStepUpSession(tx, s, now, scope); err != nil {
 		return err
 	}
 	if err = checkSSOIdentityTx(tx, s.UserID, identity, now); err != nil {
@@ -162,7 +178,7 @@ func CompleteSSOStepUp(ctx context.Context, db *sql.DB, s Session, id string, id
 	return tx.Commit()
 }
 
-func consumeSSOStepUp(ctx context.Context, db *sql.DB, s Session, id, action, requestID string) error {
+func consumeSSOStepUp(ctx context.Context, db *sql.DB, s Session, id, action, scope, requestID string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -171,11 +187,11 @@ func consumeSSOStepUp(ctx context.Context, db *sql.DB, s Session, id, action, re
 	now := time.Now().UTC()
 	var sid string
 	var issued int64
-	err = tx.QueryRow(`DELETE FROM sso_stepup WHERE id=? AND session_id=? AND action=? AND verified=1 AND expires_at>? RETURNING proof_sid,proof_iat`, id, s.ID, action, now.Unix()).Scan(&sid, &issued)
+	err = tx.QueryRow(`DELETE FROM sso_stepup WHERE id=? AND session_id=? AND action=? AND scope=? AND verified=1 AND expires_at>? RETURNING proof_sid,proof_iat`, id, s.ID, action, scope, now.Unix()).Scan(&sid, &issued)
 	if err != nil {
 		return err
 	}
-	if err = liveStepUpSession(tx, s, now); err != nil {
+	if err = liveStepUpSession(tx, s, now, scope); err != nil {
 		return err
 	}
 	identity := SSOIdentity{Issuer: s.SSOIssuer, ClientID: s.SSOClientID, Subject: s.SSOSubject, SessionID: sid, IssuedAt: time.Unix(issued, 0)}
