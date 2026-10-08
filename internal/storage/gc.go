@@ -28,6 +28,8 @@ func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Dur
 	_, _ = db.Exec(`DELETE FROM upload_sessions WHERE status='expired' AND updated_at<?`, now.Add(-24*time.Hour).UTC().Format(time.RFC3339))
 	_, _ = db.Exec(`DELETE FROM sessions WHERE (revoked_at!='' AND revoked_at<?) OR hard_expires_at<?`, now.Add(-24*time.Hour).UTC().Format(time.RFC3339), now.UTC().Format(time.RFC3339))
 	_, _ = db.Exec(`DELETE FROM idempotency_keys WHERE created_at<?`, now.Add(-24*time.Hour).UTC().Format(time.RFC3339))
+	// An expired invitation can never be accepted; its envelopes are dead weight.
+	_, _ = db.Exec(`DELETE FROM invitation_envelopes WHERE invitation_id IN (SELECT id FROM invitations WHERE status='pending' AND expires_at<=?)`, now.UTC().Format(time.RFC3339))
 	if !blobsEnabled {
 		return st, nil
 	}

@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the three-browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -456,11 +456,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestMetaPatchRechecksInsideTheTransaction` and `npm test` (keyring, keyService, pins, crypto, storage,
   passwordChange).
   `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
-  Chromium contexts against `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, serves the
-  embedded bundle: build and sync `internal/web/dist` first). It checks server bytes: shared rows open
+  Chromium contexts, plus one where another account signs in over an opened invitation link, against
+  `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, login limit raised because every
+  person shares one loopback IP; serves the embedded bundle: build and sync `internal/web/dist` first).
+  It checks server bytes: shared rows open
   with the container key and not the writer's login key, a newcomer gets history, removal re-mints at once
   (generation N+2 holds envelopes for the remaining members only, before anyone writes), and a
-  write without the key-scheme header gets 409. Every browser dialog must be expected by the test.
+  write without the key-scheme header gets 409. P3b steps: an invitation sealed for the invitee opens
+  the team before any owner reopens it, refuses another account and a pre-removal invitation, a link
+  pasted into an open tab joins, a re-invited member waits and asks, a declined changed key is never
+  sealed, re-trust in Settings, unsent edits export and discard, and a click during the automatic load
+  (held at its last request) leaves the list loaded when it stops being busy. Every browser dialog must
+  be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
   (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
@@ -473,3 +480,43 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `confirmFingerprintChange`; `readKeys` opens rows at or above `sharedGeneration` only with their own
   generation's CK. Callers persist returned pins with `storePins` and tell the user when it returns
   false. Verify `npm test` (`keyring`, `pins`, `teamKeys` suites) and `go test ./internal/teamkeys`.
+- Team keys P3b: invitations and membership keys. Server: `POST /api/v1/invitations/{id}/accept` reads
+  the invitation (token, invitee, pending, unexpired, inviter still a steward) inside its transaction and
+  audits `container.member_accept`; a refused accept or server-admin add is audited after its rolled-back
+  transaction (`auditRefusal`: outcome `denied`, or `failure` for a 500, reason = the response code only);
+  `admitMemberTx` (accept and the server-admin add route, which answers
+  400/404/409/500 distinctly) reactivates rows a removal revoked, restores no keys and records
+  `memberships.invited_by` (migration `0023_membership_inviter.sql`; older rows are empty and fail closed;
+  child workspaces copy it); a team admin removes another admin only when it invited that membership;
+  removal deletes the member's pending invitations, child workspaces included; `ratelimit.invitation_per_hour`
+  limits invitation creation per account, and accepts per account in a separate bucket at the same rate
+  (invalid or negative is a startup error); `storage.RunGC` deletes
+  envelopes of expired invitations; the container list is 500, never a partial 200. Web: one-time links
+  `#/invite/<id>/<token>` (`web/src/invitations.ts`) are stashed in session storage (in memory for the page
+  load when storage is refused) and cleared from the address bar, also in an open tab; the token goes only
+  in the accept body; a failed accept drops the invitation only on 404 `not_found`, 409 `already_exists` or
+  410 and otherwise (any 403 included) keeps it for a retry; `replaceState` clears only this
+  tab's history. `inviteWithKeys` (`keyService.ts`) seals only the chosen team's current key (never
+  children picked by `teamId`), gated by `keysAllowed` against this device's loaded floor and an accepted
+  key matching the stored digest, for a visible invitee; a changed pin needs confirmation (stored
+  compare-and-swap against the pin the dialog showed, as in the sweep and re-trust) and a first-seen
+  pin goes through `storePins` (a conflict sends no keys) before the step-up; anything else sends a keyless
+  invitation with copy saying why; re-invited members receive history like any newcomer;
+  `memberKeyStatus` labels member rows (informational). Settings colleague keys (`components/PinnedKeys.tsx`,
+  names via `displayName`, re-trust re-fetches the key and stores it compare-and-swap against the "Was" pin,
+  only via `confirmFingerprintChange` → `storeConfirmedPin`) and unsent edits (`components/UnsentEdits.tsx`,
+  `stuckEdits.ts`): edits are bound to the account; the note cache and save queue are keyed by
+  `[owner, id]` (IndexedDB v5 re-keys older rows to owner-unknown `""`), so no save, replace, clear or
+  read touches another account's entry, and an owner-unknown cached page is read only once the user's own
+  legacy key opens it (then claimed), and one only a notebook key opens is listed in Unsent edits as
+  "Draft, owner unknown", export-only (`unknownDrafts`); an unstamped edit is stamped once the user's own legacy
+  key proves it, team-key-only owner-unknown edits are export-only and never drained or discarded, export is
+  plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
+  newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,
+  `TestRemovedMemberIsReadmittedByReactivation`, `TestTeamAdminRemovesOnlyAdminsItInvited`,
+  `TestRemovalVoidsPendingInvitationsToTheRemovedMember`, `TestAcceptAndAdminAddAreAudited`,
+  `TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly`,
+  `TestAdminAddMapsOnlyConflictsTo409`, `TestContainerListFailsRatherThanReturningPartialList`,
+  `TestInvitationCreationIsRateLimitedPerCaller`, `TestRetryAfterFollowsRefillInterval`,
+  `TestGCDeletesEnvelopesOfExpiredInvitations`, `npm test` (keyring, keyService, pins, invitations,
+  stuckEdits, loadGate) and `npm run e2e --prefix web`.

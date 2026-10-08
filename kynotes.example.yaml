@@ -28,6 +28,7 @@ ratelimit:
   login_per_minute: 10
   pairing_per_hour: 20
   upload_per_minute: 60
+  invitation_per_hour: 30 # invitation creation; accepts get their own bucket at this rate
 log:
   level: "info"
   format: "json"

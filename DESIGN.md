@@ -275,7 +275,7 @@ A steward then rotates to a new key for the remaining members. An invitation may
 carry envelopes for the invitee's identity; creating it then needs the same
 password step-up as a direct envelope write. They are installed when the
 invitation is accepted, only while the generation is unchanged and the inviter
-is still an owner or admin of the live container.
+is still an owner or admin of the live container. Accepting checks the invitation's invitee and expiry inside that transaction. Removing a member deletes pending invitations addressed to them, and accepting is audited. A member who was removed is admitted again by reactivating their revoked membership, with the new role and no keys. A team admin may remove another admin only when its own invitation admitted that admin's current membership; owners and server administrators may remove any non-owner. Invitation creation is rate-limited per account. Envelopes of expired invitations are deleted by the periodic garbage collection.
 
 Previously downloaded plaintext cannot be recalled. This is an inherent limit
 of end-to-end encryption and is treated as best-effort revocation.

@@ -972,7 +972,7 @@ func TestCollaboratorRemovalRulesAndAcceptOutcomes(t *testing.T) {
 		t.Fatalf("second accept=%d", code)
 	}
 	again, _ := invite(t, tm.owner, tm.id, tm.viewer.id)
-	if code := accept(t, tm.viewer.pairClient, again); code != http.StatusConflict {
+	if code := accept(t, tm.viewer.pairClient, again); code != http.StatusNoContent {
 		t.Fatalf("re-invited former member=%d", code)
 	}
 }

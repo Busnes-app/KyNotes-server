@@ -46,33 +46,58 @@ func (v envelopeIn) bytes() ([]byte, bool) {
 
 // writeTeamKeyError maps team-key and write-gate errors; false when err is nil.
 func writeTeamKeyError(w http.ResponseWriter, r *http.Request, err error) bool {
-	switch {
-	case err == nil:
+	if err == nil {
 		return false
-	case errors.Is(err, auth.ErrSessionInvalid):
-		auth.WriteAuthError(w, "unauthenticated", "authentication required")
-	case errors.Is(err, auth.ErrStepUpInvalid):
-		auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
-	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
-		WriteError(w, r, 404, "not_found", "not found")
-	case errors.Is(err, errInsufficientRole):
-		WriteError(w, r, 403, "forbidden", "insufficient role")
-	case errors.Is(err, errEnvelopeInvalid):
-		WriteError(w, r, 400, "invalid_request", "invalid request")
-	case errors.Is(err, errEnvelopeExists):
-		WriteError(w, r, 409, "already_exists", "envelope already exists")
-	case errors.Is(err, errGenerationMoved):
-		WriteError(w, r, 409, "already_exists", "key generation changed")
-	case errors.Is(err, errKeyRotationIncomplete):
-		WriteError(w, r, 409, "already_exists", "key rotation incomplete")
-	case errors.Is(err, errVersionConflict):
-		WriteError(w, r, 409, "version_conflict", "base version is stale")
-	case errors.Is(err, errStaleClient):
-		WriteError(w, r, 409, "already_exists", "this notebook uses shared keys: reload the page")
-	default:
-		WriteError(w, r, 500, "internal", "internal server error")
+	}
+	status, code, message := teamKeyError(err)
+	if code == "unauthenticated" || code == "step_up_required" {
+		auth.WriteAuthError(w, code, message)
+	} else {
+		WriteError(w, r, status, code, message)
 	}
 	return true
+}
+
+// teamKeyError maps a team-key route error to its response; err is not nil.
+func teamKeyError(err error) (status int, code, message string) {
+	switch {
+	case errors.Is(err, auth.ErrSessionInvalid):
+		return 401, "unauthenticated", "authentication required"
+	case errors.Is(err, auth.ErrStepUpInvalid):
+		return 403, "step_up_required", "re-enter your password to continue"
+	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
+		return 404, "not_found", "not found"
+	case errors.Is(err, errInsufficientRole):
+		return 403, "forbidden", "insufficient role"
+	case errors.Is(err, errEnvelopeInvalid):
+		return 400, "invalid_request", "invalid request"
+	case errors.Is(err, errEnvelopeExists):
+		return 409, "already_exists", "envelope already exists"
+	case errors.Is(err, errGenerationMoved):
+		return 409, "already_exists", "key generation changed"
+	case errors.Is(err, errKeyRotationIncomplete):
+		return 409, "already_exists", "key rotation incomplete"
+	case errors.Is(err, errVersionConflict):
+		return 409, "version_conflict", "base version is stale"
+	case errors.Is(err, errStaleClient):
+		return 409, "already_exists", "this notebook uses shared keys: reload the page"
+	default:
+		return 500, "internal", "internal server error"
+	}
+}
+
+// auditRefusal records a failed membership attempt outside its rolled-back transaction. The reason
+// is the response code, so the audit says no more than the caller was told.
+func auditRefusal(db *sql.DB, r *http.Request, actor, event, container, object string, err error) {
+	outcome, code := "denied", "already_exists"
+	if !errors.Is(err, errMembershipExists) {
+		var status int
+		status, code, _ = teamKeyError(err)
+		if status == 500 {
+			outcome = "failure"
+		}
+	}
+	recordAuditOutcome(db, actor, event, container, object, outcome, code, RequestID(r))
 }
 
 // memberTx returns the caller's role and the container's current generation.
@@ -380,6 +405,8 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?3 WHERE id=?1 OR (team_id=?1 AND deleted_at='')`,
 		`DELETE FROM key_envelopes WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
 		`DELETE FROM device_containers WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
+		// Pending invitations to the removed member die too: accepting one must not undo the removal.
+		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND invitee_id=?2 AND status='pending'`,
 		// The removed steward's pending invitations die with them (envelopes cascade).
 		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND inviter_id=?2 AND status='pending'`,
 		`DELETE FROM invitation_envelopes WHERE container_id IN ` + scope + ` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`,
@@ -389,6 +416,35 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		}
 	}
 	return nil
+}
+
+// admitMemberTx makes userID a member of cid and its live child workspaces with
+// role, recording invitedBy (empty for a server-admin add). Rows a removal revoked
+// are reactivated (the unique index keeps one row per container and user) and
+// keep no keys; errMembershipExists when any row in the team scope is live.
+// readmit reports that a revoked row came back.
+func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy, now string) (readmit bool, err error) {
+	var live int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, userID, cid).Scan(&live); err != nil {
+		return false, err
+	}
+	if live > 0 {
+		return false, errMembershipExists
+	}
+	const scope = `(SELECT id FROM containers WHERE (id=?2 OR team_id=?2) AND deleted_at='')`
+	for i, q := range []string{
+		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5 WHERE user_id=?1 AND container_id IN ` + scope,
+		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
+	} {
+		res, err := tx.Exec(q, userID, cid, role, now, invitedBy)
+		if err != nil {
+			return false, err
+		}
+		if n, _ := res.RowsAffected(); i == 0 && n > 0 {
+			readmit = true
+		}
+	}
+	return readmit, nil
 }
 
 type invitationEnvelopeIn struct {

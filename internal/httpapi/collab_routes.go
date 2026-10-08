@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
@@ -67,11 +68,12 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		err := dbTx(db, func(tx *sql.Tx) error {
-			var role, targetRole string
+			var role, targetRole, invitedBy string
 			if tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil || !isSteward(role) {
 				return errInsufficientRole
 			}
-			if tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, target).Scan(&targetRole) != nil || targetRole == "owner" || (role == "admin" && targetRole == "admin") {
+			// An admin removes another admin only when its own invitation admitted that membership.
+			if tx.QueryRow(`SELECT role,invited_by FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, target).Scan(&targetRole, &invitedBy) != nil || targetRole == "owner" || (role == "admin" && targetRole == "admin" && invitedBy != s.UserID) {
 				return errInsufficientRole
 			}
 			if err := removeMemberTx(tx, cid, target); err != nil {
@@ -166,43 +168,37 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		sum := sha256.Sum256([]byte(in.Token))
-		var cid, inviter, invitee, role, status, expires string
-		if e := db.QueryRow(`SELECT container_id,inviter_id,invitee_id,role,status,expires_at FROM invitations WHERE id=? AND token_hash=?`, r.PathValue("id"), hex.EncodeToString(sum[:])).Scan(&cid, &inviter, &invitee, &role, &status, &expires); e != nil || invitee != s.UserID || status != "pending" || time.Now().After(parseTime(expires)) {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		mem, _ := ids.Mint("mem")
-		now := time.Now().UTC().Format(time.RFC3339)
+		id, tokenHash := r.PathValue("id"), hex.EncodeToString(sum[:])
 		e := dbTx(db, func(tx *sql.Tx) error {
-			result, e := tx.Exec(`UPDATE invitations SET status='accepted',responded_at=? WHERE id=? AND token_hash=? AND status='pending'`, now, r.PathValue("id"), hex.EncodeToString(sum[:]))
-			if e != nil {
+			now := time.Now().UTC().Format(time.RFC3339)
+			// One read, in the transaction that consumes it: invitee, status and expiry cannot change before the update.
+			var cid, inviter, role string
+			if e := tx.QueryRow(`SELECT container_id,inviter_id,role FROM invitations WHERE id=? AND token_hash=? AND invitee_id=? AND status='pending' AND expires_at>?`, id, tokenHash, s.UserID, now).Scan(&cid, &inviter, &role); e != nil {
 				return e
 			}
-			if n, _ := result.RowsAffected(); n != 1 {
-				return sql.ErrNoRows
+			if _, e := tx.Exec(`UPDATE invitations SET status='accepted',responded_at=? WHERE id=?`, now, id); e != nil {
+				return e
 			}
 			// The inviter must still be a live steward of a live container.
-			var steward, existing int
-			if e = tx.QueryRow(`SELECT COUNT(*) FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' JOIN users u ON u.id=m.user_id AND u.status='active' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND m.role IN ('owner','admin')`, cid, inviter).Scan(&steward); e != nil {
+			var steward int
+			if e := tx.QueryRow(`SELECT COUNT(*) FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' JOIN users u ON u.id=m.user_id AND u.status='active' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND m.role IN ('owner','admin')`, cid, inviter).Scan(&steward); e != nil {
 				return e
 			}
 			if steward == 0 {
 				return sql.ErrNoRows
 			}
-			if e = tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, s.UserID, cid).Scan(&existing); e != nil {
+			readmit, e := admitMemberTx(tx, cid, s.UserID, role, inviter, now)
+			if e != nil {
 				return e
 			}
-			if existing > 0 {
-				return errMembershipExists
-			}
-			if _, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, cid, s.UserID, role, now); e != nil {
+			if e = storage.RecordAuditOutcomeTx(tx, s.UserID, "container.member_accept", cid, inviter, "success", fmt.Sprintf("role=%s,readmit=%t", role, readmit), RequestID(r)); e != nil {
 				return e
 			}
-			if _, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, s.UserID, role, now, cid); e != nil {
-				return e
-			}
-			return moveInvitationEnvelopesTx(tx, r.PathValue("id"), s.UserID, now)
+			return moveInvitationEnvelopesTx(tx, id, s.UserID, now)
 		})
+		if e != nil {
+			auditRefusal(db, r, s.UserID, "container.member_accept", "", id, e)
+		}
 		if errors.Is(e, errMembershipExists) {
 			WriteError(w, r, 409, "already_exists", "membership already exists")
 			return

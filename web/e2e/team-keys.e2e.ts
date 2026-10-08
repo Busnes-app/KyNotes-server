@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { decryptObject, fromBase64, legacyKeyRef, type KeyRef } from "../src/crypto";
+import { decryptObject, encryptNote, fromBase64, legacyKeyRef, type KeyRef } from "../src/crypto";
 import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
 // Three people in three isolated browser contexts (cookies and IndexedDB apart).
@@ -9,7 +9,8 @@ const OWN = "my own horse battery staple";
 const TEAM = "Team Keys E2E";
 const WAITING = "Waiting for a team owner to share this notebook's keys. It is read-only until then.";
 
-type Dialog = { type: string; text: string; answer?: string };
+/** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
+type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
 type Person = { page: Page; expected: Dialog[]; unexpected: string[] };
 
 /** Every dialog must be announced with expectDialog; anything else (a fingerprint change included) fails the run. */
@@ -18,9 +19,11 @@ async function person(browser: Browser): Promise<Person> {
   const who: Person = { page, expected: [], unexpected: [] };
   page.on("dialog", (dialog) => {
     const next = who.expected[0];
-    if (next && dialog.type() === next.type && dialog.message() === next.text) {
+    const matches = next && dialog.type() === next.type && (typeof next.text === "string" ? dialog.message() === next.text : next.text.test(dialog.message()));
+    if (matches) {
       who.expected.shift();
-      void dialog.accept(next.answer);
+      next.seen?.(dialog.defaultValue(), dialog.message());
+      void (next.decline ? dialog.dismiss() : dialog.accept(next.answer));
       return;
     }
     who.unexpected.push(`${dialog.type()}: ${dialog.message()}`);
@@ -78,15 +81,12 @@ function vaultOf(page: Page) {
   }));
 }
 
-/**
- * The team is each person's only notebook, so a fresh load opens it. Waiting for the route
- * the load writes on completion keeps a click from starting a second, overlapping load.
- */
-async function openTeam(page: Page, name = TEAM) {
-  await page.goto("/");
-  await page.waitForURL(/#\/cnt_/);
-  await expect(page.getByRole("button", { name })).toBeVisible();
+/** Reloads the app on cid (default: the first notebook) and waits until that load has finished. */
+async function openTeam(page: Page, name = TEAM, cid?: string) {
+  await page.goto("about:blank");
+  await page.goto(cid ? `/#/${cid}` : "/");
   await expect(page.locator(".workspace-title")).toHaveText(name);
+  await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
 }
 
 const objectSave = (page: Page) => page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok());
@@ -146,21 +146,56 @@ async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array
   }));
 }
 
+const SECOND = "Second Team E2E";
+const listed = (page: Page) => page.evaluate(async () => ((await (await fetch("/api/v1/containers")).json()) as Array<{ id: string }>).map((entry) => entry.id));
+
+/** This person's own user ID and fingerprint, as their Settings shows them. */
+async function ownSettings(page: Page) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  const code = async (label: RegExp) => (await page.locator("p", { hasText: label }).locator("code").first().textContent())!.trim();
+  const values = { userId: await code(/Your user ID/), fingerprint: await code(/Your encryption key fingerprint/) };
+  await page.getByRole("button", { name: "← Workspace" }).click();
+  return values;
+}
+
+/** From the open team, invites userId; returns the link and the message of the link dialog. */
+async function inviteFrom(owner: Person, userId: string, carries: RegExp) {
+  const shown = { link: "", message: "" };
+  owner.expected.push({ type: "prompt", text: /^User ID to invite/, answer: userId });
+  await withDialog(owner, { type: "prompt", text: new RegExp(`${carries.source}.*Send this link to the person you invited`, "s"), seen: (value, message) => Object.assign(shown, { link: value, message }) }, () =>
+    owner.page.getByRole("button", { name: /Add person/ }).click());
+  return shown;
+}
+
+/** Opens an invitation link in a fresh load and joins; the token must leave the address bar. */
+async function join(who: Person, link: string) {
+  await who.page.goto("about:blank");
+  await who.page.goto(link);
+  await expect(who.page).not.toHaveURL(/invite/);
+  await who.page.getByRole("button", { name: "Join team" }).click();
+  await expect(who.page.getByText("You joined the team.")).toBeVisible();
+}
+
+const REFUSED = "This invitation is no longer valid: it expired, was already used, is for another account, or its sender can no longer invite.";
+const stashed = (page: Page) => page.evaluate(() => sessionStorage.getItem("kynotes-invitation"));
+
 const titleOf = (key: KeyRef, cid: string, bytes: number[]) => decryptObject(key, cid, Uint8Array.from(bytes)).then((payload) => payload?.title);
 
 test("team keys: three people share, a removed member loses new content", async ({ browser }) => {
   const owner = await person(browser);
   const editor = await person(browser);
   const newcomer = await person(browser);
+  // A fourth browser where an invitation link is opened and then another account signs in.
+  const shared = await person(browser);
   try {
-    await scenario(owner, editor, newcomer);
+    await scenario(owner, editor, newcomer, shared);
   } finally {
     // An unexpected dialog (a fingerprint change, an error alert) is the root cause of whatever failed after it.
-    for (const who of [owner, editor, newcomer]) expect(who.unexpected).toEqual([]);
+    for (const who of [owner, editor, newcomer, shared]) expect(who.unexpected).toEqual([]);
   }
 });
 
-async function scenario(owner: Person, editor: Person, newcomer: Person) {
+async function scenario(owner: Person, editor: Person, newcomer: Person, shared: Person) {
   // Owner: first-run setup (its own password, so its identity exists at once), then accounts.
   await owner.page.goto("/");
   await owner.page.getByLabel("Administrator Username").fill("owner");
@@ -287,4 +322,192 @@ async function scenario(owner: Person, editor: Person, newcomer: Person) {
   await openTeam(editor.page);
   await readPage(editor.page, "After removal", ["after comment"]);
   await readPage(editor.page, "Owner page", ["owner comment"]);
+  await p3b(owner, editor, newcomer, shared, cid, senders);
+}
+
+async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Person, cid: string, senders: Map<string, Uint8Array>) {
+  const ownerOwn = await ownSettings(owner.page);
+  const editorOwn = await ownSettings(editor.page);
+  const newcomerOwn = await ownSettings(newcomer.page);
+  const ownerDevice = (await vaultOf(owner.page))!.identity!.deviceId;
+
+  // 1. A second team whose invitation carries its key: the editor reads it before any owner reopens it.
+  const before = await listed(owner.page);
+  await owner.page.getByRole("button", { name: "Admin" }).click();
+  await withDialog(owner, { type: "prompt", text: "Team name", answer: SECOND }, () => owner.page.getByRole("button", { name: "Create team" }).click());
+  await expect(owner.page.getByRole("combobox", { name: "Team", exact: true })).toContainText(SECOND);
+  await owner.page.getByRole("button", { name: "← Workspace" }).click();
+  const second = (await listed(owner.page)).find((id) => !before.includes(id))!;
+  await openTeam(owner.page, SECOND, second); // the only member: the first key is minted here
+  await writePage(owner.page, "Second page", "second comment");
+  const sealed = await inviteFrom(owner, editorOwn.userId, /The invitation carries this team's keys, sealed for the key with fingerprint/);
+  expect(sealed.message).toContain(editorOwn.fingerprint);
+  await owner.page.goto("about:blank"); // no owner tab can sweep meanwhile
+
+  // Another account signs in where the link was opened: it is refused, the banner goes, and it gains nothing.
+  await shared.page.goto(sealed.link);
+  await expect(shared.page).not.toHaveURL(/invite/);
+  await signIn(shared.page, "newcomer", OWN);
+  await shared.page.getByRole("button", { name: "Join team" }).click();
+  await expect(shared.page.getByText(REFUSED)).toBeVisible();
+  await expect(shared.page.getByRole("button", { name: "Join team" })).toHaveCount(0);
+  expect(await stashed(shared.page)).toBeNull();
+  expect(await listed(shared.page)).not.toContain(second);
+  await shared.page.reload();
+  await expect(shared.page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await expect(shared.page.getByRole("button", { name: "Join team" })).toHaveCount(0);
+  await shared.page.context().close();
+
+  // The refusal did not use the invitation up: the invitee still joins with it.
+  await join(editor, sealed.link);
+  await openTeam(editor.page, SECOND, second);
+  await expect(editor.page.getByText(WAITING)).toHaveCount(0);
+  await readPage(editor.page, "Second page", ["second comment"]);
+  const fromInvitation = await editor.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), second) as Array<{ deviceId: string; envelope: string }>;
+  const editorDevice = (await vaultOf(editor.page))!.identity!.deviceId;
+  expect(fromInvitation.filter((row) => row.deviceId === editorDevice).map((row) => envelopeSender(fromBase64(row.envelope)))).toEqual([ownerDevice]);
+  expect((await heldKeys(editor.page, second, senders)).size).toBe(1);
+  await openTeam(owner.page, SECOND, second);
+  await expect(owner.page.locator(".member-row", { hasText: "editor" })).toContainText("has key");
+
+  // An invitation issued before a removal cannot undo it.
+  const stale = await inviteFrom(owner, editorOwn.userId, /The invitation carries/);
+  await withDialog(owner, { type: "confirm", text: "Remove this person from the team?" }, () =>
+    owner.page.locator(".member-row", { hasText: "editor" }).getByRole("button", { name: "Remove" }).click());
+  await expect(owner.page.locator(".member-row", { hasText: "editor" })).toHaveCount(0);
+  await owner.page.goto("about:blank");
+  await editor.page.goto("about:blank");
+  await editor.page.goto(stale.link);
+  await editor.page.getByRole("button", { name: "Join team" }).click();
+  await expect(editor.page.getByText(REFUSED)).toBeVisible();
+  expect(await listed(editor.page)).not.toContain(second);
+
+  // 2. The removed newcomer is invited back (reactivated, not 409), waits, asks, and gets keys from the sweep.
+  await openTeam(owner.page, TEAM, cid);
+  const back = await inviteFrom(owner, newcomerOwn.userId, /The invitation carries no keys: you cannot see this person's encryption key yet/);
+  await owner.page.goto("about:blank");
+  // Pasted into the tab already running KyNotes: no reload, the token leaves the address bar, the banner offers it.
+  await expect(newcomer.page.locator(".workspace-title")).toBeVisible();
+  await newcomer.page.evaluate(() => { (window as unknown as { sameTab: boolean }).sameTab = true; });
+  await newcomer.page.evaluate((link) => { location.href = link; }, back.link);
+  await expect(newcomer.page).not.toHaveURL(/invite/);
+  await newcomer.page.getByRole("button", { name: "Join team" }).click();
+  await expect(newcomer.page.getByText("You joined the team.")).toBeVisible();
+  expect(await newcomer.page.evaluate(() => (window as unknown as { sameTab?: boolean }).sameTab)).toBe(true);
+  await openTeam(newcomer.page, `Notebook ${cid.slice(4, 10)}`, cid);
+  await expect(newcomer.page.getByText(WAITING)).toBeVisible();
+  let request = "";
+  await withDialog(newcomer, { type: "prompt", text: new RegExp(`^Send this to ${ownerOwn.userId} · owner\\.`), seen: (value) => { request = value; } }, () =>
+    newcomer.page.getByRole("button", { name: "Ask an owner" }).click());
+  expect(request).toContain(newcomerOwn.fingerprint);
+  expect(request).toContain(`#/${cid}`);
+  await openTeam(editor.page, TEAM, cid);
+  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("waiting for key");
+  await openTeam(owner.page, TEAM, cid); // the sweep wraps the current key and history
+  await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
+  await openTeam(newcomer.page, TEAM, cid);
+  await readPage(newcomer.page, "After removal", ["after comment"]);
+
+  // 3. A reset deletes the newcomer's identity: members see it has none.
+  await owner.page.getByRole("button", { name: "Admin" }).click();
+  const users = owner.page.locator("#users");
+  await users.getByLabel("Confirm your password").fill(OWN);
+  await users.getByRole("button", { name: "Authorize user creation and password resets" }).click();
+  await expect(users.getByText("Password confirmed for ten minutes.")).toBeVisible();
+  owner.expected.push({ type: "prompt", text: "New temporary password for newcomer", answer: TEMPORARY });
+  await withDialog(owner, { type: "alert", text: /^Password reset\./ }, () =>
+    owner.page.locator(".admin-user", { hasText: "newcomer" }).getByRole("button", { name: "Reset password" }).click());
+  await owner.page.goto("about:blank");
+  await openTeam(editor.page, TEAM, cid);
+  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("no encryption key yet");
+  const oldDevice = (await vaultOf(newcomer.page))!.identity!.deviceId;
+  await signIn(newcomer.page, "newcomer", TEMPORARY);
+  await takeOverPassword(newcomer.page);
+  // The vault keeps the old identity until the new one is stored: wait for the new device.
+  await expect.poll(async () => (await vaultOf(newcomer.page))?.identity?.deviceId, { timeout: 30_000 }).not.toBe(oldDevice);
+  const renewed = await ownSettings(newcomer.page);
+  expect(renewed.fingerprint).not.toBe(newcomerOwn.fingerprint);
+
+  // An invitation never seals to a changed key the owner declined: it carries no keys.
+  await openTeam(owner.page, SECOND, second);
+  owner.expected.push({ type: "prompt", text: /^User ID to invite/, answer: newcomerOwn.userId });
+  owner.expected.push({ type: "confirm", text: new RegExp(`^The encryption key of ${newcomerOwn.userId} · newcomer changed since this browser last saw it\\.[\\s\\S]*${renewed.fingerprint} \\(was ${newcomerOwn.fingerprint}\\)`), decline: true });
+  await withDialog(owner, { type: "prompt", text: /^The invitation carries no keys: you did not confirm this person's new encryption key\. Send this link/ }, () =>
+    owner.page.getByRole("button", { name: /Add person/ }).click());
+
+  // 4. The owner re-trusts the new key in Settings, outside any wrap prompt (opened on the second team, where no wrap targets the newcomer).
+  await openTeam(owner.page, SECOND, second);
+  await owner.page.getByRole("button", { name: "Settings" }).click();
+  const pin = owner.page.locator(".pin-row", { hasText: "newcomer" });
+  await expect(pin).toContainText(newcomerOwn.fingerprint);
+  await expect(pin).toContainText(renewed.fingerprint);
+  await expect(owner.page.locator(".pin-row", { hasText: "editor" })).toContainText(editorOwn.fingerprint);
+  await withDialog(owner, { type: "confirm", text: new RegExp(`^Trust the new encryption key of ${newcomerOwn.userId} · newcomer\\?`) }, () => pin.getByRole("button", { name: "Trust new key" }).click());
+  await expect(pin).toContainText("matches the server");
+  // No fingerprint dialog may appear now (unexpected dialogs fail the run): the sweep wraps for the new key.
+  await openTeam(owner.page, TEAM, cid);
+  await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
+  await openTeam(newcomer.page, TEAM, cid);
+  await readPage(newcomer.page, "Owner page", ["owner comment"]);
+
+  // 5. An edit stranded on the device for a notebook this account cannot open: exported, then discarded.
+  const lost = `cnt_${"z".repeat(26)}`;
+  const stranded = await encryptNote(legacyKeyRef((await vaultOf(newcomer.page))!.authSecret), lost, { type: "page", title: "Stranded edit", body: "[]" });
+  // Stamped with its account, as the app queues every edit: only those may be discarded.
+  await newcomer.page.evaluate(({ container, bytes, owner }) => new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open("kynotes-web");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction("pending", "readwrite");
+      tx.objectStore("pending").put({ id: `obj_${"z".repeat(26)}`, containerID: container, version: 1, payload: new Uint8Array(bytes), updatedAt: new Date().toISOString(), keyGeneration: 0, owner });
+      tx.oncomplete = () => { open.result.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+  }), { container: lost, bytes: [...stranded], owner: newcomerOwn.userId });
+  await newcomer.page.getByRole("button", { name: "Settings" }).click();
+  const card = newcomer.page.locator("#unsent-edits");
+  await expect(card).toContainText("1 edit(s)");
+  const download = newcomer.page.waitForEvent("download");
+  await card.getByRole("button", { name: "Export unsent edits" }).click();
+  expect(JSON.parse(readFileSync(await (await download).path()).toString())).toEqual([expect.objectContaining({ notebook: lost, content: expect.objectContaining({ title: "Stranded edit" }) })]);
+  await withDialog(newcomer, { type: "confirm", text: /^Delete 1 unsent edit/ }, () => card.getByRole("button", { name: "Discard unsent edits" }).click());
+  await expect(card).toHaveCount(0);
+  await newcomer.page.getByRole("button", { name: "← Workspace" }).click();
+
+  // 6. A click on the notebook the app is still opening on its own leaves it loaded (one load wins).
+  // The automatic load's last request (members, after its page list is in) is held until the click has started a second load.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    let reads = false;
+    let holding = true;
+    void editor.page.route(`**/api/v1/containers/${cid}/**`, async (route) => {
+      const url = route.request().url();
+      if (url.includes("/changes")) reads = true;
+      if (holding && reads && url.endsWith("/members")) {
+        holding = false;
+        resolve();
+        await new Promise<void>((done) => { release = done; });
+      }
+      await route.continue();
+    });
+  });
+  await editor.page.goto("about:blank");
+  await editor.page.goto(`/#/${cid}`);
+  await held;
+  await expect(editor.page.locator(".note-list")).toHaveAttribute("aria-busy", "true");
+  // The pages listed at the moment the list stops being busy: "not busy" must already mean loaded.
+  type Settled = { settled: Promise<string[]> };
+  await editor.page.evaluate(() => {
+    const list = document.querySelector(".note-list")!;
+    (window as unknown as Settled).settled = new Promise((resolve) => new MutationObserver((_, observer) => {
+      if (list.getAttribute("aria-busy") !== "false") return;
+      observer.disconnect();
+      resolve([...document.querySelectorAll(".note-row")].map((row) => row.textContent ?? ""));
+    }).observe(list, { attributes: true, attributeFilter: ["aria-busy"] }));
+  });
+  await editor.page.getByRole("button", { name: TEAM }).click();
+  release();
+  expect(await editor.page.evaluate(() => (window as unknown as Settled).settled)).toContainEqual(expect.stringContaining("Owner page"));
+  await expect(editor.page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
+  await expect(editor.page.locator(".note-row", { hasText: "Owner page" })).toBeVisible();
 }

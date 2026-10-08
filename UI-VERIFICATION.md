@@ -211,3 +211,29 @@ Same scratch server and Chromium; two separate browser contexts (owner, member).
 | Subpage refusal toast | `move-refused-*` | Pass; text legible. On mobile it covers the notice text; on desktop it stacks over the commit toast |
 
 Findings, not fixed here: at 390 px the notebook notice fills most of the 280 px `.note-list` (`web/src/styles.css:66`), so the labelled rows need an inner scroll to be seen; `.toast` (`web/src/styles.css:65`) is fixed at the same corner as `.commit-toast`, so an error toast overlaps it.
+
+## Team keys P3b (2026-10-08)
+
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle at the P3b head). Scratch scripts lived outside the repo. Four browser contexts (owner, editor, newcomer, plus a never-signed-in `ghost` account); nothing was set in the DOM. Each state was shot in Busnes Light and Dark (`emulateMedia` colorScheme) at 1280x900 and 390x844 as `docs/team-keys-p3b-<state>-<light|dark>-<desktop|mobile>.png`. Overflow was measured in the page (`documentElement.scrollWidth` and elements whose right edge passes the viewport).
+
+| State | Files | Result |
+| --- | --- | --- |
+| Join banner, link opened in a fresh tab (address bar had no token; token held in sessionStorage) | `join-fresh-tab-*` | Pass; banner legible in both themes |
+| Join banner, link pasted into an already-open tab (window object kept, no reload) | `join-open-tab-*` | Pass; same |
+| Member rows: has key, waiting for key, no encryption key yet (editor's view) | `member-rows-*` | Legible; user IDs wrap mid-ID in the 210 px desktop sidebar |
+| Waiting banner with "Ask an owner" (newcomer) | `ask-owner-*` | Pass; the control is a small quiet link |
+| Settings: your user ID | `settings-user-id-*` | Desktop pass; 390 px clipped (see findings) |
+| Colleague keys, ID-first name, "matches the server" | `colleague-keys-*` | Desktop pass; 390 px clipped |
+| Colleague keys after the colleague's key changed, "Trust new key" | `colleague-keys-changed-*` | Desktop pass; 390 px clipped |
+| Unsent edits: one owned entry, one sealed owner-unknown entry, export/discard, unencrypted-export warning | `unsent-edits-*` | Desktop pass, buttons touch; 390 px clipped |
+
+Not captured as screenshots: the invite dialog (keys sealed / no keys, including the not-yet-signed-in "you cannot see this person's encryption key yet" copy), the Ask an owner text and the re-trust confirm are native `prompt`/`confirm` dialogs, which headless screenshots never contain. Their exact text and the copied value were read from the dialog events (user ID first, both fingerprints in the confirm). The "Unsent edit, owner unknown: N edit(s) ... sealed with a notebook key" variant was not produced; the entry shown is the "owner unknown, cannot be opened in this browser" variant (a row with empty owner and an undecryptable payload). The member-row key states were captured before the editor's reset; later shots show the editor as waiting.
+
+Findings, not fixed here:
+
+- Fixed after capture (`minmax(0, 1fr)` and a gap between Unsent edits buttons); re-measured with a fresh owner at 390x844 in both themes: Settings `scrollWidth` 390 = viewport (`docs/team-keys-p3b-settings-fixed-*-mobile.png`). The `*-mobile` shots above predate the fix. Original findings:
+- At 390 px the non-admin Settings page was 523 px wide: the last `.settings-sidebar` link ("Colleague keys", added in P3b) makes the single `1fr` track at `web/src/styles.css:157` grow to the nav's width, so every card is clipped on the right and a light strip shows past the dark page. `minmax(0, 1fr)` would contain it.
+- Export and Discard unsent edits touch each other (no horizontal gap, `web/src/styles.css:94`).
+- User IDs (30 chars, no break points) wrap mid-ID in the 210 px sidebar member rows (`web/src/styles.css:149`); the last row sits flush against the ACCOUNT label.
+- "Ask an owner" is an 11 px quiet link in the status line (`web/src/main.tsx:2481`); at 390 px the member list pushes it and the join banner about 700 px down the page.
+- A member row whose username equals its role reads "usr_... · editor · editor · has key".

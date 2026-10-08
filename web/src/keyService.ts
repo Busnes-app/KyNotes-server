@@ -1,7 +1,10 @@
+import { bytesToHex } from "@noble/ciphers/utils.js";
 import { base64 } from "./crypto";
+import { sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { guardContainer, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type KeyedContainer, type KeyFloor, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type SweepPlan } from "./keyring";
-import { comparePins, confirmFingerprintChange, displayName, type PinChange, type PinConfirmation, type Pins } from "./pins";
+import type { Invitation } from "./api";
+import { guardContainer, keysAllowed, mergeFloor, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type InvitationEnvelope, type KeyedContainer, type KeyFloor, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type ReportedContainer, type SweepPlan } from "./keyring";
+import { comparePins, confirmFingerprintChange, displayName, publicKeyBytes, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import type { PinsStored } from "./storage";
 
 export type KeyAPI = {
@@ -20,8 +23,8 @@ export type PinStore = {
   load: () => Promise<Pins>;
   /** Add-only and atomic: a member already pinned to a different key is a conflict, and nothing is written. */
   addFresh: (pins: Pins) => Promise<PinsStored>;
-  /** Replaces one pin; only a confirmFingerprintChange result. */
-  confirm: (confirmation: PinConfirmation) => Promise<boolean>;
+  /** Replaces one pin; only a confirmFingerprintChange result, and only while the pin is still expected (the one the dialog showed). */
+  confirm: (confirmation: PinConfirmation, expected: string) => Promise<boolean>;
   loadKeyState: (containerID: string) => Promise<KeyState>;
   saveKeyState: (containerID: string, state: KeyState) => Promise<boolean>;
 };
@@ -32,12 +35,14 @@ export type Caller = { userId: string; identity?: HeldIdentity; canWrap: boolean
  * reported an older sharing state than this device has seen. None of them shared anything. fresh: pinned by this call; changed: the
  * changed keys asked about; conflicts: generations whose envelope disagreed with an
  * accepted key (reported, never used or wrapped); known: the key memory written, and
- * keyStateSaved whether this device kept it.
+ * keyStateSaved whether this device kept it. members and envelopes: what this pass last saw,
+ * including its own writes (memberKeyStatus).
  */
 export type KeySync = {
   container: KeyedContainer; ring: Keyring; minted: boolean; known: KeyState; keyStateSaved: boolean;
   plan: SweepPlan | { kind: "untrusted"; members: string[] } | { kind: "pins-unsaved" } | { kind: "rollback" };
   fresh: MemberKey[]; changed: PinChange[]; conflicts: number[];
+  members: MemberKey[]; envelopes: Envelope[];
 };
 type Pass = Omit<KeySync, "keyStateSaved">;
 type Latest = { saved?: { containerID: string; known: KeyState } };
@@ -72,6 +77,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     onFloor?.(container.id, { shared: known.shared, generation: known.generation });
     if (known.shared !== prior.shared || known.generation !== prior.generation) await store.saveKeyState(container.id, known).catch(() => false);
     const envelopes = await api.envelopes(container.id);
+    let seen: Envelope[] = envelopes;
     const members: MemberKey[] = await Promise.all((await api.members(container.id)).map(async (member) => ({ ...member, identity: member.userId === caller.userId && own ? own : await api.userIdentity(member.userId) })));
     // An open is speculative while it holds first-contact pins this device has not stored: its keys,
     // digests and mark are used and saved only once those pins are persisted (trusted).
@@ -114,12 +120,12 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     // Reads only: nothing is pinned, wrapped or minted against a rolled-back server.
     if (rollback) {
       const safe = opened.fresh.length ? await persistedOnly() : trusted(opened);
-      return { container, changed: [], conflicts: safe.conflicts, known: raiseFloor(safe.known, container), fresh: [], ring: safe.ring, plan: { kind: "rollback" }, minted: false };
+      return { container, changed: [], conflicts: safe.conflicts, known: raiseFloor(safe.known, container), fresh: [], ring: safe.ring, plan: { kind: "rollback" }, minted: false, members, envelopes };
     }
     let sweep = plan(opened);
     const changed: PinChange[] = [];
-    const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh">, fresh: MemberKey[], last = opened): Pass =>
-      ({ container, changed, conflicts: last.conflicts, known: raiseFloor(last.known, container), fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), ...rest });
+    const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh" | "members" | "envelopes">, fresh: MemberKey[], last = opened): Pass =>
+      ({ container, changed, conflicts: last.conflicts, known: raiseFloor(last.known, container), fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), members, envelopes: seen, ...rest });
     /** A pass that stops on a pin it could not keep returns only what the stored pins vouch for. */
     const stopped = async (plan: KeySync["plan"], fresh: MemberKey[]): Promise<Pass> => {
       const safe = await persistedOnly();
@@ -133,7 +139,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       if ((await confirmChanged(pending)) !== true) return stopped({ kind: "untrusted", members: pending.map((change) => displayName(change.member.username, change.member.userId)) }, []);
       for (const change of pending) {
         const confirmation = confirmFingerprintChange(pins, change.member);
-        if (!(await store.confirm(confirmation))) return stopped({ kind: "pins-unsaved" }, []);
+        if (!(await store.confirm(confirmation, change.pinned))) return stopped({ kind: "pins-unsaved" }, []);
         pins = confirmation.pins;
       }
       opened = open(pins, envelopes);
@@ -181,9 +187,10 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       carried.push(...fresh);
       return "retry";
     }
-    if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
     // The rows just accepted include this browser's own envelope for the new key: no re-fetch to fail.
-    const after = trusted(open(pins, [...envelopes, ...rows], opened.ring));
+    seen = [...envelopes, ...rows];
+    if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
+    const after = trusted(open(pins, seen, opened.ring));
     return result({ ring: after.ring, plan: sweep, minted: true }, fresh, after);
   };
 
@@ -198,5 +205,83 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       if (latest.saved) keyStateSaved = await store.saveKeyState(latest.saved.containerID, latest.saved.known).catch(() => false);
     }
     if (outcome !== "retry") return { ...outcome, keyStateSaved };
+  }
+}
+
+export type InviteAPI = Pick<KeyAPI, "userIdentity" | "stepUp"> & {
+  invite: (containerID: string, inviteeID: string, role: string, envelopes: InvitationEnvelope[]) => Promise<Invitation>;
+};
+/**
+ * sealed: the invitation carries the team's current key. Otherwise it went out without keys, and
+ * a steward's sweep shares them after the invitee joins:
+ * - cannot-wrap: this browser has no identity, or the session is single sign-on.
+ * - rollback: the server reports an older sharing state than this device has seen (keysAllowed).
+ * - no-keys: this browser holds no current shared key for the team that this device accepted
+ *   (stored digest), or this tab has not loaded the team's floor yet.
+ * - no-identity: the invitee's key is not visible (no identity, or no shared notebook with you).
+ * - invalid-identity: the invitee's key is malformed, or the server refused the sealed key
+ *   (invalid_request: their device changed meanwhile).
+ * - untrusted: a changed key was not confirmed, or another pass pinned a different key first.
+ * - pins-unsaved: the invitee's pin could not be kept.
+ * - moved: a generation changed meanwhile.
+ */
+export type InviteKeys = "sealed" | "cannot-wrap" | "rollback" | "no-keys" | "no-identity" | "invalid-identity" | "untrusted" | "pins-unsaved" | "moved";
+export type Invited =
+  | { invitation: Invitation; keys: "sealed"; recipient: MemberKey & { identity: NonNullable<MemberKey["identity"]> } }
+  | { invitation: Invitation; keys: Exclude<InviteKeys, "sealed">; recipient?: undefined };
+/**
+ * The team the user chose to invite to. Child workspaces are never added here: teamId is a server
+ * claim. ponytail: team container only; children wait for the steward sweep after accept. Upgrade: a
+ * verifiable parent link the team key authenticates. floor: this tab's in-memory floor (mergeFloor), merged with the stored one, which can lag;
+ * undefined (not loaded yet) sends no keys.
+ */
+export type InviteTarget = { container: ReportedContainer; ring: Keyring; floor: KeyFloor | undefined };
+
+/**
+ * Invites invitee to the target team. Keys go only when this device's floor allows them, this
+ * browser holds the team's current key, and it can see the invitee's identity. The key is sealed
+ * for that identity: the pin is checked (a changed key only after confirmation) and a first-seen
+ * pin is stored before anything leaves, then a fresh step-up runs. The server installs the
+ * envelope at accept while the generation is unchanged. Anything less sends no keys.
+ */
+export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invitee: Member, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>): Promise<Invited> {
+  const { container, ring } = target;
+  const plain = async (keys: Exclude<InviteKeys, "sealed">): Promise<Invited> => ({ invitation: await api.invite(container.id, invitee.userId, invitee.role, []), keys });
+  if (!caller.identity || !caller.canWrap) return plain("cannot-wrap");
+  if (!target.floor) return plain("no-keys");
+  // This device's floor decides, never the server's sharing state alone.
+  const state = await store.loadKeyState(container.id);
+  if (!keysAllowed(container, mergeFloor(target.floor, state))) return plain("rollback");
+  const key = container.sharedGeneration > 0 ? ring.get(container.keyGeneration) : undefined;
+  // Only the key this device accepted for the generation leaves it, never one the caller merely holds.
+  if (!key || state.digests[container.keyGeneration] !== bytesToHex(sha256(key))) return plain("no-keys");
+  const identity = await api.userIdentity(invitee.userId);
+  if (!identity) return plain("no-identity");
+  try { publicKeyBytes(identity.publicKey); } catch { return plain("invalid-identity"); }
+  const member = { ...invitee, identity: { deviceId: identity.deviceId, publicKey: identity.publicKey } };
+  let pins = await store.load();
+  const { changed } = comparePins(pins, [member]);
+  if (changed.length) {
+    if ((await confirmChanged(changed)) !== true) return plain("untrusted");
+    const confirmation = confirmFingerprintChange(pins, member);
+    if (!(await store.confirm(confirmation, changed[0].pinned))) return plain("pins-unsaved");
+    pins = confirmation.pins;
+  }
+  const sealed = sealFor(member, container.id, container.keyGeneration, key, { ...caller.identity, userId: caller.userId }, pins);
+  // A first-seen pin is kept before the key leaves; a different pin another pass stored meanwhile wins.
+  if (sealed.fresh.length) {
+    // Only the invitee's pin: storePins merges under stored pins, so an unrelated pin never conflicts here.
+    const stored = await store.addFresh({ [member.userId]: identity.publicKey });
+    if (!stored.ok) return plain(stored.conflicts.length ? "untrusted" : "pins-unsaved");
+  }
+  await api.stepUp();
+  try {
+    return { invitation: await api.invite(container.id, invitee.userId, invitee.role, [{ ...sealed.envelope, containerId: container.id }]), keys: "sealed", recipient: member };
+  } catch (error) {
+    // already_exists: a generation moved after this browser read it; the sweep shares the new key after accept.
+    if (code(error) === "already_exists") return plain("moved");
+    // invalid_request: the server refused the envelope (the invitee's device changed meanwhile).
+    if (code(error) === "invalid_request") return plain("invalid-identity");
+    throw error;
   }
 }

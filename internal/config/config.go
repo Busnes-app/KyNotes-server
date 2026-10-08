@@ -55,9 +55,10 @@ type GC struct {
 	Interval  string `yaml:"interval"`
 }
 type RateLimit struct {
-	LoginPerMinute  int `yaml:"login_per_minute"`
-	PairingPerHour  int `yaml:"pairing_per_hour"`
-	UploadPerMinute int `yaml:"upload_per_minute"`
+	LoginPerMinute    int `yaml:"login_per_minute"`
+	PairingPerHour    int `yaml:"pairing_per_hour"`
+	UploadPerMinute   int `yaml:"upload_per_minute"`
+	InvitationPerHour int `yaml:"invitation_per_hour"`
 }
 type Log struct {
 	Level  string `yaml:"level"`
@@ -83,7 +84,7 @@ const AppName = "KyNotes"
 const MinBackupDepositInterval = 15 * time.Minute
 
 func Defaults() Config {
-	return Config{Server: Server{Bind: "0.0.0.0:8080", BehindProxy: true, TrustedProxies: []string{"127.0.0.1/32"}, ReadHeaderTimeout: "10s", ReadTimeout: "60s", WriteTimeout: "120s", IdleTimeout: "120s", ShutdownGrace: "20s", MaxRequestBytes: 1048576}, DataDir: "/data", Limits: Limits{AttachmentMaxBytes: 26214400, ChunkBytes: 4194304, ObjectMaxBytes: 10485760, UploadSessionTTL: "15m", UserQuotaBytes: 1073741824, TeamQuotaBytes: 5368709120}, GC: GC{Enabled: true, Retention: "168h", Interval: "1h"}, RateLimit: RateLimit{LoginPerMinute: 10, PairingPerHour: 20, UploadPerMinute: 60}, Log: Log{Level: "info", Format: "json"}, Backup: Backup{Keep: 7, DepositInterval: "24h"}}
+	return Config{Server: Server{Bind: "0.0.0.0:8080", BehindProxy: true, TrustedProxies: []string{"127.0.0.1/32"}, ReadHeaderTimeout: "10s", ReadTimeout: "60s", WriteTimeout: "120s", IdleTimeout: "120s", ShutdownGrace: "20s", MaxRequestBytes: 1048576}, DataDir: "/data", Limits: Limits{AttachmentMaxBytes: 26214400, ChunkBytes: 4194304, ObjectMaxBytes: 10485760, UploadSessionTTL: "15m", UserQuotaBytes: 1073741824, TeamQuotaBytes: 5368709120}, GC: GC{Enabled: true, Retention: "168h", Interval: "1h"}, RateLimit: RateLimit{LoginPerMinute: 10, PairingPerHour: 20, UploadPerMinute: 60, InvitationPerHour: 30}, Log: Log{Level: "info", Format: "json"}, Backup: Backup{Keep: 7, DepositInterval: "24h"}}
 }
 
 func Load(path string) (Config, error) { return load(path, false) }
@@ -226,13 +227,24 @@ func applyEnv(c *Config) error {
 		c.GC.Interval = v
 	}
 	if v := os.Getenv("KYNOTES_RATELIMIT_LOGIN_PER_MINUTE"); v != "" {
-		c.RateLimit.LoginPerMinute, _ = strconv.Atoi(v)
+		if err := parseEnvLimit(v, &c.RateLimit.LoginPerMinute, "KYNOTES_RATELIMIT_LOGIN_PER_MINUTE"); err != nil {
+			return err
+		}
 	}
 	if v := os.Getenv("KYNOTES_RATELIMIT_PAIRING_PER_HOUR"); v != "" {
-		c.RateLimit.PairingPerHour, _ = strconv.Atoi(v)
+		if err := parseEnvLimit(v, &c.RateLimit.PairingPerHour, "KYNOTES_RATELIMIT_PAIRING_PER_HOUR"); err != nil {
+			return err
+		}
 	}
 	if v := os.Getenv("KYNOTES_RATELIMIT_UPLOAD_PER_MINUTE"); v != "" {
-		c.RateLimit.UploadPerMinute, _ = strconv.Atoi(v)
+		if err := parseEnvLimit(v, &c.RateLimit.UploadPerMinute, "KYNOTES_RATELIMIT_UPLOAD_PER_MINUTE"); err != nil {
+			return err
+		}
+	}
+	if v := os.Getenv("KYNOTES_RATELIMIT_INVITATION_PER_HOUR"); v != "" {
+		if err := parseEnvLimit(v, &c.RateLimit.InvitationPerHour, "KYNOTES_RATELIMIT_INVITATION_PER_HOUR"); err != nil {
+			return err
+		}
 	}
 	if v := os.Getenv("KYNOTES_LOG_LEVEL"); v != "" {
 		c.Log.Level = v
@@ -259,6 +271,15 @@ func applyEnv(c *Config) error {
 	return nil
 }
 
+// parseEnvLimit reads a rate limit; 0 turns that limit off, anything else non-numeric or negative is an error.
+func parseEnvLimit(value string, dst *int, name string) error {
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return fmt.Errorf("%s: want a non-negative integer (0 disables)", name)
+	}
+	*dst = n
+	return nil
+}
 func parseEnvInt64(value string, dst *int64, name string) error {
 	n, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
@@ -315,6 +336,9 @@ func Validate(c Config) error {
 	}
 	if c.Limits.AttachmentMaxBytes < 0 || c.Limits.ObjectMaxBytes < 0 || c.Limits.UserQuotaBytes < 0 || c.Limits.TeamQuotaBytes < 0 || c.Server.MaxRequestBytes < 0 {
 		return errors.New("limits: byte sizes must not be negative")
+	}
+	if r := c.RateLimit; r.LoginPerMinute < 0 || r.PairingPerHour < 0 || r.UploadPerMinute < 0 || r.InvitationPerHour < 0 {
+		return errors.New("ratelimit: limits must not be negative (0 disables)")
 	}
 	if c.Limits.AttachmentMaxBytes < c.Limits.ChunkBytes {
 		return errors.New("limits.attachment_max_bytes: smaller than chunk_bytes")

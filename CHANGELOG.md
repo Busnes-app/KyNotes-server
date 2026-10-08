@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Team keys phase 3b: invitations send a one-time link, and an invitation from someone who can see
+  your encryption key carries the team's keys, so you can read at once. Team member lists show who
+  has a key, who is waiting and who has none yet; a member waiting for a key can send an owner a
+  request. Settings lists the colleague keys your browser trusts, with fingerprints, and re-trusts a
+  changed one; it also exports (as an unencrypted file) or discards edits stranded for a notebook you
+  lost. A removed member can be invited again, and removal cancels their pending invitations; a team
+  admin can remove an admin it invited; invitation expiry is checked as the invitation is accepted;
+  invitation creation and, in a separate bucket, invitation accepts are rate-limited per account
+  (`ratelimit.invitation_per_hour`, default 30); expired
+  invitations' keys are cleaned up. Refused accepts and admin adds are audited. Migration `0023`
+  adds `memberships.invited_by`. The browser's local note cache and save queue are now kept per
+  account, so two accounts signed in on one browser never overwrite or read each other's unsent edits.
+  **Reload open KyNotes tabs after updating:** the first tab on the new version upgrades the browser's
+  local store, and a tab still running the old version can no longer open it, so its edits cannot be
+  kept on the device (cached or queued) until it is reloaded.
 - Team keys phase 3a: team notebooks are shared end to end. When an owner or admin opens a team
   notebook whose members all have encryption keys, their browser creates the notebook key and
   shares it; members added later get the notebook's history; removing a member replaces the key

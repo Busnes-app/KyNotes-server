@@ -425,6 +425,7 @@ ratelimit:
   login_per_minute: 10
   pairing_per_hour: 20
   upload_per_minute: 60
+  invitation_per_hour: 30
 
 log:
   level: "info"                   # debug|info|warn|error
@@ -868,6 +869,7 @@ CREATE TABLE memberships (
 );
 CREATE UNIQUE INDEX idx_memberships_container_user ON memberships(container_id, user_id);
 CREATE INDEX idx_memberships_user ON memberships(user_id);
+-- Migration 0023 adds invited_by TEXT NOT NULL DEFAULT '': the inviter of the current membership ('' for owners, server-admin adds and older rows).
 
 CREATE TABLE key_envelopes (
   id             TEXT PRIMARY KEY,
@@ -1225,7 +1227,7 @@ deliberately every phase).
 
 | Method | Path | Credential | Notes |
 |---|---|---|---|
-| GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration` |
+| GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":"<b64>"}` → creates container + `owner` membership + `change_seq` 1 |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
@@ -1609,7 +1611,7 @@ Rules:
   `key_generation`, deletes that member's envelopes and device selections there,
   deletes the pending invitations that member issued in the team, and deletes
   invitation envelopes below the new generations. The removal route re-reads
-  both roles in the transaction: an admin cannot remove an admin or an owner.
+  both roles in the transaction: an admin cannot remove an owner, nor an admin whose current membership it did not invite (`memberships.invited_by`).
   A steward then calls `POST /containers/{id}/key-rotations`. The server never
   sees the key; it enforces that the generation moved and which envelopes exist.
 * **Write gate**: new content (object save, comment create or rewrite,
@@ -1625,25 +1627,27 @@ Rules:
   `envelopes:[{containerId,deviceId,keyGeneration,alg,envelope}]` for the
   invitee's live identity, one per container (the team or its child workspaces)
   at that container's current generation, where the inviter is owner or admin.
+  The P3b web client seals the team container only; child workspaces get keys
+  from the steward sweep after accept.
   With envelopes, create needs the envelope `PUT` step-up (local password,
   SSO refused, `403 step_up_required`), rechecked in the insert transaction;
   without envelopes it stays session-only. Accept needs no step-up: it only
   moves envelopes already authorized at insertion.
   Accept rechecks, in the membership transaction, that the inviter is still an
   owner or admin of the live container (`404` otherwise), installs the
-  envelopes still at their generation and drops the rest. A consumed or void
-  invitation is `404`; an existing membership row anywhere in the team scope
-  is `409`.
+  envelopes still at their generation and drops the rest. The invitation is
+  read inside that transaction: a consumed, expired, void or other account's
+  invitation is `404`. A live membership anywhere in the team scope is `409`;
+  rows a removal revoked are reactivated with the invitation's role and no keys.
+  The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` from the parent membership.
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
-* **Known limits** (P2): creating a team invitation to a known user ID reveals
-  whether that user is active (invitation creation is not rate-limited);
-  invitations may be created without envelopes, and the new member cannot
-  write until a steward's sweep supplies them; a removed member keeps a revoked
-  membership row, so re-inviting them ends in `409`; an admin may invite a peer
-  as admin and then cannot remove them; invitation expiry is not rechecked
-  inside the accept transaction; envelopes of expired, never-accepted
-  invitations persist until the invitation row is deleted.
+* **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
+  user ID reveals whether that user is active, at most
+  `ratelimit.invitation_per_hour` times an hour per account; invitations may be
+  created without envelopes, and the new member cannot write until a steward's
+  sweep supplies them; envelopes of an expired invitation remain until the next
+  GC run.
 * **Known limit** (P3a): the server sees `authSecret`, so it can derive a
   member's legacy content key and forge a row in a shared container labelled
   below `shared_generation`. The web client labels such rows as not end-to-end
@@ -1666,6 +1670,16 @@ Tests:
 - `TestCollaboratorRemovalRulesAndAcceptOutcomes`
 - `TestInvitationEnvelopesMoveOnlyAtTheirGeneration`
 - `TestInvitationsDieWithTheirStewardship`
+- `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`
+- `TestRemovedMemberIsReadmittedByReactivation`
+- `TestTeamAdminRemovesOnlyAdminsItInvited`
+- `TestInvitationCreationIsRateLimitedPerCaller`
+- `TestGCDeletesEnvelopesOfExpiredInvitations`
+- `TestRemovalVoidsPendingInvitationsToTheRemovedMember`
+- `TestAcceptAndAdminAddAreAudited`
+- `TestAdminAddMapsOnlyConflictsTo409`
+- `TestRetryAfterFollowsRefillInterval`
+- `TestRateLimitEnvRejectsInvalidAndNegative`
 - `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
@@ -1692,8 +1706,8 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user. Exceeding returns
-  `429 rate_limited` with `Retry-After` in seconds.
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, and invitation accepts at the same rate in their own bucket per user (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds
     the data directory lock; the documented procedure is stop, copy, start.
