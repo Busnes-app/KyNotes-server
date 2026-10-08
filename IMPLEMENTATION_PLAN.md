@@ -1637,7 +1637,7 @@ Rules:
   read inside that transaction: a consumed, expired, void or other account's
   invitation is `404`. A live membership anywhere in the team scope is `409`;
   rows a removal revoked are reactivated with the invitation's role and no keys.
-  The server-admin add route admits the same way (`admitMemberTx`).
+  The server-admin add route admits the same way (`admitMemberTx`): `409` for a live member, `404` for an unknown team or user, `500` for a database fault, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. Removal also deletes pending invitations addressed to the removed member. Child workspaces created later copy `invited_by` from the parent membership.
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
 * **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
@@ -1673,6 +1673,11 @@ Tests:
 - `TestTeamAdminRemovesOnlyAdminsItInvited`
 - `TestInvitationCreationIsRateLimitedPerCaller`
 - `TestGCDeletesEnvelopesOfExpiredInvitations`
+- `TestRemovalVoidsPendingInvitationsToTheRemovedMember`
+- `TestAcceptAndAdminAddAreAudited`
+- `TestAdminAddMapsOnlyConflictsTo409`
+- `TestRetryAfterFollowsRefillInterval`
+- `TestRateLimitEnvRejectsInvalidAndNegative`
 - `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
@@ -1699,8 +1704,8 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user. Exceeding returns
-  `429 rate_limited` with `Retry-After` in seconds.
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds
     the data directory lock; the documented procedure is stop, copy, start.

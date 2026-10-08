@@ -380,6 +380,8 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?3 WHERE id=?1 OR (team_id=?1 AND deleted_at='')`,
 		`DELETE FROM key_envelopes WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
 		`DELETE FROM device_containers WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
+		// Pending invitations to the removed member die too: accepting one must not undo the removal.
+		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND invitee_id=?2 AND status='pending'`,
 		// The removed steward's pending invitations die with them (envelopes cascade).
 		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND inviter_id=?2 AND status='pending'`,
 		`DELETE FROM invitation_envelopes WHERE container_id IN ` + scope + ` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`,
@@ -395,24 +397,29 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 // role, recording invitedBy (empty for a server-admin add). Rows a removal revoked
 // are reactivated (the unique index keeps one row per container and user) and
 // keep no keys; errMembershipExists when any row in the team scope is live.
-func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy, now string) error {
+// readmit reports that a revoked row came back.
+func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy, now string) (readmit bool, err error) {
 	var live int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, userID, cid).Scan(&live); err != nil {
-		return err
+		return false, err
 	}
 	if live > 0 {
-		return errMembershipExists
+		return false, errMembershipExists
 	}
 	const scope = `(SELECT id FROM containers WHERE (id=?2 OR team_id=?2) AND deleted_at='')`
-	for _, q := range []string{
+	for i, q := range []string{
 		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5 WHERE user_id=?1 AND container_id IN ` + scope,
 		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
 	} {
-		if _, err := tx.Exec(q, userID, cid, role, now, invitedBy); err != nil {
-			return err
+		res, err := tx.Exec(q, userID, cid, role, now, invitedBy)
+		if err != nil {
+			return false, err
+		}
+		if n, _ := res.RowsAffected(); i == 0 && n > 0 {
+			readmit = true
 		}
 	}
-	return nil
+	return readmit, nil
 }
 
 type invitationEnvelopeIn struct {

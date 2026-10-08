@@ -130,3 +130,19 @@ func TestInvitationCreationIsRateLimitedPerCaller(t *testing.T) {
 		t.Fatalf("accept was limited: %d", got)
 	}
 }
+
+func TestRetryAfterFollowsRefillInterval(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.RateLimit.InvitationPerHour = 30
+	h := rateLimitMiddleware(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	var rec *httptest.ResponseRecorder
+	for i := 0; i < 31; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/containers/cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa/invitations", nil)
+		req.RemoteAddr = "203.0.113.30:1"
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+	}
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "120" {
+		t.Fatalf("code=%d Retry-After=%q, want 429 and 120", rec.Code, rec.Header().Get("Retry-After"))
+	}
+}

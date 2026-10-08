@@ -144,3 +144,23 @@ func TestInvalidByteEnvironmentValueIsRefused(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestRateLimitEnvRejectsInvalidAndNegative(t *testing.T) {
+	for _, v := range []string{"abc", "-1", "1.5"} {
+		t.Setenv("KYNOTES_RATELIMIT_INVITATION_PER_HOUR", v)
+		c := Defaults()
+		if err := applyEnv(&c); err == nil {
+			t.Fatalf("%q accepted", v)
+		}
+	}
+	t.Setenv("KYNOTES_RATELIMIT_INVITATION_PER_HOUR", "0")
+	c := Defaults()
+	if err := applyEnv(&c); err != nil || c.RateLimit.InvitationPerHour != 0 {
+		t.Fatalf("0 (off): %v %d", err, c.RateLimit.InvitationPerHour)
+	}
+	c.RateLimit.UploadPerMinute = -1
+	c.DataDir = t.TempDir()
+	if err := Validate(c); err == nil {
+		t.Fatal("negative yaml limit accepted")
+	}
+}

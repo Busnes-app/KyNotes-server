@@ -126,3 +126,81 @@ func TestTeamAdminRemovesOnlyAdminsItInvited(t *testing.T) {
 		t.Fatalf("admin removed an admin the owner re-invited: %d", code)
 	}
 }
+
+func TestRemovalVoidsPendingInvitationsToTheRemovedMember(t *testing.T) {
+	tm := newTeam(t)
+	inv, code := invite(t, tm.admin.pairClient, tm.id, tm.editor.id) // live member, role admin
+	if code != http.StatusOK {
+		t.Fatalf("invite=%d", code)
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d %s", code, out)
+	}
+	if code := accept(t, tm.editor.pairClient, inv); code != http.StatusNotFound {
+		t.Fatalf("stale invitation re-admitted a removed member: %d", code)
+	}
+	if live, _, _ := livesOf(t, tm, tm.editor.id, tm.id); live != 0 {
+		t.Fatalf("live=%d", live)
+	}
+}
+
+func TestAcceptAndAdminAddAreAudited(t *testing.T) {
+	tm := newTeam(t)
+	audit := func(event, object, reason string) int {
+		var n int
+		if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event=? AND object_id=? AND reason_code=? AND outcome='success'`, event, object, reason).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	fresh := tm.owner.addUser(t, "fresh")
+	inv, _ := invite(t, tm.owner, tm.id, fresh.id)
+	if code := accept(t, fresh.pairClient, inv); code != http.StatusNoContent {
+		t.Fatalf("accept=%d", code)
+	}
+	if n := audit("container.member_accept", pairUser, "role=admin,readmit=false"); n != 1 {
+		t.Fatalf("first accept audits=%d", n)
+	}
+	if code, _ := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("remove=%d", code)
+	}
+	again, _ := invite(t, tm.owner, tm.id, tm.editor.id)
+	if code := accept(t, tm.editor.pairClient, again); code != http.StatusNoContent {
+		t.Fatalf("re-accept=%d", code)
+	}
+	if n := audit("container.member_accept", pairUser, "role=admin,readmit=true"); n != 1 {
+		t.Fatalf("re-admission audits=%d", n)
+	}
+}
+
+func TestAdminAddMapsOnlyConflictsTo409(t *testing.T) {
+	tm := newTeam(t)
+	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	post := func(cid, uid string) int {
+		code, _ := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
+		return code
+	}
+	if code := post(tm.id, tm.editor.id); code != http.StatusConflict {
+		t.Fatalf("live member=%d", code)
+	}
+	if code := post(mint(t, "cnt"), tm.editor.id); code != http.StatusNotFound {
+		t.Fatalf("unknown team=%d", code)
+	}
+	if code := post(tm.id, mint(t, "usr")); code != http.StatusNotFound {
+		t.Fatalf("unknown user=%d", code)
+	}
+	if code := post("bad", tm.editor.id); code != http.StatusBadRequest {
+		t.Fatalf("malformed team=%d", code)
+	}
+	if _, err := tm.owner.db.Exec(`DROP TABLE audit_events`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET revoked_at='x' WHERE user_id=?`, tm.viewer.id); err != nil {
+		t.Fatal(err)
+	}
+	if code := post(tm.id, tm.viewer.id); code != http.StatusInternalServerError {
+		t.Fatalf("database fault=%d, want 500", code)
+	}
+}

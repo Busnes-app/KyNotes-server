@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -97,6 +98,11 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		cid := r.PathValue("id")
+		if ids.Validate("cnt", cid) != nil || ids.Validate("usr", in.UserID) != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
 		now := time.Now().UTC().Format(time.RFC3339)
 		if err := dbTx(db, func(tx *sql.Tx) error {
 			var ok bool
@@ -106,13 +112,16 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			if !ok {
 				return sql.ErrNoRows
 			}
-			return admitMemberTx(tx, cid, in.UserID, in.Role, "", now)
-		}); err != nil {
+			if _, err := admitMemberTx(tx, cid, in.UserID, in.Role, "", now); err != nil {
+				return err
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "admin.team.member_add", cid, in.UserID, "success", "", RequestID(r))
+		}); errors.Is(err, errMembershipExists) {
 			WriteError(w, r, 409, "already_exists", "unable to add member")
 			return
+		} else if writeTeamKeyError(w, r, err) {
+			return
 		}
-		s, _ := auth.SessionFromContext(r)
-		recordAudit(db, s.UserID, "admin.team.member_add", r.PathValue("id"), in.UserID, r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("DELETE /api/v1/admin/teams/{id}/members/{userID}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

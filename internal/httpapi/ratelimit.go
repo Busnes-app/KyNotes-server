@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -97,7 +98,7 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			}
 		}
 		if label != "" && !l.allow(label+"\x00"+identity, refill, limit, time.Now().UTC()) {
-			w.Header().Set("Retry-After", strconv.Itoa(60))
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/refill))))
 			WriteError(w, r, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return
 		}

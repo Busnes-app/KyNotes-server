@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
@@ -186,7 +187,11 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			if steward == 0 {
 				return sql.ErrNoRows
 			}
-			if e := admitMemberTx(tx, cid, s.UserID, role, inviter, now); e != nil {
+			readmit, e := admitMemberTx(tx, cid, s.UserID, role, inviter, now)
+			if e != nil {
+				return e
+			}
+			if e = storage.RecordAuditOutcomeTx(tx, s.UserID, "container.member_accept", cid, inviter, "success", fmt.Sprintf("role=%s,readmit=%t", role, readmit), RequestID(r)); e != nil {
 				return e
 			}
 			return moveInvitationEnvelopesTx(tx, id, s.UserID, now)
