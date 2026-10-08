@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, pendingSaves, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins } from "./storage";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
@@ -124,5 +124,30 @@ describe("colleague key pins", () => {
     expect(await getPins("alice", userID)).toEqual({ usr_b: "key" });
     await clearDeviceKey("alice");
     expect(await getPins("alice", userID)).toEqual({});
+  });
+});
+
+describe("queued saves", () => {
+  const item = { id: "obj_1", containerID: "cnt_1", version: 3, payload: new Uint8Array([1]), updatedAt: "2026-10-07T00:00:00Z", keyGeneration: 0 };
+
+  it("replaces only the entry the caller read", async () => {
+    await queueSave(item);
+    expect(await replaceQueuedSave(item, { ...item, payload: new Uint8Array([2]), keyGeneration: 2 })).toBe(true);
+    expect((await pendingSaves()).find((entry) => entry.id === item.id)?.keyGeneration).toBe(2);
+    // A newer save replaced it meanwhile: a stale re-seal or a stale clear leaves it alone.
+    const newer = { ...item, version: 4, updatedAt: "2026-10-07T00:01:00Z", keyGeneration: 2 };
+    await queueSave(newer);
+    expect(await replaceQueuedSave({ ...item, keyGeneration: 2 }, item)).toBe(false);
+    expect(await replaceQueuedSave({ ...item, keyGeneration: 2 })).toBe(false);
+    expect((await pendingSaves()).find((entry) => entry.id === item.id)).toEqual(newer);
+    expect(await replaceQueuedSave(newer)).toBe(true);
+    expect((await pendingSaves()).find((entry) => entry.id === item.id)).toBeUndefined();
+  });
+
+  it("does not resurrect a cleared entry", async () => {
+    await queueSave(item);
+    await clearQueuedSave(item.id);
+    expect(await replaceQueuedSave(item, { ...item, keyGeneration: 2 })).toBe(false);
+    expect(await pendingSaves()).toEqual([]);
   });
 });

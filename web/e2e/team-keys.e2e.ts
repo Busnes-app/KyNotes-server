@@ -244,6 +244,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person) {
   await openTeam(newcomer.page, `Notebook ${cid.slice(4, 10)}`);
   await expect(newcomer.page.getByText(WAITING)).toBeVisible();
   await expect(newcomer.page.getByRole("button", { name: "New page" })).toBeDisabled();
+  await expect(newcomer.page.getByRole("button", { name: "New section or group" })).toBeDisabled();
   // The owner's next open wraps every held generation for the newcomer: history included.
   await openTeam(owner.page);
   await openTeam(newcomer.page);
@@ -254,10 +255,20 @@ async function scenario(owner: Person, editor: Person, newcomer: Person) {
   const before = await serverCopy(owner.page, "Owner page");
   await expect(titleOf(newcomerKeys.get(before.generation)!, cid, before.bytes)).resolves.toBe("Owner page");
 
-  // Remove the newcomer; the owner's browser re-mints before writing again.
+  // Remove the newcomer; the owner's browser re-mints at once, before anyone writes.
+  const newcomerDevice = (await vaultOf(newcomer.page))!.identity!.deviceId;
   await withDialog(owner, { type: "confirm", text: "Remove this person from the team?" }, () =>
     owner.page.locator(".member-row", { hasText: "newcomer" }).getByRole("button", { name: "Remove" }).click());
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toHaveCount(0);
+  // Removal retires generation N (N+1 stays empty); the re-mint fills N+2 for the remaining members only.
+  const reminted = await owner.page.evaluate(async (id) => {
+    const listed = await (await fetch("/api/v1/containers")).json() as Array<{ id: string; keyGeneration: number }>;
+    const rows = await (await fetch(`/api/v1/containers/${id}/envelopes`)).json() as Array<{ deviceId: string; keyGeneration: number }>;
+    return { generation: listed.find((entry) => entry.id === id)!.keyGeneration, rows };
+  }, cid);
+  expect(reminted.generation).toBe(before.generation + 2);
+  const atNew = reminted.rows.filter((row) => row.keyGeneration === reminted.generation).map((row) => row.deviceId);
+  expect(atNew.sort()).toEqual([...senders.keys()].filter((device) => device !== newcomerDevice).sort());
   await writePage(owner.page, "After removal", "after comment");
   const after = await serverCopy(owner.page, "After removal");
   expect(after.generation).toBeGreaterThan(before.generation);

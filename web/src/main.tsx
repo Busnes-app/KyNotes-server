@@ -66,10 +66,10 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { localKey, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { legacyRow, localKey, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { fingerprint, type PinChange } from "./pins";
-import { PASSWORD_CHANGE_WARNING, passwordChangeProblem } from "./passwordChange";
+import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
 import {
   decryptComment,
   decryptAttachment,
@@ -115,6 +115,7 @@ import {
   putUpload,
   queueSave,
   rememberAfter,
+  replaceQueuedSave,
   storeDeviceKey,
   storeIdentityKey,
   storeConfirmedPin,
@@ -162,9 +163,13 @@ type PlainComment = {
   body: string;
   section?: string;
   createdAt: string;
+  /** Read with the login-derived key in a shared container (legacyRow). */
+  unverified?: boolean;
 };
 type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number };
 type QueueEntry = { note: Note; container: Container };
+const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
+const UNVERIFIED_SIDE_EFFECT = "A section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Rename or move it directly to share it.";
 
 function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -198,6 +203,7 @@ function App() {
   return auth ? (
     <Workspace
       auth={auth}
+      onAuthSecret={(authSecret) => setAuth((value) => value && { ...value, authSecret })}
       onLogout={() => {
         void logout().finally(() => {
           setAuth(null);
@@ -550,10 +556,13 @@ function Workspace({
   auth,
   onLogout,
   onForgetDevice,
+  onAuthSecret,
 }: {
   auth: AuthState;
   onLogout: () => void;
   onForgetDevice?: () => void;
+  /** A password change: the login-derived key moves with it. */
+  onAuthSecret: (authSecret: string) => void;
 }) {
   const [items, setItems] = useState<Container[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -633,6 +642,26 @@ function Workspace({
   const adoptGenerations = (next: Container) => setSelected((value) => (value?.id === next.id ? { ...value, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : value));
   // Read-only until a team owner shares this generation's key.
   const keyWait = Boolean(selected && !writeKey(selected, rings[selected.id] ?? noKeys, legacy));
+  /** keyWait at run time, for handlers: true (and says why) when nothing may change in the open notebook. */
+  const readOnlyForKeys = () => {
+    const open = selectedRef.current;
+    if (!open || writeKeyFor(open)) return false;
+    setError("This notebook is read-only until a team owner shares its keys.");
+    return true;
+  };
+  // Rows read with the login-derived key in a shared container (legacyRow): labelled, and re-sealed
+  // under the container key only by an explicit edit or move of that row, never as a side effect.
+  const [unverified, setUnverified] = useState<ReadonlySet<string>>(new Set());
+  const unverifiedRef = useRef(unverified);
+  const markLegacy = (ids: Iterable<string>, legacyRead: boolean) => {
+    const next = new Set(unverifiedRef.current);
+    for (const id of ids) {
+      if (legacyRead) next.add(id);
+      else next.delete(id);
+    }
+    unverifiedRef.current = next;
+    setUnverified(next);
+  };
   const [keyNotice, setKeyNotice] = useState("");
   const namesRef = useRef(names);
   namesRef.current = names;
@@ -731,8 +760,6 @@ function Workspace({
    * members can read it. Only that trusted name is resealed, from the server's latest state.
    */
   async function resealName(container: Container): Promise<[Container, string]> {
-    const name = namesRef.current[container.id];
-    if (!name) return [container, ""];
     try {
       const latest = await currentContainer(container.id);
       const write = writeKeyFor(latest);
@@ -741,8 +768,20 @@ function Workspace({
       const current = { ...container, metaCiphertext: latest.metaCiphertext, metaVersion: latest.metaVersion, changeSeq: latest.changeSeq };
       const opened = (keys: KeyRef[]) => openFirst(keys, (key) => decryptContainerMeta(key, container.id, meta)).then((value) => value.name, () => undefined);
       if ((await opened([write.key])) !== undefined) return [current, ""];
-      // Older keys are tried only to compare with the trusted name, never to show a name.
-      if ((await opened([legacy, ...(ringsRef.current[container.id] ?? noKeys).values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
+      const ring = ringsRef.current[container.id] ?? noKeys;
+      let name = namesRef.current[container.id];
+      if (name) {
+        // Older keys, legacy included, are tried only to compare with the name already shown.
+        if ((await opened([legacy, ...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
+      } else {
+        // Not shown (the list could not open it: a re-mint another browser deferred). Only container
+        // keys this browser accepted may supply it, newest first; the forgeable legacy key may not.
+        const older = [...ring.entries()].filter(([generation]) => generation < write.generation).sort(([a], [b]) => b - a).map(([, key]) => key);
+        name = (await opened(older)) ?? "";
+        if (!name) return [current, "This notebook's name could not be shared with its members yet. Rename it so every member can read it."];
+        const shown = name;
+        setNames((value) => ({ ...value, [container.id]: shown }));
+      }
       const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
       const result = await updateContainer(container.id, encoded, latest.metaVersion, write.generation);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
@@ -1053,6 +1092,9 @@ function Workspace({
           let keyed: Container = item;
           // Shared names need their keys. This pass only reads: it never steps up, wraps, rotates
           // or asks about a changed key. A steward's sharing waits until the notebook is opened.
+          // ponytail: a full key pass per shared notebook on every list load (members, one identity
+          // fetch per member, all envelopes). Upgrade: a batch route returning this user's envelopes
+          // and member identities for every container in one call.
           if (item.sharedGeneration > 0) {
             const result = await serialized(item.id, async () => {
               const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id]);
@@ -1080,12 +1122,14 @@ function Workspace({
       );
     }
   }
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[] }> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; legacyRead: string[] }> {
     const loaded: Note[] = [];
     const found: Section[] = [];
     const foundGroups: Group[] = [];
-    const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string) => {
+    const legacyRead: string[] = [];
+    const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string, generation: number | undefined) => {
       if (!payload) return;
+      if (legacyRow(container, generation)) legacyRead.push(id);
       if (payload.type === "section") found.push({ ...payload, id, version });
       else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
@@ -1100,12 +1144,12 @@ function Workspace({
           // A cache entry without its generation cannot be read in a shared container: use the server copy.
           const useCache = Boolean(cached && cached.version >= object.version && (container.sharedGeneration === 0 || cached.keyGeneration !== undefined));
           const payload = await openFirst(readKeysFor(container, useCache ? cached!.keyGeneration : object.keyGeneration), (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
-          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
+          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString(), useCache ? cached!.keyGeneration : object.keyGeneration);
         } catch {
           const cached = await getNote(change.id);
           if (cached) {
             try {
-              add(change.id, await openFirst(readKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt);
+              add(change.id, await openFirst(readKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -1117,7 +1161,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return { notes: loaded, sections: found, groups: foundGroups };
+    return { notes: loaded, sections: found, groups: foundGroups, legacyRead };
   }
   /** Null when the open page could not be flushed and stays open. */
   async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
@@ -1153,6 +1197,7 @@ function Workspace({
     setCommentsForNote([]);
     setAttachmentsForNote([]);
     loadCarried.current.clear();
+    markLegacy(unverifiedRef.current, false);
     setKeyNotice("");
     try {
       // Keys first: an owner may mint or re-mint here, and reads need the current generation.
@@ -1168,6 +1213,7 @@ function Workspace({
       const loadedSections = carryVersions(objects.sections, loadCarried.current);
       patchSections(() => loadedSections);
       patchGroups(() => carryVersions(objects.groups, loadCarried.current));
+      markLegacy(objects.legacyRead, true);
       loadCarried.current.clear();
       patchNotes(() => loaded);
       showSection(resolveSection(route?.section, loadedSections));
@@ -1237,6 +1283,7 @@ function Workspace({
             body: decrypted.body,
             section: decrypted.section,
             createdAt: item.createdAt,
+            unverified: Boolean(container && legacyRow(container, item.keyGeneration)),
           });
         } catch {
           /* Ignore comments encrypted for another key. */
@@ -1394,6 +1441,7 @@ function Workspace({
       try {
         const result = await saveObject(note.id, encrypted, note.version, write.generation);
         await clearQueuedSave(note.id);
+        markLegacy([note.id], false);
         setCommitToastAt(Date.now());
         setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
@@ -1474,12 +1522,16 @@ function Workspace({
         try {
           if (item.keyGeneration === undefined || item.keyGeneration === WAITING_GENERATION) {
             // Never sent without a real generation: re-seal it for the current key; the next drain sends it.
+            // ponytail: an edit for a notebook this user lost, or sealed under a password changed in
+            // another browser, never opens and waits here forever (N1). Upgrade: P3b key-status UI
+            // with discard/export for stuck edits.
             await rekeyQueued(item, synced).catch(() => undefined);
             remaining = true;
             continue;
           }
           const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration);
-          await clearQueuedSave(item.id);
+          // A newer save of the same page may have been queued while this one was in flight.
+          await replaceQueuedSave(item);
           const saved = { version: result.version, updatedAt: item.updatedAt };
           patchNotes((value) => carrySaved(value, item.id, saved));
           carryDuringLoad(item.id, saved);
@@ -1495,7 +1547,7 @@ function Workspace({
           }
         } catch (error) {
           if (error instanceof APIRequestError && error.code === "version_conflict") {
-            await clearQueuedSave(item.id);
+            await replaceQueuedSave(item);
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
           } else {
@@ -1522,10 +1574,11 @@ function Workspace({
     if (!write || write.generation === item.keyGeneration) return;
     const payload = await openFirst(readKeysFor(container, item.keyGeneration), (key) => decryptObject(key, item.containerID, item.payload));
     if (!payload) return;
-    await queueSave({ ...item, payload: await encryptNote(write.key, item.containerID, payload), keyGeneration: write.generation });
+    // Only while the entry is still the one read: a save in the meantime is newer and stays.
+    await replaceQueuedSave(item, { ...item, payload: await encryptNote(write.key, item.containerID, payload), keyGeneration: write.generation });
   }
   async function remove(note: Note) {
-    if (!confirm("Delete this page?")) return;
+    if (readOnlyForKeys() || !confirm("Delete this page?")) return;
     try {
       await deleteObject(note.id);
       await deleteCachedNote(note.id);
@@ -1567,6 +1620,7 @@ function Workspace({
     try {
       const result = await saveObject(id, encrypted, version, write.generation);
       await clearQueuedSave(id);
+      markLegacy([id], false);
       carryDuringLoad(id, { version: result.version, updatedAt });
       return result.version;
     } catch (error) {
@@ -1584,8 +1638,16 @@ function Workspace({
     }
   }
 
-  /** Chained encrypted write of a section or group, from its newest local copy; resolves true once saved. */
-  function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>) {
+  /**
+   * Chained encrypted write of a section or group, from its newest local copy; resolves true once saved.
+   * explicit is false when the entry only moves because another one did: an unverified entry is then left alone.
+   */
+  function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>, explicit = true) {
+    if (readOnlyForKeys()) return Promise.resolve(false);
+    if (!explicit && unverifiedRef.current.has(id)) {
+      setError(UNVERIFIED_SIDE_EFFECT);
+      return Promise.resolve(false);
+    }
     const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
     patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
     const queued = saveChain.current.then(async () => {
@@ -1610,7 +1672,9 @@ function Workspace({
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
-  async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }) {
+  /** explicit is false when the page only renumbers around another move: an unverified page is then left alone. */
+  async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }, explicit = true) {
+    if (readOnlyForKeys() || (!explicit && unverifiedRef.current.has(id))) return;
     // An undefined level keeps the page's own; an undefined section means Quick Notes.
     const { level, ...rest } = placement;
     const change = level === undefined ? rest : placement;
@@ -1644,7 +1708,8 @@ function Workspace({
       : groupsRef.current.filter((entry) => current.get(entry.id) === parent).sort(compareOrdered);
   }
   async function newStructure(kind: "section" | "group") {
-    if (!selected) return;
+    // Before createObject: no empty object is left behind while keys are missing.
+    if (!selected || readOnlyForKeys()) return;
     setBusy(true);
     try {
       const parent = groupID;
@@ -1666,10 +1731,12 @@ function Workspace({
   }
   const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section or group");
   function renameStructure(kind: "section" | "group", entry: Section | Group) {
+    if (readOnlyForKeys()) return;
     const title = prompt(kind === "section" ? "Section name" : "Group name", entry.title)?.trim();
     if (title) void updateStructure(kind, entry.id, { title }).catch(reportSection);
   }
   async function removeSection(section: Section) {
+    if (readOnlyForKeys()) return;
     const count = pagesInSection(notes, sections, section.id).length;
     if (!confirm(`Delete section "${section.title}"? Its ${count} page${count === 1 ? "" : "s"} will move to Quick Notes.`)) return;
     try {
@@ -1683,13 +1750,13 @@ function Workspace({
   }
   /** Children move up one level first; a failed write stops before the delete, so nothing is lost. */
   async function removeGroup(group: Group) {
-    if (!confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
+    if (readOnlyForKeys() || !confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
     setBusy(true);
     try {
       const parent = groupParents(groupsRef.current).get(group.id);
       for (const kind of ["section", "group"] as const) {
         for (const child of siblings(kind, group.id)) {
-          if (!(await updateStructure(kind, child.id, { group: parent }))) {
+          if (!(await updateStructure(kind, child.id, { group: parent }, false))) {
             setError((value) => value || "Could not move everything out of the group, so it was kept. Try again.");
             return;
           }
@@ -1709,7 +1776,7 @@ function Workspace({
     const entry = kind === "section" ? sectionsRef.current.find((item) => item.id === id) : groupsRef.current.find((item) => item.id === id);
     if (!entry) return;
     const parent = kind === "section" ? sectionGroup(entry, parents) : parents.get(id);
-    for (const update of reorder(siblings(kind, parent), id, index)) await updateStructure(kind, update.id, { order: update.order }).catch(reportSection);
+    for (const update of reorder(siblings(kind, parent), id, index)) await updateStructure(kind, update.id, { order: update.order }, update.id === id).catch(reportSection);
   }
   async function moveIntoGroup(kind: "section" | "group", id: string, target: string | undefined) {
     if (kind === "group" && !groupMoveAllowed(id, target, groupParents(groupsRef.current))) {
@@ -1749,6 +1816,7 @@ function Workspace({
   /** Moves the block headed by `pageID` before page `beforeID` in `target`, or to its end. */
   function movePage(pageID: string, target: string, beforeID: string | null) {
     return onMoveChain(async () => {
+      if (readOnlyForKeys()) return;
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const source = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
@@ -1763,12 +1831,13 @@ function Workspace({
         const entry = notesRef.current.find((note) => note.id === update.id);
         await placePage(update.id, inBlock.has(update.id)
           ? { section, order: update.order, level: update.level }
-          : { section: entry?.section, order: update.order });
+          : { section: entry?.section, order: update.order }, inBlock.has(update.id));
       }
     });
   }
   function indentPage(pageID: string, delta: 1 | -1) {
     return onMoveChain(async () => {
+      if (readOnlyForKeys()) return;
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
@@ -1782,7 +1851,7 @@ function Workspace({
   /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
   async function keepConflictCopies() {
     const open = selectedNoteRef.current;
-    if (recoveringRef.current || !selected || !open) return;
+    if (recoveringRef.current || !selected || !open || readOnlyForKeys()) return;
     recoveringRef.current = true;
     setRecovering(open.id);
     const container = selected;
@@ -1799,6 +1868,7 @@ function Workspace({
       const server = await readObject(open.id);
       const payload = await openFirst(readKeysFor(container, server.keyGeneration), (key) => decryptObject(key, containerID, server.bytes));
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
+      markLegacy([open.id], legacyRow(container, server.keyGeneration));
       const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
       if (selectedNoteRef.current?.id === open.id) {
@@ -1811,8 +1881,11 @@ function Workspace({
       setError("");
       let failed = 0;
       let unreadable = 0;
+      let unverifiedKept = 0;
       const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
       for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
+        // Copying would re-seal it under the container key for every member, unseen.
+        if (legacyRow(container, conflict.keyGeneration)) { unverifiedKept += 1; continue; }
         try {
           const bytes = await conflictCiphertext(conflict.id);
           const decrypted = await openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, containerID, bytes)).catch(() => undefined);
@@ -1828,7 +1901,7 @@ function Workspace({
       for (const id of resolveOnly) await resolveConflict(id).catch(() => { failed += 1; });
       for (const group of groups) {
         // Placement needs this notebook's page list; the rest stay on the server for a later run.
-        if (!sameNotebook()) { failed += 1; continue; }
+        if (!sameNotebook() || readOnlyForKeys()) { failed += 1; continue; }
         try {
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
           const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(current)), current, group.payload);
@@ -1839,7 +1912,7 @@ function Workspace({
           if (saved === null) { failed += 1; continue; }
           if (sameNotebook()) patchNotes((value) => carrySaved(value, object.id, { version: saved }));
           const run = moveChain.current.then(async () => {
-            for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order });
+            for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order }, false);
           });
           moveChain.current = run.catch(() => {});
           await run;
@@ -1858,8 +1931,9 @@ function Workspace({
         showSection(pageSection(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
+      else if (unverifiedKept) setError(`${unverifiedKept} version(s) were written before this notebook was shared and are not end-to-end verified, so they were not copied. They remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
-      if (!failed && !unreadable) {
+      if (!failed && !unreadable && !unverifiedKept) {
         setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
         setSyncStatus("saved");
       }
@@ -1962,7 +2036,7 @@ function Workspace({
       return { id: attachmentID, name: file.name, type: file.type, size: file.size, keyGeneration: job.keyGeneration };
   }
   async function addAttachment(file: File) {
-    if (!selected || !selectedNote) return;
+    if (!selected || !selectedNote || readOnlyForKeys()) return;
     setBusy(true);
     try {
       const attachment = await uploadAttachment(file);
@@ -2006,7 +2080,7 @@ function Workspace({
     }
   }
   async function addComment() {
-    if (!selectedNote || !selected || !commentText.trim()) return;
+    if (!selectedNote || !selected || !commentText.trim() || readOnlyForKeys()) return;
     setBusy(true);
     try {
       const write = writeKeyFor(selected);
@@ -2227,7 +2301,8 @@ function Workspace({
               groups={childGroups}
               path={groupTrail}
               current={sectionID}
-              busy={busy}
+              busy={busy || keyWait}
+              unverified={unverified}
               canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
               moveTargets={moveTargets}
               onSelect={(id) => void selectSection(id)}
@@ -2335,6 +2410,7 @@ function Workspace({
                   onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
                 >
                   <strong>{title}</strong>
+                  {unverified.has(note.id) && <em className="page-section" title={UNVERIFIED}>Not verified</em>}
                   {row && (row.level > 0 || row.hasChildren) && (
                     <span className="visually-hidden">
                       {row.level > 0 ? `, subpage level ${row.level}` : ""}
@@ -2405,8 +2481,11 @@ function Workspace({
                     {recovering === selectedNote.id
                       ? "Saving the other version as a copy…"
                       : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
-                    <button disabled={recovering !== null} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
+                    <button disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
+                )}
+                {unverified.has(selectedNote.id) && (
+                  <div className="conflict-banner" role="status">{UNVERIFIED} Editing or moving it shares it with every member under this notebook's key.</div>
                 )}
                 <input
                   className="title-input"
@@ -2431,6 +2510,7 @@ function Workspace({
                 <div className="editor-actions">
                   <select
                     aria-label="Move page to section"
+                    disabled={keyWait}
                     value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
                     onChange={(event) => void movePage(selectedNote.id, event.target.value, null)}
                   >
@@ -2439,7 +2519,7 @@ function Workspace({
                   </select>
                   <button
                     className="quiet"
-                    disabled={!canShift(selectedNote.id, 1)}
+                    disabled={keyWait || !canShift(selectedNote.id, 1)}
                     title="Indent page (Ctrl+Alt+])"
                     onClick={() => void indentPage(selectedNote.id, 1)}
                   >
@@ -2447,7 +2527,7 @@ function Workspace({
                   </button>
                   <button
                     className="quiet"
-                    disabled={!canShift(selectedNote.id, -1)}
+                    disabled={keyWait || !canShift(selectedNote.id, -1)}
                     title="Outdent page (Ctrl+Alt+[)"
                     onClick={() => void indentPage(selectedNote.id, -1)}
                   >
@@ -2455,6 +2535,7 @@ function Workspace({
                   </button>
                   <button
                     className="danger quiet"
+                    disabled={keyWait}
                     onClick={() => void remove(selectedNote)}
                   >
                     Delete
@@ -2473,6 +2554,7 @@ function Workspace({
                       <strong>
                         {comment.username}
                         {comment.section ? ` · § ${comment.section}` : ""}
+                        {comment.unverified ? " · not verified" : ""}
                       </strong>
                       <span>{comment.body}</span>
                     </div>
@@ -2490,7 +2572,7 @@ function Workspace({
                       onChange={(event) => setCommentText(event.target.value)}
                       placeholder="Add a comment…"
                     />
-                    <button disabled={busy} onClick={() => void addComment()}>
+                    <button disabled={busy || keyWait} onClick={() => void addComment()}>
                       Comment
                     </button>
                   </div>
@@ -2509,12 +2591,12 @@ function Workspace({
                   {attachmentsForNote.map((attachment) => (
                     <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
                       <strong>{attachment.name}</strong>
-                      <span>{Math.ceil(attachment.size / 1024)} KB</span>
+                      <span>{Math.ceil(attachment.size / 1024)} KB{selected && legacyRow(selected, attachment.keyGeneration) ? " · not verified" : ""}</span>
                     </button>
                   ))}
                   <label className="attachment-picker">
                     <span>＋ Add encrypted file</span>
-                    <input type="file" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
+                    <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
                   </label>
                 </section>
               </>
@@ -2542,6 +2624,7 @@ function Workspace({
             userID={auth.user.id}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
+            onAuthSecret={onAuthSecret}
           />
         )}
       </>
@@ -2559,7 +2642,7 @@ function Workspace({
   );
 }
 
-function PasswordSettings({ username, userID }: { username: string; userID: string }) {
+function PasswordSettings({ username, userID, onAuthSecret }: { username: string; userID: string; onAuthSecret: (authSecret: string) => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [status, setStatus] = useState("");
@@ -2597,10 +2680,12 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
       }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
       // No identity yet (e.g. an administrator set the old password): create it under the new one.
       if (!rewrapped) settleIdentity(name, userID, newKeys);
+      onAuthSecret(newKeys.authSecret);
+      const stranded = await resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret).catch(() => -1);
       setCurrent("");
       setNext("");
       setAcknowledged(false);
-      setStatus("Password changed.");
+      setStatus(stranded === 0 ? "Password changed." : "Password changed. Some team edits waiting on this browser for a notebook's keys could not be re-encrypted for the new password and will not be sent.");
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Unable to change password",
@@ -2648,7 +2733,7 @@ function PasswordSettings({ username, userID }: { username: string; userID: stri
             style={{ width: "18px", height: "18px" }}
             required
           />
-          <span>I understand my existing notes will become unreadable.</span>
+          <span>I understand which notes become unreadable.</span>
         </label>
         <button disabled={busy || !acknowledged}>
           {busy ? "Changing…" : "Change password"}
@@ -3028,6 +3113,7 @@ function SettingsView({
   username,
   userID,
   onForgetDevice,
+  onAuthSecret,
 }: {
   admin: boolean;
   authSecret: string;
@@ -3035,6 +3121,7 @@ function SettingsView({
   username: string;
   userID: string;
   onForgetDevice?: () => void;
+  onAuthSecret: (authSecret: string) => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
   const [status, setStatus] = useState<{
@@ -3131,7 +3218,7 @@ function SettingsView({
               <button onClick={() => applyTheme(theme)}>Apply theme</button>
             </section>
             <div id="password">
-              <PasswordSettings username={username} userID={userID} />
+              <PasswordSettings username={username} userID={userID} onAuthSecret={onAuthSecret} />
             </div>
             <section id="device" className="config-card">
               <h2>Trusted Device & SSO</h2>

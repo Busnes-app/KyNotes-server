@@ -92,6 +92,31 @@ export async function clearQueuedSave(id: string): Promise<void> {
   db.close();
 }
 
+/**
+ * Replaces (or, with next undefined, deletes) the queued save for expected.id only while it is
+ * still the entry the caller read: a save that replaced it meanwhile is never overwritten.
+ */
+export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
+  const db = await openDatabase();
+  const replaced = await new Promise<boolean>((resolve, reject) => {
+    const transaction = db.transaction("pending", "readwrite");
+    const store = transaction.objectStore("pending");
+    let same = false;
+    const read = store.get(expected.id);
+    read.onsuccess = () => {
+      const current = read.result as PendingSave | undefined;
+      same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration);
+      if (!same) return;
+      if (next) store.put(next);
+      else store.delete(expected.id);
+    };
+    transaction.oncomplete = () => resolve(same);
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+  return replaced;
+}
+
 export async function putUpload(upload: PendingUpload): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => { const request = db.transaction("uploads", "readwrite").objectStore("uploads").put(upload); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); });

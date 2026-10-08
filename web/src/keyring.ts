@@ -136,6 +136,10 @@ export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
  * The one key a row may be read with. Rows at or above sharedGeneration open only
  * with their own generation's CK, so neither a relabelled legacy row nor a removed
  * member's older CK can stand in for a newer generation. Older rows are legacy.
+ * ponytail: the server sees authSecret, so it can derive the legacy key and label a
+ * forged row below sharedGeneration; callers show such rows as unverified (legacyRow)
+ * and never re-seal them without an explicit edit. Upgrade: P4 migrates legacy rows
+ * to the container key, then refuses legacy reads in shared containers.
  */
 export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined): KeyRef[] {
   // A never-shared container has only the legacy key, so a row without a generation (old cache) still reads.
@@ -144,6 +148,14 @@ export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ri
   if (generation < container.sharedGeneration) return [legacy];
   const key = ring.get(generation);
   return key ? [key] : [];
+}
+
+/**
+ * A row read with the login-derived key in a shared container: the reader's own pre-sharing
+ * content, or a server forgery (readKeys). Waiting edits (generation 0) never left this device.
+ */
+export function legacyRow(container: Pick<KeyedContainer, "sharedGeneration">, generation: number | undefined): boolean {
+  return container.sharedGeneration > 0 && generation !== undefined && generation !== WAITING_GENERATION && generation < container.sharedGeneration;
 }
 
 /** Runs open with each key in turn; AES-GCM authentication makes a wrong key fail, not misread. */

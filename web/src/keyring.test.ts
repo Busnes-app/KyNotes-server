@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { localKey, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { legacyRow, localKey, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -307,5 +307,17 @@ describe("main.tsx key wiring", () => {
     // Workspace (legacy reads, personal notebooks) and AdminTeams (admin-created names).
     expect(main.match(/legacyKeyRef\(/g)).toHaveLength(2);
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*(?:auth\.)?authSecret\b/);
+  });
+});
+
+describe("legacyRow", () => {
+  it("flags only server rows read with the login key in a shared container", () => {
+    const shared = { sharedGeneration: 3 };
+    expect(legacyRow(shared, 1)).toBe(true);
+    expect(legacyRow(shared, 2)).toBe(true);
+    expect(legacyRow(shared, 3)).toBe(false);
+    expect(legacyRow(shared, WAITING_GENERATION)).toBe(false); // this device's own waiting edit
+    expect(legacyRow(shared, undefined)).toBe(false); // unreadable there anyway (readKeys)
+    expect(legacyRow({ sharedGeneration: 0 }, 1)).toBe(false); // personal or never shared
   });
 });
