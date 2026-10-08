@@ -342,15 +342,15 @@ Each phase can ship on its own.
   4. Migration is an explicit review, never a background pass, so a forgery planted earlier cannot be laundered under the CK without the user seeing it.
   5. The review opens each listed row only with the key the read rule picks (`readKeys`), and is bound to the sharing floor it covered. It is incomplete if any fetch fails or any row has no valid generation.
   6. Nothing is pre-ticked. Share is disabled until something is ticked and asks to confirm how many unticked items will be hidden.
-  7. A tick vouches for the content shown. The dialog shows page text, comment bodies and attachments opened from the reviewed bytes; every item is labelled "not end-to-end verified".
+  7. A tick vouches for the content shown. For each item the dialog shows, as plain text, every string the payload holds (page and comment text, link targets, table cells, field values) and every attachment reference with the reviewed copy's name, type and size; raster images are previewed and every attachment offers "Save a copy to check", a local download of exactly the reviewed bytes. It does not render pages as the editor would. Every item is labelled "not end-to-end verified". A ticked page that uses a reviewed attachment left unticked blocks Share ("Tick it too"), so no shared page points at a copy only the login key opens.
   8. The approval is branded, single use, minted only by the dialog, and bound to user, container, floor and a review `reviewLegacy` produced. It carries a frozen copy of what was shown and re-seals only ticked rows from it, never a later read.
   9. Detach and resolve run only after the matching re-seal succeeded; attachments get a new copy and pages are re-pointed before the old copy is detached.
   10. A comment that opens with the user's key but names another author is refused and counted, never offered.
-  11. Closing happens only when the review was complete, everything succeeded, the floor is unchanged and the user confirmed the hidden count. `blockedBy` lists only pages whose reviewed text references a shared attachment; "Tick these too" is a click inside the dialog.
-  12. Auto-close needs a successful, complete `/legacy` response listing nothing of this user's, `sharedGeneration` above 0, an unchanged floor and no persisted reopen mark. A 429, a 500, a network error or `complete:false` never closes.
-  13. "Stop opening pre-sharing items" closes by hand with a confirm and needs no server response. It shows while the check runs, so a server that never answers cannot hide it.
+  11. Closing happens only when the review was complete, everything succeeded, the floor is unchanged and the user confirmed the hidden count. An attachment this user's key opens but that has no generation or no page leaves the review incomplete; it is never counted as another author's. `blockedBy` lists only pages whose reviewed text references a shared attachment; "Tick these too" is a click inside the dialog.
+  12. Auto-close needs a successful, complete `/legacy` response listing nothing of this user's, `sharedGeneration` above 0, an unchanged floor and no persisted reopen mark, which `closeLegacyStored` checks again in the transaction that closes. It closes the tabs only once storage kept it: a browser that cannot keep a closure (no IndexedDB) never closes by itself. A 429, a 500, a network error or `complete:false` never closes.
+  13. "Stop opening pre-sharing items" closes by hand with a confirm and needs no server response. It shows while the check runs, whenever the notebook carries a reopen mark or shows rows read with the login key, whatever the server lists; a closed notebook always shows "Show pre-sharing items again". Without IndexedDB, Stop closes for the session only.
   14. Entries this browser wrote itself (owner-stamped queue entries, cache entries, pending uploads) keep opening through `localReadKeys`. The cache never holds server bytes.
-  15. A malformed closure value counts as closed; the flag only rises through merges, storage and the `kynotes-floors` channel.
+  15. A malformed closure value counts as closed. The closure and reopen mark have single writers: in storage only `closeLegacyStored` and `reopenLegacy` write them (`storeKeyState` keeps the stored values in its transaction, so a key pass that read them before a reopen cannot close again or clear the mark); in memory only a tab's first load of the stored floor, `closeFloorIn` and a peer's close message raise it, and `adoptStored` lowers it. A missing vault record is created on demand, without a device key.
   16. "Show pre-sharing items again" is minted only from its confirm, which warns that the server could have written any of those items. It is single use, bound to user and container, and persists a reopen mark that blocks auto-close in every tab and survives reload. Stop, or a completed confirmed share, clears the mark. Other tabs learn of it by re-reading storage.
   17. `setClosureReader` is called at sign-in so a tab can re-read this user's stored closure; other tabs reload their open notebook when a closure rises.
   18. The admin team list and container-name reads go through `readKeys`, so a shared team's name never opens with the login key once closed.
@@ -360,7 +360,7 @@ Each phase can ship on its own.
 
   Decisions awaiting Yoshi before merge:
   - (1) Per-device closure instead of a container-wide steward marker; a member who never reviews keeps opening labelled rows.
-  - (2) Auto-close trusts the server's list: a lying server can make a device close before its author reviewed, hiding that author's unreviewed rows there. The only recovery is "Show pre-sharing items again"; "Forget this device" is not needed.
+  - (2) Auto-close trusts the server's list: a lying server can make a device close before its author reviewed, hiding that author's unreviewed rows there. The recovery is "Show pre-sharing items again" (it creates the vault record if the browser has none); "Forget this device" is not needed. A browser without IndexedDB never auto-closes, so it has nothing to recover.
 
   Known limits:
   - A member who never reviews keeps opening (labelled) pre-sharing rows on that browser.
@@ -369,10 +369,10 @@ Each phase can ship on its own.
   - Rows of removed authors stay opaque and listed in a count; there is no UI to delete them.
   - Viewers cannot share their pre-sharing rows; they can only stop opening them.
   - Closing hides unticked rows on that browser until the user reopens them.
-  - Pre-P4 tabs ignore a reopen until reloaded.
+  - Tabs still running a pre-P4 bundle ignore the closure entirely and keep opening legacy rows until reloaded. Their key-memory writes rebuild the stored state without `closed` or the reopen mark, so during an upgrade they can erase a closure or a reopen on that browser; the next check closes again where auto-close allows it.
   - A migration that dies between attaching a new attachment copy and detaching the old one uploads it again on the next run (`ponytail:` in `migration.ts`).
-  - The review reads every listed page, and downloads and holds every listed attachment of this user, once per notebook open until the browser closes (`ponytail:` in `migration.ts`).
-  - Ticking vouches for what the dialog shows: page text, comment bodies, and attachments opened from the reviewed bytes. Canvas ink is not drawn there, and "Select all" vouches for every item at once.
+  - Until a notebook closes, every open of it re-reads every listed page (other authors' included, one request each) and downloads and holds every listed attachment of this user in memory (`ponytail:` markers in `migration.ts`).
+  - Ticking vouches for what the dialog shows: every string of the payload as plain text and each attachment's name, type and size, with a local copy of non-image bytes to check outside the browser. Formatting, canvas ink strokes and numbers are not shown, and "Select all" vouches for every item at once.
   - Cached copies of the user's own pages that this browser wrote (an explicit edit or move) stay readable after closure, labelled. They are local (`localReadKeys`), not server rows.
   - Detaching a replaced attachment while another tab saves the page with the old reference can leave that reference pointing at an attachment the GC removes.
   - Comment authorship stays a server claim: ciphertext binds no author, before or after a re-seal.
