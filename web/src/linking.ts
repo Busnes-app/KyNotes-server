@@ -20,8 +20,19 @@ function key32(key: Uint8Array): Uint8Array {
   return key;
 }
 
-/** A one-time X25519 key for one link attempt; it lives in memory only. */
-export const newLinkKey = (): Identity => generateIdentity();
+const liveKeys = new WeakSet<Identity>();
+/** A one-time X25519 key for one link attempt; it lives in memory only, until discardLinkKey. */
+export function newLinkKey(): Identity {
+  const key = generateIdentity();
+  liveKeys.add(key);
+  return key;
+}
+/** Ends an attempt: zeroes the one-time private key; nothing can open a bundle sealed to it after this. */
+export function discardLinkKey(key: Identity): void {
+  key.privateKey.fill(0);
+  liveKeys.delete(key);
+}
+export const isLiveLinkKey = (key: Identity): boolean => liveKeys.has(key);
 
 /** Posted before the approver's key exists, so no one can pick a key to fit a check code later. */
 export const linkCommitment = (newcomerKey: Uint8Array): Uint8Array => sha256(concat(encoder.encode(COMMIT_LABEL), key32(newcomerKey)));
@@ -62,20 +73,20 @@ export function openLinkBundle(bundle: Uint8Array, newcomer: Identity, context: 
 }
 
 const confirmations = new WeakSet<CheckCodeConfirmation>();
-let mint: (requestID: string) => CheckCodeConfirmation;
-/** Proof the user saw one check code on both screens for this request; only confirmCheckCode makes one. */
+let mint: (requestID: string, code: string) => CheckCodeConfirmation;
+/** Proof the user saw this check code on both screens for this request; only confirmCheckCode makes one. */
 export class CheckCodeConfirmation {
   private declare readonly brand: true; // nominal: look-alike objects do not type-check
   static {
-    mint = (requestID) => {
-      const confirmation = new CheckCodeConfirmation(requestID);
+    mint = (requestID, code) => {
+      const confirmation = new CheckCodeConfirmation(requestID, code);
       confirmations.add(confirmation);
       return confirmation;
     };
   }
-  private constructor(readonly requestID: string) {}
+  private constructor(readonly requestID: string, readonly code: string) {}
 }
-/** Call only from the user's own "Codes match" click. */
-export const confirmCheckCode = (requestID: string): CheckCodeConfirmation => mint(requestID);
+/** Call only from the user's own confirmation of the code this screen shows (linkFlow.ts). */
+export const confirmCheckCode = (requestID: string, code: string): CheckCodeConfirmation => mint(requestID, code);
 export const isCheckCodeConfirmation = (value: unknown, requestID: string): value is CheckCodeConfirmation =>
   typeof value === "object" && value !== null && confirmations.has(value as CheckCodeConfirmation) && (value as CheckCodeConfirmation).requestID === requestID;

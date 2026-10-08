@@ -3,7 +3,8 @@ import { decryptAttachment, decryptAttachmentMetadata, encryptAttachment, encryp
 import { attachmentStep, sealAttachment } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
 import { keysAllowed, newContainerKey, writeKey, type ReportedContainer } from "./keyring";
-import { KeysWaitingError, sendCiphertext, sendUploadChunk, setWriteKeySource } from "./outbound";
+import { confirmCheckCode, discardLinkKey, newLinkKey } from "./linking";
+import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
 import type { PendingUpload } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -68,13 +69,35 @@ describe("outbound ciphertext gate", () => {
     ring.set(2, newContainerKey());
     expect(() => sendCiphertext({ container: shared, generation: 2 })).toThrow(KeysWaitingError);
   });
+
+  it("lets a link bundle leave only with that request's check-code confirmation", async () => {
+    const id = `lnk_${"a".repeat(26)}`;
+    const bundle = new Uint8Array(61);
+    expect(() => sendLinkBundle({ requestID: id } as never, id, bundle)).toThrow(/check codes/);
+    expect(() => sendLinkBundle(confirmCheckCode(`lnk_${"b".repeat(26)}`, "123 456"), id, bundle)).toThrow(/check codes/);
+    expect(fetches).not.toHaveBeenCalled();
+    await sendLinkBundle(confirmCheckCode(id, "123 456"), id, bundle);
+    expect((fetches.mock.calls[0] as unknown as [string])[0]).toBe(`/api/v1/me/link-requests/${id}/approve`);
+  });
+
+  it("collects a link bundle only while this attempt's one-time key is held", async () => {
+    const id = `lnk_${"a".repeat(26)}`;
+    const key = newLinkKey();
+    await collectLinkBundle(key, id);
+    expect((fetches.mock.calls[0] as unknown as [string, RequestInit])[0]).toBe(`/api/v1/me/link-requests/${id}/collect`);
+    discardLinkKey(key);
+    // Collecting deletes the bundle; without the key it could never be opened.
+    expect(() => collectLinkBundle(key, id)).toThrow(/ended/);
+    expect(() => collectLinkBundle({ ...newLinkKey() }, id)).toThrow(/ended/);
+    expect(fetches).toHaveBeenCalledOnce();
+  });
 });
 
 describe("outbound structure", () => {
   it("only outbound.ts reaches the ciphertext upload API functions", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./api.ts", "!./outbound.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toContain("./main.tsx");
-    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer|approveLinkRequest)\b/;
+    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer|approveLinkRequest|collectLinkRequest)\b/;
     expect(Object.entries(sources).filter(([, text]) => raw.test(text)).map(([name]) => name)).toEqual([]);
   });
 });

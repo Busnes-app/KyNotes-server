@@ -98,7 +98,7 @@ describe("device link protocol", () => {
 
   it("accepts only a confirmCheckCode result, for its own request", () => {
     const id = vectors.links[0].requestId;
-    const confirmed = confirmCheckCode(id);
+    const confirmed = confirmCheckCode(id, "123 456");
     expect(isCheckCodeConfirmation(confirmed, id)).toBe(true);
     expect(isCheckCodeConfirmation(confirmed, vectors.links[1].requestId)).toBe(false);
     expect(isCheckCodeConfirmation({ requestID: id }, id)).toBe(false);
