@@ -276,7 +276,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return
 			}
 			if fenced && s.SSOIssuer == "" {
-				WriteError(w, r, 409, "sso_step_up_required", "sign in with KySignOn to change a password an administrator set")
+				WriteError(w, r, 409, "sso_sign_in_required", "sign in with KySignOn to change a password an administrator set")
 				return
 			}
 			if fenced {
@@ -392,7 +392,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		if errors.Is(err, errSSOConfirmationRequired) {
-			WriteError(w, r, 409, "sso_step_up_required", "sign in with KySignOn to change a password an administrator set")
+			WriteError(w, r, 409, "sso_sign_in_required", "sign in with KySignOn to change a password an administrator set")
 			return
 		}
 		if err != nil {

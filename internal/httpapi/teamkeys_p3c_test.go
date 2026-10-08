@@ -1100,7 +1100,7 @@ func TestAdminKnownPasswordChangeNeedsKySignOn(t *testing.T) {
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	change := `{"currentAuthSecret":"` + secret + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
-	if r := do("POST", "/api/v1/auth/password", change); r.Code != 409 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+	if r := do("POST", "/api/v1/auth/password", change); r.Code != 409 || !strings.Contains(r.Body.String(), `"code":"sso_sign_in_required"`) || strings.Contains(r.Body.String(), "challenge") {
 		t.Fatal("an administrator-known password changed itself", r.Code, r.Body.String())
 	}
 	flag := func() int {
@@ -1237,7 +1237,7 @@ func TestPasswordChangeRechecksTheKySignOnFenceInTransaction(t *testing.T) {
 	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
 	code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false))
 	var flag int
-	if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&flag); err != nil || code != 409 || !strings.Contains(body, "sso_step_up_required") || flag != 1 {
+	if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&flag); err != nil || code != 409 || !strings.Contains(body, `"code":"sso_sign_in_required"`) || flag != 1 {
 		t.Fatal("fence not rechecked", code, body, flag, err)
 	}
 }
