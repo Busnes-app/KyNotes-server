@@ -66,7 +66,7 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { legacyRow, localKey, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { copyableConflicts, legacyRow, localKey, movesLabelledSubpage, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
@@ -169,7 +169,8 @@ type PlainComment = {
 type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number };
 type QueueEntry = { note: Note; container: Container };
 const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
-const UNVERIFIED_SIDE_EFFECT = "A section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Rename or move it directly to share it.";
+const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
+const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
 
 function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -785,7 +786,8 @@ function Workspace({
       const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
       const result = await updateContainer(container.id, encoded, latest.metaVersion, write.generation);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
-      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, ""];
+      // Visible on purpose: a name read with a key the server can derive now reaches every member (spec §6).
+      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, `Shared this notebook's name with members: ${name}.`];
     } catch {
       return [container, "This notebook's name could not be shared with its members yet. Rename it to try again."];
     }
@@ -1674,7 +1676,11 @@ function Workspace({
 
   /** explicit is false when the page only renumbers around another move: an unverified page is then left alone. */
   async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }, explicit = true) {
-    if (readOnlyForKeys() || (!explicit && unverifiedRef.current.has(id))) return;
+    if (readOnlyForKeys()) return;
+    if (!explicit && unverifiedRef.current.has(id)) {
+      setError(UNVERIFIED_SIDE_EFFECT);
+      return;
+    }
     // An undefined level keeps the page's own; an undefined section means Quick Notes.
     const { level, ...rest } = placement;
     const change = level === undefined ? rest : placement;
@@ -1823,6 +1829,11 @@ function Workspace({
       const levels = displayLevels(source);
       const [start, end] = blockRange(levels, source.findIndex((note) => note.id === pageID));
       const block = source.slice(start, end);
+      // Moving the block would re-seal every subpage in it: refuse before writing anything.
+      if (movesLabelledSubpage(block, pageID, unverifiedRef.current)) {
+        setError(UNVERIFIED_SUBPAGES);
+        return;
+      }
       const inBlock = new Set(block.map((note) => note.id));
       const list = pagesInSection(notesRef.current, sectionsRef.current, target).filter((note) => !inBlock.has(note.id));
       const before = beforeID === null ? -1 : list.findIndex((note) => note.id === beforeID);
@@ -1881,11 +1892,10 @@ function Workspace({
       setError("");
       let failed = 0;
       let unreadable = 0;
-      let unverifiedKept = 0;
       const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
-      for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
-        // Copying would re-seal it under the container key for every member, unseen.
-        if (legacyRow(container, conflict.keyGeneration)) { unverifiedKept += 1; continue; }
+      // Copying a legacy-key version would re-seal it under the container key for every member, unseen.
+      const { copy: copyable, kept: unverifiedKept } = copyableConflicts(container, (await objectConflicts(open.id)).filter((item) => !item.resolved));
+      for (const conflict of copyable) {
         try {
           const bytes = await conflictCiphertext(conflict.id);
           const decrypted = await openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, containerID, bytes)).catch(() => undefined);

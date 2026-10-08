@@ -144,18 +144,30 @@ export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
 export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined): KeyRef[] {
   // A never-shared container has only the legacy key, so a row without a generation (old cache) still reads.
   if (container.sharedGeneration === 0) return [legacy];
+  // The same decision labels the row, so a row read with the legacy key is always labelled.
+  if (legacyRow(container, generation)) return [legacy];
   if (generation === undefined || !Number.isInteger(generation)) return [];
-  if (generation < container.sharedGeneration) return [legacy];
   const key = ring.get(generation);
   return key ? [key] : [];
 }
 
 /**
- * A row read with the login-derived key in a shared container: the reader's own pre-sharing
- * content, or a server forgery (readKeys). Waiting edits (generation 0) never left this device.
+ * True exactly when readKeys opens a shared container's row with the login-derived key: the
+ * reader's own pre-sharing content or waiting edit, or a server forgery. Callers label it as
+ * not end-to-end verified and re-seal it only on an explicit edit or move of that row.
  */
 export function legacyRow(container: Pick<KeyedContainer, "sharedGeneration">, generation: number | undefined): boolean {
-  return container.sharedGeneration > 0 && generation !== undefined && generation !== WAITING_GENERATION && generation < container.sharedGeneration;
+  return container.sharedGeneration > 0 && Number.isInteger(generation) && generation! < container.sharedGeneration;
+}
+
+/** A block move would re-seal a labelled row the user did not pick: any member but the head. */
+export const movesLabelledSubpage = (block: ReadonlyArray<{ id: string }>, head: string, labelled: ReadonlySet<string>) =>
+  block.some((page) => page.id !== head && labelled.has(page.id));
+
+/** Conflict versions that may become copies: never a legacy-key one, which copying would re-seal unseen. */
+export function copyableConflicts<T extends { keyGeneration?: number }>(container: Pick<KeyedContainer, "sharedGeneration">, conflicts: T[]): { copy: T[]; kept: number } {
+  const copy = conflicts.filter((conflict) => !legacyRow(container, conflict.keyGeneration));
+  return { copy, kept: conflicts.length - copy.length };
 }
 
 /** Runs open with each key in turn; AES-GCM authentication makes a wrong key fail, not misread. */

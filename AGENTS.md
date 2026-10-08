@@ -408,8 +408,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0; queue
   replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
   (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
-  P4: they are labelled "not end-to-end verified" and re-sealed only by an explicit edit or move of that
-  row (`placePage`/`updateStructure` `explicit`); legacy conflict versions are never copied.
+  P4: `readKeys` and the label share that one decision (generation 0 included), and `api.ts`
+  `serverGeneration` turns malformed server generations into `undefined`. Labelled rows are re-sealed only
+  by an explicit edit or move of that row (`placePage`/`updateStructure` `explicit`, which report a
+  skip); block moves carrying a labelled subpage are refused (`movesLabelledSubpage`); legacy conflict
+  versions are never copied (`copyableConflicts`). The first mint re-seals the shown name and says so.
   Server: containers report `sharedGeneration`; shared containers refuse writes without
   `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
   and `baseVersion` in its transaction; conflict

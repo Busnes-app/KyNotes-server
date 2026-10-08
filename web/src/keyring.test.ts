@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { legacyRow, localKey, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { copyableConflicts, legacyRow, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -311,13 +311,37 @@ describe("main.tsx key wiring", () => {
 });
 
 describe("legacyRow", () => {
-  it("flags only server rows read with the login key in a shared container", () => {
-    const shared = { sharedGeneration: 3 };
-    expect(legacyRow(shared, 1)).toBe(true);
-    expect(legacyRow(shared, 2)).toBe(true);
-    expect(legacyRow(shared, 3)).toBe(false);
-    expect(legacyRow(shared, WAITING_GENERATION)).toBe(false); // this device's own waiting edit
-    expect(legacyRow(shared, undefined)).toBe(false); // unreadable there anyway (readKeys)
-    expect(legacyRow({ sharedGeneration: 0 }, 1)).toBe(false); // personal or never shared
+  const ck = newContainerKey();
+  const legacy = legacyKeyRef("a".repeat(64));
+
+  it("labels exactly the rows readKeys opens with the legacy key", () => {
+    for (const shared of [{ sharedGeneration: 0 }, { sharedGeneration: 3 }]) {
+      for (const generation of [undefined, Number.NaN, 1.5, -1, 0, 1, 2, 3, 4]) {
+        const legacyRead = readKeys(shared, new Map([[3, ck]]), legacy, generation)[0] === legacy;
+        expect(legacyRow(shared, generation)).toBe(shared.sharedGeneration > 0 && legacyRead);
+      }
+    }
+  });
+
+  it("labels generation 0 in a shared container, never in a personal one", () => {
+    expect(legacyRow({ sharedGeneration: 3 }, WAITING_GENERATION)).toBe(true);
+    expect(legacyRow({ sharedGeneration: 3 }, 2)).toBe(true);
+    expect(legacyRow({ sharedGeneration: 3 }, 3)).toBe(false);
+    expect(legacyRow({ sharedGeneration: 3 }, undefined)).toBe(false); // no key at all
+    expect(legacyRow({ sharedGeneration: 0 }, 0)).toBe(false);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 0)).toEqual([legacy]); // personal reads unchanged
+  });
+
+  it("never copies a labelled conflict version, generation 0 included", () => {
+    const conflicts = [{ id: "a", keyGeneration: 0 }, { id: "b", keyGeneration: 2 }, { id: "c", keyGeneration: 3 }, { id: "d", keyGeneration: undefined }];
+    expect(copyableConflicts({ sharedGeneration: 3 }, conflicts)).toEqual({ copy: [conflicts[2], conflicts[3]], kept: 2 });
+    expect(copyableConflicts({ sharedGeneration: 0 }, conflicts)).toEqual({ copy: conflicts, kept: 0 });
+  });
+
+  it("refuses a block move that would re-seal a labelled subpage, not one of the head", () => {
+    const block = [{ id: "head" }, { id: "sub" }];
+    expect(movesLabelledSubpage(block, "head", new Set(["sub"]))).toBe(true);
+    expect(movesLabelledSubpage(block, "head", new Set(["head"]))).toBe(false);
+    expect(movesLabelledSubpage(block, "head", new Set())).toBe(false);
   });
 });

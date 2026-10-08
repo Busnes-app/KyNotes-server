@@ -4,7 +4,17 @@ import type { Envelope } from "./keyring";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
-export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration: number; createdAt: string };
+export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
+
+/**
+ * A row generation from the server: a non-negative safe integer, else undefined, which readKeys
+ * never opens. 0 passes: a personal container reads it as before, a shared one labels it (legacyRow).
+ */
+export function serverGeneration(value: unknown): number | undefined {
+  const parsed = typeof value === "string" ? (/^\d+$/.test(value) ? Number(value) : Number.NaN) : value;
+  return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+const withGeneration = <T extends { keyGeneration?: unknown }>(rows: T[]) => rows.map((row) => ({ ...row, keyGeneration: serverGeneration(row.keyGeneration) }));
 export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
 export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number; sharedGeneration?: number };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
@@ -153,7 +163,7 @@ export const presence = (containerID: string) => request<Array<{ userId: string;
 export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }
 export function inviteMember(containerID: string, inviteeID: string, role: string) { return request<{ id: string; token: string }>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify({ inviteeId: inviteeID, role }) }); }
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
-export const comments = (objectID: string) => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`);
+export const comments = (objectID: string): Promise<Comment[]> => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`).then(withGeneration);
 export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }
 
 export async function changes(containerID: string, since = 0) {
@@ -176,8 +186,7 @@ export async function readObject(objectID: string, version?: number) {
   });
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
   // A missing or malformed generation stays undefined so readKeys finds no key, never the legacy one.
-  const generation = response.headers.get("X-Kynotes-Key-Generation");
-  const keyGeneration: number | undefined = generation && /^\d+$/.test(generation) ? Number(generation) : undefined;
+  const keyGeneration = serverGeneration(response.headers.get("X-Kynotes-Key-Generation"));
   return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
 }
 
@@ -200,10 +209,10 @@ export const deleteUpload = (uploadID: string) => request<void>(`/api/v1/uploads
 export function uploadChunk(uploadID: string, index: number, bytes: Uint8Array) { return request<{ receivedBytes: number; nextChunk: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}`, { method: "PATCH", body: bytes as unknown as BodyInit, headers: { "Content-Type": "application/octet-stream", "X-Kynotes-Chunk-Index": String(index) } }); }
 export function finalizeUpload(uploadID: string, metadataCiphertext: string, keyGeneration: number) { return request<{ attachmentId: string; digest: string; bytes: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}/finalize`, { method: "POST", body: JSON.stringify({ metadataCiphertext, keyGeneration }) }); }
 export function attachToObject(objectID: string, attachmentID: string, objectVersion: number) { return request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`, { method: "POST", body: JSON.stringify({ attachmentId: attachmentID, objectVersion }) }); }
-export const objectAttachments = (objectID: string) => request<Array<{ id: string; bytes: number; metadataCiphertext: string; keyGeneration: number }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`);
+export const objectAttachments = (objectID: string) => request<Array<{ id: string; bytes: number; metadataCiphertext: string; keyGeneration?: number }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`).then(withGeneration);
 export async function downloadAttachment(attachmentID: string) { const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error("Unable to download attachment"); return new Uint8Array(await response.arrayBuffer()); }
 
-export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; keyGeneration: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`);
+export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; keyGeneration?: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`).then(withGeneration);
 export async function conflictCiphertext(conflictID: string) { const response = await fetch(`/api/v1/conflicts/${encodeURIComponent(conflictID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error(`Unable to read conflicting version (${response.status})`); return new Uint8Array(await response.arrayBuffer()); }
 export const resolveConflict = (conflictID: string) => request<void>(`/api/v1/conflicts/${encodeURIComponent(conflictID)}/resolve`, { method: "POST" });
 

@@ -45,4 +45,13 @@ describe("waiting edits across a password change", () => {
     expect(await reseal()).toBe(1);
     await expect(decryptObject(after, cnt, (await pendingSaves()).find((entry) => entry.id === waiting.id)!.payload)).resolves.toEqual(page);
   });
+
+  it("leaves a generation-0 row that is not this browser's queued edit alone", async () => {
+    // A server row labelled 0 is never queued (an edit queues at the write key), so nothing re-seals it.
+    const row = { id: "obj_r", containerID: cnt, version: 2, payload: await encryptNote(before, cnt, page), updatedAt: "t2", keyGeneration: 0 };
+    await putNote(row);
+    await reseal();
+    expect((await getNote(row.id))!.payload).toEqual(row.payload);
+    expect((await pendingSaves()).some((entry) => entry.id === row.id)).toBe(false);
+  });
 });
