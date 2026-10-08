@@ -98,3 +98,20 @@ describe("save failure messages", () => {
     expect(NOT_SAVED).toMatch(/^Not saved.*only in this tab/);
   });
 });
+
+describe("pending upload provenance", () => {
+  it("only the attach flow creates a pending upload, from a file the user picked", () => {
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    const writers = Object.entries(sources).filter(([, text]) => /\bputUpload\(/.test(text)).map(([name]) => name);
+    expect(writers.sort()).toEqual(["./main.tsx", "./storage.ts"]);
+    const main = sources["./main.tsx"];
+    // sealUpload stores what it just sealed; the chunk loop only advances nextChunk on that job.
+    expect(main.match(/\bputUpload\([^;]*;/g)).toEqual(["putUpload(job);", "putUpload({ ...job, nextChunk });"]);
+    expect(main).toMatch(/const sealed = await sealAttachment\(write, container\.id, plaintext, file\);\n.*\n\s*const job = \{[^}]*\.\.\.sealed,/);
+    // sealUpload's plaintext: the user's picked file, or a re-seal of this browser's own pending upload.
+    const plaintexts = [...main.matchAll(/\bsealUpload\(\w+, [\w.]+, [\w.]+, ([^,]+?), /g)].map((match) => match[1]);
+    expect(main.match(/\bsealUpload\(/g)).toHaveLength(plaintexts.length + 1); // + its definition
+    expect(plaintexts.sort()).toEqual(["new Uint8Array(await file.arrayBuffer())", "plaintext"]);
+    expect(main).toMatch(/resealUpload\(job, container, step\.plaintext, step\.file\)/);
+  });
+});

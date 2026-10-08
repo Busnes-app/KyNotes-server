@@ -13,10 +13,13 @@ export function queuedSaveStep(container: Pick<KeyedContainer, "sharedGeneration
 }
 
 /**
- * The queued save as it may be uploaded now: itself, a copy re-sealed under write (opened with its
- * own generation's key; localReadKeys: this browser wrote it, proven by its owner stamp), or
- * undefined to keep it queued. Stale ciphertext is never returned. An unstamped entry gets
- * readKeys, so the legacy closure applies to it.
+ * The queued save as it may be uploaded now: itself, a copy re-sealed under write, or undefined to
+ * keep it queued. Stale ciphertext is never returned. A stamped entry opens with localReadKeys (its
+ * own generation's key, legacy closure ignored). The owner stamp proves only that this browser put
+ * the entry in its queue for that account: queueSave stamps it, or drainable stamps an unstamped one
+ * after that account's login key opened it. The server cannot write the queue. It does not prove the
+ * plaintext was never served by the server (an explicit edit of a served page is queued too).
+ * An unstamped entry gets readKeys, so the legacy closure applies to it.
  * write is the caller's writeKeyFor(container); floor its current tab-wide floor.
  */
 export async function readyToSend(item: PendingSave, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef): Promise<PendingSave | undefined> {

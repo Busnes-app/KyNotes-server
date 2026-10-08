@@ -493,6 +493,21 @@ describe("reopening legacy reads", () => {
     expect(legacyKeys(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: NaN }), legacy)).toEqual([]);
   });
 
+  it("a malformed closure blocks a legacy read through readKeys and legacyKeys alike", () => {
+    const container = { sharedGeneration: 2 };
+    for (const bad of [NaN, "x", -1, 1.5, Infinity, null, {}] as unknown as number[]) {
+      for (const floor of [{ shared: 2, closed: bad }, mergeFloor({ shared: 2 }, { shared: 2, closed: bad })]) {
+        expect(legacyKeys(floor, legacy)).toEqual([]);
+        expect(readKeys(container, new Map(), legacy, 1, floor)).toEqual([]);
+        expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 1, floor)).toEqual([]);
+        // This browser's own entries still open (the local exception).
+        expect(localReadKeys(container, new Map(), legacy, 1, floor)).toEqual([legacy]);
+      }
+    }
+    // Open floors still read: the decision is not simply "always closed".
+    for (const floor of [{ shared: 2 }, { shared: 2, closed: 0 }]) expect(readKeys(container, new Map(), legacy, 1, floor)).toEqual([legacy]);
+  });
+
   it("closedOf and legacyKeys make one closure decision", () => {
     for (const closed of [undefined, 0, 1, 2, 2 ** 53, NaN, "x", -1, 1.5, Infinity, null, {}, "0", false] as unknown as number[]) {
       const floor: KeyFloor = { closed };
