@@ -29,7 +29,7 @@ ratelimit:
   pairing_per_hour: 20 # device pairing tokens and browser link requests, per account
   upload_per_minute: 60
   invitation_per_hour: 30 # invitation creation; accepts get their own bucket at this rate
-  link_poll_per_minute: 60 # browser link collect polls (every 2 s), per account
+  link_poll_per_minute: 60 # browser link collect polls (every 4 s, backing off on 429), per account
 log:
   level: "info"
   format: "json"

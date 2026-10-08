@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { APIRequestError, cancelLinkRequest, claimLinkRequest, createLinkRequest, linkRequests, myIdentity, revealLinkRequest, type LinkRequestRow } from "../api";
 import type { HeldIdentity, IdentityStore } from "../identity";
-import { approveLink, claimLink, confirmTypedCode, endLink, keepClaim, finishNewcomerLink, LinkEndedError, linkRefusal, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type ApproverLink, type NewcomerLink } from "../linkFlow";
+import { approveLink, claimLink, confirmTypedCode, endLink, awaitLinkBundle, keepClaim, finishNewcomerLink, LinkEndedError, linkRefusal, LinkTamperedError, OTHER_COPY, otherCopyHeld, revealedLink, startNewcomerLink, type ApproverLink, type NewcomerLink } from "../linkFlow";
 import { confirmCheckCode, type CheckCodeConfirmation } from "../linking";
 import { collectLinkBundle } from "../outbound";
 
 /** The six characters people match to pick the right request on the trusted browser; identification only. */
 export const linkCodeOf = (id: string) => id.slice(-6).toUpperCase();
+/** The approver's list refresh; the newcomer's collect paces itself (awaitLinkBundle). */
 const POLL_MS = 2000;
 const ENDED = "This link request ended: it was cancelled on the other browser or expired. Start again.";
 const DIFFERED = "Linking cancelled: the codes differed. Someone may be interfering; start again on both browsers.";
 const CANCELLED = "Request cancelled.";
-const pause = () => new Promise((resolve) => setTimeout(resolve, POLL_MS));
 const ended = (error: unknown) => error instanceof LinkEndedError || (error instanceof APIRequestError && error.code === "not_found");
 /** leaving: the page is going away (pagehide), so the cancel is sent keepalive. */
 const quietCancel = (id: string, leaving = false) => void cancelLinkRequest(id, leaving).catch(() => undefined);
@@ -91,18 +91,10 @@ export function LinkThisBrowser({ userID, canKeep, store, onLinked }: { userID: 
       }
       state.current.attempt = attempt;
       setLink(attempt);
-      while (generation.current === mine) {
-        await pause();
-        if (generation.current !== mine) return;
-        const next = await pollNewcomerLink(api, attempt, userID);
-        if (generation.current !== mine) return;
-        setLink(next.link);
-        if (next.bundle) {
-          state.current.bundle = next.bundle;
-          await finish();
-          return;
-        }
-      }
+      const bundle = await awaitLinkBundle(api, attempt, userID, () => generation.current === mine, setLink);
+      if (!bundle) return;
+      state.current.bundle = bundle;
+      await finish();
     } catch (error) {
       if (generation.current !== mine) return;
       stop();
@@ -278,7 +270,7 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
       {!active && (rows.length ? rows.map((row) => (
         <div className="pin-row" key={row.id}>
           <span>Request <code className="link-code">{linkCodeOf(row.id)}</code> · started {new Date(row.createdAt).toLocaleTimeString()}</span>
-          <button disabled={claimPending} onClick={() => void approve(row)}>Approve…</button>
+          {row.claimed ? <span className="config-muted">Being approved in another tab</span> : <button disabled={claimPending} onClick={() => void approve(row)}>Approve…</button>}
           <button className="secondary" onClick={() => drop(row.id, CANCELLED)}>Not me</button>
         </div>
       )) : <p className="config-muted">No browser is asking to be linked.</p>)}

@@ -179,7 +179,7 @@ func LinkRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("POST /api/v1/me/link-requests/{id}/reveal", step("identity.link.reveal", revealLink(db)))
 	mux.Handle("POST /api/v1/me/link-requests/{id}/approve", step("identity.link.approve", auth.RequireUserActionStepUp(db, approveLink(db))))
 	mux.Handle("DELETE /api/v1/me/link-requests/{id}", step("identity.link.cancel", cancelLink(db)))
-	// Polled every two seconds (link-poll bucket); its misses change nothing and are not audited.
+	// Polled every four seconds (link-poll bucket); its misses change nothing and are not audited.
 	mux.Handle("POST /api/v1/me/link-requests/{id}/collect", auth.RequireSession(db, collectLink(db)))
 }
 

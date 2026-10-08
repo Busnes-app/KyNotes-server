@@ -16,6 +16,9 @@ export class LinkTamperedError extends Error {
 export class LinkEndedError extends Error {
   constructor() { super("This link attempt ended. Nothing was linked; start again on both browsers."); this.name = "LinkEndedError"; }
 }
+export class LinkNoIdentityError extends Error {
+  constructor() { super("Your account has no encryption key yet, so there is nothing to link. Set one up first, or link this browser from one that holds it."); this.name = "LinkNoIdentityError"; }
+}
 
 /**
  * Every attempt fixes its account and request ID when it starts (newcomer) or claims (approver),
@@ -76,7 +79,10 @@ export async function otherCopyHeld(api: Pick<NewcomerAPI, "myIdentity">, store:
 export async function startNewcomerLink(api: Pick<NewcomerAPI, "create">, canKeep: () => Promise<boolean>, userID: string): Promise<NewcomerLink> {
   if (!(await canKeep())) throw new LinkStorageError();
   const key = newLinkKey();
-  const { id, expiresAt } = await orEnd({ id: "", userID, key }, () => api.create(base64(linkCommitment(key.publicKey))));
+  // Create has no request ID: its only 404 is an account with no identity to link.
+  const { id, expiresAt } = await orEnd({ id: "", userID, key }, () => api.create(base64(linkCommitment(key.publicKey)))).catch((error: unknown) => {
+    throw error instanceof APIRequestError && error.code === "not_found" ? new LinkNoIdentityError() : error;
+  });
   return { id, userID, key, expiresAt };
 }
 
@@ -106,6 +112,47 @@ export async function pollNewcomerLink(api: Pick<NewcomerAPI, "collect" | "revea
     return next;
   });
   return { link: { ...link, ...pin } };
+}
+
+/** Collect cadence: three live requests (the server's per-account cap) poll 45 times a minute, under the default link-poll bucket of 60. */
+export const NEWCOMER_POLL_MS = 4000;
+const POLL_BACKOFF_MAX_MS = 30_000;
+/** The server's link request TTL: a failure streak this long has outlived the request. */
+const LINK_TTL_MS = 10 * 60_000;
+/** Rate limited (429) or unreachable (fetch's TypeError): the request may still be live. */
+const transient = (error: unknown) => (error instanceof APIRequestError && error.status === 429) || error instanceof TypeError;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Polls until the bundle arrives, passing each view of the attempt to shown; undefined once wanted()
+ * is false. A rate-limited or unreachable poll keeps the attempt and its one-time key and backs off,
+ * doubling to 30 s, until a failure streak outlives the request. No new key is ever made. Anything
+ * else ends the attempt: a 404 means the request ended.
+ */
+export async function awaitLinkBundle(api: Pick<NewcomerAPI, "collect" | "reveal">, link: NewcomerLink, userID: string, wanted: () => boolean, shown: (link: NewcomerLink) => void, wait = sleep, now = Date.now): Promise<Uint8Array | undefined> {
+  let delay = NEWCOMER_POLL_MS;
+  let failingSince: number | undefined;
+  for (;;) {
+    await wait(delay);
+    if (!wanted()) return undefined;
+    try {
+      const next = await pollNewcomerLink(api, link, userID);
+      if (!wanted()) return undefined;
+      shown(next.link);
+      if (next.bundle) return next.bundle;
+      delay = NEWCOMER_POLL_MS;
+      failingSince = undefined;
+    } catch (error) {
+      // A failed reveal discarded the key (pollNewcomerLink): that attempt is over whatever the cause.
+      if (!transient(error) || !isLiveLinkKey(link.key)) throw error;
+      failingSince ??= now();
+      if (now() - failingSince >= LINK_TTL_MS) {
+        endLink(link);
+        throw new LinkEndedError();
+      }
+      delay = Math.min(delay * 2, POLL_BACKOFF_MAX_MS);
+    }
+  }
 }
 
 /**

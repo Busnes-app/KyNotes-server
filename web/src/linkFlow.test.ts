@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { base64, fromBase64 } from "./crypto";
 import { APIRequestError, type LinkRequestRow, type LinkState } from "./api";
 import type { HeldIdentity } from "./identity";
-import { approveLink, claimLink, confirmTypedCode, endLink, keepClaim, finishNewcomerLink, LinkEndedError, linkRefusal, LinkStorageError, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
+import { approveLink, awaitLinkBundle, claimLink, confirmTypedCode, endLink, keepClaim, finishNewcomerLink, LinkEndedError, LinkNoIdentityError, linkRefusal, LinkStorageError, LinkTamperedError, OTHER_COPY, otherCopyHeld, NEWCOMER_POLL_MS, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
 import { confirmCheckCode, isLiveLinkKey, linkCommitment, newLinkKey, sealLinkBundle, type CheckCodeConfirmation } from "./linking";
 import { generateIdentity, type Identity } from "./teamKeys";
 
@@ -277,6 +277,67 @@ describe("device linking", () => {
       expect(isLiveLinkKey(key)).toBe(false);
       expect(key.privateKey.every((byte) => byte === 0)).toBe(true);
     }
+  });
+});
+
+describe("the newcomer's poll", () => {
+  const limited = () => new APIRequestError("try again later", { error: { code: "rate_limited", message: "" } }, 429);
+  const gone = () => new APIRequestError("not found", { error: { code: "not_found", message: "" } }, 404);
+
+  it("keeps the attempt and its key through a 429 or a network error, backing off", async () => {
+    const r = relay();
+    const link = await startNewcomerLink(r.newcomer, async () => true, me);
+    const honest = r.newcomer.collect;
+    const collect = vi.fn(honest).mockRejectedValueOnce(limited()).mockRejectedValueOnce(new TypeError("Failed to fetch")).mockRejectedValueOnce(limited());
+    const waits: number[] = [];
+    const wait = async (ms: number) => {
+      waits.push(ms);
+      if (waits.length === 4) await claimLink(r.approver, r.row(), me);
+      if (waits.length === 5) await r.send(undefined as never, link.id, new Uint8Array([1]));
+    };
+    const bundle = await awaitLinkBundle({ collect, reveal: r.newcomer.reveal }, link, me, () => true, () => undefined, wait);
+    expect(bundle).toEqual(new Uint8Array([1]));
+    expect(waits).toEqual([NEWCOMER_POLL_MS, 2 * NEWCOMER_POLL_MS, 4 * NEWCOMER_POLL_MS, 30_000, NEWCOMER_POLL_MS]);
+    // One attempt, one key, one reveal: nothing started over.
+    expect(r.calls.filter((call) => call === "create")).toHaveLength(1);
+    expect(r.newcomer.reveal).toHaveBeenCalledOnce();
+    expect(isLiveLinkKey(link.key)).toBe(true);
+  });
+
+  it("backs off to at most 30 s and ends once a failure streak outlives the request", async () => {
+    const r = relay();
+    const link = await startNewcomerLink(r.newcomer, async () => true, me);
+    let clock = 0;
+    const waits: number[] = [];
+    const wait = async (ms: number) => { waits.push(ms); clock += ms; };
+    const collect = vi.fn(async () => { throw limited(); });
+    await expect(awaitLinkBundle({ collect, reveal: r.newcomer.reveal }, link, me, () => true, () => undefined, wait, () => clock)).rejects.toBeInstanceOf(LinkEndedError);
+    expect(Math.max(...waits)).toBe(30_000);
+    expect(isLiveLinkKey(link.key)).toBe(false);
+  });
+
+  it("ends at once on a 404 or any other failure", async () => {
+    for (const failure of [gone(), new Error("500")]) {
+      const r = relay();
+      const link = await startNewcomerLink(r.newcomer, async () => true, me);
+      const collect = vi.fn(async () => { throw failure; });
+      await expect(awaitLinkBundle({ collect, reveal: r.newcomer.reveal }, link, me, () => true, () => undefined, async () => undefined)).rejects.toBe(failure);
+      expect(collect).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("stays within the per-account bucket with three newcomers polling", () => {
+    expect(3 * (60_000 / NEWCOMER_POLL_MS)).toBeLessThan(60);
+  });
+});
+
+describe("starting a link", () => {
+  it("names an account with no identity instead of an ended request", async () => {
+    const r = relay();
+    r.newcomer.create = async () => { throw new APIRequestError("not found", { error: { code: "not_found", message: "" } }, 404); };
+    const error = await startNewcomerLink(r.newcomer, async () => true, me).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LinkNoIdentityError);
+    expect(linkRefusal(error).message).toMatch(/no encryption key yet/);
   });
 });
 

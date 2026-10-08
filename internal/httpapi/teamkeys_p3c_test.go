@@ -1201,7 +1201,7 @@ func TestLinkClaimRefusesAdminKnownPassword(t *testing.T) {
 	}
 }
 
-// Collect is polled: its own per-account bucket, sized for a two-second poll (review M2).
+// Collect is polled: its own per-account bucket, sized for three newcomers polling every four seconds (review M2).
 func TestLinkCollectIsRateLimitedPerAccount(t *testing.T) {
 	trusted := newPairClient(t, strings.Repeat("p", 32))
 	limit := config.Defaults().RateLimit.LinkPollPerMinute

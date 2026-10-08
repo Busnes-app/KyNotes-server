@@ -43,6 +43,15 @@ describe("link screens", () => {
     expect(screen.match(/removeEventListener\("pagehide", leave\)/g)).toHaveLength(2);
   });
 
+  it("offers no Approve on a request another tab of this session claimed", () => {
+    expect(screen).toMatch(/\{row\.claimed \? <span className="config-muted">Being approved in another tab<\/span> : <button disabled=\{claimPending\}/);
+  });
+
+  it("lets the link flow pace the newcomer's collect", () => {
+    expect(screen).toContain("await awaitLinkBundle(api, attempt, userID, () => generation.current === mine, setLink)");
+    expect(screen).not.toContain("pollNewcomerLink");
+  });
+
   it("checks for another local copy before starting a link", () => {
     const check = screen.indexOf("await otherCopyHeld(");
     expect(check).toBeGreaterThan(-1);
