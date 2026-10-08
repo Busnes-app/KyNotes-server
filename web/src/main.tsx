@@ -10,6 +10,8 @@ import {
   adminUsers,
   attachToObject,
   APIRequestError,
+  detachAttachment,
+  legacyRows,
   changePassword,
   changes,
   checkSetup,
@@ -61,15 +63,17 @@ import {
 import { currentCopy, identityStatus, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
-import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
+import { closedOf, copyableConflicts, keysAllowed, legacyKeys, legacyRow, localReadKeys, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReopenConfirmation, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
-import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
+import { KeysWaitingError, sendComment, sendCommentRewrite, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
 import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, sessionStore, takeInviteLink } from "./invitations";
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
-import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
-import { listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
+import { checkFailure, LEGACY_CLOSED, LegacyReview as LegacyReviewBanner, shareOutcomeText } from "./components/LegacyReview";
+import { checkLegacyRows, LegacyClosedError, mayAutoClose, migrateLegacy, reviewLegacy, type LegacyReview, type Migrated, type MigrationAPI, type MigrationApproval, type ReviewAPI } from "./migration";
+import { clearFloors, floorOf, raiseFloorIn, reopenFloorIn, setClosureReader, useFloors } from "./floors";
+import { closeLegacy, listAdminTeams, listContainers, newAdminTeam, newContainer, type Closed, type ClosureSink, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
 import {
@@ -116,6 +120,8 @@ import {
   pendingSaves,
   pendingUploads,
   putNote,
+  closeLegacyStored,
+  reopenLegacy,
   putUpload,
   queueSave,
   rememberAfter,
@@ -688,6 +694,11 @@ function Workspace({
     const floor = floorFor(container);
     return floor ? readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
   };
+  /** Keys for an entry this browser stored itself (cache, queue): readKeys without the legacy closure, which guards server rows. */
+  const localReadKeysFor = (container: Container, generation: number | undefined) => {
+    const floor = floorFor(container);
+    return floor ? localReadKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
+  };
   const legacyRowFor = (container: Container, generation: number | undefined) => legacyRow(container, generation, floorFor(container) ?? NO_FLOOR);
   const writeKeyFor = (container: ReportedContainer) => {
     const floor = floorFor(container);
@@ -725,6 +736,12 @@ function Workspace({
     unverifiedRef.current = next;
     setUnverified(next);
   };
+  // The open notebook's pre-sharing items as this browser last checked them (migration.ts). checking: the
+  // review is running (the banner and its Stop button show meanwhile); failure: why it did not finish.
+  // reopened: this user reopened the notebook here (stored mark), so Stop stays on screen.
+  const [legacyCheck, setLegacyCheck] = useState<{ containerID: string; review?: LegacyReview; checking: boolean; failure?: string; reopened?: boolean }>();
+  // The last share run per notebook, so the banner can say why it did not close.
+  const [legacyOutcome, setLegacyOutcome] = useState<{ containerID: string; result: Migrated }>();
   const [keyNotice, setKeyNotice] = useState("");
   // The open notebook's members wait for keys this SSO steward did not share on its own (KySync.deferred).
   const [keyDeferred, setKeyDeferred] = useState(false);
@@ -797,6 +814,10 @@ function Workspace({
   };
   // Every server container read passes the observer (observe.ts), which raises the tab-wide floors.
   const floorSink: FloorSink = { load: pinStore.loadKeyState, save: pinStore.saveKeyState };
+  // The only writer of the stored closure and its reopen mark besides reopenLegacy (observe.ts closeLegacy).
+  const closureSink: ClosureSink = { close: (containerID, closed, auto) => closeLegacyStored(auth.username, auth.user.id, containerID, closed, auto) };
+  // Other tabs' reopen hints lower a closure only to what this user's storage holds (floors.ts); sign-out clears it (clearFloors).
+  useEffect(() => { setClosureReader(pinStore.loadKeyState); }, [auth.username, auth.user.id]);
   const fingerprintOf = (publicKey: string) => fingerprint(publicKey).catch(() => "unreadable key");
   // Pins are per user, so a decline covers every notebook; a different new key asks again.
   const declineID = (change: PinChange) => `${change.member.userId}:${change.member.identity?.publicKey ?? ""}`;
@@ -889,7 +910,9 @@ function Workspace({
       let name = namesRef.current[container.id];
       if (name) {
         // Older keys, legacy included, are tried only to compare with the name already shown.
-        if ((await opened([legacy, ...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
+        // A closed device never tries the login key (in practice it is only needed at the first mint).
+        const floor = floorFor(container);
+        if ((await opened([...(floor ? legacyKeys(floor, legacy) : []), ...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
       } else {
         // Not shown (the list could not open it: a re-mint another browser deferred). Only container
         // keys this browser accepted may supply it, newest first; the forgeable legacy key may not.
@@ -1272,13 +1295,14 @@ function Workspace({
           const cached = await getNote(auth.user.id, change.id, ownsCached);
           // A cache entry without its generation cannot be read in a shared container: use the server copy.
           const useCache = Boolean(cached && cached.version >= object.version && (container.sharedGeneration === 0 || cached.keyGeneration !== undefined));
-          const payload = await openFirst(readKeysFor(container, useCache ? cached!.keyGeneration : object.keyGeneration), (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
+          const keys = useCache ? localReadKeysFor(container, cached!.keyGeneration) : readKeysFor(container, object.keyGeneration);
+          const payload = await openFirst(keys, (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString(), useCache ? cached!.keyGeneration : object.keyGeneration);
         } catch {
           const cached = await getNote(auth.user.id, change.id, ownsCached);
           if (cached) {
             try {
-              add(change.id, await openFirst(readKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
+              add(change.id, await openFirst(localReadKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -1308,6 +1332,96 @@ function Workspace({
       }
     }
   }
+  const reviewAPI: ReviewAPI = { legacyRows, readObject, conflictBytes: conflictCiphertext, downloadAttachment };
+  /**
+   * After a shared notebook loads: lists its pre-sharing rows (the banner shows while it runs), and
+   * stops opening them on this device by itself only when a finished review allows it
+   * (checkLegacyRows). A failed check shows why, never an empty list. Never blocks the load.
+   */
+  async function checkLegacy(container: Container, superseded: () => boolean) {
+    const floorNow = () => floorFor(container);
+    const floor = floorNow();
+    if (!floor || Math.max(container.sharedGeneration, floor.shared ?? 0) === 0) return;
+    setLegacyCheck({ containerID: container.id, checking: true });
+    // A notebook the user reopened (stored, so every tab and reload agrees) never closes by itself.
+    // closeLegacyStored checks the mark again in the closing transaction.
+    const stored = pinStore.loadKeyState(container.id);
+    const autoClose = await mayAutoClose(() => stored);
+    const reopened = !autoClose && (await stored.then((state) => state.reopened === true, () => false));
+    const check = await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, async () => (await stopLegacy(container, true)) === "closed", autoClose);
+    if (superseded()) return;
+    if ("failed" in check) {
+      // Closed while it ran (here or in another tab): nothing failed, the closed banner shows.
+      setLegacyCheck(check.failed instanceof LegacyClosedError ? { containerID: container.id, checking: false, review: undefined, failure: undefined, reopened } : { containerID: container.id, checking: false, failure: checkFailure(check.failed), reopened });
+      return;
+    }
+    setLegacyCheck({ containerID: container.id, review: check.review, checking: false, reopened });
+  }
+  /** Closes legacy reads for container on this device (the effect below reloads what they showed); auto: the check's own close. */
+  async function stopLegacy(container: Container, auto = false): Promise<Closed> {
+    const outcome = await closeLegacy(closureSink, container.id, auto);
+    if (auto) return outcome; // nothing closed unless storage kept it: nothing to explain
+    if (outcome === "unsaved") setError("This browser stopped opening items written before sharing until a reload, but could not remember it; it checks again after a reload.");
+    if (outcome === "not-shared") setError("This notebook is not loaded as shared in this tab yet; nothing was stopped. Reload and try again.");
+    return outcome;
+  }
+  const migrationAPI = (container: Container): MigrationAPI => ({
+    readObject,
+    sendObject,
+    sendCommentRewrite,
+    uploadAttachment: async (objectID, objectVersion, plaintext, file) => (await uploadPending(await sealUpload(container, objectID, objectVersion, plaintext, file))).id,
+    attach: attachToObject,
+    detach: detachAttachment,
+    // Placed next to its page only once saved on the server (placeConflictCopy); resolve follows in migrateLegacy.
+    copyConflict: async (objectID, _conflictID, payload) => {
+      const original = notesRef.current.find((note) => note.id === objectID);
+      return Boolean(original) && placeConflictCopy(container.id, original!, payload);
+    },
+    resolve: resolveConflict,
+  });
+  /**
+   * The review dialog's submit: re-seal the items the approval carries (as the dialog showed them),
+   * and stop opening the rest only when migrateLegacy allows it. A refused approval (sharing changed
+   * since the review) sends nothing; the notebook reloads and is reviewed again.
+   */
+  async function shareLegacy(approval: MigrationApproval) {
+    const container = selectedRef.current;
+    const write = container && writeKeyFor(container);
+    if (!container || !write) { setError("This notebook is waiting for its keys; nothing was shared."); return; }
+    let result: Migrated;
+    try {
+      result = await migrateLegacy(migrationAPI(container), { container, floorNow: () => floorFor(container), legacy, userId: auth.user.id, write, ring: ringsRef.current[container.id] ?? noKeys, approval }, async () => (await stopLegacy(container)) === "closed");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Nothing was shared.");
+      await selectContainer(container, parseRoute(location.hash));
+      return;
+    }
+    await selectContainer(container, parseRoute(location.hash));
+    setLegacyOutcome({ containerID: container.id, result });
+    setError(shareOutcomeText(result));
+  }
+  /** "Show pre-sharing items again", after the user's confirm minted confirmation (LegacyReview.tsx). */
+  async function reopenLegacyReads(container: Container, confirmation: ReopenConfirmation) {
+    if (!(await reopenLegacy(auth.username, auth.user.id, container.id, confirmation))) {
+      setError("This browser could not show items written before sharing again; try again.");
+      return;
+    }
+    // Lowers this tab (the effect below reloads it) and tells the others to re-read storage.
+    await reopenFloorIn(container.id);
+  }
+  // Closed here or in another tab while this notebook is open: reload once, so everything read with the
+  // login key leaves the screen (pages, the review dialog, comments, previews). Cached copies this
+  // browser wrote itself may stay (localReadKeys).
+  // Reopened (here or in another tab, adopted from storage): reload, so the pre-sharing rows show again.
+  const closedNow = selected ? closedOf(floorFor(selected)) : 0;
+  const closedBefore = useRef({ id: "", closed: 0 });
+  useEffect(() => {
+    const before = closedBefore.current;
+    closedBefore.current = { id: selected?.id ?? "", closed: closedNow };
+    const rose = before.closed === 0 && closedNow > 0;
+    const fell = before.closed > 0 && closedNow === 0;
+    if (selected && before.id === selected.id && (rose || fell)) void selectContainer(selected, parseRoute(location.hash));
+  }, [selected?.id, closedNow]);
   async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean): Promise<Note[] | null> {
     // Workspace navigation destroys the current editor. Finish its latest
     // encrypted save before replacing the note list so the next load cannot
@@ -1329,6 +1443,8 @@ function Workspace({
     loadCarried.current.clear();
     markLegacy(unverifiedRef.current, false);
     setKeyNotice("");
+    setLegacyCheck(undefined);
+    setLegacyOutcome((value) => (value?.containerID === container.id ? value : undefined));
     setKeyDeferred(false);
     try {
       // Keys first: an owner may mint or re-mint here, and reads need the current generation.
@@ -1347,6 +1463,7 @@ function Workspace({
       markLegacy(objects.legacyRead, true);
       loadCarried.current.clear();
       patchNotes(() => loaded);
+      void checkLegacy(keyed, superseded);
       showSection(resolveSection(route?.section, loadedSections));
       const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, keyed);
@@ -1817,7 +1934,7 @@ function Workspace({
     const cached = await getNote(auth.user.id, id, ownsCached).catch(() => undefined);
     if (!cached) return undefined;
     const containerID = selected.id;
-    const payload = await openFirst(readKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
+    const payload = await openFirst(localReadKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
@@ -2007,6 +2124,26 @@ function Workspace({
     });
   }
   /** OneNote model: the server version stays the page; every rejected version becomes a copy after it. */
+  /**
+   * Keeps one rejected version as a page next to original. True only once the copy is saved on the
+   * server: writeObject returns null for a copy that was only queued or kept locally, and then this
+   * is false, so the caller never resolves the record while the copy exists only in this browser.
+   */
+  async function placeConflictCopy(containerID: string, original: Pick<Note, "id" | "section" | "order" | "level">, payload: PagePayload, sameNotebook: () => boolean = () => true): Promise<boolean> {
+    const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(original)), original, payload);
+    const object = await createObject(containerID);
+    const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, level: page.level, version: 0, updatedAt: new Date().toISOString() };
+    if (sameNotebook()) patchNotes((value) => [...value, copy]);
+    const saved = await writeObject(object.id, 0, page);
+    if (saved === null) return false;
+    if (sameNotebook()) patchNotes((value) => carrySaved(value, object.id, { version: saved }));
+    const run = moveChain.current.then(async () => {
+      for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order }, false);
+    });
+    moveChain.current = run.catch(() => {});
+    await run;
+    return true;
+  }
   async function keepConflictCopies() {
     const open = selectedNoteRef.current;
     if (recoveringRef.current || !selected || !open || readOnlyForKeys()) return;
@@ -2061,18 +2198,7 @@ function Workspace({
         if (!sameNotebook() || readOnlyForKeys()) { failed += 1; continue; }
         try {
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
-          const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(current)), current, group.payload);
-          const object = await createObject(containerID);
-          const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, level: page.level, version: 0, updatedAt: new Date().toISOString() };
-          if (sameNotebook()) patchNotes((value) => [...value, copy]);
-          const saved = await writeObject(object.id, 0, page);
-          if (saved === null) { failed += 1; continue; }
-          if (sameNotebook()) patchNotes((value) => carrySaved(value, object.id, { version: saved }));
-          const run = moveChain.current.then(async () => {
-            for (const move of moves) await placePage(move.id, { section: notesRef.current.find((note) => note.id === move.id)?.section, order: move.order }, false);
-          });
-          moveChain.current = run.catch(() => {});
-          await run;
+          if (!(await placeConflictCopy(containerID, current, group.payload, sameNotebook))) { failed += 1; continue; }
           // ponytail: records stay open until resolve succeeds, so a retry after a failed
           // resolve, or after a copy that was only queued locally, adds a duplicate copy.
           // Upgrade: record the source conflict IDs in the copy and skip records already copied.
@@ -2539,6 +2665,11 @@ function Workspace({
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : <>Waiting for a team owner to share this notebook's keys. It is read-only until then. <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
+                {!queueMode && selected && legacyCheck?.containerID === selected.id && (
+                  <LegacyReviewBanner key={selected.id} userID={auth.user.id} containerID={selected.id} review={legacyCheck.review} checking={legacyCheck.checking} failure={legacyCheck.failure}
+                    closed={closedOf(floorFor(selected)) > 0} reopened={legacyCheck.reopened === true} labelled={unverified.size > 0} outcome={legacyOutcome?.containerID === selected.id ? legacyOutcome.result : undefined}
+                    onShare={shareLegacy} onStop={async () => { if ((await stopLegacy(selected)) === "closed") setError(LEGACY_CLOSED); }} onReopen={(confirmation) => reopenLegacyReads(selected, confirmation)} />
+                )}
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">Members are waiting for this notebook's keys. <button className="quiet" onClick={() => void shareKeysNow()}>Share keys (confirm with KySignOn)</button></div>}
                 {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so team notebooks stay locked here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so team owners can share notebooks with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
@@ -2844,7 +2975,7 @@ function Workspace({
             userID={auth.user.id}
             legacyKey={legacy}
             colleagueNames={colleagueNames.current}
-            teamKeys={(item) => { const container = items.find((entry) => entry.id === item.containerID); return container ? readKeysFor(container, item.keyGeneration) : []; }}
+            teamKeys={(item) => { const container = items.find((entry) => entry.id === item.containerID); return container ? localReadKeysFor(container, item.keyGeneration) : []; }}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
@@ -3079,11 +3210,12 @@ function AdminTeams({ users, authSecret, username, userID }: { users: AdminUser[
       for (const entry of nextTeams) {
         if (!entry.metaCiphertext) continue;
         try {
-          nextNames[entry.id] = (
-            await decryptContainerMeta(legacy, entry.id, fromBase64(entry.metaCiphertext))
-          ).name;
+          // Only a team this device has never seen shared is named with the login key; a shared one has no key here.
+          const floor = floorOf(entry.id);
+          const keys = floor && entry.keyGeneration !== undefined ? readKeys({ sharedGeneration: entry.sharedGeneration ?? 0 }, new Map(), legacy, entry.keyGeneration, floor) : [];
+          nextNames[entry.id] = (await openFirst(keys, (key) => decryptContainerMeta(key, entry.id, fromBase64(entry.metaCiphertext!)))).name;
         } catch {
-          /* Metadata encrypted by another account remains opaque. */
+          /* Shared teams, and names sealed by another account, stay unnamed here. */
         }
       }
       setTeams(nextTeams);

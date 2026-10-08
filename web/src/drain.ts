@@ -1,5 +1,5 @@
 import { base64, decryptAttachment, decryptAttachmentMetadata, decryptObject, encryptAttachment, encryptAttachmentMetadata, encryptNote, fromBase64, type KeyRef } from "./crypto";
-import { legacyRow, openFirst, readKeys, WAITING_GENERATION, type KeyedContainer, type KeyFloor, type Keyring, type WriteKey } from "./keyring";
+import { legacyRow, localReadKeys, openFirst, readKeys, WAITING_GENERATION, type KeyedContainer, type KeyFloor, type Keyring, type WriteKey } from "./keyring";
 import type { PendingSave, PendingUpload } from "./storage";
 
 /**
@@ -13,14 +13,20 @@ export function queuedSaveStep(container: Pick<KeyedContainer, "sharedGeneration
 }
 
 /**
- * The queued save as it may be uploaded now: itself, a copy re-sealed under write (opened with its
- * own generation's key), or undefined to keep it queued. Stale ciphertext is never returned.
+ * The queued save as it may be uploaded now: itself, a copy re-sealed under write, or undefined to
+ * keep it queued. Stale ciphertext is never returned. A stamped entry opens with localReadKeys (its
+ * own generation's key, legacy closure ignored). The owner stamp proves only that this browser put
+ * the entry in its queue for that account: queueSave stamps it, or drainable stamps an unstamped one
+ * after that account's login key opened it. The server cannot write the queue. It does not prove the
+ * plaintext was never served by the server (an explicit edit of a served page is queued too).
+ * An unstamped entry gets readKeys, so the legacy closure applies to it.
  * write is the caller's writeKeyFor(container); floor its current tab-wide floor.
  */
 export async function readyToSend(item: PendingSave, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef): Promise<PendingSave | undefined> {
   const step = queuedSaveStep(container, floor, item.keyGeneration, write);
   if (step !== "reseal") return step === "send" ? item : undefined;
-  const payload = await openFirst(readKeys(container, ring, legacy, item.keyGeneration, floor!), (key) => decryptObject(key, item.containerID, item.payload));
+  const keys = (item.owner === undefined ? readKeys : localReadKeys)(container, ring, legacy, item.keyGeneration, floor!);
+  const payload = await openFirst(keys, (key) => decryptObject(key, item.containerID, item.payload));
   if (!payload) return undefined;
   return { ...item, payload: await encryptNote(write!.key, item.containerID, payload), keyGeneration: write!.generation };
 }
@@ -33,12 +39,13 @@ export async function sealAttachment(write: WriteKey, containerID: string, plain
 
 /**
  * What resuming a pending attachment may do before any chunk leaves: stream it as sealed, re-seal
- * it (payload and metadata, opened with its own generation's key) into a new upload, or wait.
+ * it (payload and metadata, opened with its own generation's key; localReadKeys: this browser
+ * wrote it, from a file the user picked) into a new upload, or wait.
  */
 export async function attachmentStep(job: PendingUpload, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef): Promise<{ kind: "send" } | { kind: "wait" } | { kind: "reseal"; plaintext: Uint8Array; file: AttachmentFile }> {
   const step = queuedSaveStep(container, floor, job.keyGeneration, write);
   if (step !== "reseal") return { kind: step };
-  const keys = readKeys(container, ring, legacy, job.keyGeneration, floor!);
+  const keys = localReadKeys(container, ring, legacy, job.keyGeneration, floor!);
   const plaintext = await openFirst(keys, (key) => decryptAttachment(key, job.containerID, job.payload));
   const file = await openFirst(keys, (key) => decryptAttachmentMetadata(key, job.containerID, fromBase64(job.metadataCiphertext)));
   return { kind: "reseal", plaintext, file };

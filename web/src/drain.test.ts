@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import { NOT_SAVED, noteConflictMessage, notSaved, queuedSaveStep, readyToSend } from "./drain";
+import { base64, decryptAttachment, decryptObject, encryptAttachment, encryptAttachmentMetadata, encryptNote, legacyKeyRef } from "./crypto";
+import { attachmentStep, NOT_SAVED, noteConflictMessage, notSaved, queuedSaveStep, readyToSend } from "./drain";
 import { newContainerKey, writeKey, type KeyFloor, type KeyedContainer, type Keyring } from "./keyring";
-import type { PendingSave } from "./storage";
+import type { PendingSave, PendingUpload } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const login = legacyKeyRef("a".repeat(64));
@@ -36,6 +36,45 @@ describe("queued save drain", () => {
     }
   });
 
+  it("re-seals this browser's own legacy and waiting edits after the closure", async () => {
+    const key = newContainerKey();
+    const ring = new Map([[2, key]]);
+    const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
+    const closed: KeyFloor = { shared: 2, generation: 2, closed: 2 };
+    for (const keyGeneration of [1, 0]) {
+      const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", keyGeneration, owner: "usr_me", payload: await encryptNote(login, cnt, { title: "mine", body: `queued at ${keyGeneration}` }) };
+      const upload = vi.fn<(save: PendingSave) => void>();
+      const ready = await drain(item, container, closed, ring, upload);
+      expect(upload).toHaveBeenCalledOnce();
+      expect(ready!.keyGeneration).toBe(2);
+      expect(await decryptObject(key, cnt, ready!.payload)).toMatchObject({ body: `queued at ${keyGeneration}` });
+    }
+  });
+
+  it("keeps an unstamped queue entry closed: only an owner stamp marks it as this browser's", async () => {
+    const ring = new Map([[2, newContainerKey()]]);
+    const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
+    const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", keyGeneration: 1, payload: await encryptNote(login, cnt, { title: "x", body: "y" }) };
+    const upload = vi.fn<(save: PendingSave) => void>();
+    await expect(drain(item, container, { shared: 2, generation: 2, closed: 2 }, ring, upload)).rejects.toThrow("no content key");
+    expect(upload).not.toHaveBeenCalled();
+    // Open: the same entry still re-seals (the drain stamps it first in practice).
+    expect(await drain(item, container, { shared: 2, generation: 2 }, ring, upload)).toBeDefined();
+  });
+
+  it("re-seals this browser's own legacy pending upload after the closure", async () => {
+    const key = newContainerKey();
+    const ring = new Map([[2, key]]);
+    const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
+    const floor: KeyFloor = { shared: 2, generation: 2, closed: 2 };
+    const file = { name: "a.png", type: "image/png", size: 2 };
+    const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: 1, chunkBytes: 2, nextChunk: 0, payload: await encryptAttachment(login, cnt, new Uint8Array([1, 2])), metadataCiphertext: base64(await encryptAttachmentMetadata(login, cnt, file)), ...file };
+    const step = await attachmentStep(job, container, floor, writeKey(container, ring, login, floor), ring, login);
+    expect(step).toMatchObject({ kind: "reseal", file });
+    if (step.kind === "reseal") expect(step.plaintext).toEqual(new Uint8Array([1, 2]));
+    await expect(decryptAttachment(key, cnt, job.payload)).rejects.toThrow();
+  });
+
   it("sends an entry as is only when it is sealed for the current write key", () => {
     const ring = new Map([[1, newContainerKey()]]);
     const unshared = { id: cnt, keyGeneration: 1, sharedGeneration: 0 };
@@ -57,5 +96,24 @@ describe("save failure messages", () => {
     expect(noteConflictMessage(true)).toMatch(/exists only in this tab.*copy or export it now/i);
     expect(() => notSaved()).toThrow(NOT_SAVED);
     expect(NOT_SAVED).toMatch(/^Not saved.*only in this tab/);
+  });
+});
+
+describe("pending upload provenance", () => {
+  it("only the attach flow creates a pending upload, from a file the user picked", () => {
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    const writers = Object.entries(sources).filter(([, text]) => /\bputUpload\(/.test(text)).map(([name]) => name);
+    expect(writers.sort()).toEqual(["./main.tsx", "./storage.ts"]);
+    const main = sources["./main.tsx"];
+    // sealUpload stores what it just sealed; the chunk loop only advances nextChunk on that job.
+    expect(main.match(/\bputUpload\([^;]*;/g)).toEqual(["putUpload(job);", "putUpload({ ...job, nextChunk });"]);
+    expect(main).toMatch(/const sealed = await sealAttachment\(write, container\.id, plaintext, file\);\n.*\n\s*const job = \{[^}]*\.\.\.sealed,/);
+    // sealUpload's plaintext: the user's picked file, a re-seal of this browser's own pending upload, or the
+    // bytes the user reviewed and ticked (migrateLegacy hands the approval's copy to uploadAttachment).
+    const plaintexts = [...main.matchAll(/\bsealUpload\(\w+, [\w.]+, [\w.]+, ([^,]+?), /g)].map((match) => match[1]);
+    expect(main.match(/\bsealUpload\(/g)).toHaveLength(plaintexts.length + 1); // + its definition
+    expect(plaintexts.sort()).toEqual(["new Uint8Array(await file.arrayBuffer())", "plaintext", "plaintext"]);
+    expect(main).toMatch(/resealUpload\(job, container, step\.plaintext, step\.file\)/);
+    expect(main).toContain("uploadAttachment: async (objectID, objectVersion, plaintext, file) => (await uploadPending(await sealUpload(container, objectID, objectVersion, plaintext, file))).id,");
   });
 });

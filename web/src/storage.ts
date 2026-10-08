@@ -1,6 +1,6 @@
 import { x25519 } from "@noble/curves/ed25519.js";
 import type { HeldIdentity } from "./identity";
-import type { KeyState } from "./keyring";
+import { closedOf, consumeReopenConfirmation, type KeyState, type ReopenConfirmation } from "./keyring";
 import { isPinConfirmation, sameKey, type PinConfirmation, type Pins } from "./pins";
 import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
@@ -248,7 +248,7 @@ export async function getDeviceKey(username: string): Promise<string | undefined
 type SealedIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; sealed: Uint8Array; deviceKey: CryptoKey };
 type RawIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey: Uint8Array };
 type VaultIdentity = SealedIdentity | RawIdentity;
-type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
+type VaultRecord = { username: string; authSecret?: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
 
 /**
  * How the vault stores the private key, not how well it is protected. "wrapped": sealed under a
@@ -297,7 +297,8 @@ const holds = (record: VaultRecord, userID: string, expected: HeldIdentity | nul
  */
 export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean> {
   const stored = await sealForDevice(userID, identity).catch(() => undefined);
-  return stored ? updateRecord(username, (record) => (expected === undefined || holds(record, userID, expected) ? { ...record, identity: stored } : undefined)) : false;
+  // Only beside a device key: a record closeLegacyStored created alone never starts keeping an identity.
+  return stored ? updateRecord(username, (record) => (record.authSecret !== undefined && (expected === undefined || holds(record, userID, expected)) ? { ...record, identity: stored } : undefined)) : false;
 }
 
 /** This browser's identity for userID, a pending one (deviceId "") included. Throws when the vault cannot be read. */
@@ -319,9 +320,9 @@ export async function getIdentityKey(username: string, userID: string): Promise<
   return held?.deviceId ? held : undefined;
 }
 
-/** True when this browser can keep an identity: IndexedDB opens and the signed-in account has a vault record. */
+/** True when this browser can keep an identity: IndexedDB opens and the signed-in account has a vault record with a device key. */
 export async function vaultReady(username: string): Promise<boolean> {
-  try { return Boolean(await readRecord(username)); } catch { return false; }
+  try { return (await readRecord(username))?.authSecret !== undefined; } catch { return false; }
 }
 
 async function readRecord(username: string): Promise<VaultRecord | undefined> {
@@ -413,7 +414,12 @@ export async function getKeyState(username: string, userID: string, containerID:
   return (record && statesOf(record, userID)[containerID]) || { mark: 0, digests: {} };
 }
 
-/** Merges key memory: the mark only rises and a stored digest is never replaced. False means it is not kept. */
+/**
+ * Merges key memory: the mark only rises and a stored digest is never replaced. False means it is
+ * not kept. The legacy closure and the reopen mark are never taken from state: whatever is stored
+ * stays, in the same transaction, so a pass that read them before a reopen or a close cannot undo
+ * it. Only closeLegacyStored and reopenLegacy write them.
+ */
 export async function storeKeyState(username: string, userID: string, containerID: string, state: KeyState): Promise<boolean> {
   return updateRecord(username, (record) => {
     const byContainer = statesOf(record, userID);
@@ -424,9 +430,69 @@ export async function storeKeyState(username: string, userID: string, containerI
       // The sharing state this device has seen (KeyFloor) never goes backwards either.
       shared: Math.max(prior.shared ?? 0, state.shared ?? 0),
       generation: Math.max(prior.generation ?? 0, state.generation ?? 0),
+      ...(prior.closed !== undefined ? { closed: prior.closed } : {}),
+      ...(prior.reopened ? { reopened: true as const } : {}),
     };
     return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } };
   });
+}
+
+/**
+ * Read-modify-write of this user's key memory for one container, creating the vault record when
+ * this browser has none yet (a record without authSecret: getDeviceKey and vaultReady still see no
+ * device key). change returning undefined writes nothing. Throws when IndexedDB is unusable.
+ */
+async function updateKeyState(username: string, userID: string, containerID: string, change: (prior: KeyState) => KeyState | undefined): Promise<boolean> {
+  let kept = false;
+  await write("keys", (store) => {
+    const read = store.get(username);
+    read.onsuccess = guarded(store.transaction, () => {
+      const record: VaultRecord = (read.result as VaultRecord | undefined) ?? { username, updatedAt: new Date().toISOString() };
+      const byContainer = statesOf(record, userID);
+      const next = change(byContainer[containerID] ?? { mark: 0, digests: {} });
+      if (!next) return;
+      store.put({ ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } });
+      kept = true;
+    });
+  });
+  return kept;
+}
+
+/**
+ * closed: stored; reopened: auto and the user reopened this container, so nothing was written;
+ * unsaved: storage could not keep it.
+ */
+export type ClosureStored = "closed" | "reopened" | "unsaved";
+/**
+ * The one write that raises this device's legacy closure (observe.ts closeLegacy). A user's close
+ * (auto false) also clears the reopen mark. An automatic close is refused, in the same transaction,
+ * while the mark is set, so a reopen in another tab during a long check is never closed over.
+ */
+export async function closeLegacyStored(username: string, userID: string, containerID: string, closed: number, auto: boolean): Promise<ClosureStored> {
+  let refused = false;
+  try {
+    const kept = await updateKeyState(username, userID, containerID, (prior) => {
+      if (auto && prior.reopened) { refused = true; return undefined; }
+      const { reopened: _, ...rest } = prior;
+      return { ...rest, closed: Math.max(closedOf(prior), closedOf({ closed })) };
+    });
+    return refused ? "reopened" : kept ? "closed" : "unsaved";
+  } catch {
+    return "unsaved";
+  }
+}
+
+/**
+ * The one way this device's legacy closure falls: this user confirmed "Show pre-sharing items
+ * again" for this container. The confirmation is used up even if the write fails. It also marks
+ * the container reopened until a user close (closeLegacyStored) clears it; everything else in the
+ * key memory stays. Call floors.ts reopenFloorIn after a true result: it lowers this tab and tells
+ * the others to re-read storage; without it the tabs stay closed until a reload.
+ */
+export async function reopenLegacy(username: string, userID: string, containerID: string, confirmation: ReopenConfirmation): Promise<boolean> {
+  if (!consumeReopenConfirmation(confirmation, userID, containerID)) return false;
+  // Persisted beside the floor, so no reload or other tab closes it again by itself (closeLegacyStored).
+  return updateKeyState(username, userID, containerID, ({ closed: _, ...open }) => ({ ...open, reopened: true })).catch(() => false);
 }
 
 export async function clearDeviceKey(username: string): Promise<void> {

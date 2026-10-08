@@ -426,7 +426,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   module calls those API functions; queue
   replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
   (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
-  P4: `readKeys` and the label share that one decision (generation 0 included), and `api.ts`
+  the device closes them (Team keys P4 below): `readKeys` and the label share that one decision (generation 0 included), and `api.ts`
   `serverGeneration` turns malformed server generations into `undefined`. Labelled rows are re-sealed only
   by an explicit edit or move of that row (`placePage`/`updateStructure` `explicit`, which report a
   skip); block moves carrying a labelled subpage are refused (`movesLabelledSubpage`); legacy conflict
@@ -577,3 +577,44 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestLink*`, `TestSSOAccountLinksASecondBrowser`, `TestGCDeletesExpiredLinkRequests`,
   `TestLinkPollLimitEnvAndValidation`, `go test ./internal/teamkeys`, `npm test` (linking, linkFlow, storage,
   identity, keyService, outbound, DeviceLink) and `npm run e2e --prefix web`.
+
+- Team keys P4: legacy review and per-device closure. Server: read-only `GET /api/v1/containers/{id}/legacy`
+  (`teamkeys_routes.go`; any live member, session only; rows below `shared_generation`; unknown and foreign
+  containers get one 404, a storage error 500; 1000 per kind with `complete`; `no-store`; per-account bucket
+  at `link_poll_per_minute`, `ponytail:` upgrade a `legacy_per_minute` key; comments and conflicts scan
+  without an index, `ponytail:` upgrade indexes); objects send `id`/`keyGeneration` only, attachments no size,
+  conflicts no timestamp. No migration; `0025` is unused. Web: `KeyFloor.closed` (a malformed value counts as
+  closed) and the reopen mark have single writers. Storage: only `closeLegacyStored` (via `observe.ts`
+  `closeLegacy`) and `reopenLegacy` write them, creating a vault record without a device key when none exists;
+  `storeKeyState` keeps the stored values in its transaction. Memory (`floors.ts`): only a tab's first load,
+  `closeFloorIn` and a peer's close message raise it; raises broadcast generations only. `readKeys` returns no login
+  key for any server row once closed; `localReadKeysFor`/`localReadKeys` (closure ignored) serve only this
+  browser's owner-stamped queue entries, pending uploads and cache entries (the cache never holds server
+  bytes). `migration.ts`: `reviewLegacy` opens each listed row only with the key `readKeys` picks and is bound
+  to the sharing floor it covered (incomplete on any failed fetch or row without a valid generation; a comment
+  naming another author is refused); `checkLegacyRows` auto-closes only on a complete successful response
+  listing nothing of the user's, `sharedGeneration` above 0, an unchanged floor and no reopen mark, re-read in
+  the closing transaction, and only once storage kept it (a 429, 500, network error, `complete:false` or no
+  IndexedDB never closes); `closeLegacy` reports `closed`/`unsaved`/`reopened`/`not-shared`; `migrateLegacy` re-seals only the ticked rows of a branded,
+  single-use `MigrationApproval` (frozen copy of what the dialog showed, bound to user, container, floor and a
+  `reviewLegacy` review, minted only by `components/LegacyReview.tsx`), detaches and resolves only after the
+  matching re-seal, and closes only when the review was complete, nothing failed, the floor is unchanged and the
+  user confirmed the hidden count. The dialog shows every payload string as plain text (`reviewText`: link targets,
+  table cells, attachment name/type/size), offers each attachment's reviewed bytes as a local download, labels
+  every item "not end-to-end verified", pre-ticks nothing, disables Share until something is ticked and while
+  a ticked page uses an unticked reviewed attachment (`attachmentsLeftBehind`, also refused by
+  `approveMigration`). Stop shows whenever the notebook carries the reopen mark or labelled rows. `reopenLegacy` (`storage.ts`, with a
+  single-use `ReopenConfirmation` minted only from the "Show pre-sharing items again" confirm) lowers the
+  closure and persists a reopen mark that blocks auto-close in every tab and across reloads; Stop or a
+  completed confirmed share clears it, and `floors.ts` `reopenFloorIn` makes other tabs re-read storage.
+  `main.tsx` calls `setClosureReader` at sign-in and reloads the open notebook whenever its closure changes;
+  `outbound.ts` `sendCommentRewrite` is the comment re-seal. Limits: auto-close trusts the server's list, a
+  forged row ticked by the user is sealed, viewers cannot share their pre-sharing rows, rows of removed authors
+  stay opaque, tabs on a pre-P4 bundle ignore the closure and can erase it or a reopen from storage until
+  reloaded, administrator-owned teams wait for sub-project A. Awaiting Yoshi before merge: decision 1
+  (per-device closure, no steward marker) and decision 2 (auto-close trusts the server's list; recovery is
+  "Show pre-sharing items again"); spec §7 P4 records both.
+  Verify `TestLegacyRows*`, `npm test` (keyring, storage, floors, observe, drain, api, outbound, migration,
+  keyService, legacyWiring, LegacyReview) and `npm run e2e --prefix web` (a forged pre-sharing page, sealing the
+  reviewed copy, reopen across a reload with Stop still offered, a 500 from `/legacy` never closing; `KYNOTES_E2E_SHOTS=<dir>` writes the
+  `UI-VERIFICATION.md` captures).

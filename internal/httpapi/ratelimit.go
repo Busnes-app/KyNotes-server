@@ -96,6 +96,10 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		case r.Method != http.MethodGet && strings.HasPrefix(path, "/api/v1/me/link-requests/"):
 			// Claim, reveal, approve and cancel: a ceremony needs a handful; bounds refusal audit rows.
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "link-step"
+		case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/legacy"):
+			// Read once per notebook open, but scans comments and conflicts: its own per-account bucket at the poll rate.
+			// ponytail: reuses link_poll_per_minute. Upgrade: a legacy_per_minute key.
+			limit, rate, label = cfg.RateLimit.LinkPollPerMinute, cfg.RateLimit.LinkPollPerMinute, "legacy"
 		case (strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/uploads")) || strings.HasPrefix(path, "/api/v1/uploads/"):
 			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "upload"
 		}

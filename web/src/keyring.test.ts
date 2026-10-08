@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { copyableConflicts, guardContainer, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { closedOf, confirmReopenLegacy, consumeReopenConfirmation, legacyKeys, copyableConflicts, guardContainer, isReopenConfirmation, localReadKeys, mergeFloor, ReopenConfirmation, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -308,6 +308,41 @@ describe("main.tsx key wiring", () => {
     expect(main.match(/legacyKeyRef\(/g)).toHaveLength(2);
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*(?:auth\.)?authSecret\b/);
   });
+
+  it("opens server rows with the login key only through readKeys", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    // The two bare uses check this browser's own cache (ownsCached) and queue (the drain stamp).
+    expect(main.match(/decrypt\w*\(legacy\b/g)).toEqual(["decryptObject(legacy", "decryptObject(legacy"]);
+    // No hand-built key list puts the login key beside container keys.
+    expect(main).not.toMatch(/\[legacy,/);
+  });
+
+  it("AdminTeams reads names with the login key only through readKeys", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    const admin = main.slice(main.indexOf("function AdminTeams("));
+    const body = admin.slice(0, admin.indexOf("\nfunction ", 1) > 0 ? admin.indexOf("\nfunction ", 1) : undefined).replace(/\/\/.*$/gm, "");
+    // Every use of the login key: its declaration, readKeys (floor-aware), and the write of a name the admin creates.
+    const uses = [...body.matchAll(/[^\n]*\blegacy\b[^\n]*/g)].map((m) => m[0]);
+    expect(uses).toHaveLength(3);
+    // Token count, not lines: a second use on a readKeys line (e.g. "? ... : [legacy]") is caught too.
+    expect(body.match(/\blegacy\b/g)).toHaveLength(3);
+    expect(uses.filter((line) => /const legacy = legacyKeyRef\(/.test(line))).toHaveLength(1);
+    expect(uses.filter((line) => /readKeys\(.*\blegacy\b/.test(line))).toHaveLength(1);
+    expect(uses.filter((line) => /encryptContainerMeta\(legacy\b/.test(line))).toHaveLength(1);
+  });
+
+  it("uses the local exception only for entries this browser sealed itself", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    // localReadKeysFor opens only cache and queue entries, never a server row's generation.
+    const local = [...main.matchAll(/localReadKeysFor\(\w+, ([\w.!]+)\)/g)].map((match) => match[1]);
+    expect(main.match(/localReadKeysFor\(/g)).toHaveLength(local.length);
+    expect(local).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
+    expect(new Set(local)).toEqual(new Set(["cached!.keyGeneration", "cached.keyGeneration", "item.keyGeneration"]));
+    // The cache holds only ciphertext this browser just sealed from its own edit, never a server read.
+    const writes = main.match(/putNote\([^]*?\}\)/g)!;
+    expect(writes).toHaveLength(3);
+    for (const write of writes) expect(write).toMatch(/payload: (?:encrypted|await encryptNote\(write\.key)/);
+  });
 });
 
 describe("legacyRow", () => {
@@ -412,5 +447,101 @@ describe("memberKeyStatus", () => {
 
   it("in a never-shared notebook, names only members without an identity", () => {
     expect(memberKeyStatus({ id: cnt, keyGeneration: 1, sharedGeneration: 0 }, [owner.member, bare], [])).toEqual({ [bare.userId]: "no-identity" });
+  });
+});
+
+describe("legacy closure", () => {
+  const container = { id: cnt, keyGeneration: 3, sharedGeneration: 2 };
+  const ck = newContainerKey();
+  const ring = new Map([[3, ck]]);
+  const closed: KeyFloor = { shared: 2, generation: 3, closed: 2 };
+
+  it("refuses the login key for every server row once this device closed legacy reads", () => {
+    // Open: a row below sharing reads with the login key (and is labelled).
+    expect(readKeys(container, ring, legacy, 1, { shared: 2, generation: 3 })).toEqual([legacy]);
+    for (const generation of [0, 1, undefined, 1.5]) expect(readKeys(container, ring, legacy, generation, closed)).toEqual([]);
+    expect(readKeys(container, ring, legacy, 3, closed)).toEqual([ck]);
+    // A server that reports the notebook as never shared changes nothing.
+    expect(readKeys({ ...container, sharedGeneration: 0 }, ring, legacy, 1, closed)).toEqual([]);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 1, { closed: 2 })).toEqual([]);
+  });
+
+  it("still opens this browser's own queued and cached entries with the login key", () => {
+    expect(localReadKeys(container, ring, legacy, WAITING_GENERATION, closed)).toEqual([legacy]);
+    expect(localReadKeys(container, ring, legacy, 1, closed)).toEqual([legacy]);
+    expect(localReadKeys(container, ring, legacy, 3, closed)).toEqual([ck]);
+    expect(closed.closed).toBe(2); // the caller's floor is untouched
+  });
+
+  it("never reopens: merges and raises keep the closure", () => {
+    expect(mergeFloor(closed, { shared: 2, generation: 4 })).toMatchObject({ closed: 2, generation: 4 });
+    expect(mergeFloor({ shared: 2 }, { shared: 2, closed: 2 }).closed).toBe(2);
+    expect(raiseFloor(closed, { id: cnt, keyGeneration: 5, sharedGeneration: 2 }).closed).toBe(2);
+    expect(mergeFloor({ shared: 1 }, { shared: 1 })).not.toHaveProperty("closed");
+  });
+});
+
+describe("reopening legacy reads", () => {
+  const me = `usr_${"m".repeat(26)}`;
+  it("recognises only confirmations confirmReopenLegacy made, for that user and container, once", () => {
+    const real = confirmReopenLegacy(me, cnt);
+    expect(isReopenConfirmation(real, me, cnt)).toBe(true);
+    expect(Object.isFrozen(real)).toBe(true);
+    expect(isReopenConfirmation(real, me, `cnt_${"b".repeat(26)}`)).toBe(false);
+    expect(isReopenConfirmation(real, `usr_${"n".repeat(26)}`, cnt)).toBe(false);
+    for (const forged of [{ userID: me, containerID: cnt }, Object.create(ReopenConfirmation.prototype), Object.assign(Object.create(ReopenConfirmation.prototype), { userID: me, containerID: cnt }), null, cnt])
+      expect(isReopenConfirmation(forged, me, cnt)).toBe(false);
+    // Another user's or container's check does not use it up; the first real use does.
+    expect(consumeReopenConfirmation(real, `usr_${"n".repeat(26)}`, cnt)).toBe(false);
+    expect(consumeReopenConfirmation(real, me, cnt)).toBe(true);
+    expect(consumeReopenConfirmation(real, me, cnt)).toBe(false);
+    expect(isReopenConfirmation(real, me, cnt)).toBe(false);
+  });
+
+  it("treats a malformed closure as closed, never as open", () => {
+    for (const bad of [NaN, "x", -1, 1.5, Infinity, null, {}] as unknown as number[]) {
+      expect(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: bad }).closed).toBe(2);
+      expect(legacyKeys(mergeFloor({ shared: 2 }, { shared: 2, closed: bad }), legacy)).toEqual([]);
+      expect(legacyKeys({ closed: bad }, legacy)).toEqual([]); // a malformed value in hand fails closed
+    }
+    expect(legacyKeys(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: NaN }), legacy)).toEqual([]);
+  });
+
+  it("a malformed closure blocks a legacy read through readKeys and legacyKeys alike", () => {
+    const container = { sharedGeneration: 2 };
+    for (const bad of [NaN, "x", -1, 1.5, Infinity, null, {}] as unknown as number[]) {
+      for (const floor of [{ shared: 2, closed: bad }, mergeFloor({ shared: 2 }, { shared: 2, closed: bad })]) {
+        expect(legacyKeys(floor, legacy)).toEqual([]);
+        expect(readKeys(container, new Map(), legacy, 1, floor)).toEqual([]);
+        expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 1, floor)).toEqual([]);
+        // This browser's own entries still open (the local exception).
+        expect(localReadKeys(container, new Map(), legacy, 1, floor)).toEqual([legacy]);
+      }
+    }
+    // Open floors still read: the decision is not simply "always closed".
+    for (const floor of [{ shared: 2 }, { shared: 2, closed: 0 }]) expect(readKeys(container, new Map(), legacy, 1, floor)).toEqual([legacy]);
+  });
+
+  it("closedOf and legacyKeys make one closure decision", () => {
+    for (const closed of [undefined, 0, 1, 2, 2 ** 53, NaN, "x", -1, 1.5, Infinity, null, {}, "0", false] as unknown as number[]) {
+      const floor: KeyFloor = { closed };
+      expect(legacyKeys(floor, legacy).length === 1).toBe(closedOf(floor) === 0);
+    }
+    expect(closedOf({})).toBe(0);
+    expect(closedOf({ closed: 0 })).toBe(0);
+    expect(closedOf({ closed: 3 })).toBe(3);
+    expect(closedOf({ closed: NaN })).toBeGreaterThan(0);
+    // One decision, not two that happen to agree today.
+    const source = import.meta.glob<string>("./keyring.ts", { query: "?raw", import: "default", eager: true })["./keyring.ts"];
+    expect(source).toMatch(/export const legacyKeys = [^\n]*=> \(closedOf\(floor\) === 0 \?/);
+  });
+
+  it("mints a reopen confirmation only from the user's \"Show pre-sharing items again\" confirm", () => {
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./keyring.ts"]));
+    // The identifier itself, so an aliased import, a re-export or a namespace access is caught too.
+    const naming = (all: Record<string, string>) => Object.entries(all).filter(([name, text]) => /\bconfirmReopenLegacy\b/.test(text) && (!["./keyring.ts", "./components/LegacyReview.tsx"].includes(name) || /\bconfirmReopenLegacy\s+as\b/.test(text))).map(([name]) => name);
+    expect(naming(sources)).toEqual([]);
+    expect(naming({ "./x.ts": 'import { confirmReopenLegacy as yes } from "./keyring"; yes(u, c);', "./components/LegacyReview.tsx": 'import { confirmReopenLegacy as ok } from "../keyring";' })).toEqual(["./x.ts", "./components/LegacyReview.tsx"]);
   });
 });
