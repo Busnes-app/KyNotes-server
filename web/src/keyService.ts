@@ -169,6 +169,9 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       if (sweep.kind === "mint") {
         const rotated = await api.rotate(container.id, container.keyGeneration, rows);
         container = { ...container, keyGeneration: rotated.keyGeneration, sharedGeneration: container.sharedGeneration || rotated.keyGeneration };
+        // Server-confirmed: publish and (in finally, even on a throw) persist the new floor at once.
+        latest.saved = { containerID: container.id, known: raiseFloor(latest.saved!.known, container) };
+        onFloor?.(container.id, { shared: container.sharedGeneration, generation: container.keyGeneration });
       } else {
         await api.putEnvelopes(container.id, rows);
       }
@@ -179,7 +182,8 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       return "retry";
     }
     if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
-    const after = trusted(open(pins, await api.envelopes(container.id), opened.ring));
+    // The rows just accepted include this browser's own envelope for the new key: no re-fetch to fail.
+    const after = trusted(open(pins, [...envelopes, ...rows], opened.ring));
     return result({ ring: after.ring, plan: sweep, minted: true }, fresh, after);
   };
 

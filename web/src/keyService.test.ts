@@ -473,3 +473,33 @@ describe("a pass that fails after raising the floor", () => {
     expect(writeKey(old, ring, login, memory)).toBeUndefined();
   });
 });
+
+describe("a mint the server accepted", () => {
+  const afterMint = (api: KeyAPI): KeyAPI => ({ ...api, envelopes: async (id) => { if (vi.mocked(api.rotate).mock.calls.length) throw new Error("offline"); return api.envelopes(id); } });
+  const check = async (api: KeyAPI, store: ReturnType<typeof memoryStore>, owner: User, old: { id: string; keyGeneration: number; sharedGeneration: number }, generation: number, shared: number) => {
+    let memory: KeyFloor = { shared: store.known().shared, generation: store.known().generation };
+    const result = await syncContainerKeys(afterMint(api), cnt, as(owner), store, never, undefined, (_id, floor) => { memory = mergeFloor(memory, floor); });
+    expect(result.minted).toBe(true);
+    expect(store.known()).toMatchObject({ shared, generation, mark: generation });
+    expect(memory).toMatchObject({ shared, generation });
+    expect(writeKey(old, result.ring, login, memory)).toBeUndefined();
+    // The minted key is this browser's own and stays usable without a re-fetch.
+    expect(writeKey(result.container, result.ring, login, memory)?.generation).toBe(generation);
+  };
+
+  it("raises and publishes the floor with no post-mint fetch (first sharing)", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    await check(api, memoryStore(), owner, { id: cnt, keyGeneration: 1, sharedGeneration: 0 }, 2, 2);
+  });
+
+  it("raises and publishes the floor with no post-mint fetch (re-mint after a removal)", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { state, api } = server([owner, editor]);
+    const store = memoryStore();
+    await syncContainerKeys(api, cnt, as(owner), store, never);
+    state.generation += 1;
+    vi.mocked(api.rotate).mockClear();
+    await check(api, store, owner, { id: cnt, keyGeneration: 3, sharedGeneration: 2 }, 4, 2);
+  });
+});

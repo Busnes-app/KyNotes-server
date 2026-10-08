@@ -418,7 +418,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `guardContainer` applies it, `main.tsx` passes it only through `floorFor`, a thin lookup for every
   container (no loaded floor, no key; `ensureFloor` before first use; `putFloor` merges add-only via
   `mergeFloor`, and `syncContainerKeys` hands it the raised floor through `onFloor` before any
-  envelope fetch, so a pass that later throws still pauses writes), and a lower report is plan
+  envelope fetch and again the moment `rotate` succeeds; the post-mint ring opens from the accepted
+  rows, never a re-fetch, so a pass that later throws still pauses writes), and a lower report is plan
   `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
   `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
   (`needsKeyPass`) but never skip one.
