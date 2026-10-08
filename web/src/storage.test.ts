@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityProtection, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { CachedNote, PendingSave } from "./storage";
@@ -301,7 +301,7 @@ describe("the identity at rest", () => {
 
   it("keeps the private key sealed under a non-extractable device key, never raw", async () => {
     const identity = held();
-    expect(identityProtection()).toBe("device-key");
+    expect(identityStorage()).toBe("wrapped");
     expect(await storeIdentityKey("me", me, identity)).toBe(true);
     const stored = (await vaultRow("me"))!.identity;
     expect(stored.privateKey).toBeUndefined();
@@ -323,7 +323,7 @@ describe("the identity at rest", () => {
   it("keeps the raw key on a plain-HTTP origin, where there is no WebCrypto, and says so", async () => {
     vi.stubGlobal("isSecureContext", false);
     const identity = held();
-    expect(identityProtection()).toBe("unprotected");
+    expect(identityStorage()).toBe("plain");
     expect(await storeIdentityKey("me", me, identity)).toBe(true);
     expect((await vaultRow("me"))!.identity.privateKey).toEqual(identity.privateKey);
     expect(await getIdentityKey("me", me)).toEqual(identity);
@@ -338,6 +338,27 @@ describe("the identity at rest", () => {
     expect(await getIdentityKey("me", me)).toBeUndefined();
     await storeIdentityKey("me", me, { ...identity, publicKey: generateIdentity().publicKey });
     expect(await getIdentityKey("me", me)).toBeUndefined();
+  });
+
+  it("binds the sealed copy to its user and device ID", async () => {
+    await storeIdentityKey("me", me, held());
+    const row = (await vaultRow("me"))!;
+    const other = `usr_${"z".repeat(26)}`;
+    await putVaultRow({ ...row, identity: { ...row.identity, userID: other } });
+    expect(await loadIdentityRecord("me", other)).toBeUndefined();
+    await putVaultRow({ ...row, identity: { ...row.identity, deviceId: `dev_${"e".repeat(26)}` } });
+    expect(await loadIdentityRecord("me", me)).toBeUndefined();
+  });
+
+  it("seals each write under a fresh device key and IV", async () => {
+    const identity = held();
+    await storeIdentityKey("me", me, identity);
+    const first = (await vaultRow("me"))!.identity;
+    await storeIdentityKey("me", me, identity);
+    const second = (await vaultRow("me"))!.identity;
+    expect(first.sealed.slice(0, 12)).not.toEqual(second.sealed.slice(0, 12));
+    expect(first.deviceKey).not.toBe(second.deviceKey);
+    await expect(crypto.subtle.exportKey("raw", second.deviceKey)).rejects.toThrow();
   });
 
   it("writes with an expected identity only while the vault still holds it", async () => {
@@ -399,5 +420,39 @@ describe("the identity at rest", () => {
     } finally {
       vi.stubGlobal("indexedDB", real);
     }
+  });
+});
+
+describe("a vault write the browser aborts", () => {
+  const me = `usr_${"b".repeat(26)}`;
+  beforeEach(async () => { vi.stubGlobal("isSecureContext", true); await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  afterEach(() => { vi.restoreAllMocks(); vi.stubGlobal("isSecureContext", undefined); });
+
+  // A put that throws (DataCloneError here; QuotaExceededError in a browser) aborts the transaction.
+  const uncloneable = () => {
+    vi.spyOn(crypto.subtle, "generateKey").mockResolvedValue({ notCloneable: () => 1 } as never);
+    vi.spyOn(crypto.subtle, "encrypt").mockResolvedValue(new ArrayBuffer(48));
+  };
+
+  it("keeps nothing and says so, rather than hanging", { timeout: 2000 }, async () => {
+    uncloneable();
+    expect(await storeIdentityKey("me", me, { ...generateIdentity(), deviceId: `dev_${"c".repeat(26)}` })).toBe(false);
+  });
+
+  it("still returns a raw copy whose re-seal could not be kept", { timeout: 2000 }, async () => {
+    const identity = { ...generateIdentity(), deviceId: `dev_${"c".repeat(26)}` };
+    vi.stubGlobal("isSecureContext", false);
+    await storeIdentityKey("me", me, identity);
+    vi.stubGlobal("isSecureContext", true);
+    uncloneable();
+    expect(await getIdentityKey("me", me)).toEqual(identity);
+    expect((await vaultRow("me"))!.identity.privateKey).toEqual(identity.privateKey);
+  });
+
+  it("rejects a queued-save replacement whose write aborts", { timeout: 2000 }, async () => {
+    const entry = { id: "obj_abort", containerID: "cnt_1", version: 1, payload: new Uint8Array([1]), updatedAt: "2026-10-08T00:00:00Z", keyGeneration: 0, owner: me };
+    await queueSave(entry);
+    await expect(replaceQueuedSave(entry, { ...entry, version: 2, payload: (() => 1) as never })).rejects.toThrow();
+    await clearQueuedSave(me, entry.id);
   });
 });

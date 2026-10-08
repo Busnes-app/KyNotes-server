@@ -61,19 +61,42 @@ function openDatabase(): Promise<IDBDatabase> {
         }
         transaction.oncomplete = () => { localStorage.removeItem("kynotes-pending-saves"); resolve(db); };
         transaction.onerror = () => resolve(db);
+        transaction.onabort = () => resolve(db);
       } catch { resolve(db); }
     };
     request.onerror = () => reject(request.error ?? new Error("Unable to open local note store"));
   });
 }
 
-export async function putNote(owner: string, note: CachedNote): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = db.transaction(storeName, "readwrite").objectStore(storeName).put({ ...note, owner });
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
+/** Settles when the transaction commits, and rejects when it errors or aborts, so a write never hangs. */
+function committed<T>(transaction: IDBTransaction, result: () => T): Promise<T> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve(result());
+    transaction.onerror = () => reject(transaction.error ?? new Error("Local store write failed"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Local store write aborted"));
   });
-  db.close();
+}
+
+/** A request callback that aborts its transaction when it throws (DataCloneError, quota), instead of leaving it open. */
+const guarded = (transaction: IDBTransaction, callback: () => void) => () => {
+  try { callback(); } catch { transaction.abort(); }
+};
+
+/** One write to one store, resolved only once it commits. */
+async function write(name: string, work: (store: IDBObjectStore) => void): Promise<void> {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(name, "readwrite");
+    const done = committed(transaction, () => undefined);
+    guarded(transaction, () => work(transaction.objectStore(name)))();
+    await done;
+  } finally {
+    db.close();
+  }
+}
+
+export async function putNote(owner: string, note: CachedNote): Promise<void> {
+  await write(storeName, (store) => store.put({ ...note, owner }));
 }
 
 async function getRow(key: string[]): Promise<CachedNote | undefined> {
@@ -98,19 +121,13 @@ export async function getNote(owner: string, id: string, opensLegacy?: (note: Ca
   if (own || !opensLegacy || owner === UNKNOWN) return own;
   const legacy = await getRow([UNKNOWN, id]);
   if (!legacy || !(await opensLegacy(legacy).catch(() => false))) return undefined;
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(storeName, "readwrite");
-    const store = transaction.objectStore(storeName);
+  await write(storeName, (store) => {
     const read = store.get([owner, id]);
-    read.onsuccess = () => {
+    read.onsuccess = guarded(store.transaction, () => {
       if (!read.result) store.put({ ...legacy, owner });
       store.delete([UNKNOWN, id]);
-    };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
+    });
   });
-  db.close();
   return legacy;
 }
 
@@ -126,21 +143,11 @@ export async function ownerUnknownNotes(): Promise<CachedNote[]> {
 }
 
 export async function deleteNote(owner: string, id: string): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = db.transaction(storeName, "readwrite").objectStore(storeName).delete([owner, id]);
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  db.close();
+  await write(storeName, (store) => store.delete([owner, id]));
 }
 
 export async function queueSave(note: PendingSave & { owner: string }): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = db.transaction("pending", "readwrite").objectStore("pending").put(note);
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  db.close();
+  await write("pending", (store) => store.put(note));
 }
 
 /** Every account's queued saves; owner is absent on entries queued before owners were recorded. */
@@ -156,12 +163,7 @@ export async function pendingSaves(): Promise<PendingSave[]> {
 }
 
 export async function clearQueuedSave(owner: string, id: string): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = db.transaction("pending", "readwrite").objectStore("pending").delete([owner, id]);
-    request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
-  });
-  db.close();
+  await write("pending", (store) => store.delete([owner, id]));
 }
 
 /**
@@ -171,14 +173,11 @@ export async function clearQueuedSave(owner: string, id: string): Promise<void> 
  * queued a save of the same page meanwhile, which then stays and the claim is refused.
  */
 export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
-  const db = await openDatabase();
-  const replaced = await new Promise<boolean>((resolve, reject) => {
-    const transaction = db.transaction("pending", "readwrite");
-    const store = transaction.objectStore("pending");
+  let same = false;
+  await write("pending", (store) => {
     const from = keyOf(expected);
-    let same = false;
     const read = store.get(from);
-    read.onsuccess = () => {
+    read.onsuccess = guarded(store.transaction, () => {
       const current = read.result as PendingSave | undefined;
       same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration);
       if (!same) return;
@@ -186,23 +185,18 @@ export async function replaceQueuedSave(expected: PendingSave, next?: PendingSav
       const to = keyOf(next);
       if (indexedDB.cmp(from, to) === 0) { store.put(toRow(next)); return; }
       const taken = store.get(to);
-      taken.onsuccess = () => {
+      taken.onsuccess = guarded(store.transaction, () => {
         if (taken.result) { same = false; return; }
         store.put(toRow(next));
         store.delete(from);
-      };
-    };
-    transaction.oncomplete = () => resolve(same);
-    transaction.onerror = () => reject(transaction.error);
+      });
+    });
   });
-  db.close();
-  return replaced;
+  return same;
 }
 
 export async function putUpload(upload: PendingUpload): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => { const request = db.transaction("uploads", "readwrite").objectStore("uploads").put(upload); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); });
-  db.close();
+  await write("uploads", (store) => store.put(upload));
 }
 export async function pendingUploads(): Promise<PendingUpload[]> {
   const db = await openDatabase();
@@ -210,23 +204,15 @@ export async function pendingUploads(): Promise<PendingUpload[]> {
   db.close(); return result;
 }
 export async function clearUpload(uploadId: string): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => { const request = db.transaction("uploads", "readwrite").objectStore("uploads").delete(uploadId); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); });
-  db.close();
+  await write("uploads", (store) => store.delete(uploadId));
 }
 
 /** Merges into the vault record so a cached identity survives a new auth secret. */
 export async function storeDeviceKey(username: string, authSecret: string): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("keys", "readwrite");
-    const store = transaction.objectStore("keys");
+  await write("keys", (store) => {
     const read = store.get(username);
-    read.onsuccess = () => store.put({ ...read.result, username, authSecret, updatedAt: new Date().toISOString() });
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
+    read.onsuccess = guarded(store.transaction, () => store.put({ ...read.result, username, authSecret, updatedAt: new Date().toISOString() }));
   });
-  db.close();
 }
 
 /** Runs the server call, then caches its keys best-effort: the vault is a convenience and never fails a sign-in. */
@@ -264,15 +250,19 @@ type RawIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; pr
 type VaultIdentity = SealedIdentity | RawIdentity;
 type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
 
-/** "device-key": sealed under a key this browser cannot export. "unprotected": a plain-HTTP origin keeps the raw key. */
-export const identityProtection = (): "device-key" | "unprotected" =>
-  globalThis.isSecureContext === true && typeof globalThis.crypto?.subtle?.generateKey === "function" ? "device-key" : "unprotected";
+/**
+ * How the vault stores the private key, not how well it is protected. "wrapped": sealed under a
+ * non-exportable key stored beside it in the same profile (not at-rest protection). "plain": a
+ * plain-HTTP origin has no WebCrypto and stores the raw key.
+ */
+export const identityStorage = (): "wrapped" | "plain" =>
+  globalThis.isSecureContext === true && typeof globalThis.crypto?.subtle?.generateKey === "function" ? "wrapped" : "plain";
 
 const identityAAD = (userID: string, deviceId: string) => new TextEncoder().encode(`kynotes/device-identity/v1|${userID}|${deviceId}`);
 
 async function sealForDevice(userID: string, identity: HeldIdentity): Promise<VaultIdentity> {
   const base = { userID, deviceId: identity.deviceId, publicKey: identity.publicKey.slice() };
-  if (identityProtection() === "unprotected") return { ...base, privateKey: identity.privateKey.slice() };
+  if (identityStorage() === "plain") return { ...base, privateKey: identity.privateKey.slice() };
   const deviceKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: identityAAD(userID, identity.deviceId) }, deviceKey, identity.privateKey.slice()));
@@ -315,7 +305,7 @@ export async function loadIdentityRecord(username: string, userID: string): Prom
   const stored = (await readRecord(username))?.identity;
   if (!stored || stored.userID !== userID) return undefined;
   const held = await openForDevice(stored);
-  if (held && "privateKey" in stored && identityProtection() === "device-key") {
+  if (held && "privateKey" in stored && identityStorage() === "wrapped") {
     // Written raw by an earlier version: sealed now, only while the record still holds that copy.
     const upgraded = await sealForDevice(userID, held).catch(() => undefined);
     if (upgraded) await updateRecord(username, (record) => (record.identity && "privateKey" in record.identity && sameBytes(record.identity.privateKey, stored.privateKey) ? { ...record, identity: upgraded } : undefined));
@@ -348,23 +338,17 @@ async function readRecord(username: string): Promise<VaultRecord | undefined> {
 /** Read-modify-write of an existing vault record in one transaction. False: nothing kept (no record, no IndexedDB). */
 /** change returning undefined leaves the record as it is, and the result is false. */
 async function updateRecord(username: string, change: (record: VaultRecord) => VaultRecord | undefined): Promise<boolean> {
+  let found = false;
   try {
-    const db = await openDatabase();
-    const kept = await new Promise<boolean>((resolve, reject) => {
-      const transaction = db.transaction("keys", "readwrite");
-      const store = transaction.objectStore("keys");
-      let found = false;
+    await write("keys", (store) => {
       const read = store.get(username);
-      read.onsuccess = () => {
+      read.onsuccess = guarded(store.transaction, () => {
         const record = read.result as VaultRecord | undefined;
         const next = record && change(record);
-        if (next) { found = true; store.put(next); }
-      };
-      transaction.oncomplete = () => resolve(found);
-      transaction.onerror = () => reject(transaction.error);
+        if (next) { store.put(next); found = true; }
+      });
     });
-    db.close();
-    return kept;
+    return found;
   } catch {
     return false;
   }
@@ -387,14 +371,11 @@ export type PinsStored = { ok: true } | { ok: false; conflicts: string[] };
 
 /** Adds first-contact pins, compared with the stored pins in the same transaction; never overwrites. */
 export async function storePins(username: string, userID: string, keys: Pins): Promise<PinsStored> {
+  let outcome: PinsStored = { ok: false, conflicts: [] };
   try {
-    const db = await openDatabase();
-    const result = await new Promise<PinsStored>((resolve, reject) => {
-      const transaction = db.transaction("keys", "readwrite");
-      const store = transaction.objectStore("keys");
-      let outcome: PinsStored = { ok: false, conflicts: [] };
+    await write("keys", (store) => {
       const read = store.get(username);
-      read.onsuccess = () => {
+      read.onsuccess = guarded(store.transaction, () => {
         const record = read.result as VaultRecord | undefined;
         if (!record) return;
         const stored = pinsOf(record, userID);
@@ -402,12 +383,9 @@ export async function storePins(username: string, userID: string, keys: Pins): P
         if (conflicts.length) { outcome = { ok: false, conflicts }; return; }
         store.put({ ...record, pins: { userID, keys: { ...keys, ...stored } } });
         outcome = { ok: true };
-      };
-      transaction.oncomplete = () => resolve(outcome);
-      transaction.onerror = () => reject(transaction.error);
+      });
     });
-    db.close();
-    return result;
+    return outcome;
   } catch {
     return { ok: false, conflicts: [] };
   }
@@ -452,21 +430,9 @@ export async function storeKeyState(username: string, userID: string, containerI
 }
 
 export async function clearDeviceKey(username: string): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = db.transaction("keys", "readwrite").objectStore("keys").delete(username);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
+  await write("keys", (store) => store.delete(username));
 }
 
 export async function clearAllDeviceKeys(): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const request = db.transaction("keys", "readwrite").objectStore("keys").clear();
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
+  await write("keys", (store) => store.clear());
 }

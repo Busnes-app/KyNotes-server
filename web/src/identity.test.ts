@@ -237,6 +237,53 @@ describe("settleSSOIdentity", () => {
     expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
   });
 
+  it("re-reads the vault before sending this browser to link", async () => {
+    const mine = heldOf();
+    const v = vault();
+    let loads = 0;
+    // The first read predates another tab of this browser finishing the identity.
+    const store: IdentityStore = { load: async () => (loads++ === 0 ? undefined : v.get()), save: v.store.save };
+    await v.store.save(mine);
+    const api = { myIdentity: async () => publicOf(mine), putDeviceOnlyIdentity: vi.fn() };
+    expect(await settleSSOIdentity(api, store)).toEqual({ kind: "held", identity: mine });
+  });
+
+  it("adopts on a second identity_exists when the server lists the key the vault holds", async () => {
+    const theirs = heldOf("");
+    const v = vault();
+    let loads = 0;
+    let live: ReturnType<typeof publicOf> | undefined;
+    const store: IdentityStore = { load: async () => (loads++ === 0 ? undefined : v.get()), save: v.store.save };
+    await v.store.save(theirs); // the other tab's pending key, kept after this run's first read
+    const api = {
+      myIdentity: async () => live,
+      // The other tab's PUT of the same key lands first.
+      putDeviceOnlyIdentity: vi.fn(async (_publicKey: string): Promise<{ deviceId: string }> => { live = publicOf(theirs, dev); throw Object.assign(new Error("exists"), { code: "identity_exists" }); }),
+    };
+    expect(await settleSSOIdentity(api, store)).toEqual({ kind: "held", identity: { ...theirs, deviceId: dev } });
+    expect(v.get()).toEqual({ ...theirs, deviceId: dev });
+  });
+
+  it("links when another browser's identity lands before this one", async () => {
+    const v = vault();
+    let live: ReturnType<typeof publicOf> | undefined;
+    const api = {
+      myIdentity: async () => live,
+      putDeviceOnlyIdentity: vi.fn(async (_publicKey: string): Promise<{ deviceId: string }> => { live = publicOf(heldOf()); throw Object.assign(new Error("exists"), { code: "identity_exists" }); }),
+    };
+    expect(await settleSSOIdentity(api, v.store)).toEqual({ kind: "link" });
+    expect(api.putDeviceOnlyIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not held when the vault stops keeping the key before the final save", async () => {
+    let stored: HeldIdentity | undefined;
+    let saves = 0;
+    // "Forget this device" in another tab deletes the record between the pending and final saves.
+    const store: IdentityStore = { load: async () => stored, save: async (identity) => { if (++saves > 1) { stored = undefined; return false; } stored = identity; return true; } };
+    const api = { myIdentity: async () => undefined, putDeviceOnlyIdentity: vi.fn(async () => ({ deviceId: dev })) };
+    expect(await settleSSOIdentity(api, store)).toEqual({ kind: "unsaved" });
+  });
+
   it("adopts the identity another tab created meanwhile", async () => {
     const v = vault();
     let live: ReturnType<typeof publicOf> | undefined;

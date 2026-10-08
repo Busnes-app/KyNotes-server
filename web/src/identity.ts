@@ -75,6 +75,7 @@ export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIde
  * that identity (null: none), so two tabs never overwrite each other's key.
  */
 export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity, expected?: HeldIdentity | null) => Promise<boolean> };
+/** unsaved: this browser keeps no identity (no vault, or it was cleared meanwhile). */
 export type Settled = { kind: "held"; identity: HeldIdentity } | { kind: "link" } | { kind: "orphaned" } | { kind: "unsaved" };
 
 /**
@@ -86,14 +87,12 @@ export type Settled = { kind: "held"; identity: HeldIdentity } | { kind: "link" 
  * KySignOn confirmation) are thrown unchanged and leave the pending key for the next run.
  */
 export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore, replace = false, retried = false): Promise<Settled> {
-  const local = await store.load();
+  let local = await store.load();
   const live = await api.myIdentity();
   if (live) {
-    if (!local || !sameBytes(local.publicKey, fromBase64(live.publicKey))) return { kind: "link" };
-    const identity = { ...local, deviceId: live.deviceId };
-    // A save that fails leaves the pending copy, which the next run finishes.
-    if (local.deviceId !== live.deviceId) await store.save(identity, local);
-    return { kind: "held", identity };
+    // Another tab may have kept this key after the first read: read again before sending this browser to link.
+    if (!holdsLive(local, live)) local = await store.load();
+    return local && holdsLive(local, live) ? finish(store, local, live.deviceId) : { kind: "link" };
   }
   if (local?.deviceId && !replace) return { kind: "orphaned" };
   const pending = local && !local.deviceId ? local : { ...generateIdentity(), deviceId: "" };
@@ -101,14 +100,26 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
   if (pending !== local && !(await store.save(pending, local ?? null))) return retried ? { kind: "unsaved" } : settleSSOIdentity(api, store, false, true);
   try {
     const { deviceId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
-    const identity = { ...pending, deviceId };
-    await store.save(identity, pending);
-    return { kind: "held", identity };
+    return await finish(store, pending, deviceId);
   } catch (error) {
-    // Another tab of this browser created one meanwhile: settle against it once.
-    if ((error as { code?: string }).code === "identity_exists" && !retried) return settleSSOIdentity(api, store, false, true);
+    if ((error as { code?: string }).code !== "identity_exists") throw error;
+    // Another tab of this browser sent the same key first: finish it. A different key: settle against it once.
+    const now = await api.myIdentity();
+    if (now && holdsLive(pending, now)) return finish(store, pending, now.deviceId);
+    if (!retried) return settleSSOIdentity(api, store, false, true);
     throw error;
   }
+}
+
+const holdsLive = (local: HeldIdentity | undefined, live: PublicIdentity) => local !== undefined && sameBytes(local.publicKey, fromBase64(live.publicKey));
+
+/** Records the server's device ID on the vault copy. Held only while the vault still keeps this key; else unsaved. */
+async function finish(store: IdentityStore, local: HeldIdentity, deviceId: string): Promise<Settled> {
+  const identity = { ...local, deviceId };
+  if (local.deviceId === deviceId || (await store.save(identity, local))) return { kind: "held", identity };
+  // Another tab may have finished it, or "Forget this device" removed it.
+  const now = await store.load();
+  return now?.deviceId === deviceId && sameBytes(now.publicKey, local.publicKey) ? { kind: "held", identity: now } : { kind: "unsaved" };
 }
 
 export type IdentityStatus = "held" | "link" | "create" | "orphaned";
