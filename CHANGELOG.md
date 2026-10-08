@@ -9,7 +9,8 @@
   changed one; it also exports (as an unencrypted file) or discards edits stranded for a notebook you
   lost. A removed member can be invited again, and removal cancels their pending invitations; a team
   admin can remove an admin it invited; invitation expiry is checked as the invitation is accepted;
-  invitation creation is rate-limited (`ratelimit.invitation_per_hour`, default 30); expired
+  invitation creation and, in a separate bucket, invitation accepts are rate-limited per account
+  (`ratelimit.invitation_per_hour`, default 30); expired
   invitations' keys are cleaned up. Refused accepts and admin adds are audited. Migration `0023`
   adds `memberships.invited_by`. The browser's local note cache and save queue are now kept per
   account, so two accounts signed in on one browser never overwrite or read each other's unsent edits.

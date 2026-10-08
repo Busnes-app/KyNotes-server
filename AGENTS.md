@@ -489,7 +489,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `memberships.invited_by` (migration `0023_membership_inviter.sql`; older rows are empty and fail closed;
   child workspaces copy it); a team admin removes another admin only when it invited that membership;
   removal deletes the member's pending invitations, child workspaces included; `ratelimit.invitation_per_hour`
-  limits invitation creation per account (invalid or negative is a startup error); `storage.RunGC` deletes
+  limits invitation creation per account, and accepts per account in a separate bucket at the same rate
+  (invalid or negative is a startup error); `storage.RunGC` deletes
   envelopes of expired invitations; the container list is 500, never a partial 200. Web: one-time links
   `#/invite/<id>/<token>` (`web/src/invitations.ts`) are stashed in session storage (in memory for the page
   load when storage is refused) and cleared from the address bar, also in an open tab; the token goes only

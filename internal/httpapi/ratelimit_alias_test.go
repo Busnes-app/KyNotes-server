@@ -126,8 +126,20 @@ func TestInvitationCreationIsRateLimitedPerCaller(t *testing.T) {
 	if got := call(http.MethodPost, team, "203.0.113.21:1"); got != http.StatusOK {
 		t.Fatalf("another caller=%d", got)
 	}
-	if got := call(http.MethodPost, "/api/v1/invitations/inv_aaaaaaaaaaaaaaaaaaaaaaaaaa/accept", "203.0.113.20:1"); got != http.StatusOK {
-		t.Fatalf("accept was limited: %d", got)
+	// Accepts have their own bucket at the same rate, so a spent creation budget does not block one.
+	const accept = "/api/v1/invitations/inv_aaaaaaaaaaaaaaaaaaaaaaaaaa/accept"
+	for i := 0; i < 2; i++ {
+		if got := call(http.MethodPost, accept, "203.0.113.20:1"); got != http.StatusOK {
+			t.Fatalf("accept %d=%d", i, got)
+		}
+	}
+	for _, path := range []string{"/api/v1/invitations/inv_bbbbbbbbbbbbbbbbbbbbbbbbbb/accept", "/api/invitations/inv_aaaaaaaaaaaaaaaaaaaaaaaaaa/accept"} {
+		if got := call(http.MethodPost, path, "203.0.113.20:1"); got != http.StatusTooManyRequests {
+			t.Fatalf("%s after the accept bucket was spent=%d, want 429", path, got)
+		}
+	}
+	if got := call(http.MethodPost, accept, "203.0.113.21:1"); got != http.StatusOK {
+		t.Fatalf("another caller's accept=%d", got)
 	}
 }
 
