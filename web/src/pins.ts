@@ -1,4 +1,5 @@
 import { digestSha256Hex, fromBase64 } from "./crypto";
+import type { PublicIdentity } from "./identity";
 import type { MemberKey } from "./keyring";
 
 /** Trust-on-first-use pins: colleague user ID → identity public key (standard base64). */
@@ -96,4 +97,22 @@ export function pinRows(pins: Pins, current: Record<string, string | undefined>)
     const now = current[userId];
     return { userId, pinned, current: now, state: now === undefined ? "unseen" : sameKey(pinned, now) ? "same" : "changed" };
   });
+}
+
+/**
+ * The member to re-trust: only when the identity fetched now for userId is a valid key equal to
+ * the one whose fingerprint the user was shown. The name is the user ID, never a server name.
+ */
+export function retrustTarget(userId: string, shown: string, fresh: PublicIdentity | undefined): MemberKey | undefined {
+  if (!fresh || !validKey(fresh.publicKey) || !sameKey(shown, fresh.publicKey)) return undefined;
+  return { userId, username: userId, role: "", identity: { deviceId: fresh.deviceId, publicKey: fresh.publicKey } };
+}
+
+/** A user label that never rests on the server's display name alone. */
+export const pinLabel = (userId: string, name: string): string => (name === userId ? userId : `${name} (${userId})`);
+
+/** The confirmation text; both fingerprints are computed locally (fingerprint). */
+export function retrustMessage({ userId, name, newPrint, oldPrint }: { userId: string; name: string; newPrint: string; oldPrint: string }): string {
+  const who = pinLabel(userId, name);
+  return `Trust the new encryption key of ${who}?\n\nNew: ${newPrint}\nWas: ${oldPrint}\n\nA password reset or account recovery changes it; so would a server substituting its own key. The name comes from the server; the user ID and fingerprints are what you are trusting. Compare the new fingerprint with ${name} in person (their Settings shows it) before trusting it.`;
 }

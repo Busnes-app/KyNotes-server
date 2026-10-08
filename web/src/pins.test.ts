@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePins, confirmFingerprintChange, displayName, fingerprint, isPinConfirmation, PinConfirmation, pinRows, sameKey } from "./pins";
+import { comparePins, confirmFingerprintChange, displayName, fingerprint, isPinConfirmation, PinConfirmation, pinRows, retrustMessage, retrustTarget, sameKey } from "./pins";
 
 const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)));
 const member = (id: string, publicKey?: string) => ({ userId: id, username: id, role: "editor", identity: publicKey ? { deviceId: "dev", publicKey } : undefined });
@@ -66,5 +66,27 @@ describe("pinRows", () => {
       { userId: "b", pinned: key(2), current: key(9), state: "changed" },
       { userId: "c", pinned: key(3), current: undefined, state: "unseen" },
     ]);
+  });
+});
+
+describe("re-trusting a changed key", () => {
+  const fresh = (publicKey: string) => ({ deviceId: "dev2", publicKey, fingerprint: "server says anything" });
+
+  it("accepts only a fresh, valid key equal to the one whose fingerprint was shown", () => {
+    // A variant spelling of the same 32 bytes is the same key.
+    expect(retrustTarget("u1", key(0), fresh(`${key(0).slice(0, 42)}B=`))).toEqual({ userId: "u1", username: "u1", role: "", identity: { deviceId: "dev2", publicKey: `${key(0).slice(0, 42)}B=` } });
+    // The server swapped the key between display and click.
+    expect(retrustTarget("u1", key(9), fresh(key(8)))).toBeUndefined();
+    expect(retrustTarget("u1", key(9), undefined)).toBeUndefined();
+    expect(retrustTarget("u1", btoa("short"), fresh(btoa("short")))).toBeUndefined();
+  });
+
+  it("names the user ID and both locally computed fingerprints, never only the server's name", () => {
+    const text = retrustMessage({ userId: "usr_alice", name: "bob", newPrint: "aaaa bbbb", oldPrint: "cccc dddd" });
+    expect(text).toContain("usr_alice");
+    expect(text).toContain("bob");
+    expect(text).toContain("New: aaaa bbbb");
+    expect(text).toContain("Was: cccc dddd");
+    expect(retrustMessage({ userId: "usr_alice", name: "usr_alice", newPrint: "a", oldPrint: "b" })).not.toContain("usr_alice (usr_alice)");
   });
 });

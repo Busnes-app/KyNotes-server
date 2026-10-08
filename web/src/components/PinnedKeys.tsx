@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { userIdentity } from "../api";
 import type { PublicIdentity } from "../identity";
-import { confirmFingerprintChange, fingerprint, pinRows, type PinRow } from "../pins";
+import { confirmFingerprintChange, fingerprint, pinLabel, pinRows, retrustMessage, retrustTarget, type PinRow } from "../pins";
 import { getPins, storeConfirmedPin } from "../storage";
 
-type Shown = PinRow & { pinnedPrint: string; currentPrint?: string; identity?: PublicIdentity };
+type Shown = PinRow & { pinnedPrint: string; currentPrint?: string };
 const UNREADABLE = "unreadable key";
 const print = (key: string) => fingerprint(key).catch(() => UNREADABLE);
 
@@ -26,7 +26,6 @@ export function PinnedKeys({ username, userID, names }: { username: string; user
       const current = Object.fromEntries(Object.entries(seen).map(([id, identity]) => [id, identity?.publicKey]));
       setRows(await Promise.all(pinRows(pins, current).map(async (row) => ({
         ...row,
-        identity: seen[row.userId],
         pinnedPrint: await print(row.pinned),
         currentPrint: row.current === undefined ? undefined : await print(row.current),
       }))));
@@ -36,13 +35,17 @@ export function PinnedKeys({ username, userID, names }: { username: string; user
   }
   useEffect(() => { void load(); }, [username, userID]);
   async function trust(row: Shown) {
-    if (!row.identity || row.currentPrint === undefined || row.currentPrint === UNREADABLE) return;
-    const name = nameOf(row);
-    const accepted = confirm(`Trust ${name}'s new encryption key?\n\nNew: ${row.currentPrint}\nWas: ${row.pinnedPrint}\n\nA password reset or account recovery changes it; so would a server substituting its own key. Compare the new fingerprint with ${name} in person (their Settings shows it) before trusting it.`);
-    if (!accepted) return;
+    if (row.current === undefined || row.currentPrint === undefined || row.currentPrint === UNREADABLE) return;
+    // Fresh read for this user ID; it must be the key whose fingerprint is on screen.
+    const target = retrustTarget(row.userId, row.current, await userIdentity(row.userId).catch(() => undefined));
+    if (!target) {
+      setProblem("That colleague's key changed again or could not be read. Check the fingerprint shown now.");
+      await load();
+      return;
+    }
+    if (!confirm(retrustMessage({ userId: row.userId, name: nameOf(row), newPrint: row.currentPrint, oldPrint: row.pinnedPrint }))) return;
     try {
-      // The key confirmed is the one whose fingerprint was shown, not a fresh server read.
-      const confirmation = confirmFingerprintChange(await getPins(username, userID), { userId: row.userId, username: name, role: "", identity: { deviceId: row.identity.deviceId, publicKey: row.identity.publicKey } });
+      const confirmation = confirmFingerprintChange(await getPins(username, userID), target);
       if (!(await storeConfirmedPin(username, userID, confirmation))) throw new Error("not stored");
     } catch {
       setProblem("This browser could not save the new key. Allow site storage and try again.");
@@ -59,7 +62,7 @@ export function PinnedKeys({ username, userID, names }: { username: string; user
       {rows?.length === 0 && <p className="config-muted">No colleague keys yet. A key is saved the first time you share a team notebook with someone.</p>}
       {rows?.map((row) => (
         <div className="pin-row" key={row.userId}>
-          <strong>{nameOf(row)}</strong>
+          <strong>{pinLabel(row.userId, nameOf(row))}</strong>
           <code>{row.pinnedPrint}</code>
           {row.state === "same" && <span className="config-muted">matches the server</span>}
           {row.state === "unseen" && <span className="config-muted">not visible now (no shared notebook, or no key yet)</span>}
