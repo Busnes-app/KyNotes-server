@@ -90,5 +90,28 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).toMatch(/alert\("Password reset\.[^"]*keeps its encryption key[^"]*recovery code[^"]*KySignOn gets no password copy back/);
     expect(main).not.toMatch(/encryption identity was deleted|an administrator reset removes it/);
   });
-});
 
+  it("never asks a single sign-on session for a password; a refused password lets no one in (I1)", () => {
+    expect(main).toContain("if (res.sso) {\n          setAuth({ username: res.user.username, authSecret: await ssoDeviceSecret(res.user.username), user: res.user, sso: true });\n          return;\n        }\n        setSessionUser(res.user);");
+    expect(main).not.toMatch(/master password|Master Password|note-encryption keys|storeDeviceKey/);
+    const submit = block("  async function submit(");
+    expect(submit).not.toMatch(/sso: true/);
+    expect(submit.match(/catch/g)).toHaveLength(1); // the error shown on the form; no fallback sign-in
+    expect(submit).toContain("const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);");
+  });
+
+  it("shows member management and team notebooks only to stewards, from the server's member list (M1)", () => {
+    expect(main).toContain("const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;");
+    expect(main).toContain("{selected?.id === container.id && teamSteward && (");
+    expect(main).toContain("{teamSteward && (\n                  <button className=\"new-workspace\" onClick={() => void invite()}>");
+    expect(main).toContain("{teamSteward && member.userId !== auth.user.id && (");
+  });
+
+  it("never sends an edit sealed for a key a reset replaced, and explains an unanswered reset (M4, M5)", () => {
+    expect(block("  async function drainQueue(")).toContain(".filter((item) => item.owner === auth.user.id).filter((item) => !item.previousKey);");
+    expect(main).toContain("onReset={(next) => { void retireWaitingEdits(next)");
+    expect(main).toContain("setResetUnfinished(unfinishedReset(local, live, sent));");
+    expect(main).toContain("noteReset: (publicKey) => noteResetSent(auth.username, auth.user.id, publicKey)");
+    expect(main).toContain("{resetUnfinished && <div className=\"conflict-banner\" role=\"status\">{RESET_UNFINISHED} <button onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}");
+  });
+});

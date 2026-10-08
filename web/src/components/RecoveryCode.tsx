@@ -21,6 +21,7 @@ export const RESET_NOT_HELD = "Only if no browser holds your key and you have no
 export const RESET_DONE = "Your encryption key was reset. Team owners share their notebooks' keys with you again when they next open them.";
 export const RESET_UNKEPT = "Your encryption key was reset, but this browser could not keep it (site storage is blocked). Restore it with your new recovery code in a browser that allows site storage.";
 export const RESET_WRONG_PASSWORD = "That password is not right. Nothing was reset.";
+export const RESET_UNFINISHED = "A reset of your encryption key from this browser finished on the server, but its answer never arrived here, so this browser still holds your previous key. Use Forget this device, sign in again, then restore with the new recovery code the reset showed you, or link this browser from one that holds the new key.";
 export const RESET_RETRY = "The reset did not go through. Keep the code you saved: trying again sends the same new key.";
 export const TYPE_BACK_WRONG = "That group does not match. Check your saved copy, or go back to see the code again.";
 export const stepUpPrompt = (sso: boolean) => sso ? "Confirm it is you in the KySignOn window that opens." : "Confirming it is you…";
@@ -207,7 +208,8 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
   userID: string; store: IdentityStore; live: PublicIdentity | null | undefined; held: boolean; stepUp: () => Promise<void>;
   /** Downloads this browser's unsent edits; returns how many were exported. */
   exportWaiting: () => Promise<number>;
-  onReset: () => void;
+  /** The new identity, kept or not: the caller retires edits waiting under the replaced key (M5). */
+  onReset: (identity: HeldIdentity) => void;
   password?: { derive: (password: string) => Promise<LoginKeys>; stepUp: (authSecret: string) => Promise<unknown> };
   startOpen?: boolean;
 }) {
@@ -253,13 +255,13 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
     try {
       setStatus(stepUpPrompt(!password));
       if (!keys) await stepUp();
-      const { kept } = await resetIdentity(recoveryAPI, store, prepared!, live?.deviceId ?? "", RESET_PHRASE, keys && { keys, stepUp: password!.stepUp });
+      const { identity, kept } = await resetIdentity(recoveryAPI, store, prepared!, live?.deviceId ?? "", phrase, keys && { keys, stepUp: password!.stepUp });
       setStatus(kept ? RESET_DONE : RESET_UNKEPT);
       setFailed(false);
       forget(true);
       dropKeys();
       setOpen(false);
-      onReset();
+      onReset(identity);
     } catch (error) {
       // Never discarded here: the server may have taken it (ResetUncertainError), and a retry needs the same key.
       const message = recoveryRefusal(error, "reset your encryption key").message;

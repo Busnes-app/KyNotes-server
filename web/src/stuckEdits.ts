@@ -1,3 +1,4 @@
+import { WAITING_GENERATION } from "./keyring";
 import type { CachedNote, PendingSave } from "./storage";
 
 /**
@@ -26,4 +27,31 @@ export async function exportUnsent<T extends CachedNote>(items: T[], open: (item
     else out.push({ id: item.id, notebook: item.containerID, updatedAt: item.updatedAt, content });
   }
   return { json: JSON.stringify(out, null, 2), unreadable };
+}
+
+/**
+ * After a reset (M5): this account's waiting edits were sealed for the replaced key. Each is marked
+ * previousKey, so the queue never sends it, and re-sealed under the new key when reseal can (this browser
+ * held the old one), so it can still be exported. replace changes only an entry still as it was read.
+ */
+export async function retireWaiting(queued: PendingSave[], owner: string, reseal: (item: PendingSave) => Promise<Uint8Array | undefined>, replace: (expected: PendingSave, next: PendingSave) => Promise<boolean>): Promise<void> {
+  for (const item of queued) {
+    if (item.owner !== owner || item.keyGeneration !== WAITING_GENERATION || item.previousKey) continue;
+    const payload = await reseal(item).catch(() => undefined);
+    await replace(item, { ...item, ...(payload && { payload }), previousKey: true });
+  }
+}
+
+/**
+ * This account's edits for listed notebooks that will never be sent: marked previousKey at a reset here,
+ * or waiting edits the waiting key this browser holds does not open (a reset elsewhere). opens is false
+ * when no key this browser holds opens the entry; it is asked only while a waiting key is held.
+ */
+export async function previousKeyEdits(queued: PendingSave[], owner: string, waitingHeld: boolean, opens: (item: PendingSave) => Promise<boolean>): Promise<PendingSave[]> {
+  const out: PendingSave[] = [];
+  for (const item of queued) {
+    if (item.owner !== owner) continue;
+    if (item.previousKey || (waitingHeld && item.keyGeneration === WAITING_GENERATION && !(await opens(item)))) out.push(item);
+  }
+  return out;
 }

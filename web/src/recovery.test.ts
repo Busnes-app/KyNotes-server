@@ -405,6 +405,39 @@ describe("resetting the identity", () => {
   }, 30_000);
 });
 
+describe("resetting a KySignOn-linked account or losing the answer (M3, M4)", () => {
+  const was = `dev_${"e".repeat(26)}`;
+  it("re-sends device-only when the server refuses a password copy, and notes the new key before sending", async () => {
+    const fresh = generateIdentity();
+    const p = await prepareRecovery(fresh, user);
+    confirmRecoverySaved(p, asked(p));
+    const order: string[] = [];
+    const replace = vi.fn(async (input: ReplaceInput) => {
+      order.push(`replace:${input.wrapAlg}`);
+      if (input.wrapAlg !== DEVICE_ONLY_WRAP) throw apiError("device_only_required", 409);
+      return { deviceId: dev };
+    });
+    const store = { ...memoryStore(), noteReset: vi.fn(async (publicKey: Uint8Array) => { order.push(`noted:${base64(publicKey)}`); }) };
+    const keys = { authSecret: "a".repeat(64), userKEK: new Uint8Array(32).fill(9) };
+    const done = await resetIdentity({ replaceIdentity: replace, myIdentity: async () => undefined }, store, p, was, "RESET", { keys, stepUp: async () => undefined });
+    expect(order).toEqual([`noted:${base64(fresh.publicKey)}`, "replace:aes-256-gcm", `replace:${DEVICE_ONLY_WRAP}`]);
+    expect(replace.mock.calls[1][0]).toEqual({ publicKey: base64(fresh.publicKey), wrapAlg: DEVICE_ONLY_WRAP, expectedDeviceId: was, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: p.wrappedKey } });
+    expect(done.identity.publicKey).toEqual(fresh.publicKey);
+  }, 30_000);
+
+  it("refuses a wrong typed phrase before anything is noted or sent (M9)", async () => {
+    const p = await prepareRecovery(generateIdentity(), user);
+    confirmRecoverySaved(p, asked(p));
+    const replace = vi.fn(async () => ({ deviceId: dev }));
+    const store = { ...memoryStore(), noteReset: vi.fn(async () => undefined) };
+    for (const typed of ["RESET!", "RESTE", "reset", ""]) {
+      await expect(resetIdentity({ replaceIdentity: replace, myIdentity: async () => undefined }, store, p, was, typed)).rejects.toThrow(RESET_UNCONFIRMED);
+    }
+    expect(replace).not.toHaveBeenCalled();
+    expect(store.noteReset).not.toHaveBeenCalled();
+  }, 30_000);
+});
+
 describe("showing the code again (I1)", () => {
   it("asks for a different group each time, so the group just read is never the one asked", async () => {
     const p = await prepareRecovery(generateIdentity(), user);

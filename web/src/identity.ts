@@ -24,16 +24,17 @@ export function openIdentity(record: IdentityRecord, userKEK: Uint8Array, userID
   return { ...identity, deviceId: record.deviceId };
 }
 
-const unlock = (record: IdentityRecord, keys: LoginKeys, userID: string) => (record.wrapAlg === DEVICE_ONLY_WRAP ? undefined : openIdentity(record, keys.userKEK, userID));
+/** Why a password sign-in yields no identity: an administrator set the password (the user's own change creates it), or the identity has no password copy (this browser must be linked or restored). */
+export type NoIdentity = "admin-password" | "device-only";
+
+const unlock = (record: IdentityRecord, keys: LoginKeys, userID: string): HeldIdentity | NoIdentity => (record.wrapAlg === DEVICE_ONLY_WRAP ? "device-only" : openIdentity(record, keys.userKEK, userID));
 
 /**
  * Opens the identity from the login response, or creates it on first password sign-in.
  * PUT needs a fresh step-up, which also returns an identity another tab created meanwhile.
- * Never replaces an identity it cannot open. Undefined while an administrator knows the
- * password: the user's own password change creates it. Undefined for a device-only identity: this
- * browser must be linked.
+ * Never replaces an identity it cannot open.
  */
-export async function ensureIdentity(api: IdentityAPI, userID: string, keys: LoginKeys, fromLogin: IdentityRecord | undefined): Promise<HeldIdentity | undefined> {
+export async function ensureIdentity(api: IdentityAPI, userID: string, keys: LoginKeys, fromLogin: IdentityRecord | undefined): Promise<HeldIdentity | NoIdentity> {
   if (fromLogin) return unlock(fromLogin, keys, userID);
   const existing = await api.stepUp(keys.authSecret);
   if (existing) return unlock(existing, keys, userID);
@@ -44,7 +45,7 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
     return { ...identity, deviceId };
   } catch (error) {
     const code = (error as { code?: string }).code;
-    if (code === "password_change_required") return undefined;
+    if (code === "password_change_required") return "admin-password";
     // Another tab won the create race: use its identity, not ours.
     const winner = code === "identity_exists" ? await api.stepUp(keys.authSecret) : undefined;
     if (!winner) throw error;
@@ -84,7 +85,7 @@ export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIde
  * save is false when nothing was kept; with expected it writes only while the vault still holds
  * that identity (null: none), so two tabs never overwrite each other's key.
  */
-export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity, expected?: HeldIdentity | null) => Promise<boolean> };
+export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity, expected?: HeldIdentity | null) => Promise<boolean>; noteReset?: (publicKey: Uint8Array) => Promise<void> };
 /** unsaved: this browser keeps no identity (no vault, or it was cleared meanwhile). */
 export type Settled = { kind: "held"; identity: HeldIdentity } | { kind: "link" } | { kind: "orphaned" } | { kind: "unsaved" };
 
@@ -124,17 +125,20 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
 /**
  * After a password sign-in: opens or creates the account's identity and keeps it, compare-and-swap
  * against the vault copy read before the server round trips, so a key another tab kept meanwhile is
- * never overwritten. False when nothing was kept.
+ * never overwritten. Kept: true; not kept: false; else why there is none (NoIdentity).
  */
-/**
- * Kept: true; not kept: false; "admin-password": the server refused the create because an administrator
- * set this password (password_admin_known, 409 password_change_required; ensureIdentity's only undefined).
- */
-export async function settlePasswordIdentity(api: IdentityAPI, store: IdentityStore, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<boolean | "admin-password"> {
+export async function settlePasswordIdentity(api: IdentityAPI, store: IdentityStore, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<boolean | NoIdentity> {
   const before = await store.load();
   const identity = await ensureIdentity(api, userID, keys, fromLogin);
-  return identity ? store.save(identity, before ?? null) : "admin-password";
+  return typeof identity === "string" ? identity : store.save(identity, before ?? null);
 }
+
+/**
+ * M4: this browser sent a reset (sent: its new public key), the server lists that key, and the vault
+ * still holds another one: the reset finished, but its answer never arrived here.
+ */
+export const unfinishedReset = (local: HeldIdentity | undefined, live: PublicIdentity | undefined, sent: Uint8Array | undefined): boolean =>
+  Boolean(local && live && sent && sameBytes(sent, fromBase64(live.publicKey)) && !sameBytes(local.publicKey, sent));
 
 /**
  * The account's key outlives every browser: the server holds a password copy or a recovery-code copy.

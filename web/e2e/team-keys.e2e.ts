@@ -71,7 +71,7 @@ const RECOVERY_TYPO = "Check the recovery code: a character is wrong or missing.
 const RECOVERY_WRONG = "This recovery code does not open your key. Check it and try again.";
 const RECOVERY_STALE = "The server's recovery copy is not for your account's current key. Reload and try again.";
 const RESET_HELD = "This browser holds your encryption key, so you do not need a reset to get it back: save a recovery code instead. Reset only if a browser that holds your key was lost or stolen.";
-const RESET_CONFIRM = "Reset your encryption key? Your personal notebooks become unreadable for good, on every browser, and so does any team notebook whose keys no other owner or admin holds. Unsent edits waiting on your browsers for a notebook's keys are lost too. Team owners must share each team's keys with you again, and colleagues are asked to trust your new key. Type RESET to continue.";
+const RESET_CONFIRM = "Reset your encryption key? Your personal notebooks become unreadable for good, on every browser, and so does any team notebook whose keys no other owner or admin holds. Unsent edits waiting for a notebook's keys are never sent afterwards: export them first. Team owners must share each team's keys with you again, and colleagues are asked to trust your new key. Type RESET to continue.";
 const RESET_WRONG_PASSWORD = "That password is not right. Nothing was reset.";
 const RESET_DONE = "Your encryption key was reset. Team owners share their notebooks' keys with you again when they next open them.";
 const ADMIN_RESET = "Password reset. All existing sessions were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.";
@@ -383,7 +383,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   // Owner: first-run setup (its own password, so its identity exists at once), then accounts.
   await owner.page.goto("/");
   await owner.page.getByLabel("Administrator Username").fill("owner");
-  await owner.page.getByLabel("Master Password").fill(OWN);
+  await owner.page.getByLabel("Password", { exact: true }).fill(OWN);
   await owner.page.getByLabel("Confirm Password").fill(OWN);
   await owner.page.getByRole("button", { name: "Initialize KyNotes" }).click();
   await expect.poll(() => vaultOf(owner.page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });

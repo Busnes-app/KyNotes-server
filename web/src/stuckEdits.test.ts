@@ -1,9 +1,9 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote } from "./crypto";
-import { newContainerKey } from "./keyring";
+import { newContainerKey, WAITING_GENERATION } from "./keyring";
 import { deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, type PendingSave } from "./storage";
-import { exportUnsent, stuckSaves, unsentEdits } from "./stuckEdits";
+import { exportUnsent, previousKeyEdits, retireWaiting, stuckSaves, unsentEdits } from "./stuckEdits";
 
 const LOST = `cnt_${"a".repeat(26)}`, LIVE = `cnt_${"b".repeat(26)}`;
 const key = newContainerKey(), other = newContainerKey();
@@ -60,5 +60,32 @@ describe("two accounts, one page, one browser", () => {
     expect(await pendingSaves()).toEqual([hers]);
     expect((await getNote(alice, page))?.payload).toEqual(hers.payload);
     expect(await getNote(bob, page)).toBeUndefined();
+  });
+});
+
+describe("edits waiting under a key a reset replaced (M5)", () => {
+  const waiting = (id: string, owner = alice): PendingSave => ({ id, containerID: LIVE, version: 1, updatedAt: "t", keyGeneration: WAITING_GENERATION, owner, payload: new Uint8Array([1]) });
+
+  it("are marked never-send at the reset, re-sealed when the old key was held, and only as read", async () => {
+    const mine = waiting("obj_1"), keyed = { ...waiting("obj_2"), keyGeneration: 2 }, theirs = waiting("obj_3", bob), moved = waiting("obj_4");
+    const replaced: PendingSave[] = [];
+    await retireWaiting([mine, keyed, theirs, moved], alice, async (item) => (item.id === "obj_1" ? new Uint8Array([9]) : undefined), async (expected, next) => {
+      if (expected.id === "obj_4") return false; // a newer save replaced it meanwhile
+      replaced.push(next);
+      return true;
+    });
+    expect(replaced).toEqual([{ ...mine, payload: new Uint8Array([9]), previousKey: true }]);
+    // Without the old key the entry is only marked.
+    const marked: PendingSave[] = [];
+    await retireWaiting([mine], alice, async () => { throw new Error("no key"); }, async (_, next) => { marked.push(next); return true; });
+    expect(marked).toEqual([{ ...mine, previousKey: true }]);
+  });
+
+  it("are listed when marked, or when the held waiting key does not open them", async () => {
+    const marked = { ...waiting("obj_1"), previousKey: true as const }, opens = waiting("obj_2"), closed = waiting("obj_3"), keyed = { ...waiting("obj_4"), keyGeneration: 2 }, theirs = { ...waiting("obj_5", bob), previousKey: true as const };
+    const open = async (item: PendingSave) => item.id === "obj_2";
+    expect(await previousKeyEdits([marked, opens, closed, keyed, theirs], alice, true, open)).toEqual([marked, closed]);
+    // No waiting key held: nothing is guessed from a failed open.
+    expect(await previousKeyEdits([marked, opens, closed], alice, false, open)).toEqual([marked]);
   });
 });

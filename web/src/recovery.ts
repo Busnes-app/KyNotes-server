@@ -146,7 +146,7 @@ export const RECOVERY_STALE = "The server's recovery copy is not for your accoun
 export const RECOVERY_NEWER = "This recovery code was saved by a newer version of KyNotes. Update this browser's page and try again.";
 export const RECOVERY_RATE_LIMITED = "Too many attempts. Wait a few minutes and try again.";
 export const RESET_PHRASE = "RESET";
-export const RESET_CONFIRM = `Reset your encryption key? Your personal notebooks become unreadable for good, on every browser, and so does any team notebook whose keys no other owner or admin holds. Unsent edits waiting on your browsers for a notebook's keys are lost too. Team owners must share each team's keys with you again, and colleagues are asked to trust your new key. Type ${RESET_PHRASE} to continue.`;
+export const RESET_CONFIRM = `Reset your encryption key? Your personal notebooks become unreadable for good, on every browser, and so does any team notebook whose keys no other owner or admin holds. Unsent edits waiting for a notebook's keys are never sent afterwards: export them first. Team owners must share each team's keys with you again, and colleagues are asked to trust your new key. Type ${RESET_PHRASE} to continue.`;
 export const RESET_UNCONFIRMED = `Type ${RESET_PHRASE} to confirm the reset.`;
 export const resetConfirmed = (typed: string | null | undefined) => typed?.trim() === RESET_PHRASE;
 /** The type-back prompt: the group is named only once the code is hidden. */
@@ -277,12 +277,15 @@ export async function restoreIdentity(api: Pick<RecoveryAPI, "fetchRecovery" | "
 
 /**
  * The self-service reset (spec §8 item 5): a new identity and its recovery copy replace the one the browser
- * saw listed (expectedDeviceId, "" for none; the server refuses any other, 409) in one request. typed must
- * be RESET_PHRASE, answered to RESET_CONFIRM. A password session passes password: keys from one
- * deriveLoginKeys of the typed password; its authSecret is the step-up here, so the password copy is
- * wrapped under the userKEK of the password the server just verified. Without it the identity is
- * device-only (the caller steps up). A lost response is finished only when the server lists this new key.
- * The reset replaces whatever this browser held: no compare-and-swap.
+ * saw listed (expectedDeviceId, "" for none; the server refuses any other, 409) in one request. typed is
+ * what the user typed in answer to RESET_CONFIRM; anything but RESET_PHRASE sends nothing. A password
+ * session passes password: keys from one deriveLoginKeys of the typed password; its authSecret is the
+ * step-up here, so the password copy is wrapped under the userKEK of the password the server just
+ * verified. Without it the identity is device-only (the caller steps up), and so it is for an account
+ * linked to KySignOn, which the server refuses a password copy (device_only_required). Before sending,
+ * the new public key is noted in the vault (store.noteReset), so a lost answer is explained on the next
+ * load. A lost response is finished only when the server lists this new key. The reset replaces whatever
+ * this browser held: no compare-and-swap.
  * ponytail: personal notebooks are lost even when this browser still holds the old key. Upgrade: an
  * identity rotation that re-wraps held container keys to the new identity before the swap.
  */
@@ -295,8 +298,13 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
     wrap = { wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(password.keys.userKEK, prepared.identity.privateKey, prepared.userID)) };
   }
   let deviceId: string;
+  await store.noteReset?.(prepared.identity.publicKey).catch(() => undefined);
+  const replace = (with_: typeof wrap) => api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...with_, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } });
   try {
-    ({ deviceId } = await api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...wrap, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } }));
+    ({ deviceId } = await replace(wrap).catch((error) => {
+      if (!(error instanceof APIRequestError && error.code === "device_only_required")) throw error;
+      return replace({ wrapAlg: DEVICE_ONLY_WRAP });
+    }));
   } catch (error) {
     // The prepared key stays confirmed (kept) on every failure, so a retry re-sends this same key and copy.
     let live: PublicIdentity | undefined;

@@ -1,8 +1,8 @@
 import { AdminBackup } from "./components/AdminBackup";
 import { ConfirmPassword } from "./components/ConfirmPassword";
-import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup } from "./components/RecoveryCode";
+import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
-import { exportUnsent } from "./stuckEdits";
+import { exportUnsent, retireWaiting } from "./stuckEdits";
 import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -62,7 +62,7 @@ import {
   myIdentity,
   putDeviceOnlyIdentity,
 } from "./api";
-import { currentCopy, identityStatus, recoverable, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore, type PublicIdentity } from "./identity";
+import { currentCopy, identityStatus, recoverable, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, unfinishedReset, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore, type PublicIdentity } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
 import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
@@ -124,7 +124,9 @@ import {
   queueSave,
   rememberAfter,
   replaceQueuedSave,
-  storeDeviceKey,
+  noteResetSent,
+  resetSentKey,
+  ssoDeviceSecret,
   storeIdentityKey,
   storeConfirmedPin,
   storeKeyState,
@@ -216,18 +218,15 @@ function App() {
 
     session()
       .then(async (res) => {
-        setSessionUser(res.user);
-        if (res.user?.username) {
-          const cachedKey = await getDeviceKey(res.user.username).catch(() => undefined);
-          if (cachedKey) {
-            setAuth({
-              username: res.user.username,
-              authSecret: cachedKey,
-              user: res.user,
-              sso: res.sso,
-            });
-          }
+        if (!res.user?.username) return;
+        // A single sign-on session never asks for a password: nothing it unlocks comes from one (I1).
+        if (res.sso) {
+          setAuth({ username: res.user.username, authSecret: await ssoDeviceSecret(res.user.username), user: res.user, sso: true });
+          return;
         }
+        setSessionUser(res.user);
+        const cachedKey = await getDeviceKey(res.user.username).catch(() => undefined);
+        if (cachedKey) setAuth({ username: res.user.username, authSecret: cachedKey, user: res.user });
       })
       .catch(() => {
         setSessionUser(null);
@@ -399,25 +398,11 @@ function Login({
       const params = await loginParams(activeName);
       const keys = await deriveLoginKeys(password, params.loginSalt, params.iterations);
       const authSecret = keys.authSecret;
-      if (sessionUser) {
-        // If SSO session is active, verify credentials or enter directly
-        try {
-          const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
-          sessionStorage.setItem("kynotes-last-username", activeName);
-          await settleIdentity(activeName, result.user.id, keys, result.identity);
-          onLogin({ username: activeName, authSecret, user: result.user });
-        } catch {
-          // If login endpoint failed but SSO session is valid, allow user entry with their derived key
-          await storeDeviceKey(activeName, authSecret).catch(() => undefined);
-          sessionStorage.setItem("kynotes-last-username", activeName);
-          onLogin({ username: activeName, authSecret, user: sessionUser, sso: true });
-        }
-      } else {
-        const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
-        sessionStorage.setItem("kynotes-last-username", activeName);
-        await settleIdentity(activeName, result.user.id, keys, result.identity);
-        onLogin({ username: activeName, authSecret, user: result.user });
-      }
+      // A password the server refuses never lets anyone in.
+      const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
+      sessionStorage.setItem("kynotes-last-username", activeName);
+      await settleIdentity(activeName, result.user.id, keys, result.identity);
+      onLogin({ username: activeName, authSecret, user: result.user });
       setPassword("");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to sign in");
@@ -434,7 +419,7 @@ function Login({
           <div className="eyebrow">INITIAL SETUP</div>
           <h1>Create Admin Account</h1>
           <p className="lede">
-            Welcome to KyNotes. Set up your organization's primary administrator username and master encryption password.
+            Welcome to KyNotes. Set up your organization's primary administrator username and password.
           </p>
           <form onSubmit={submitSetup}>
             <label>
@@ -448,7 +433,7 @@ function Login({
               />
             </label>
             <label>
-              Master Password
+              Password
               <input
                 type="password"
                 autoComplete="new-password"
@@ -475,8 +460,8 @@ function Login({
             </button>
           </form>
           <p className="hint">
-            Your master password is used in memory to derive your authentication
-            verifier and zero-knowledge note-encryption keys. It is never stored on the server.
+            Your password stays in this browser. It derives your sign-in verifier and the key
+            that protects your encryption key, and is never sent to or stored on the server.
           </p>
         </section>
       </main>
@@ -506,13 +491,13 @@ function Login({
           >
             <div>
               <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--accent)", letterSpacing: ".08em", fontWeight: 600 }}>
-                KySignOn SSO Active
+                Signed in
               </div>
               <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--ink-strong)" }}>
                 {sessionUser.username || sessionUser.id}
               </div>
               <div style={{ fontSize: "12px", color: "var(--ink)", marginTop: "4px" }}>
-                Enter your master password once to unlock and trust this device for 1-click SSO.
+                Enter your password to keep using KyNotes in this browser.
               </div>
             </div>
             {onClearSession && (
@@ -522,7 +507,7 @@ function Login({
                 onClick={onClearSession}
                 style={{ fontSize: "11px", padding: "4px 8px", whiteSpace: "nowrap" }}
               >
-                Sign out SSO
+                Sign out
               </button>
             )}
           </div>
@@ -566,7 +551,7 @@ function Login({
             </label>
           )}
           <label>
-            {sessionUser ? "Master Password (to unlock notes)" : "Password"}
+            Password
             <input
               type="password"
               autoComplete="current-password"
@@ -582,8 +567,8 @@ function Login({
           </button>
         </form>
         <p className="hint">
-          The password is used in memory to derive your authentication and
-          note-encryption keys. It is never stored.
+          Your password stays in this browser. It derives your sign-in verifier and the key
+          that protects your encryption key, and is never stored.
         </p>
       </section>
     </main>
@@ -714,6 +699,8 @@ function Workspace({
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
   /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
+  // Member management and team notebooks: the server's member list says whether this user is a steward of the open team (M1).
+  const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;
   const stewardHere = (container: Container) => stewardOf(keyMembers?.containerID === container.id ? keyMembers.members : undefined, auth.user.id);
   const rollback = Boolean(selected && rolledBack(selected));
   /** keyWait at run time, for handlers: true (and says why) when nothing may change in the open notebook. */
@@ -759,18 +746,30 @@ function Workspace({
   }
   // What this browser can do about the account's identity; "unknown" until checked.
   const [identityState, setIdentityState] = useState<IdentityStatus | "unknown">("unknown");
+  // A reset from this browser committed but its answer never arrived: explained, nothing deleted (M4).
+  const [resetUnfinished, setResetUnfinished] = useState(false);
   async function refreshIdentity() {
     identityRef.current = undefined;
-    const [local, live] = await Promise.all([loadIdentityRecord(auth.username, auth.user.id).catch(() => undefined), myIdentity()]);
+    const [local, live, sent] = await Promise.all([loadIdentityRecord(auth.username, auth.user.id).catch(() => undefined), myIdentity(), resetSentKey(auth.username, auth.user.id)]);
     liveRef.current = live ?? null;
     setLive(live ?? null);
     setIdentityState(identityStatus(local, live));
+    setResetUnfinished(unfinishedReset(local, live, sent));
     await heldIdentity();
+  }
+  /** After a reset here: edits waiting under the replaced key are never sent, and stay exportable when this browser held it (M5). */
+  async function retireWaitingEdits(next: HeldIdentity) {
+    const old = waitingRef.current;
+    const fresh = waitingKey(next);
+    await retireWaiting((await pendingSaves()).filter((item) => item.owner === auth.user.id), auth.user.id, async (item) => {
+      const payload = old && (await decryptObject(old, item.containerID, item.payload));
+      return payload ? encryptNote(fresh, item.containerID, payload) : undefined;
+    }, replaceQueuedSave);
   }
   useEffect(() => { void refreshIdentity().catch(() => undefined); void heldIdentity().catch(() => undefined); }, []);
   // A refused SSO key set-up or key share (an open KySignOn confirmation can be cancelled from it).
   const [identityRefusal, setIdentityRefusal] = useState<LinkRefusal>();
-  const identityStore: IdentityStore = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity, expected) => storeIdentityKey(auth.username, auth.user.id, identity, expected) };
+  const identityStore: IdentityStore = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity, expected) => storeIdentityKey(auth.username, auth.user.id, identity, expected), noteReset: (publicKey) => noteResetSent(auth.username, auth.user.id, publicKey) };
   /** A single sign-on account's key: created (or an orphan replaced) only on the user's click, confirmed with KySignOn. */
   async function setUpSSOIdentity(replace: boolean) {
     if (replace && !confirm("Replace this browser's encryption key with a new one? Team owners must share their notebooks' keys with you again, and colleagues are asked to trust your new key.")) return;
@@ -1649,7 +1648,8 @@ function Workspace({
     draining.current = true;
     try {
       // Only this account's edits: another account's entry could be sent, misattributed, to a notebook both share.
-      const queued = (await pendingSaves()).filter((item) => item.owner === auth.user.id);
+      // previousKey: sealed for a key a reset replaced; never sent (Settings → Unsent edits lists it).
+      const queued = (await pendingSaves()).filter((item) => item.owner === auth.user.id).filter((item) => !item.previousKey);
       if (!queued.length) return;
       setSyncStatus("syncing");
       let remaining = false;
@@ -2438,7 +2438,7 @@ function Workspace({
                     <span>{nameOf(workspace)}</span>
                   </button>
                 ))}
-                {selected?.id === container.id && (
+                {selected?.id === container.id && teamSteward && (
                   <button className="new-workspace" disabled={busy} onClick={() => void newTeamWorkspace(container)}>
                     ＋ New team notebook
                   </button>
@@ -2463,16 +2463,18 @@ function Workspace({
             )}
             {selected?.kind === "team" && (
               <>
-                <button className="new-workspace" onClick={() => void invite()}>
-                  ＋ Add person
-                </button>
+                {teamSteward && (
+                  <button className="new-workspace" onClick={() => void invite()}>
+                    ＋ Add person
+                  </button>
+                )}
                 {membersForTeam.map((member) => (
                   <div className="member-row" key={member.userId}>
                     <span>
                       {displayName(member.username, member.userId)} · {member.role}
                       {keyMembers?.containerID === selected.id && keyMembers.status[member.userId] && ` · ${KEY_STATUS[keyMembers.status[member.userId]]}`}
                     </span>
-                    {member.userId !== auth.user.id && (
+                    {teamSteward && member.userId !== auth.user.id && (
                       <button
                         className="quiet"
                         onClick={() => void removeTeamMember(member.userId)}
@@ -2531,7 +2533,8 @@ function Workspace({
                 })()}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with KySignOn)</button></div>}
-                {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
+                {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
+                {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
                 {!auth.sso && identityState === "create" && adminSetPassword.has(auth.user.id) && <div className="conflict-banner" role="status">{ADMIN_PASSWORD_FIRST} <button onClick={() => setView("settings")}>Change password</button></div>}
                 {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
@@ -2842,6 +2845,9 @@ function Workspace({
             live={live}
             recoveryPrompt={recoveryPrompt}
             onIdentityChanged={() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }}
+            onReset={(next) => { void retireWaitingEdits(next).catch(() => undefined).finally(() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }); }}
+            resetUnfinished={resetUnfinished}
+            waitingHeld={Boolean(waitingRef.current)}
             createTeam={createTeam}
             knownNames={names}
           />
@@ -3287,6 +3293,9 @@ function SettingsView({
   identityStore,
   stepUp,
   onIdentityChanged,
+  onReset,
+  resetUnfinished,
+  waitingHeld,
   live,
   recoveryPrompt,
 }: {
@@ -3310,6 +3319,12 @@ function SettingsView({
   stepUp: () => Promise<void>;
   /** A link, restore, reset or new identity: re-reads the identity, the waiting key and the code state, then runs a key pass. */
   onIdentityChanged: () => void;
+  /** A reset from this browser: retires the waiting edits, then as onIdentityChanged. */
+  onReset: (identity: HeldIdentity) => void;
+  /** This browser's reset committed without its answer (M4). */
+  resetUnfinished: boolean;
+  /** A waiting key is held: waiting edits it does not open are listed as sealed under a previous key. */
+  waitingHeld: boolean;
   live: PublicIdentity | null | undefined;
   recoveryPrompt: boolean;
 }) {
@@ -3451,11 +3466,12 @@ function SettingsView({
             </section>
             {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
             {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked("linked"); onIdentityChanged(); }} />}
+            {resetUnfinished && <p role="status">{RESET_UNFINISHED}</p>}
             {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked("restored"); onIdentityChanged(); }} />}
             {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
             <PinnedKeys username={username} userID={userID} names={colleagueNames} />
-            <UnsentEdits username={username} userID={userID} keysFor={keysFor} />
-            {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onIdentityChanged} password={sso ? undefined : passwordReset(username)} />}
+            <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />
+            {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onReset} password={sso ? undefined : passwordReset(username)} />}
           </>
         )}
         {admin && (

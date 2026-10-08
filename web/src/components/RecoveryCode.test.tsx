@@ -85,7 +85,8 @@ describe("recovery code UI", () => {
     expect(html).toContain('type="password"');
     expect(html).toContain('autocomplete="current-password"');
     // The typed password is turned into keys and handed to resetIdentity, which steps up with them.
-    expect(component).toMatch(/resetIdentity\(recoveryAPI, store, prepared!, live\?\.deviceId \?\? "", RESET_PHRASE, keys && \{ keys, stepUp: password!\.stepUp \}\)/);
+    // The phrase the user typed, not the constant: resetIdentity refuses anything else (M9).
+    expect(component).toMatch(/resetIdentity\(recoveryAPI, store, prepared!, live\?\.deviceId \?\? "", phrase, keys && \{ keys, stepUp: password!\.stepUp \}\)/);
   });
 
   it("asks a new group whenever the code is shown again (I1)", () => {

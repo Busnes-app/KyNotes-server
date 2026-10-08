@@ -7,8 +7,11 @@ const databaseName = "kynotes-web";
 const storeName = "notes";
 
 export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
-/** owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never reads or replaces another's. */
-export type PendingSave = CachedNote & { owner: string };
+/**
+ * owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never
+ * reads or replaces another's. previousKey: waiting under the key a reset replaced; never sent (M5).
+ */
+export type PendingSave = CachedNote & { owner: string; previousKey?: true };
 /** owner: the user ID that started it; only that account lists, resumes, re-seals or clears it. */
 export type PendingUpload = { uploadId: string; owner: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
@@ -159,6 +162,19 @@ export async function rememberAfter<T>(call: () => Promise<T>, username: string,
   return result;
 }
 
+/**
+ * A single sign-on session's vault record. It holds no password-derived value: content keys never come
+ * from a login secret, so the record only needs a marker the identity is kept beside, a random value
+ * made once per browser. An existing record (from an earlier password sign-in) is kept as it is.
+ */
+export async function ssoDeviceSecret(username: string): Promise<string> {
+  const held = await getDeviceKey(username).catch(() => undefined);
+  if (held) return held;
+  const fresh = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  await storeDeviceKey(username, fresh).catch(() => undefined); // no IndexedDB: the identity cannot be kept, as before
+  return fresh;
+}
+
 export async function getDeviceKey(username: string): Promise<string | undefined> {
   const db = await openDatabase();
   const result = await new Promise<{ username: string; authSecret: string } | undefined>((resolve, reject) => {
@@ -182,7 +198,8 @@ export async function getDeviceKey(username: string): Promise<string | undefined
 type SealedIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; sealed: Uint8Array; deviceKey: CryptoKey };
 type RawIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey: Uint8Array };
 type VaultIdentity = SealedIdentity | RawIdentity;
-type VaultRecord = { username: string; authSecret?: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
+/** resetSent: the public key a reset from this browser sent; cleared once this browser keeps that key. */
+type VaultRecord = { username: string; authSecret?: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> }; resetSent?: { userID: string; publicKey: Uint8Array } };
 
 /**
  * How the vault stores the private key, not how well it is protected. "wrapped": sealed under a
@@ -232,7 +249,23 @@ const holds = (record: VaultRecord, userID: string, expected: HeldIdentity | nul
 export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean> {
   const stored = await sealForDevice(userID, identity).catch(() => undefined);
   // Only beside a device key.
-  return stored ? updateRecord(username, (record) => (record.authSecret !== undefined && (expected === undefined || holds(record, userID, expected)) ? { ...record, identity: stored } : undefined)) : false;
+  return stored ? updateRecord(username, (record) => {
+    if (record.authSecret === undefined || (expected !== undefined && !holds(record, userID, expected))) return undefined;
+    const { resetSent, ...rest } = record;
+    // Keeping the key a reset sent finishes that reset here.
+    return resetSent && resetSent.userID === userID && sameBytes(resetSent.publicKey, identity.publicKey) ? { ...rest, identity: stored } : { ...record, identity: stored };
+  }) : false;
+}
+
+/** Records, before a reset is sent, the new public key; best-effort (M4: an unanswered reset is explained on the next load). */
+export async function noteResetSent(username: string, userID: string, publicKey: Uint8Array): Promise<void> {
+  await updateRecord(username, (record) => ({ ...record, resetSent: { userID, publicKey: publicKey.slice() } }));
+}
+
+/** The public key of a reset this browser sent and has not kept, if any. */
+export async function resetSentKey(username: string, userID: string): Promise<Uint8Array | undefined> {
+  const sent = (await readRecord(username).catch(() => undefined))?.resetSent;
+  return sent?.userID === userID ? sent.publicKey : undefined;
 }
 
 /** This browser's identity for userID, a pending one (deviceId "") included. Throws when the vault cannot be read. */

@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady, ssoDeviceSecret, noteResetSent, resetSentKey } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
@@ -52,6 +52,45 @@ describe("keys vault identity", () => {
     await storeIdentityKey("bob", userID, held);
     await clearAllDeviceKeys();
     expect(await getIdentityKey("bob", userID)).toBeUndefined();
+  });
+});
+
+describe("a single sign-on session's vault record (I1)", () => {
+  beforeEach(clearAllDeviceKeys);
+
+  it("is made from a random per-browser value, kept, and lets the identity be stored", async () => {
+    const first = await ssoDeviceSecret("sam");
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(await ssoDeviceSecret("sam")).toBe(first);
+    await clearDeviceKey("sam");
+    expect(await ssoDeviceSecret("sam")).not.toBe(first);
+    expect(await vaultReady("sam")).toBe(true);
+    expect(await storeIdentityKey("sam", userID, held)).toBe(true);
+  });
+
+  it("keeps a record a password sign-in made", async () => {
+    await storeDeviceKey("sam", "a".repeat(64));
+    await storeIdentityKey("sam", userID, held);
+    expect(await ssoDeviceSecret("sam")).toBe("a".repeat(64));
+    expect(await getIdentityKey("sam", userID)).toEqual(held);
+  });
+});
+
+describe("a reset this browser sent (M4)", () => {
+  beforeEach(clearAllDeviceKeys);
+
+  it("is remembered until this browser keeps that key, and only for its user", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    await storeIdentityKey("alice", userID, held);
+    const next = { deviceId: "dev_11111111111111111111111111", ...generateIdentity() };
+    await noteResetSent("alice", userID, next.publicKey);
+    expect(await resetSentKey("alice", userID)).toEqual(next.publicKey);
+    expect(await resetSentKey("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz")).toBeUndefined();
+    // Another key kept (a link of the old one) leaves it; the reset's own key clears it.
+    await storeIdentityKey("alice", userID, held);
+    expect(await resetSentKey("alice", userID)).toEqual(next.publicKey);
+    await storeIdentityKey("alice", userID, next);
+    expect(await resetSentKey("alice", userID)).toBeUndefined();
   });
 });
 
