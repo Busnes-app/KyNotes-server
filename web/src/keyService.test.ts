@@ -698,3 +698,55 @@ describe("inviteWithKeys", () => {
     expect(store.addFresh).toHaveBeenCalledWith({ [invitee.member.userId]: invitee.public!.publicKey });
   });
 });
+
+describe("a steward who shares only on request (single sign-on)", () => {
+  it("writes nothing, reports the waiting work, and shares it when asked", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { state, api } = server([owner, editor]);
+    const quiet = await syncContainerKeys(api, cnt, as(owner, false), memoryStore(), never);
+    expect(quiet.deferred).toBe(true);
+    expect(quiet.minted).toBe(false);
+    expect(api.rotate).not.toHaveBeenCalled();
+    expect(api.stepUp).not.toHaveBeenCalled();
+    const asked = await syncContainerKeys(api, cnt, as(owner, true), memoryStore(), never);
+    expect(asked.minted).toBe(true);
+    expect(asked.deferred).toBe(false);
+    expect(state.generation).toBe(2);
+  });
+
+  it("asks about a changed recipient key only when the user shares, and shares nothing if declined", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    const store = memoryStore({ [editor.member.userId]: base64(new Uint8Array(32).fill(9)) });
+    const confirm = vi.fn(() => false);
+    const quiet = await syncContainerKeys(api, cnt, as(owner, false), store, confirm);
+    expect(quiet.deferred).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    const asked = await syncContainerKeys(api, cnt, as(owner, true), store, confirm);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(asked.plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
+    expect(api.rotate).not.toHaveBeenCalled();
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing to share against a rolled-back server", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor"), late = user("late", "d", "editor");
+    const { state, api } = server([owner, editor]);
+    const store = memoryStore();
+    await syncContainerKeys(api, cnt, as(owner), store, never);
+    state.members = [owner, editor, late];
+    expect((await syncContainerKeys(api, cnt, as(owner, false), store, never)).deferred).toBe(true);
+    state.shared = 0;
+    const after = await syncContainerKeys(api, cnt, as(owner, false), store, never);
+    expect(after.plan).toEqual({ kind: "rollback" });
+    expect(after.deferred).toBe(false);
+  });
+
+  it("still explains a first key that waits for a member without an identity", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor", false);
+    const { api } = server([owner, editor]);
+    const result = await syncContainerKeys(api, cnt, as(owner, false), memoryStore(), never);
+    expect(result.plan).toEqual({ kind: "blocked", waitingFor: [shown(editor)] });
+    expect(result.deferred).toBe(false);
+  });
+});
