@@ -146,6 +146,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .member-row, .admin-user, .audit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; color: var(--ink); font-size: 12px; }
 .member-row { border-top: 1px solid var(--line); }
 .member-row .quiet { padding: 2px; font-size: 11px; }
+.member-row > span { min-width: 0; overflow-wrap: anywhere; }
 .pin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; }
 .pin-row code { overflow-wrap: anywhere; }
 .admin-user, .audit-row { border-top: 1px solid var(--line); padding: 12px 0; }

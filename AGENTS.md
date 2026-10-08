@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the three-browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -456,11 +456,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestMetaPatchRechecksInsideTheTransaction` and `npm test` (keyring, keyService, pins, crypto, storage,
   passwordChange).
   `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
-  Chromium contexts against `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, serves the
-  embedded bundle: build and sync `internal/web/dist` first). It checks server bytes: shared rows open
+  Chromium contexts, plus one where another account signs in over an opened invitation link, against
+  `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, login limit raised because every
+  person shares one loopback IP; serves the embedded bundle: build and sync `internal/web/dist` first).
+  It checks server bytes: shared rows open
   with the container key and not the writer's login key, a newcomer gets history, removal re-mints at once
   (generation N+2 holds envelopes for the remaining members only, before anyone writes), and a
-  write without the key-scheme header gets 409. Every browser dialog must be expected by the test.
+  write without the key-scheme header gets 409. P3b steps: an invitation sealed for the invitee opens
+  the team before any owner reopens it, refuses another account and a pre-removal invitation, a link
+  pasted into an open tab joins, a re-invited member waits and asks, a declined changed key is never
+  sealed, re-trust in Settings, unsent edits export and discard, and a click during the automatic load
+  (held at its last request) leaves the list loaded when it stops being busy. Every browser dialog must
+  be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
   (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
