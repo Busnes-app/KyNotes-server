@@ -231,7 +231,8 @@ Not captured as screenshots: the invite dialog (keys sealed / no keys, including
 
 Findings, not fixed here:
 
-- At 390 px the non-admin Settings page is 523 px wide: the last `.settings-sidebar` link ("Colleague keys", added in P3b) makes the single `1fr` track at `web/src/styles.css:157` grow to the nav's width, so every card is clipped on the right and a light strip shows past the dark page. `minmax(0, 1fr)` would contain it.
+- Fixed after capture (`minmax(0, 1fr)` and a gap between Unsent edits buttons); re-measured with a fresh owner at 390x844 in both themes: Settings `scrollWidth` 390 = viewport (`docs/team-keys-p3b-settings-fixed-*-mobile.png`). The `*-mobile` shots above predate the fix. Original findings:
+- At 390 px the non-admin Settings page was 523 px wide: the last `.settings-sidebar` link ("Colleague keys", added in P3b) makes the single `1fr` track at `web/src/styles.css:157` grow to the nav's width, so every card is clipped on the right and a light strip shows past the dark page. `minmax(0, 1fr)` would contain it.
 - Export and Discard unsent edits touch each other (no horizontal gap, `web/src/styles.css:94`).
 - User IDs (30 chars, no break points) wrap mid-ID in the 210 px sidebar member rows (`web/src/styles.css:149`); the last row sits flush against the ACCOUNT label.
 - "Ask an owner" is an 11 px quiet link in the status line (`web/src/main.tsx:2481`); at 390 px the member list pushes it and the join banner about 700 px down the page.
