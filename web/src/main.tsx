@@ -180,6 +180,12 @@ const UNVERIFIED = "Written before this notebook was shared; not end-to-end veri
 const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
 const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
+/** What Settings suggests without a key: only an action this browser can actually take from here. */
+function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
+  if (state === "link") return " Link it from a browser that does (below).";
+  if (state === "create") return sso ? " Set up your encryption key from the notebook list." : " Sign in with your password to create it.";
+  return "";
+}
 const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. If no other browser holds a key you created with single sign-on, that key is lost. Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
 const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
@@ -751,7 +757,7 @@ function Workspace({
     setIdentityState(identityStatus(local, live));
   }
   useEffect(() => { void refreshIdentity().catch(() => undefined); }, []);
-  // A refused SSO key set-up (an open KySignOn confirmation can be cancelled from it).
+  // A refused SSO key set-up or key share (an open KySignOn confirmation can be cancelled from it).
   const [identityRefusal, setIdentityRefusal] = useState<LinkRefusal>();
   const identityStore: IdentityStore = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity, expected) => storeIdentityKey(auth.username, auth.user.id, identity, expected) };
   /** A single sign-on account's key: created (or an orphan replaced) only on the user's click, confirmed with KySignOn. */
@@ -763,7 +769,7 @@ function Workspace({
       if (settled.kind === "unsaved") setIdentityRefusal({ message: "This browser cannot keep an encryption key (site storage is blocked or unavailable), so none was created." });
       await refreshIdentity();
     } catch (err) {
-      setIdentityRefusal(linkRefusal(err));
+      setIdentityRefusal(linkRefusal(err, "set up an encryption key"));
     }
   }
   async function currentContainer(id: string): Promise<Container> {
@@ -862,7 +868,8 @@ function Workspace({
   async function shareKeysNow() {
     const open = selectedRef.current;
     if (!open) return;
-    try { adoptGenerations(await syncKeys(open, false, () => false, true)); } catch (err) { setError(err instanceof Error ? err.message : "Unable to share keys"); }
+    setIdentityRefusal(undefined);
+    try { adoptGenerations(await syncKeys(open, false, () => false, true)); } catch (err) { setIdentityRefusal(linkRefusal(err, "share keys")); }
   }
   /**
    * After a mint, the name this browser already shows is sealed again with the new key, so
@@ -1322,6 +1329,7 @@ function Workspace({
     loadCarried.current.clear();
     markLegacy(unverifiedRef.current, false);
     setKeyNotice("");
+    setKeyDeferred(false);
     try {
       // Keys first: an owner may mint or re-mint here, and reads need the current generation.
       const keyed = await syncKeys(container, false, superseded).catch((error) => {
@@ -2841,6 +2849,7 @@ function Workspace({
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
             identityState={identityState}
+            sso={Boolean(auth.sso)}
             heldIdentity={heldIdentity}
             identityStore={identityStore}
             stepUp={keyAPI.stepUp}
@@ -3345,6 +3354,7 @@ function SettingsView({
   colleagueNames,
   teamKeys,
   identityState,
+  sso,
   heldIdentity,
   identityStore,
   stepUp,
@@ -3364,6 +3374,8 @@ function SettingsView({
   onForgetDevice?: () => void;
   onAuthSecret: (authSecret: string) => void;
   identityState: IdentityStatus | "unknown";
+  /** A single sign-on session: it creates its key from the notebook list, not with a password. */
+  sso: boolean;
   heldIdentity: () => Promise<HeldIdentity | undefined>;
   identityStore: IdentityStore;
   stepUp: () => Promise<void>;
@@ -3419,7 +3431,8 @@ function SettingsView({
             <a href="#appearance">Appearance</a>
             <a href="#password">Password</a>
             <a href="#device">Trusted Device</a>
-            <a href="#link-devices">Link a browser</a>
+            {identityState === "link" && <a href="#link-this-browser">Link this browser</a>}
+            {identityState === "held" && <a href="#link-devices">Link a browser</a>}
             <a href="#colleague-keys">Colleague keys</a>
           </nav>
         )}
@@ -3478,7 +3491,7 @@ function SettingsView({
               <p className="config-muted">
                 {ownFingerprint
                   ? <>Your encryption key fingerprint: <code>{ownFingerprint}</code>. Team owners see it when your key changes; compare it with them in person.</>
-                  : "This browser holds no encryption key for team notebooks. Link it from a browser that does (below)."}
+                  : `This browser holds no encryption key for team notebooks.${noKeyHint(identityState, sso)}`}
               </p>
               {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped"
                 ? "This browser keeps it wrapped under a browser key that pages cannot export. That is not protection at rest: anyone who can read this browser's profile on disk can still recover it. Use \"Forget this device\" on shared computers."

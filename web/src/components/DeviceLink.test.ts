@@ -27,6 +27,16 @@ describe("link screens", () => {
     expect(minting).toEqual(["DeviceLink.tsx", "linkFlow.ts", "linking.ts"]);
   });
 
+  it("ties the approver's claim and send to the screen's lifetime", () => {
+    // Claims go through keepClaim (tested in linkFlow.test.ts), wanted only while open and alone.
+    expect(calls(screen, "claimLink")).toEqual(["{ claim: claimLinkRequest }, row, userID"]);
+    expect(screen).toContain("await keepClaim(claimLink(");
+    expect(screen).toContain("() => mounted.current && !activeRef.current, cancelLinkRequest)");
+    expect(screen).toContain("<button disabled={claimPending}");
+    // Leaving mid-send never deletes a bundle that may just have been stored.
+    expect(screen).toContain("if (!sending.current) quietCancel(open.id);");
+  });
+
   it("checks for another local copy before starting a link", () => {
     const check = screen.indexOf("await otherCopyHeld(");
     expect(check).toBeGreaterThan(-1);

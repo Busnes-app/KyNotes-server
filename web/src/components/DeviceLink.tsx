@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { APIRequestError, cancelLinkRequest, claimLinkRequest, createLinkRequest, linkRequests, myIdentity, revealLinkRequest, type LinkRequestRow } from "../api";
 import type { HeldIdentity, IdentityStore } from "../identity";
-import { approveLink, claimLink, confirmTypedCode, endLink, finishNewcomerLink, LinkEndedError, linkRefusal, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type ApproverLink, type NewcomerLink } from "../linkFlow";
+import { approveLink, claimLink, confirmTypedCode, endLink, keepClaim, finishNewcomerLink, LinkEndedError, linkRefusal, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type ApproverLink, type NewcomerLink } from "../linkFlow";
 import { confirmCheckCode, type CheckCodeConfirmation } from "../linking";
 import { collectLinkBundle } from "../outbound";
 
@@ -157,6 +157,10 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
   const [busy, setBusy] = useState(false);
   const activeRef = useRef<ApproverLink | undefined>(undefined);
   const sending = useRef(false);
+  // One claim at a time, and only while this screen is open.
+  const claiming = useRef(false);
+  const [claimPending, setClaimPending] = useState(false);
+  const mounted = useRef(false);
   const keep = (next?: ApproverLink) => { activeRef.current = next; setActive(next); };
 
   /** Ends this browser's attempt (one-time key zeroed) and cancels the request on the server. */
@@ -169,6 +173,7 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
     if (id) quietCancel(id);
   }
   useEffect(() => {
+    mounted.current = true;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
@@ -197,21 +202,35 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
     timer = setTimeout(() => void tick(), 0);
     return () => {
       stopped = true;
+      mounted.current = false;
       clearTimeout(timer);
-      // Leaving the screen abandons the attempt.
+      // Leaving the screen abandons the attempt. A send in flight may have stored the bundle:
+      // never delete it from under the newcomer (it collects it, or the request expires).
       const open = activeRef.current;
       activeRef.current = undefined;
       if (open) {
         endLink(open);
-        quietCancel(open.id);
+        if (!sending.current) quietCancel(open.id);
       }
     };
   }, [userID]);
 
   async function approve(row: LinkRequestRow) {
+    if (claiming.current || activeRef.current) return;
+    claiming.current = true;
+    setClaimPending(true);
     setStatus(undefined);
     setTyped("");
-    try { keep(await claimLink({ claim: claimLinkRequest }, row, userID)); } catch (error) { setStatus(linkRefusal(error)); }
+    try {
+      // A claim that resolves after the screen closed (or another attempt opened) is ended and cancelled.
+      const link = await keepClaim(claimLink({ claim: claimLinkRequest }, row, userID), () => mounted.current && !activeRef.current, cancelLinkRequest);
+      if (link) keep(link);
+    } catch (error) {
+      if (mounted.current) setStatus(linkRefusal(error));
+    } finally {
+      claiming.current = false;
+      if (mounted.current) setClaimPending(false);
+    }
   }
   /** Approve stays disabled until the typed code is the one this attempt expects. */
   function accepted(link: ApproverLink) {
@@ -248,7 +267,7 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
       {!active && (rows.length ? rows.map((row) => (
         <div className="pin-row" key={row.id}>
           <span>Request <code className="link-code">{linkCodeOf(row.id)}</code> · started {new Date(row.createdAt).toLocaleTimeString()}</span>
-          <button onClick={() => void approve(row)}>Approve…</button>
+          <button disabled={claimPending} onClick={() => void approve(row)}>Approve…</button>
           <button className="secondary" onClick={() => drop(row.id, CANCELLED)}>Not me</button>
         </div>
       )) : <p className="config-muted">No browser is asking to be linked.</p>)}

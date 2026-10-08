@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { base64, fromBase64 } from "./crypto";
 import { APIRequestError, type LinkRequestRow, type LinkState } from "./api";
 import type { HeldIdentity } from "./identity";
-import { approveLink, claimLink, confirmTypedCode, endLink, finishNewcomerLink, LinkEndedError, linkRefusal, LinkStorageError, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
+import { approveLink, claimLink, confirmTypedCode, endLink, keepClaim, finishNewcomerLink, LinkEndedError, linkRefusal, LinkStorageError, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
 import { confirmCheckCode, isLiveLinkKey, linkCommitment, newLinkKey, sealLinkBundle, type CheckCodeConfirmation } from "./linking";
 import { generateIdentity, type Identity } from "./teamKeys";
 
@@ -280,6 +280,40 @@ describe("device linking", () => {
   });
 });
 
+describe("a claim the screen no longer wants", () => {
+  it("ends the one-time key and cancels the request once the claim resolves", async () => {
+    const r = relay();
+    await startNewcomerLink(r.newcomer, async () => true, me);
+    const cancel = vi.fn(async (_id: string) => undefined);
+    let open = true;
+    let kept: Identity | undefined;
+    const pending = keepClaim(claimLink(r.approver, r.row(), me).then((link) => { kept = link.key; return link; }), () => open, cancel);
+    open = false; // the user left, or another request was claimed meanwhile
+    expect(await pending).toBeUndefined();
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(r.row().id);
+    expect(isLiveLinkKey(kept!)).toBe(false);
+  });
+
+  it("keeps a wanted claim live and leaves the request alone", async () => {
+    const r = relay();
+    await startNewcomerLink(r.newcomer, async () => true, me);
+    const cancel = vi.fn(async (_id: string) => undefined);
+    const link = await keepClaim(claimLink(r.approver, r.row(), me), () => true, cancel);
+    expect(isLiveLinkKey(link!.key)).toBe(true);
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("zeroes the unwanted claim's key even when the cancel fails", async () => {
+    const r = relay();
+    await startNewcomerLink(r.newcomer, async () => true, me);
+    let kept: Identity | undefined;
+    const claim = claimLink(r.approver, r.row(), me).then((link) => { kept = link.key; return link; });
+    expect(await keepClaim(claim, () => false, async () => { throw new Error("offline"); })).toBeUndefined();
+    expect(isLiveLinkKey(kept!)).toBe(false);
+    expect(kept!.privateKey.every((byte) => byte === 0)).toBe(true);
+  });
+});
+
 describe("link refusals", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
   const refused = (code: string, challenge?: string) => new APIRequestError("refused", { error: { code, message: "server text", challenge } }, 409);
@@ -304,5 +338,11 @@ describe("link refusals", () => {
     expect(linkRefusal(refused("password_change_required")).message).toMatch(/administrator set.*change your password/i);
     expect(linkRefusal(refused("password_change_required")).cancel).toBeUndefined();
     expect(linkRefusal(new Error("offline")).message).toBe("offline");
+  });
+
+  it("names the action that was refused", () => {
+    expect(linkRefusal(refused("password_change_required")).message).toMatch(/before you link a browser\.$/);
+    expect(linkRefusal(refused("password_change_required"), "set up an encryption key").message).toMatch(/before you set up an encryption key\.$/);
+    expect(linkRefusal(refused("sso_sign_in_required"), "share keys").message).toMatch(/cannot share keys\.$/);
   });
 });

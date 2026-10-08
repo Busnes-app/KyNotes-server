@@ -175,14 +175,26 @@ export async function approveLink(link: ApproverLink, confirmation: CheckCodeCon
   endLink(link);
 }
 
-/** What the UI shows for a refused link step; cancel, when set, closes the open KySignOn confirmation. */
-export function linkRefusal(error: unknown): { message: string; cancel?: () => Promise<void> } {
+/** A claim the screen no longer wants (it closed, or another attempt opened meanwhile) ends here and on the server. */
+export async function keepClaim(claim: Promise<ApproverLink>, wanted: () => boolean, cancel: (id: string) => Promise<void>): Promise<ApproverLink | undefined> {
+  const link = await claim;
+  if (wanted()) return link;
+  endLink(link);
+  await cancel(link.id).catch(() => undefined);
+  return undefined;
+}
+
+/**
+ * What the UI shows for a refused step; action names it ("link a browser", "share keys"…).
+ * cancel, when set, closes the open KySignOn confirmation.
+ */
+export function linkRefusal(error: unknown, action = "link a browser"): { message: string; cancel?: () => Promise<void> } {
   const code = error instanceof APIRequestError ? error.code : undefined;
   if (code === "step_up_pending") {
     const challenge = (error as APIRequestError).challenge;
     return { message: "A KySignOn confirmation is still open for this account. Finish it in its window, or cancel it and try again.", cancel: challenge ? () => cancelSSOStepUp(challenge) : undefined };
   }
-  if (code === "sso_sign_in_required") return { message: "Sign in with KySignOn to continue. This session signed in with a password an administrator set, so it cannot link browsers." };
-  if (code === "password_change_required") return { message: "An administrator set this account's password. Change your password before linking a browser." };
+  if (code === "sso_sign_in_required") return { message: `Sign in with KySignOn to continue. This session signed in with a password an administrator set, so it cannot ${action}.` };
+  if (code === "password_change_required") return { message: `An administrator set this account's password. Change your password before you ${action}.` };
   return { message: error instanceof Error ? error.message : "Linking failed." };
 }
