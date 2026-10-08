@@ -407,7 +407,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `main.tsx` reaches the login key only through
   `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
   keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty
-  objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0; queue
+  objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0. The
+  drain uploads an entry only through `readyToSend` (`web/src/drain.ts`): as is only when sealed for the
+  current `writeKeyFor` generation and not a `legacyRow` under the floor, otherwise re-sealed from its own
+  generation's key first, or kept queued while no write key exists; queue
   replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
   (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
   P4: `readKeys` and the label share that one decision (generation 0 included), and `api.ts`

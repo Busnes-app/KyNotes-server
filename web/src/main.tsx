@@ -64,6 +64,7 @@ import {
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
 import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
+import { readyToSend } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -1563,18 +1564,18 @@ function Workspace({
       let attention = false;
       // One key pass per container per drain.
       const synced = new Map<string, Promise<Container>>();
-      for (const item of queued) {
+      for (const queuedItem of queued) {
+        let item = queuedItem;
         try {
-          if (item.keyGeneration === undefined || item.keyGeneration === WAITING_GENERATION) {
-            // Never sent without a real generation: re-seal it for the current key; the next drain sends it.
-            // ponytail: an edit for a notebook this user lost, or sealed under a password changed in
-            // another browser, never opens and waits here forever (N1). Upgrade: P3b key-status UI
-            // with discard/export for stuck edits.
-            await rekeyQueued(item, synced).catch(() => undefined);
+          // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
+          // first or stays queued (waiting for keys).
+          const ready = await sendable(item, synced).catch(() => undefined);
+          if (!ready) {
             remaining = true;
             continue;
           }
-          const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration);
+          item = ready;
+          const result = await saveObject(item.id, item.payload, item.version, ready.keyGeneration!);
           // A newer save of the same page may have been queued while this one was in flight.
           await replaceQueuedSave(item);
           const saved = { version: result.version, updatedAt: item.updatedAt };
@@ -1596,8 +1597,7 @@ function Workspace({
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
           } else {
-            // A retired generation: re-encrypt for the current key; the next drain sends it.
-            if (error instanceof APIRequestError && error.code === "already_exists") await rekeyQueued(item, synced).catch(() => undefined);
+            // A retired generation (already_exists): the next drain reads the container again and re-seals it.
             remaining = true;
           }
         }
@@ -1609,18 +1609,21 @@ function Workspace({
       draining.current = false;
     }
   }
-  /** Re-seals a queued save for its container's current key; leaves it queued while keys are pending. */
-  async function rekeyQueued(item: PendingSave, synced: Map<string, Promise<Container>>) {
-    // A background pass: it never opens a dialog.
+  /**
+   * A queued save as it may be sent now (readyToSend against the container's current state and
+   * this tab's floor), re-sealed for the current write key if needed; undefined keeps it queued.
+   * ponytail: an edit for a notebook this user lost, or sealed under a password changed in another
+   * browser, never opens and waits here forever (N1). Upgrade: P3b key-status UI with discard/export.
+   */
+  async function sendable(item: PendingSave, synced: Map<string, Promise<Container>>): Promise<PendingSave | undefined> {
+    // One background key pass per container per drain; it never opens a dialog.
     if (!synced.has(item.containerID)) synced.set(item.containerID, currentContainer(item.containerID).then((found) => syncKeys(found, true)));
     const container = await synced.get(item.containerID)!;
     adoptGenerations(container);
-    const write = writeKeyFor(container);
-    if (!write || write.generation === item.keyGeneration) return;
-    const payload = await openFirst(readKeysFor(container, item.keyGeneration), (key) => decryptObject(key, item.containerID, item.payload));
-    if (!payload) return;
-    // Only while the entry is still the one read: a save in the meantime is newer and stays.
-    await replaceQueuedSave(item, { ...item, payload: await encryptNote(write.key, item.containerID, payload), keyGeneration: write.generation });
+    const ready = await readyToSend(item, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, legacy);
+    // A re-sealed copy replaces the entry only while it is still the one read: a newer save stays.
+    if (!ready || ready === item) return ready;
+    return (await replaceQueuedSave(item, ready)) ? ready : undefined;
   }
   async function remove(note: Note) {
     if (readOnlyForKeys() || !confirm("Delete this page?")) return;
