@@ -284,6 +284,17 @@ describe("planSweep", () => {
       .toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
   });
 
+  it("re-mints, never wraps, after a self-service reset retired the generation", () => {
+    // The editor reset: the server deleted the old identity's envelopes and advanced 2 -> 3.
+    const k2 = newContainerKey();
+    const reset: MemberKey = { ...editor.member, identity: person("editor", "f").member.identity };
+    const envelopes = [seal(owner.member, 2, k2, owner.held)];
+    const plan = planSweep({ container: container(3, 2), recoverable: true, me: owner.member.userId, members: [owner.member, reset], envelopes, ring: new Map([[2, k2]]) });
+    expect(plan).toEqual({ kind: "mint", recipients: [owner.member, reset] });
+    // Without the advance the same state would wrap the old key for the new identity.
+    expect(planSweep({ container: container(2, 2), recoverable: true, me: owner.member.userId, members: [owner.member, reset], envelopes, ring: new Map([[2, k2]]) }).kind).toBe("wrap");
+  });
+
   it("wraps every held generation for a member missing it, and nothing it does not hold", () => {
     const newcomer = person("newcomer", "e");
     const [k2, k4] = [newContainerKey(), newContainerKey()];

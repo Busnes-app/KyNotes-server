@@ -394,7 +394,7 @@ func TestIdentityResetReplacesTheIdentityAndEveryKeyItHeld(t *testing.T) {
 		t.Fatal("the resetting session ended", code)
 	}
 	var reset, createdAudit int
-	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM audit_events WHERE event='identity.reset' AND object_id=? AND reason_code='sessions_revoked=1,devices_revoked=2'),(SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset')`, old, created.DeviceID).Scan(&reset, &createdAudit); err != nil || reset != 1 || createdAudit != 1 {
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM audit_events WHERE event='identity.reset' AND object_id=? AND reason_code='sessions_revoked=1,devices_revoked=2,containers_retired=0'),(SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset')`, old, created.DeviceID).Scan(&reset, &createdAudit); err != nil || reset != 1 || createdAudit != 1 {
 		t.Fatal("audits", reset, createdAudit, err)
 	}
 }
@@ -437,7 +437,7 @@ func TestIdentityResetWithoutAnIdentityAuditsRevocations(t *testing.T) {
 		t.Fatal("reset with no identity", code, out)
 	}
 	var n int
-	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset,sessions_revoked=1,devices_revoked=0'`, created.DeviceID).Scan(&n); err != nil || n != 1 {
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset,sessions_revoked=1,devices_revoked=0,containers_retired=0'`, created.DeviceID).Scan(&n); err != nil || n != 1 {
 		t.Fatal("create audit without the revoked counts", n, err)
 	}
 }
@@ -699,5 +699,54 @@ func TestAdminPasswordResetRevokesPairedDevices(t *testing.T) {
 	var revoked string
 	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM key_envelopes WHERE device_id=?),(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?),(SELECT revoked_at FROM devices WHERE id=?)`, victim.deviceID, identity, identity).Scan(&phone, &kept, &revoked); err != nil || phone != 0 || kept != 1 || revoked != "" {
 		t.Fatal("after the reset", phone, kept, revoked, err)
+	}
+}
+
+// A reset retires every keyed container the user is in, as a removal does: a stolen browser holding
+// the old identity keeps the old keys, so nothing written after the reset may be sealed with them.
+// The new generation has no envelopes until a steward mints it; writes at the old one are refused.
+func TestIdentityResetRetiresEveryKeyedContainer(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	tm.rotate(t, tm.child, 1)
+	unkeyed := seedContainer(t, tm.owner, "workbook", "", map[string]string{tm.editor.id: "owner"})
+	elsewhere := seedContainer(t, tm.owner, "workbook", "", map[string]string{pairUser: "owner"})
+	keyForTest(t, tm.owner.db, elsewhere, pairUser)
+	oid, code := tm.editor.save(t, tm.id, "", 2)
+	if code != http.StatusOK {
+		t.Fatalf("save before the reset=%d", code)
+	}
+	tm.editor.stepUp(t)
+	code, out := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(bytes.Repeat([]byte{8}, 32), expecting(tm.editorID)+resetRecovery+b64s(recoveryCopy)+`"}`), true, false))
+	var created struct{ DeviceID string }
+	if code != http.StatusOK || json.Unmarshal([]byte(out), &created) != nil {
+		t.Fatal("reset", code, out)
+	}
+	for cid, want := range map[string]int64{tm.id: 3, tm.child: 3, unkeyed: 1, elsewhere: 1} {
+		if g, _ := generationOf(t, tm.owner, cid); g != want {
+			t.Fatalf("container %s at generation %d, want %d", cid, g, want)
+		}
+	}
+	if n := countEnvelopes(t, tm.owner, tm.id, 3) + countEnvelopes(t, tm.owner, tm.child, 3); n != 0 {
+		t.Fatalf("the retired generation holds %d envelopes", n)
+	}
+	// Nobody writes with a retired key, the owner who still holds it included.
+	if _, code := tm.owner.save(t, tm.id, oid, 2); code != http.StatusConflict {
+		t.Fatalf("owner save at the retired generation=%d", code)
+	}
+	if _, code := tm.editor.comment(t, oid, 2); code != http.StatusConflict {
+		t.Fatalf("comment at the retired generation=%d", code)
+	}
+	var audits int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.reset' AND object_id=? AND reason_code LIKE '%,containers_retired=2'`, tm.editorID).Scan(&audits); err != nil || audits != 1 {
+		t.Fatal("reset audit without the retired count", audits, err)
+	}
+	// A steward mints the next generation for every identity, the new one included; writes resume.
+	body := rotationBody(3, envJSON(tm.ownerID, 4, 1), envJSON(tm.adminID, 4, 1), envJSON(created.DeviceID, 4, 1))
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/key-rotations", body, true, false)); code != http.StatusOK {
+		t.Fatalf("mint after the reset=%d %s", code, out)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 4); code != http.StatusOK {
+		t.Fatalf("save after the mint=%d", code)
 	}
 }

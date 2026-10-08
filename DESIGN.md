@@ -178,8 +178,11 @@ it in one transaction for a new one with a new recovery copy (and, for a passwor
 account, a new password copy, as on a first identity; an account linked to KySignOn
 never gets one, from any session), deletes the old envelopes,
 copies and link requests, and revokes the account's other sessions and paired
-device credentials with their envelopes. It refuses the old identity's own key. Personal
-notebooks are then lost, and stewards re-share team keys. An SSO session creates a
+device credentials with their envelopes. It refuses the old identity's own key. Like a member
+removal, it advances the key generation of every keyed container the user belongs to, so a stolen
+browser holding the old identity opens nothing written afterwards: the new generation has no
+envelopes and takes no writes until a steward mints it. Personal notebooks are then lost, and
+stewards re-share team keys. An SSO session creates a
 device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
 request; no password copy exists on the server, and other
 browsers receive it by device linking. A password never unlocks or re-wraps it.

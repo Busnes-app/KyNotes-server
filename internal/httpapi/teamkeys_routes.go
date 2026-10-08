@@ -373,6 +373,22 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 	return nil
 }
 
+// retireKeysTx advances key_generation in every keyed container userID is a live member of, as a
+// member removal does: a self-service reset may follow a stolen browser, so the old identity's
+// keys must open nothing written afterwards. The new generation has no envelopes; writes wait
+// until a steward mints it. It returns how many containers it retired.
+func retireKeysTx(tx *sql.Tx, userID, now string) (int64, error) {
+	const scope = `(SELECT container_id FROM memberships WHERE user_id=?1 AND revoked_at='')`
+	res, err := tx.Exec(`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?2 WHERE shared_generation>0 AND deleted_at='' AND id IN `+scope, userID, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM invitation_envelopes WHERE container_id IN `+scope+` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`, userID); err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // admitMemberTx makes userID a member of cid and its live child workspaces with
 // role, recording invitedBy (empty for a server-admin add). Rows a removal revoked
 // are reactivated (the unique index keeps one row per container and user) and

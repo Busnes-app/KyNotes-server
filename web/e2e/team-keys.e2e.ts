@@ -610,10 +610,16 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   await signIn(newcomer.page, "newcomer", TEMPORARY);
   await takeOverPassword(newcomer.page);
   expect((await vaultOf(newcomer.page))!.identity!.deviceId).toBe(oldIdentity.deviceId);
+  // Every content key the old identity opens: a stolen browser would keep these after the reset.
+  const preReset = await heldKeys(newcomer.page, cid, senders);
+  expect(preReset.size).toBeGreaterThan(0);
   const newCode = await resetOwnKey(newcomer, OWN);
   await expect.poll(async () => (await vaultOf(newcomer.page))?.identity?.deviceId, { timeout: 30_000 }).not.toBe(oldIdentity.deviceId);
   expect(await storageHolds(newcomer.page, newCode)).toBe(false);
-  await openTeam(editor.page, TEAM, cid);
+  // The reset retired the team's generation: until a steward mints the next one, a member sees the
+  // waiting state (its name is sealed with the current key only) and cannot write.
+  await openTeam(editor.page, `Notebook ${cid.slice(4, 10)}`, cid);
+  await expect(editor.page.getByText(WAITING)).toBeVisible();
   await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("waiting for key");
   const renewed = await ownSettings(newcomer.page);
   expect(renewed.fingerprint).not.toBe(newcomerOwn.fingerprint);
@@ -637,6 +643,8 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   // No fingerprint dialog may appear now (unexpected dialogs fail the run): the sweep wraps for the new key.
   await openTeam(owner.page, TEAM, cid);
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
+  // That pass minted the generation the reset retired; the next one wraps the team's history for the new key.
+  await openTeam(owner.page, TEAM, cid);
   await openTeam(newcomer.page, TEAM, cid);
   await readPage(newcomer.page, "Owner page", ["owner comment"]);
   // The steward re-shared for the new key only: the old key is gone from the server and opens none of it.
@@ -652,6 +660,13 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
     expect(() => unwrapEnvelope(envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, oldIdentity.deviceId, sender)).toThrow();
     expect(unwrapEnvelope(envelope, Uint8Array.from(newIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toHaveLength(32);
   }
+  // The reset retired the old key's generations: the steward minted a new one, so content written
+  // afterwards sits above them all and no retained pre-reset key opens the server's bytes.
+  await writePage(owner.page, "After reset", "after reset comment");
+  const afterReset = await serverCopy(owner.page, "After reset");
+  expect(afterReset.generation).toBeGreaterThan(Math.max(...preReset.keys()));
+  for (const key of preReset.values()) await expect(titleOf(key, cid, afterReset.bytes)).rejects.toThrow();
+  await expect(titleOf((await heldKeys(newcomer.page, cid, senders)).get(afterReset.generation)!, cid, afterReset.bytes)).resolves.toBe("After reset");
 
   // 5. An edit stranded on the device for a notebook this account cannot open: exported, then discarded.
   const lost = `cnt_${"z".repeat(26)}`;

@@ -218,9 +218,13 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 				if _, err := tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, s.UserID); err != nil {
 					return err
 				}
+				retired, err := retireKeysTx(tx, s.UserID, now)
+				if err != nil {
+					return err
+				}
 				ns, _ := sessions.RowsAffected()
 				nd, _ := devices.RowsAffected()
-				revoked := fmt.Sprintf("sessions_revoked=%d,devices_revoked=%d", ns, nd)
+				revoked := fmt.Sprintf("sessions_revoked=%d,devices_revoked=%d,containers_retired=%d", ns, nd, retired)
 				oldFingerprint, err := deleteIdentityTx(tx, s.UserID, s.UserID, RequestID(r), revoked)
 				if err != nil {
 					return err
