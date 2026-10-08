@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -258,12 +259,33 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	}))
 	mux.Handle("POST /api/v1/auth/logout", handleLogout)
 	mux.Handle("POST /api/auth/logout", handleLogout)
-	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var changePassword http.HandlerFunc
+	changePassword = func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
+		// An administrator who set an SSO account's password could otherwise clear the fence by
+		// changing it; only the identity provider's user can confirm with KySignOn.
+		confirmed, _ := r.Context().Value(ssoConfirmedKey{}).(bool)
+		if !confirmed {
+			fenced, err := adminKnownSSOAccount(db, s.UserID)
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			if fenced && s.SSOIssuer == "" {
+				WriteError(w, r, 409, "sso_step_up_required", "sign in with KySignOn to change a password an administrator set")
+				return
+			}
+			if fenced {
+				auth.RequireSSOUserStepUp(db, s, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					changePassword(w, r.WithContext(context.WithValue(r.Context(), ssoConfirmedKey{}, true)))
+				}), w, r)
+				return
+			}
+		}
 		var in struct {
 			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
 			WrappedIdentityKey                             string `json:"wrappedIdentityKey"`
@@ -305,6 +327,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		loginLockout.Success(key)
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
+		}
 		hash, err := auth.HashAuthSecret(in.NewAuthSecret)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
@@ -320,6 +345,11 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			}
 			if current != stored {
 				return errPasswordChanged
+			}
+			if fenced, err := adminKnownSSOAccount(tx, s.UserID); err != nil {
+				return err
+			} else if fenced && !confirmed {
+				return errSSOConfirmationRequired
 			}
 			var identities int
 			// Only a password-wrapped identity moves with the password; a device-only one is not touched.
@@ -361,13 +391,18 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and change the password again")
 			return
 		}
+		if errors.Is(err, errSSOConfirmationRequired) {
+			WriteError(w, r, 409, "sso_step_up_required", "sign in with KySignOn to change a password an administrator set")
+			return
+		}
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		recordAudit(db, s.UserID, "account.password_change", "", "", RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	}
+	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, changePassword))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -571,4 +606,18 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func clearCookie(w http.ResponseWriter, name string, httpOnly, secure bool) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: httpOnly, Secure: secure, SameSite: http.SameSiteLaxMode})
+}
+
+type ssoConfirmedKey struct{}
+
+var errSSOConfirmationRequired = errors.New("KySignOn confirmation required")
+
+// adminKnownSSOAccount: an administrator set the password of an account that signs in through
+// KySignOn. Only a KySignOn confirmation may change it (a local-only account has no such proof).
+func adminKnownSSOAccount(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, userID string) (bool, error) {
+	var n int
+	err := q.QueryRow(`SELECT COUNT(*) FROM users WHERE id=? AND sso_subject<>'' AND password_admin_known=1`, userID).Scan(&n)
+	return n > 0, err
 }

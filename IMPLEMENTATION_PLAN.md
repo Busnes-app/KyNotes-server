@@ -428,6 +428,7 @@ ratelimit:
   pairing_per_hour: 20
   upload_per_minute: 60
   invitation_per_hour: 30
+  link_poll_per_minute: 60        # device-link collect polls, per account
 
 log:
   level: "info"                   # debug|info|warn|error
@@ -1247,10 +1248,10 @@ deliberately every phase).
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
 | POST | `/api/v1/me/link-requests` | session + CSRF | newcomer: `{"commitment":"<b64 32>"}` → `{"id","expiresAt"}`; `404` without an identity; `409 already_exists` at 3 live requests; `409 password_change_required` for a local session while `password_admin_known` |
 | GET | `/api/v1/me/link-requests` | session | trusted side: live requests of the account's other live sessions, unclaimed or claimed by the caller: `[{"id","commitment","createdAt","expiresAt","claimed","newcomerKey"}]` (`newcomerKey` `""` until revealed) |
-| POST | `/api/v1/me/link-requests/{id}/claim` | session + CSRF | trusted side: `{"approverKey":"<b64 32>"}` → `204`; once; not the newcomer session; newcomer session live |
-| POST | `/api/v1/me/link-requests/{id}/reveal` | session + CSRF | newcomer: `{"newcomerKey":"<b64 32>"}` → `204`; after a claim, once, only the committed key (`400` and the row is deleted otherwise); approver session live |
+| POST | `/api/v1/me/link-requests/{id}/claim` | session + CSRF | trusted side: `{"approverKey":"<b64 32>"}` → `204`; once; not the newcomer session; newcomer session live; `409 password_change_required` for a local session while `password_admin_known` |
+| POST | `/api/v1/me/link-requests/{id}/reveal` | session + CSRF | newcomer: `{"newcomerKey":"<b64 32>"}` → `204`; after a claim, once, only the committed key (`400` and the row is deleted otherwise); approver session live; `409 password_change_required` for a local session while `password_admin_known` |
 | POST | `/api/v1/me/link-requests/{id}/approve` | session + CSRF + user-action step-up | claiming session: `{"bundle":"<b64 61>"}` → `204`; after reveal, once, newcomer session live; `409 password_change_required` while `password_admin_known` (local sessions) |
-| GET | `/api/v1/me/link-requests/{id}` | session | newcomer: `{"state":"pending\|claimed\|revealed\|approved","expiresAt","approverKey"?,"bundle"?}`; an approved row is returned once and deleted in the same transaction |
+| POST | `/api/v1/me/link-requests/{id}/collect` | session + CSRF | newcomer, polled (no body): `{"state":"pending\|claimed\|revealed\|approved","expiresAt","approverKey"?,"bundle"?}`; a plain read until a bundle is ready, then the approved row is returned once and deleted in one transaction; `409 password_change_required` for a local session while `password_admin_known`; `no-store` |
 | DELETE | `/api/v1/me/link-requests/{id}` | session + CSRF | any session of the account → `204` |
 | GET | `/api/v1/users/{id}/identity` | session | `{"userId","deviceId","publicKey","fingerprint"}` of an active user's live identity, for the user, a co-member of a live container, or a team/project owner/admin holding a pending, unexpired invitation they issued to the user; otherwise a uniform `404` |
 
@@ -1270,12 +1271,12 @@ deliberately every phase).
 * A device credential may never write envelopes, mint pairing tokens, list other
   devices, or read another device's envelope. Each of those is a named test.
 * Identity rows (`platform = 'identity'`) are excluded from device auth, device listing, revocation (per-device, directory deactivation and SSO role change), selection and re-pairing.
-* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is. While it is `1`, every local password step-up for an identity action (identity create, envelope `PUT`, rotation, invitation envelopes) answers `409 password_change_required`, checked in the write transaction.
+* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is. While it is `1`, every local password step-up for an identity action (identity create, envelope `PUT`, rotation, invitation envelopes) answers `409 password_change_required`, checked in the write transaction. On an account with a KySignOn subject (`users.sso_subject`), `POST /auth/password` while it is `1` needs a user-scope KySignOn confirmation of that exact request from an SSO session (local sessions: `409 sso_step_up_required`; rechecked in the write transaction), so the administrator who set the password cannot clear the flag. A local-only account has no such proof: whoever set its password acts as the user until the user changes it (documented residual).
 * A successful password change clears `stepup_at` on every session of the user.
 * `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
 * Recovery and admin password reset delete the identity row (device-only included) in the same transaction and write an audit row. `identity.create` audits `wrap=<alg>,proof=password|sso:<challenge ID>`.
 * Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
-* Link requests (migration `0024_device_linking.sql`): session-only, one user, TTL 10 minutes, at most 3 live per user (`409 already_exists`), a session's new request replaces its own; claim needs the newcomer session live and refuses the newcomer itself; reveal only by the newcomer, only after a claim, only the committed key (`SHA-256("kynotes/link-commit/v1" ‖ key)`; mismatch deletes the row, `400`); every miss, another user's ID included, is `404`; TTL and liveness are checked in the step's transaction. A local newcomer session is refused while `password_admin_known` (`409 password_change_required`). Creation has its own `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a per-account `link-step` bucket at `ratelimit.login_per_minute`. Every step is audited (`identity.link.request|claim|reveal|cancel|collect`, `.refuse` for a commitment mismatch); a refusal is audited under the step's event with outcome `denied` and the HTTP status as `reason_code`, object ID only when well formed. Collect misses are not audited (polled). Audits never carry keys, commitments or bundles. GC deletes expired rows. Approve only by the claiming session, after a fresh user-action step-up rechecked in the transaction (`RecheckUserActionTx`), while the newcomer session is live, once, with exactly 61 bundle bytes; collect only by the newcomer's own live session, which deletes the row in the same transaction; deleting the identity (recovery, admin reset) deletes the user's link requests in the same transaction.
+* Link requests (migration `0024_device_linking.sql`): session-only, one user, TTL 10 minutes, at most 3 live per user (`409 already_exists`), a session's new request replaces its own; claim needs the newcomer session live and refuses the newcomer itself; reveal only by the newcomer, only after a claim, only the committed key (`SHA-256("kynotes/link-commit/v1" ‖ key)`; mismatch deletes the row, `400`); every miss, another user's ID included, is `404`; TTL and liveness are checked in the step's transaction. A local session is refused on create, claim, reveal and collect while `password_admin_known` (`409 password_change_required`). Creation has its own `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a per-account `link-step` bucket at `ratelimit.login_per_minute`; collect has a per-account `link-poll` bucket at `ratelimit.link_poll_per_minute` (default 60, sized for the 2-second poll). Every step is audited (`identity.link.request|claim|reveal|approve|cancel|collect`, `.refuse` for a commitment mismatch, which is that attempt's only refusal row); a refusal is audited under the step's event with outcome `denied` and the HTTP status as `reason_code`, object ID only when well formed. A KySignOn confirmation in progress (`sso_step_up_required`, `step_up_pending`) is not a refusal; `auth.sso_step_up.start` audits it. Collect misses are not audited (polled). Reveal and collect write behind state guards with a rows-affected check. Audits never carry keys, commitments or bundles. GC deletes expired rows. Approve only by the claiming session, after a fresh user-action step-up rechecked in the transaction (`RecheckUserActionTx`), while the newcomer session is live, once, with exactly 61 bundle bytes; collect only by the newcomer's own live session, which deletes the row in the same transaction; deleting the identity (recovery, admin reset) deletes the user's link requests in the same transaction.
 * `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
 
 ### 5.3 Tests
@@ -1357,6 +1358,13 @@ deliberately every phase).
 - `TestLinkCollectNeedsTheLiveNewcomerSession`
 - `TestAdminResetClearsLinkRequests`
 - `TestLinkCollectIsOnceUnderConcurrency`
+- `TestAdminKnownPasswordChangeNeedsKySignOn`
+- `TestPasswordChangeRechecksTheKySignOnFenceInTransaction`
+- `TestLinkClaimRefusesAdminKnownPassword`
+- `TestLinkCollectIsRateLimitedPerAccount`
+- `TestLinkCollectPollReadsWithoutTheWriteLock`
+- `TestLinkCollectNeedsCSRF`
+- `TestLinkCollectRefusesAdminKnownPassword`
 
 ---
 
@@ -1744,7 +1752,7 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, and invitation accepts at the same rate in their own bucket per user (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation at `ratelimit.pairing_per_hour`, link steps at `ratelimit.login_per_minute` and link collect polls at `ratelimit.link_poll_per_minute` per user (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
   `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds

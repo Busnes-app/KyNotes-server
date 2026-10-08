@@ -569,7 +569,7 @@ func TestLinkRelayHandsOverOnlyPublicKeys(t *testing.T) {
 		t.Fatal("another session lists a request claimed by someone else", body)
 	}
 	// The newcomer learns the approver key and nothing else yet.
-	if code, body := get(newcomer, linkPath(id, "")); code != 200 || !strings.Contains(body, `"state":"claimed"`) || !strings.Contains(body, b64(approverKey)) || strings.Contains(body, "bundle") {
+	if code, body := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 200 || !strings.Contains(body, `"state":"claimed"`) || !strings.Contains(body, b64(approverKey)) || strings.Contains(body, "bundle") {
 		t.Fatal("newcomer state", code, body)
 	}
 	reveal := func(p *pairClient) int {
@@ -610,7 +610,7 @@ func TestLinkRequestRefusals(t *testing.T) {
 	// Another account sees none of it, by any route.
 	other := trusted.addUser(t, "other")
 	id := createLinkRequest(t, newcomer, commitment)
-	for _, call := range [][2]string{{http.MethodPost, "/claim"}, {http.MethodPost, "/reveal"}, {http.MethodGet, ""}, {http.MethodDelete, ""}} {
+	for _, call := range [][2]string{{http.MethodPost, "/claim"}, {http.MethodPost, "/reveal"}, {http.MethodPost, "/collect"}, {http.MethodDelete, ""}} {
 		if code, _ := status(t, other.do(t, call[0], linkPath(id, call[1]), []byte(`{"approverKey":`+quote(b64(approverKey))+`,"newcomerKey":`+quote(b64(newcomerKey))+`}`), true, false)); code != http.StatusNotFound {
 			t.Fatal("another account reached", call, code)
 		}
@@ -626,7 +626,7 @@ func TestLinkRequestRefusals(t *testing.T) {
 	if claim(trusted, id) != http.StatusNotFound {
 		t.Fatal("expired request claimed")
 	}
-	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != http.StatusNotFound {
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != http.StatusNotFound {
 		t.Fatal("expired request collected")
 	}
 	// A key that does not match the commitment ends the attempt.
@@ -766,6 +766,9 @@ func TestLinkRefusalsAreAuditedWithoutSecrets(t *testing.T) {
 	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/reveal"), []byte(`{"newcomerKey":`+quote(b64(approverKey))+`}`), true, false)); code != http.StatusBadRequest {
 		t.Fatal("mismatch", code)
 	}
+	if refused(t, trusted, "identity.link.refuse", "commitment") != 1 || refused(t, trusted, "identity.link.reveal", "400") != 0 {
+		t.Fatal("a commitment mismatch must write exactly one refusal row")
+	}
 	if leak := auditLeaks(t, trusted, commitment, newcomerKey, approverKey); leak != "" {
 		t.Fatal("audit carries key material:", leak)
 	}
@@ -826,7 +829,7 @@ func TestLinkApprovalNeedsStepUpAndIsCollectedOnce(t *testing.T) {
 	approve := func(p *pairClient, value string, csrf bool) (int, string) {
 		return status(t, p.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(value)+`}`), csrf, false))
 	}
-	if code, body := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 200 || !strings.Contains(body, `"state":"revealed"`) || strings.Contains(body, `"bundle"`) {
+	if code, body := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 200 || !strings.Contains(body, `"state":"revealed"`) || strings.Contains(body, `"bundle"`) {
 		t.Fatal("before approval", code, body)
 	}
 	if _, err := trusted.db.Exec(`UPDATE sessions SET stepup_at=''`); err != nil {
@@ -852,13 +855,13 @@ func TestLinkApprovalNeedsStepUpAndIsCollectedOnce(t *testing.T) {
 	if code, _ := approve(trusted, bundle, true); code != 404 {
 		t.Fatal("approved twice", code)
 	}
-	if code, _ := status(t, trusted.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 404 {
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 404 {
 		t.Fatal("the approver collected", code)
 	}
-	if code, body := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 200 || !strings.Contains(body, `"state":"approved"`) || !strings.Contains(body, bundle) {
+	if code, body := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 200 || !strings.Contains(body, `"state":"approved"`) || !strings.Contains(body, bundle) {
 		t.Fatal("collect", code, body)
 	}
-	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 404 {
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 404 {
 		t.Fatal("collected twice", code)
 	}
 	var rows int
@@ -927,8 +930,12 @@ func TestSSOAccountLinksASecondBrowser(t *testing.T) {
 	if r := ssoDo(f, first, "bob", "POST", linkPath(out.ID, "/approve"), body); r.Code != 204 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	if r := send(second, "GET", linkPath(out.ID, ""), ""); r.Code != 200 || !strings.Contains(r.Body.String(), `"state":"approved"`) {
+	if r := send(second, "POST", linkPath(out.ID, "/collect"), ""); r.Code != 200 || !strings.Contains(r.Body.String(), `"state":"approved"`) {
 		t.Fatal(r.Code, r.Body.String())
+	}
+	var denied int
+	if err := f.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.link.approve' AND outcome<>'success'`).Scan(&denied); err != nil || denied != 0 {
+		t.Fatal("the KySignOn confirmation was audited as a refused approval", denied, err)
 	}
 }
 
@@ -993,18 +1000,21 @@ func TestLinkApprovalRefusesAdminKnownPassword(t *testing.T) {
 // Collect needs the newcomer's own live session; a revoked one leaves the bundle undelivered.
 func TestLinkCollectNeedsTheLiveNewcomerSession(t *testing.T) {
 	trusted, newcomer, id := openLink(t)
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 404 {
+		t.Fatal("another session of the account polled the request", code)
+	}
 	trusted.stepUp(t)
 	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false)); code != 204 {
 		t.Fatal("approve", code)
 	}
 	other := trusted.secondSession(t)
-	if code, _ := status(t, other.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 404 {
+	if code, _ := status(t, other.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 404 {
 		t.Fatal("another session of the account collected", code)
 	}
 	if _, err := trusted.db.Exec(`UPDATE sessions SET revoked_at='x' WHERE id=(SELECT newcomer_session_id FROM link_requests WHERE id=?)`, id); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 401 {
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 401 {
 		t.Fatal("collected by a revoked session", code)
 	}
 	if audited(t, trusted, "identity.link.collect") != 0 {
@@ -1040,7 +1050,8 @@ func TestLinkCollectIsOnceUnderConcurrency(t *testing.T) {
 	codes := make(chan int, 8)
 	for i := 0; i < cap(codes); i++ {
 		go func() {
-			req, _ := http.NewRequest(http.MethodGet, newcomer.url+linkPath(id, ""), nil)
+			req, _ := http.NewRequest(http.MethodPost, newcomer.url+linkPath(id, "/collect"), nil)
+			req.Header.Set("X-CSRF-Token", newcomer.csrf)
 			res, err := newcomer.hc.Do(req)
 			if err != nil {
 				codes <- 0
@@ -1062,5 +1073,171 @@ func TestLinkCollectIsOnceUnderConcurrency(t *testing.T) {
 	}
 	if delivered != 1 || audited(t, trusted, "identity.link.collect") != 1 {
 		t.Fatal("deliveries", delivered)
+	}
+}
+
+// An administrator who set an SSO account's password cannot clear the fence by changing it: that
+// takes a KySignOn confirmation, which only the identity provider's user can give (review I1).
+func TestAdminKnownPasswordChangeNeedsKySignOn(t *testing.T) {
+	f, cookies, bob, device, cid := ssoTeam(t)
+	secret := strings.Repeat("a", 64)
+	hash, err := auth.HashAuthSecret(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`UPDATE users SET auth_secret_hash=?,password_admin_known=1 WHERE id=?`, hash, bob); err != nil {
+		t.Fatal(err)
+	}
+	login := f.send(httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(`{"username":"bob","authSecret":"`+secret+`"}`)))
+	if login.Code != 200 {
+		t.Fatal("local login", login.Code, login.Body.String())
+	}
+	local := liveCookies(login)
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := withCookies(httptest.NewRequest(method, path, strings.NewReader(body)), local)
+		req.Header.Set("Content-Type", "application/json")
+		return f.send(req)
+	}
+	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	change := `{"currentAuthSecret":"` + secret + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	if r := do("POST", "/api/v1/auth/password", change); r.Code != 409 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+		t.Fatal("an administrator-known password changed itself", r.Code, r.Body.String())
+	}
+	flag := func() int {
+		var n int
+		if err := f.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, bob).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if flag() != 1 {
+		t.Fatal("flag cleared")
+	}
+	commitment, _, _ := firstLinkVector(t)
+	if r := do("POST", "/api/v1/me/link-requests", `{"commitment":`+quote(b64(commitment))+`}`); r.Code != 409 || !strings.Contains(r.Body.String(), "password_change_required") {
+		t.Fatal("link create", r.Code, r.Body.String())
+	}
+	if r := do("POST", "/api/v1/auth/step-up", `{"authSecret":"`+secret+`"}`); r.Code != 200 && r.Code != 204 {
+		t.Fatal("step-up", r.Code, r.Body.String())
+	}
+	if r := do("POST", "/api/v1/containers/"+cid+"/key-rotations", string(rotationBody(1, envJSON(device, 2, 1)))); r.Code != 409 || !strings.Contains(r.Body.String(), "password_change_required") {
+		t.Fatal("rotation", r.Code, r.Body.String())
+	}
+	// The identity provider's user takes the account back.
+	if r := ssoDo(f, cookies, "bob", "POST", "/api/v1/auth/password", change); r.Code != 204 {
+		t.Fatal("SSO-confirmed change", r.Code, r.Body.String())
+	}
+	if flag() != 0 {
+		t.Fatal("flag kept after a confirmed change")
+	}
+}
+
+// A session that could never approve cannot take the approver slot (review M1).
+func TestLinkClaimRefusesAdminKnownPassword(t *testing.T) {
+	commitment, _, approverKey := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	id := createLinkRequest(t, trusted.secondSession(t), commitment)
+	if _, err := trusted.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	code, body := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false))
+	var claimed int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests WHERE approver_session_id IS NOT NULL`).Scan(&claimed); err != nil || code != 409 || !strings.Contains(body, "password_change_required") || claimed != 0 {
+		t.Fatal("an administrator-known session claimed", code, body, claimed, err)
+	}
+}
+
+// Collect is polled: its own per-account bucket, sized for a two-second poll (review M2).
+func TestLinkCollectIsRateLimitedPerAccount(t *testing.T) {
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	limit := config.Defaults().RateLimit.LinkPollPerMinute
+	if limit != 60 {
+		t.Fatal("default link_poll_per_minute", limit)
+	}
+	for i := 0; i < limit; i++ {
+		if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(mint(t, "lnk"), "/collect"), nil, true, false)); code != http.StatusNotFound {
+			t.Fatal(i, code)
+		}
+	}
+	res := trusted.do(t, http.MethodPost, linkPath(mint(t, "lnk"), "/collect"), nil, true, false)
+	if code, _ := status(t, res); code != http.StatusTooManyRequests || res.Header.Get("Retry-After") != "1" {
+		t.Fatal("collect past the account's bucket", code, res.Header.Get("Retry-After"))
+	}
+	// Steps keep their own budget.
+	if code, _ := status(t, trusted.do(t, http.MethodDelete, linkPath(mint(t, "lnk"), ""), nil, true, false)); code != http.StatusNotFound {
+		t.Fatal("collect drained the step bucket", code)
+	}
+}
+
+// A poll that finds no bundle never waits for the write lock (review M2).
+func TestLinkCollectPollReadsWithoutTheWriteLock(t *testing.T) {
+	commitment, _, _ := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	newcomer := trusted.secondSession(t)
+	id := createLinkRequest(t, newcomer, commitment)
+	tx, err := trusted.db.Begin() // _txlock=immediate: holds the write lock
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	start := time.Now()
+	code, body := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false))
+	if code != 200 || !strings.Contains(body, `"state":"pending"`) || time.Since(start) > 2*time.Second {
+		t.Fatal("pending poll", code, body, time.Since(start))
+	}
+}
+
+// Collect deletes, so it is a POST with CSRF and never cached (review M3).
+func TestLinkCollectNeedsCSRF(t *testing.T) {
+	trusted, newcomer, id := openLink(t)
+	trusted.stepUp(t)
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false)); code != 204 {
+		t.Fatal("approve", code)
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code == 200 {
+		t.Fatal("a GET still collects")
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, false, false)); code != 403 {
+		t.Fatal("collected without CSRF", code)
+	}
+	res := newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)
+	if code, body := status(t, res); code != 200 || !strings.Contains(body, `"state":"approved"`) || res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatal("collect", code, body, res.Header.Get("Cache-Control"))
+	}
+}
+
+// A local newcomer whose password an administrator set never receives the identity.
+func TestLinkCollectRefusesAdminKnownPassword(t *testing.T) {
+	_, newcomer, id := openLink(t)
+	if _, err := newcomer.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := status(t, newcomer.do(t, http.MethodPost, linkPath(id, "/collect"), nil, true, false)); code != 409 || !strings.Contains(body, "password_change_required") {
+		t.Fatal("collect", code, body)
+	}
+}
+
+// Directory sync may link the account to a KySignOn subject while the change is in flight: the
+// write transaction checks the fence again.
+func TestPasswordChangeRechecksTheKySignOnFenceInTransaction(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	afterPasswordVerified = func() {
+		afterPasswordVerified = nil
+		if _, err := p.db.Exec(`UPDATE users SET sso_subject='bob' WHERE id=?`, pairUser); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterPasswordVerified = nil })
+	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false))
+	var flag int
+	if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&flag); err != nil || code != 409 || !strings.Contains(body, "sso_step_up_required") || flag != 1 {
+		t.Fatal("fence not rechecked", code, body, flag, err)
 	}
 }

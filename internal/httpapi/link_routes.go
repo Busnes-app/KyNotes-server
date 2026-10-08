@@ -54,9 +54,10 @@ func sessionLive(tx *sql.Tx, s auth.Session, now time.Time) error {
 	return err
 }
 
-// newcomerLive is sessionLive for the side that receives the identity. A local session whose password
-// an administrator set proves nothing about the user, so it can never be that side.
-func newcomerLive(tx *sql.Tx, s auth.Session, now time.Time) error {
+// partyLive is sessionLive for either side of a link. A local session whose password an
+// administrator set proves nothing about the user: it can neither receive the identity nor take the
+// approver slot.
+func partyLive(tx *sql.Tx, s auth.Session, now time.Time) error {
 	if err := sessionLive(tx, s, now); err != nil || s.SSOIssuer != "" {
 		return err
 	}
@@ -88,14 +89,40 @@ func linkHandler(h func(w http.ResponseWriter, r *http.Request, s auth.Session, 
 	})
 }
 
+// linkWriter keeps the start of an error body, and whether the step audited its own refusal.
+type linkWriter struct {
+	responseWriter
+	body    []byte
+	audited bool
+}
+
+func (w *linkWriter) Write(p []byte) (int, error) {
+	if len(w.body) < 512 {
+		w.body = append(w.body, p...)
+	}
+	return w.responseWriter.Write(p)
+}
+
+// markAudited tells linkAudited that the step recorded its refusal itself.
+func markAudited(w http.ResponseWriter) {
+	if lw, ok := w.(*linkWriter); ok {
+		lw.audited = true
+	}
+}
+
 // linkAudited gates a relay step on a session and audits every refusal under the step's event, with
-// the status the caller saw. The object is the request ID only when well formed. The link-step and
-// link rate buckets bound how many refusal rows one account can write.
+// the status the caller saw. The object is the request ID only when well formed. A KySignOn
+// confirmation in progress is not a refusal (it has its own auth.sso_step_up.start audit). The
+// link-step and link rate buckets bound how many refusal rows one account can write.
 func linkAudited(db *sql.DB, event string, next http.Handler) http.Handler {
 	return auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rw := &responseWriter{ResponseWriter: w}
+		rw := &linkWriter{responseWriter: responseWriter{ResponseWriter: w}}
 		next.ServeHTTP(rw, r)
-		if rw.status < 400 {
+		if rw.status < 400 || rw.audited {
+			return
+		}
+		var reply struct{ Error struct{ Code string } }
+		if json.Unmarshal(rw.body, &reply) == nil && (reply.Error.Code == "sso_step_up_required" || reply.Error.Code == "step_up_pending") {
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
@@ -152,8 +179,8 @@ func LinkRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("POST /api/v1/me/link-requests/{id}/reveal", step("identity.link.reveal", revealLink(db)))
 	mux.Handle("POST /api/v1/me/link-requests/{id}/approve", step("identity.link.approve", auth.RequireUserActionStepUp(db, approveLink(db))))
 	mux.Handle("DELETE /api/v1/me/link-requests/{id}", step("identity.link.cancel", cancelLink(db)))
-	// Polled every two seconds: its misses are not audited (nothing changes; unbounded rows otherwise).
-	mux.Handle("GET /api/v1/me/link-requests/{id}", auth.RequireSession(db, collectLink(db)))
+	// Polled every two seconds (link-poll bucket); its misses change nothing and are not audited.
+	mux.Handle("POST /api/v1/me/link-requests/{id}/collect", auth.RequireSession(db, collectLink(db)))
 }
 
 func createLink(db *sql.DB) http.Handler {
@@ -169,7 +196,7 @@ func createLink(db *sql.DB) http.Handler {
 			return
 		}
 		var expires string
-		if !linkTx(w, r, db, s, newcomerLive, func(tx *sql.Tx, now time.Time) error {
+		if !linkTx(w, r, db, s, partyLive, func(tx *sql.Tx, now time.Time) error {
 			at := now.Format(time.RFC3339)
 			expires = now.Add(linkTTL).Format(time.RFC3339)
 			var identities int
@@ -242,7 +269,7 @@ func claimLink(db *sql.DB) http.Handler {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		if !linkTx(w, r, db, s, sessionLive, func(tx *sql.Tx, now time.Time) error {
+		if !linkTx(w, r, db, s, partyLive, func(tx *sql.Tx, now time.Time) error {
 			res, err := tx.Exec(`UPDATE link_requests SET approver_session_id=?4,approver_key=?5 WHERE id=?2 AND user_id=?3 AND expires_at>?1 AND newcomer_session_id<>?4 AND approver_session_id IS NULL`+liveNewcomer, now.Format(time.RFC3339), id, s.UserID, s.ID, key)
 			if err != nil {
 				return err
@@ -267,7 +294,7 @@ func revealLink(db *sql.DB) http.Handler {
 			return
 		}
 		refused := false
-		if !linkTx(w, r, db, s, newcomerLive, func(tx *sql.Tx, now time.Time) error {
+		if !linkTx(w, r, db, s, partyLive, func(tx *sql.Tx, now time.Time) error {
 			var commitment []byte
 			err := tx.QueryRow(`SELECT commitment FROM link_requests WHERE id=?2 AND user_id=?3 AND newcomer_session_id=?4 AND expires_at>?1 AND approver_key IS NOT NULL AND newcomer_key IS NULL`+liveApprover, now.Format(time.RFC3339), id, s.UserID, s.ID).Scan(&commitment)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -280,13 +307,18 @@ func revealLink(db *sql.DB) http.Handler {
 			if !bytes.Equal(want[:], commitment) {
 				// Not the committed key: this attempt is over.
 				refused = true
+				markAudited(w)
 				if _, err := tx.Exec(`DELETE FROM link_requests WHERE id=?`, id); err != nil {
 					return err
 				}
 				return audit(tx, r, s, "identity.link.refuse", id, "denied", "commitment")
 			}
-			if _, err := tx.Exec(`UPDATE link_requests SET newcomer_key=? WHERE id=?`, key, id); err != nil {
+			res, err := tx.Exec(`UPDATE link_requests SET newcomer_key=? WHERE id=? AND newcomer_key IS NULL`, key, id)
+			if err != nil {
 				return err
+			}
+			if n, _ := res.RowsAffected(); n != 1 {
+				return errLinkGone
 			}
 			return audit(tx, r, s, "identity.link.reveal", id, "success", "")
 		}) {
@@ -345,35 +377,48 @@ func approveLink(db *sql.DB) http.Handler {
 	})
 }
 
-// collectLink: the newcomer's view of its request. The bundle is delivered once: the row goes in
-// the same transaction.
+// collectLink: the newcomer's view of its request, polled. A plain read answers until a bundle is
+// ready; only then does a write transaction deliver it once and delete the row. A POST with CSRF,
+// because it deletes.
 func collectLink(db *sql.DB) http.Handler {
 	return linkHandler(func(w http.ResponseWriter, r *http.Request, s auth.Session, id string) {
-		var out map[string]string
-		if !linkTx(w, r, db, s, newcomerLive, func(tx *sql.Tx, now time.Time) error {
-			var approver, newcomer, bundle []byte
-			var expires string
-			err := tx.QueryRow(`SELECT COALESCE(approver_key,X''),COALESCE(newcomer_key,X''),COALESCE(bundle,X''),expires_at FROM link_requests WHERE id=?2 AND user_id=?3 AND newcomer_session_id=?4 AND expires_at>?1`, now.Format(time.RFC3339), id, s.UserID, s.ID).Scan(&approver, &newcomer, &bundle, &expires)
+		var approver, newcomer []byte
+		var expires string
+		var ready, adminKnown bool
+		err := db.QueryRow(`SELECT COALESCE(l.approver_key,X''),COALESCE(l.newcomer_key,X''),l.bundle IS NOT NULL,l.expires_at,u.password_admin_known<>0 FROM link_requests l JOIN users u ON u.id=l.user_id
+ WHERE l.id=?2 AND l.user_id=?3 AND l.newcomer_session_id=?4 AND l.expires_at>?1`, time.Now().UTC().Format(time.RFC3339), id, s.UserID, s.ID).Scan(&approver, &newcomer, &ready, &expires, &adminKnown)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		case err != nil:
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		case adminKnown && s.SSOIssuer == "":
+			WriteError(w, r, 409, "password_change_required", "change the password an administrator set first")
+			return
+		}
+		out := map[string]string{"state": "pending", "expiresAt": expires}
+		if len(approver) > 0 {
+			out["state"], out["approverKey"] = "claimed", b64(approver)
+		}
+		if len(newcomer) > 0 {
+			out["state"] = "revealed"
+		}
+		if !ready {
+			writeJSON(w, out)
+			return
+		}
+		if !linkTx(w, r, db, s, partyLive, func(tx *sql.Tx, now time.Time) error {
+			var bundle []byte
+			err := tx.QueryRow(`DELETE FROM link_requests WHERE id=?2 AND user_id=?3 AND newcomer_session_id=?4 AND expires_at>?1 AND bundle IS NOT NULL RETURNING bundle`, now.Format(time.RFC3339), id, s.UserID, s.ID).Scan(&bundle)
 			if errors.Is(err, sql.ErrNoRows) {
 				return errLinkGone
 			}
 			if err != nil {
 				return err
 			}
-			out = map[string]string{"state": "pending", "expiresAt": expires}
-			if len(approver) > 0 {
-				out["state"], out["approverKey"] = "claimed", b64(approver)
-			}
-			if len(newcomer) > 0 {
-				out["state"] = "revealed"
-			}
-			if len(bundle) == 0 {
-				return nil
-			}
 			out["state"], out["bundle"] = "approved", b64(bundle)
-			if _, err := tx.Exec(`DELETE FROM link_requests WHERE id=?`, id); err != nil {
-				return err
-			}
 			return audit(tx, r, s, "identity.link.collect", id, "success", "")
 		}) {
 			return

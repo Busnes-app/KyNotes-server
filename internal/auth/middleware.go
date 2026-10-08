@@ -126,6 +126,12 @@ func RequireUserActionStepUp(db *sql.DB, next http.Handler) http.Handler {
 	}))
 }
 
+// RequireSSOUserStepUp runs next only after a user-scope KySignOn confirmation of this exact request,
+// for routes that need it only in some account states. s must be an SSO session.
+func RequireSSOUserStepUp(db *sql.DB, s Session, next http.Handler, w http.ResponseWriter, r *http.Request) {
+	requireSSOStepUp(db, s, stepUpUser, next, w, r)
+}
+
 // RecheckUserActionTx repeats, inside the write transaction, what RequireUserActionStepUp admitted.
 // An SSO grant was consumed in its own transaction just before; the session must still be live.
 func RecheckUserActionTx(tx *sql.Tx, s Session, now time.Time) error {

@@ -90,6 +90,9 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		case r.Method == http.MethodPost && path == "/api/v1/me/link-requests":
 			// Linking a browser is device pairing: the same per-account hourly budget.
 			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "link"
+		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/me/link-requests/") && strings.HasSuffix(path, "/collect"):
+			// The newcomer polls every two seconds.
+			limit, rate, label = cfg.RateLimit.LinkPollPerMinute, cfg.RateLimit.LinkPollPerMinute, "link-poll"
 		case r.Method != http.MethodGet && strings.HasPrefix(path, "/api/v1/me/link-requests/"):
 			// Claim, reveal, approve and cancel: a ceremony needs a handful; bounds refusal audit rows.
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "link-step"

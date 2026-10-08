@@ -38,7 +38,7 @@ The web client gets pure modules, each tested on its own:
 | Migration | `internal/storage/migrations/0024_device_linking.sql`. Task 1 writes `ALTER TABLE sso_stepup ADD COLUMN scope TEXT NOT NULL DEFAULT 'admin'`; Task 4 appends `CREATE TABLE link_requests`. The runner refuses gaps; nothing between |
 | Link request ID | prefix `lnk` (`ids.Mint("lnk")`, `ids.Validate("lnk", id)`); a malformed path ID is a uniform `404 not_found` |
 | Relay limits | TTL 10 minutes (`expires_at`, RFC 3339 UTC, compared as text). At most 3 unexpired requests per user (`409 already_exists`). A new request from the same session first deletes that session's earlier one |
-| Relay routes | `POST /api/v1/me/link-requests` (newcomer: `{commitment}` → `{id, expiresAt}`), `GET /api/v1/me/link-requests` (trusted: requests of other sessions, unclaimed or claimed by the caller), `POST …/{id}/claim` (trusted: `{approverKey}`), `POST …/{id}/reveal` (newcomer: `{newcomerKey}`), `POST …/{id}/approve` (claiming session: `{bundle}`, `RequireUserActionStepUp`), `GET …/{id}` (newcomer: state, approver key, bundle once; the row is deleted in the same transaction), `DELETE …/{id}` (any session of the user). Session only: device credentials get `401`. CSRF on every mutation. `Cache-Control: no-store` |
+| Relay routes | `POST /api/v1/me/link-requests` (newcomer: `{commitment}` → `{id, expiresAt}`), `GET /api/v1/me/link-requests` (trusted: requests of other sessions, unclaimed or claimed by the caller), `POST …/{id}/claim` (trusted: `{approverKey}`), `POST …/{id}/reveal` (newcomer: `{newcomerKey}`), `POST …/{id}/approve` (claiming session: `{bundle}`, `RequireUserActionStepUp`), `POST …/{id}/collect` (newcomer, polled, CSRF: state, approver key, bundle once; the row is deleted in the same transaction), `DELETE …/{id}` (any session of the user). Session only: device credentials get `401`. CSRF on every mutation. `Cache-Control: no-store` |
 | Live sessions | Claim and approve need the newcomer session live; reveal needs the approver session live; every route rechecks the caller's session in its transaction (`auth.RecheckSessionTx`; approve: `auth.RecheckUserActionTx`) |
 | Commitment | `SHA-256("kynotes/link-commit/v1" ‖ newcomerKey(32))`, posted at create, before the approver's key exists. The server checks it at reveal (mismatch: row deleted, `identity.link.refuse` audited, `400`); the approver checks it again against the commitment it saw **before** claiming |
 | Check code | `SHA-256("kynotes/link-check/v1" ‖ userID(30) ‖ requestID(30) ‖ approverKey(32) ‖ newcomerKey(32))`; first 4 bytes big-endian `mod 1_000_000`, zero-padded to 6 digits, shown as `"123 456"` |
@@ -115,8 +115,8 @@ The invitation route checks the step-up conditionally (`HasUserStepUp`) inside i
 ### 14. Rate limit and caps reuse what exists
 Linking is device pairing, so link creation uses the per-account `pairing_per_hour` rate (default 20 per hour) and adds no config key. It has its own bucket (label `link`), so linking and pairing tokens do not drain each other. The cap of three live requests bounds what one account can hold. Restarting on the same browser replaces that browser's own request, so a reload never fills the cap.
 
-### 15. Collect is a `GET` that deletes
-The spec names `GET …/{id}` for the newcomer's collection. Delivery and deletion share one transaction (`_txlock=immediate`, so two collects serialize and only one sees the bundle). The request ID is 128 bits of randomness, and only the creating session can read the row, so a cross-site navigation cannot read the bundle. The residual is denial of service only: someone who learns the ID (request logs carry the path) can lure the user into a top-level navigation that deletes an approved bundle, and a response lost after commit loses it too. Either way the newcomer sees "ended" and starts again; the bundle is useless without the one-time key in the newcomer tab's memory.
+### 15. Collect is a CSRF-protected `POST` that deletes
+The spec names `GET …/{id}`; it became `POST …/{id}/collect` (fix round 1, review M3), so a cross-site navigation cannot delete an approved bundle. Polls read without a transaction until a bundle is ready; delivery and deletion then share one transaction (`_txlock=immediate`, a guarded `DELETE … RETURNING`, so two collects serialize and only one sees the bundle). It has its own per-account bucket, `ratelimit.link_poll_per_minute` (default 60). The residual is a response lost after commit: the newcomer sees "ended" and starts again; the bundle is useless without the one-time key in the newcomer tab's memory.
 
 ### 16. Any session of the account may cancel
 This gives the trusted list a "Not me" button. A request the user did not start is an attack signal, and cancelling it costs the user nothing.
@@ -2399,7 +2399,7 @@ export const claimLinkRequest = (id: string, approverKey: string) => request<voi
 export const revealLinkRequest = (id: string, newcomerKey: string) => request<void>(linkURL(id, "/reveal"), { method: "POST", body: JSON.stringify({ newcomerKey }) });
 /** Only outbound.ts sendLinkBundle calls this (outbound.test.ts). */
 export const approveLinkRequest = (id: string, bundle: string) => request<void>(linkURL(id, "/approve"), { method: "POST", body: JSON.stringify({ bundle }) });
-export const collectLinkRequest = (id: string) => request<LinkState>(linkURL(id));
+export const collectLinkRequest = (id: string) => request<LinkState>(linkURL(id, "/collect"), { method: "POST" });
 export const cancelLinkRequest = (id: string) => request<void>(linkURL(id), { method: "DELETE" });
 ```
 

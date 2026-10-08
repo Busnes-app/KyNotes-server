@@ -145,7 +145,12 @@ bootstrap, `user add`), and no local password step-up admits an identity action
 (identity creation, envelope writes, rotations, invitation keys; `409
 password_change_required`), so that password never acts for an SSO user's
 device-only identity. The user's own password change or recovery clears the
-flag, and the browser then creates the identity under the new password. Envelopes are
+flag, and the browser then creates the identity under the new password. On an
+account that signs in through KySignOn, changing a password an administrator set
+also needs a KySignOn confirmation of that request, so the administrator cannot
+clear the flag by changing the password. A local-only account has no second proof:
+until its user changes the password, whoever set it can act as the user. That is
+an accepted residual of administrator-set passwords. Envelopes are
 `0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
 keyed by both an ephemeral and the sender identity's X25519 agreement and bound
 by AAD to container, key generation, recipient and sender (IDs in the AAD are
@@ -261,7 +266,7 @@ reveals its key, which must match the commitment. Both screens show a six-digit 
 account, the request and both keys, and the user confirms it on both. The commitment means a relay
 cannot pick a key to fit the code after seeing the other one. Only then is the identity private key
 sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
-step-up, and collected once. Requests are per user, single use, expire after ten minutes, need a
+step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer polls). Requests are per user, single use, expire after ten minutes, need a
 live session of that user on both sides, are rate-limited with device pairing and are audited.
 Deleting the identity (recovery or an administrator reset) deletes the account's open link requests
 in the same transaction.
