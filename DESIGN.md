@@ -170,6 +170,32 @@ writer's own identity needs one. Both gates also need a live membership, and
 the write transaction checks them again. Object saves also recheck the writer's
 role there; comment and attachment writes recheck only the gate.
 
+The web client seals a team container's content with its container key once
+the container is shared. A row at or above `sharedGeneration` opens only with
+its own generation's key; rows below it, and personal containers, use the
+legacy login-derived key; a missing or malformed generation gets no key, so it
+fails closed. The client never writes legacy ciphertext into a shared
+container; a member without the current key reads only, and edits made
+meanwhile wait in the encrypted local queue at generation 0, are never
+uploaded at that generation, and are resealed under the current key when keys
+arrive. Shared containers refuse content writes that lack the
+`X-Kynotes-Key-Scheme: shared-v1` header, so a page loaded before shared keys
+cannot write. A container meta `PATCH` on a shared container must carry
+`keyGeneration` equal to the current generation; a missing, zero, old or future
+value is refused inside the transaction with `409 already_exists`, so a stale
+tab cannot seal a name under a retired key. Conflict listings report each
+copy's `keyGeneration`. Owners and admins mint keys only through rotation;
+envelope `PUT` may add a member to any shared generation that already has
+envelopes (history for newcomers) and never mints one. The first mint waits
+until every member has an identity. Envelopes are v2 and sender-authenticated:
+a browser accepts a key only from its own identity, from a current owner or
+admin whose identity matches its pin, or from a pinned identity for a
+generation below the device's high-water mark. The first key per generation
+wins, its SHA-256 is stored add-only on the device, and a different key for
+that generation is a refused conflict. Pins are trust-on-first-use and
+add-only: replacing one needs an explicit confirmation showing both
+fingerprints, and a decline is remembered for the session, per member and key.
+
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks
 equality of identical encrypted attachments; the tradeoff is documented in

@@ -84,7 +84,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.
 - `web/` is the browser client; keep plaintext in browser memory only, send
-  CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
+  CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
+  shared container keys (`keyring.ts`).
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
   `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,
@@ -396,6 +397,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
   `TestInvitation*`, `TestCommentRewriteIsAuthorOnly`, `TestUserIdentityVisibility`,
   `TestOpenEnvelopeAgreesWithVectors` and the probe.
+- Team keys P3a (web): `web/src/keyring.ts` (pure: envelopes → generation keys, write key, exact-generation
+  read key, steward sweep plan), `web/src/keyService.ts` (one sweep against an injected API: mint via
+  rotation, backfill wraps, one retry on 409) and `web/src/pins.ts` (add-only TOFU pins in the vault
+  record, local fingerprints; trust rules in the next bullet). Reads: at or above `sharedGeneration`
+  only that generation's key, below it and personal the legacy key, malformed generation no key.
+  `main.tsx` reaches the login key only through
+  `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
+  keys missing it is read-only and edits queue at generation 0, resealed on arrival, never uploaded at 0.
+  Server: containers report `sharedGeneration`; shared containers refuse writes without
+  `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration`; conflict
+  listings report `keyGeneration`; envelope `PUT` backfills existing shared generations and never mints
+  (`putGenerationTx`). Verify `TestSharedContainerRefusesStaleClientWrites`,
+  `TestStewardBackfillsSharedHistoryOnly`, `TestSharedGenerationIsMintedOnlyByRotation`,
+  `TestContainersReportSharedGeneration`, `TestSharedNameNeedsCurrentGeneration`,
+  `TestConflictListingReportsKeyGeneration` and `npm test` (keyring, keyService, pins, crypto, storage).
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
   (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
   owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,

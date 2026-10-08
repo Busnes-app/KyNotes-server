@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Team keys phase 3a: team notebooks are shared end to end. When an owner or admin opens a team
+  notebook whose members all have encryption keys, their browser creates the notebook key and
+  shares it; members added later get the notebook's history; removing a member replaces the key
+  for new content. A member waiting for a key sees the notebook read-only; edits made meanwhile
+  wait on the device and are saved under the new key when it arrives. Keys are accepted only from
+  an authenticated sender. Browsers remember colleagues' key fingerprints and ask before trusting
+  a changed one (Settings shows your own). Single sign-on-only accounts cannot hold keys yet, so a
+  team that includes one stays unshared, and the owner sees who is missing. Browser tabs opened
+  before this release must be reloaded to write to a shared notebook (`409 already_exists`).
+  `GET /api/v1/containers` reports `sharedGeneration`; `PATCH /api/v1/containers/{id}` takes
+  `keyGeneration` (required on a shared notebook, `409 already_exists` unless current); conflict
+  listings report `keyGeneration`.
 - Team keys phase 2 (server rules): `POST /api/v1/containers/{id}/key-rotations`, insert-only
   envelopes (own identity re-wrap only), member-self envelope writes, envelope writes and rotations
   behind a local password step-up (SSO sessions refused), the identity-based save gate for rotated

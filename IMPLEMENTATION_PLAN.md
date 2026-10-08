@@ -347,7 +347,7 @@ user data.
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
-| `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9) |
+| `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a shared container written without `X-Kynotes-Key-Scheme: shared-v1` (`this notebook uses shared keys: reload the page`) |
 | `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
 | `password_change_required` | 409 | an administrator knows the password; the user must change it before creating an identity |
 | `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
@@ -1225,9 +1225,9 @@ deliberately every phase).
 
 | Method | Path | Credential | Notes |
 |---|---|---|---|
-| GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers |
+| GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration` |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":"<b64>"}` → creates container + `owner` membership + `change_seq` 1 |
-| PATCH | `/api/v1/containers/{id}` | either | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version` |
+| PATCH | `/api/v1/containers/{id}` | either | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`, checked in the transaction) |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
 | GET | `/api/v1/devices` | session | id, fingerprint, platform, created/last-seen, revoked; never the secret |
 | POST | `/api/v1/devices/pairing-token` | session + CSRF + fresh | → `{"token":"...","expiresAt":"...","deepLink":"kynotes://pair?..."}` |
@@ -1238,7 +1238,7 @@ deliberately every phase).
 | GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
 | PUT | `/api/v1/me/identity` | session + CSRF + user step-up | create only: `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`; `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
-| PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; `409 already_exists` for a stale generation or an existing recipient envelope |
+| PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; legacy containers: the current generation only; shared containers: any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
 | GET | `/api/v1/users/{id}/identity` | session | `{"userId","deviceId","publicKey","fingerprint"}` of an active user's live identity, for the user, a co-member of a live container, or a team/project owner/admin holding a pending, unexpired invitation they issued to the user; otherwise a uniform `404` |
 
@@ -1327,10 +1327,10 @@ deliberately every phase).
 | Method | Path | Body | Notes |
 |---|---|---|---|
 | POST | `/api/v1/containers/{id}/objects` | JSON `{"kind":"note\|folder"}` | mints an object ID at version 0; no content |
-| PUT | `/api/v1/objects/{id}` | `application/octet-stream` ciphertext | headers `X-Kynotes-Base-Version`, `X-Kynotes-Key-Generation`, optional `Idempotency-Key` |
+| PUT | `/api/v1/objects/{id}` | `application/octet-stream` ciphertext | headers `X-Kynotes-Base-Version`, `X-Kynotes-Key-Generation`, optional `Idempotency-Key`; `X-Kynotes-Key-Scheme` (shared containers) |
 | GET | `/api/v1/objects/{id}` | — | `?version=` optional, defaults to current; returns `application/octet-stream` + metadata headers |
 | DELETE | `/api/v1/objects/{id}` | — | soft delete, releases attachment refs |
-| GET | `/api/v1/objects/{id}/conflicts` | — | list of conflict records (metadata only) |
+| GET | `/api/v1/objects/{id}/conflicts` | — | list of conflict records (metadata only: id, versions, bytes, `keyGeneration`, timestamps, resolved) |
 | GET | `/api/v1/conflicts/{id}` | — | the rejected ciphertext |
 | POST | `/api/v1/conflicts/{id}/resolve` | — | sets `resolved_at`; the blob becomes GC-eligible |
 | GET | `/api/v1/containers/{id}/changes` | — | `?since=&limit=`, §1.11 |
@@ -1617,7 +1617,7 @@ Rules:
   `key_generation`. If the container has never rotated
   (`shared_generation = 0`), every member's paired device also needs an
   envelope at that generation. Otherwise the writer's own live identity needs
-  one. A failed gate is `409 already_exists` with message `key rotation
+  one, and the request must carry `X-Kynotes-Key-Scheme: shared-v1`. A failed gate is `409 already_exists` with message `key rotation
   incomplete`. The gate runs before the body streams and again in the write
   transaction. Object saves record the session user in
   `object_versions.author_user_id`, which nothing reads before P4.
