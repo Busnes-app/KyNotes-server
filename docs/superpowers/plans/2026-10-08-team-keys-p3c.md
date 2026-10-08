@@ -24,7 +24,10 @@ The web client gets pure modules, each tested on its own:
 
 **Spec:** `docs/superpowers/specs/2026-10-07-team-keys-design.md`: §8 (the owner-approved SSO identity design), §7 P3c, §6 (threat model; the SSO and at-rest bullets change here), §7 P3a/P3b as built and known limits. Conventions follow `docs/superpowers/plans/2026-10-07-team-keys-p3b.md`.
 
-**Evidence status:** this plan was **not** prototyped. The code blocks were written against `feat/team-keys-p3c` at `f1b4f93` (P3b). None of them has been compiled or run, so each task's own test step is the first proof. If a block does not compile, fix the code and keep the test's assertions. One fact was checked: Node v24.21.0 `structuredClone` copies a non-extractable AES-GCM `CryptoKey`, which then still decrypts. fake-indexeddb was not installed in the worktree, so its handling of a `CryptoKey` value is unverified. Task 6 Step 2 is the first run. If it throws `DataCloneError` there, stop and report: Task 12's real-browser run would then be the only proof of the sealed vault.
+**Evidence status:** this plan was **not** prototyped. The code blocks were written against `feat/team-keys-p3c` at `f1b4f93` (P3b). None of them has been compiled or run, so each task's own test step is the first proof. If a block does not compile, fix the code and keep the test's assertions. Facts checked in the pre-flight (`.superpowers/sdd/2026-10-08-team-keys-p3c/preflight.md`):
+- `fake-indexeddb` 6.2.5 is already a pinned devDependency used by five suites; it was only not installed (`npm ci`). Under Node v24.21.0 it stores a non-extractable AES-GCM `CryptoKey`, returns one that still decrypts, and `exportKey` on it rejects. No injectable store is needed.
+- Over plain `http://` to a LAN address, Chromium and Firefox report `isSecureContext === false` and `crypto.subtle === undefined` (`getRandomValues` and IndexedDB remain); on `http://127.0.0.1` both are available. WebKit did not launch here: unproven for Safari.
+- Chromium writes the raw bytes of a non-extractable `CryptoKey` stored in IndexedDB, in plain text, to the profile's LevelDB log. The device key therefore does not protect the copy against anyone who can read the profile (ruling 8). Firefox did not show the raw bytes; that proves nothing, as its store may compress them.
 
 ---
 
@@ -44,9 +47,9 @@ The web client gets pure modules, each tested on its own:
 | Release gate | The bundle leaves only through `outbound.ts` `sendLinkBundle(confirmation, requestID, bundle)`, which refuses anything but a `confirmCheckCode(requestID)` result for that request |
 | Device-only identity | `PUT /me/identity` from an SSO session: `{"publicKey","wrapAlg":"none"}` (no `wrappedPrivateKey`), stored with `wrap_alg='none'` and an empty blob; `users.password_admin_known` does not block it. Local sessions keep `aes-256-gcm` only; each kind of session gets `400` for the other kind. `GET /me/identity` also returns `wrapAlg`. A password change carries a re-wrap exactly when the identity is `aes-256-gcm` |
 | Step-up | `auth.RequireUserActionStepUp`: local session, `stepup_at` within `StepUpWindow`; SSO session, a `user`-scope KySignOn grant bound to method, URI, Content-Type and body (no `kynotes.admin`). `RequireStepUp` keeps `admin` scope. The three `/api/v1/auth/oidc/step-up` routes need a session, not an admin. Invitation envelopes keep the local password step-up (SSO invitations go out keyless) |
-| Vault | Secure contexts (`isSecureContext` and `crypto.subtle`): the private key sealed with AES-256-GCM under a `generateKey(…, false, ["encrypt","decrypt"])` key stored in the **same** vault record, AAD `kynotes/device-identity/v1|<userID>|<deviceId>`. Plain-HTTP origins keep the raw key, as today (spec §7 P3c), and Settings says so. Raw P1–P3b copies are re-sealed on first read in a secure context. "Forget this device" deletes the record: sealed key and device key together |
+| Vault | Secure contexts (`isSecureContext` and `crypto.subtle`): the private key sealed with AES-256-GCM under a `generateKey(…, false, ["encrypt","decrypt"])` key stored in the **same** vault record, AAD `kynotes/device-identity/v1|<userID>|<deviceId>`. Plain-HTTP origins keep the raw key, as today (spec §7 P3c), and Settings says so. Raw P1–P3b copies are re-sealed on first read in a secure context. Every identity write that could race another tab is a compare-and-swap (`storeIdentityKey(…, expected)`). "Forget this device" deletes the record: sealed key and device key together. The device key only keeps the raw private key out of the record's plain values. It is **not** at-rest protection (Chromium writes the device key's bytes into the same profile) and not XSS protection (page script can call `decrypt`) |
 | No storage | A browser without a usable vault (no IndexedDB, no record) creates no link request and no SSO identity, and holds no identity (fail closed) |
-| Rate limit | `POST /api/v1/me/link-requests` uses `ratelimit.pairing_per_hour` (default 20/hour per account, label `link`). No new config key |
+| Rate limit | `POST /api/v1/me/link-requests` uses `ratelimit.pairing_per_hour` (default 20/hour per account) in its own bucket (label `link`), not the pairing-token bucket. No new config key |
 | Error codes | No new codes. `400 invalid_request`, `401 unauthenticated`, `403 csrf_failed`/`step_up_required`/`sso_step_up_required`, `404 not_found`, `409 already_exists`, `429 rate_limited` |
 | Audit events | `identity.link.request`, `.claim`, `.reveal`, `.refuse` (outcome `denied`), `.approve`, `.collect`, `.cancel`; object ID = request ID. Never key material |
 | Key decisions | No key decision reads `kind` or `teamId`. Every container read still goes through `observe.ts`, every ciphertext upload through `outbound.ts` |
@@ -88,12 +91,14 @@ A password neither unlocks nor re-wraps a device-only identity. A password login
 - The device key lives in the same vault record as the sealed identity, so "Forget this device" stays one delete (spec §5).
 - Plain-HTTP LAN origins have no WebCrypto. They keep today's raw copy (spec §7 P3c), Settings says so, and Yoshi decides whether to keep that (see "Needs Yoshi's decision").
 - A missing vault or IndexedDB fails closed: no link request is created, no SSO identity is created, and the workspace holds no identity.
-- The device key protects the copy at rest. Script running in the page can still use the key (it cannot export it); the threat model says so.
+- The device key does **not** protect the copy at rest. The pre-flight showed Chromium writing the raw bytes of a non-extractable key stored in IndexedDB into the profile's LevelDB log, beside the sealed identity. Page script can also call `decrypt` with it. What it does: the stored record holds no plain private key, so a dump of record values (devtools export, a backup of values) does not carry it. The threat model, Settings and the changelog must say only that (see "Needs Yoshi's decision" 3).
 
 ### 9. Interrupted creation is reconciled, and a held identity is never overwritten
 `settleSSOIdentity` saves the new key on this browser as **pending** (`deviceId ""`) before the `PUT`. The server therefore never accepts a key no browser holds. A later run finishes a pending key the server already lists.
 
-If the vault holds a finished identity that the server no longer lists, `settleSSOIdentity` stops and reports `orphaned`. That state is either an administrator reset or a server lie. The browser replaces its identity only after an explicit "Replace encryption key" and a confirmation. Two tabs converge, because they share the vault record.
+If the vault holds a finished identity that the server no longer lists, `settleSSOIdentity` stops and reports `orphaned`. That state is either an administrator reset or a server lie. The browser replaces its identity only after an explicit "Replace encryption key" and a confirmation.
+
+Two tabs converge because they share the vault record **and** every save is a compare-and-swap against the identity the run read (`storeIdentityKey(…, expected)`, one IndexedDB transaction). Without it, a tab that read an empty vault would overwrite, with its own pending key, an identity another tab had finished and the server had accepted: that key would then exist nowhere.
 
 ### 10. The vault copy is checked against the server
 The workspace uses its vault copy only while `GET /me/identity` lists the same device ID and public key. When the server is unreachable it still uses the copy offline (`currentCopy`). A mismatch makes the browser stop using the copy. It never deletes it.
@@ -108,10 +113,10 @@ Every envelope write and every rotation from an SSO session asks KySignOn. The a
 The invitation route checks the step-up conditionally (`HasUserStepUp`) inside its handler. Giving it the SSO path would mean a second conditional middleware. Invitations from SSO sessions therefore go out keyless, and the sweep fills the keys after the invitee accepts. The `cannot-wrap` text says so.
 
 ### 14. Rate limit and caps reuse what exists
-Linking is device pairing, so link creation shares the per-account `pairing_per_hour` bucket (default 20 per hour) and adds no config key. The cap of three live requests bounds what one account can hold. Restarting on the same browser replaces that browser's own request, so a reload never fills the cap.
+Linking is device pairing, so link creation uses the per-account `pairing_per_hour` rate (default 20 per hour) and adds no config key. It has its own bucket (label `link`), so linking and pairing tokens do not drain each other. The cap of three live requests bounds what one account can hold. Restarting on the same browser replaces that browser's own request, so a reload never fills the cap.
 
 ### 15. Collect is a `GET` that deletes
-The spec names `GET …/{id}` for the newcomer's collection. Delivery and deletion share one transaction. The request ID is 128 bits of randomness, and only the creating session can read the row, so a cross-site navigation can neither read the bundle nor find it.
+The spec names `GET …/{id}` for the newcomer's collection. Delivery and deletion share one transaction (`_txlock=immediate`, so two collects serialize and only one sees the bundle). The request ID is 128 bits of randomness, and only the creating session can read the row, so a cross-site navigation cannot read the bundle. The residual is denial of service only: someone who learns the ID (request logs carry the path) can lure the user into a top-level navigation that deletes an approved bundle, and a response lost after commit loses it too. Either way the newcomer sees "ended" and starts again; the bundle is useless without the one-time key in the newcomer tab's memory.
 
 ### 16. Any session of the account may cancel
 This gives the trusted list a "Not me" button. A request the user did not start is an attack signal, and cancelling it costs the user nothing.
@@ -131,8 +136,10 @@ All browsers hold the same identity, so revoking one means resetting the identit
 
 ## Needs Yoshi's decision
 
-1. **Plain-HTTP origins keep the identity raw in IndexedDB.** This is spec-approved (§7 P3c) and implemented that way, with a Settings warning. The safer alternative is to refuse identities on non-secure origins. That would break team keys for existing LAN `http://` installs, which hold raw copies today. Picked: the spec's behaviour.
+1. **Plain-HTTP origins keep the identity raw in IndexedDB.** This is spec-approved (§7 P3c) and implemented that way, with a Settings warning. The safer alternative is to refuse identities on non-secure origins. That would break team keys for existing LAN `http://` installs, which hold raw copies today. Given decision 3, the HTTP copy is not materially weaker on disk than the HTTPS one. Picked: the spec's behaviour.
 2. **No self-service "reset my encryption key" before P5.** A lost or stolen linked browser keeps the identity until an administrator password reset deletes it. An SSO-only user who loses every browser also needs that reset. Picked: no new destructive route in P3c; decide whether a step-up-gated self-service reset should land before P5.
+3. **The non-extractable device key is not at-rest protection.** Spec §8 point 2 assumes it is. The pre-flight showed Chromium storing the device key's raw bytes in the same profile as the sealed identity, so a profile copy yields both, and page script can call `decrypt`. Keeping it (as planned, spec-approved) costs about 60 lines and a re-seal migration for one benefit: no plain private key among the record's values. Dropping it keeps today's raw copy everywhere, as on plain HTTP. Picked: implement the spec, with honest wording everywhere (no "protects at rest"); decide whether to keep it.
+4. **Whoever operates KyIdentity can create an SSO account's first identity.** A fresh KySignOn login as the user is all `PUT /me/identity` needs from an SSO session, and `password_admin_known` (P1 ruling 9) has no SSO counterpart. For an SSO account with no identity yet, or after an administrator reset, the IdP operator can therefore create one it holds; stewards then wrap team keys to it after a first-contact (TOFU) fingerprint they may not check. Linking needs the user to read out a check code from the attacker's screen, so it falls to social engineering only. Spec §8 point 4 ("zero-knowledge toward whoever operates KyIdentity") holds for accounts that already have an identity, not for creation. Picked: implement §8 as approved and state the limit in the threat model (Task 11); a non-IdP root of trust (an invitation-bound or out-of-band enrolment code) would be a later change.
 
 ## Review Focus (likely failure modes and their pinning tests)
 
@@ -158,6 +165,7 @@ All browsers hold the same identity, so revoking one means resetting the identit
 | `internal/httpapi/ratelimit.go`, `kynotes.example.yaml` | `link` bucket |
 | `internal/storage/gc.go`, `internal/storage/gc_test.go` | Expired link requests deleted |
 | `internal/httpapi/teamkeys_p3c_test.go` | New tests |
+| `internal/httpapi/sso_logout_test.go` | `restartRouter` also mounts `IdentityRoutes`, `TeamKeyRoutes` (Task 2) and `LinkRoutes` (Task 4) for the SSO fixture |
 | `internal/httpapi/sso_stepup_test.go`, `identity_test.go`, `teamkeys_test.go` | `reauthStartAt`; SSO assertions now expect `sso_step_up_required` |
 | `internal/teamkeys/vectors_test.go`, `internal/teamkeys/link_vectors_test.go`, `testdata/protocol/link_vectors.json` | Link vectors |
 | `web/src/teamKeys.ts` | Exports `concat`, `idBytes` (`lnk` added), `sameBytes` |
@@ -206,7 +214,7 @@ export function isCheckCodeConfirmation(value: unknown, requestID: string): valu
 
 // storage.ts
 export function identityProtection(): "device-key" | "unprotected";
-export function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<boolean>;
+export function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean>; // expected: compare-and-swap (null: no identity held)
 export function loadIdentityRecord(username: string, userID: string): Promise<HeldIdentity | undefined>; // pending (deviceId "") included; throws when unreadable
 export function getIdentityKey(username: string, userID: string): Promise<HeldIdentity | undefined>;    // finished only
 export function vaultReady(username: string): Promise<boolean>;
@@ -215,7 +223,7 @@ export function vaultReady(username: string): Promise<boolean>;
 export const DEVICE_ONLY_WRAP = "none";
 export type PublicIdentity = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg?: string };
 export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string }> };
-export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity) => Promise<boolean> };
+export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity, expected?: HeldIdentity | null) => Promise<boolean> };
 export type Settled = { kind: "held"; identity: HeldIdentity } | { kind: "link" } | { kind: "orphaned" } | { kind: "unsaved" };
 export function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore, replace?: boolean, retried?: boolean): Promise<Settled>;
 export type IdentityStatus = "held" | "link" | "create" | "orphaned";
@@ -529,13 +537,13 @@ git commit -m "auth: user-scope KySignOn step-up for one-way doors on the caller
 
 ### Task 2: Server: device-only identities for SSO sessions; SSO stewards share keys
 
-**Files:** Modify `internal/httpapi/identity_routes.go`, `internal/httpapi/auth_routes.go`, `internal/httpapi/device_routes.go`, `internal/httpapi/teamkeys_routes.go`, `internal/httpapi/identity_test.go`, `internal/httpapi/teamkeys_test.go`, `internal/httpapi/teamkeys_p3c_test.go`, `DESIGN.md`, `IMPLEMENTATION_PLAN.md`, `docs/SSO.md`.
+**Files:** Modify `internal/httpapi/identity_routes.go`, `internal/httpapi/auth_routes.go`, `internal/httpapi/device_routes.go`, `internal/httpapi/teamkeys_routes.go`, `internal/httpapi/identity_test.go`, `internal/httpapi/teamkeys_test.go`, `internal/httpapi/teamkeys_p3c_test.go`, `internal/httpapi/sso_logout_test.go`, `DESIGN.md`, `IMPLEMENTATION_PLAN.md`, `docs/SSO.md`.
 
 **Interfaces:**
 - Consumes: Task 1 `RequireUserActionStepUp`, `RecheckUserActionTx`, `liveCookies`. Test helpers `identityBody`, `identityPub`, `identityWrapped`, `envJSON`, `envelopesBody`, `rotationBody`, `mint`, `status` and `quote`.
 - Produces: `deviceOnlyWrapAlg = "none"`; test helpers `ssoPerson(f, subject, sid) ([]*http.Cookie, string)`, `ssoDo(f, cookies, subject, method, path, body) *httptest.ResponseRecorder` and `deviceOnlyBody(pub []byte) string`.
 
-- [ ] **Step 1: Write the failing tests.** Append to `internal/httpapi/teamkeys_p3c_test.go`, adding `encoding/base64`, `encoding/json`, `net/url` and `time` to its imports:
+- [ ] **Step 1: Write the failing tests.** The SSO fixture's router (`sso_logout_test.go` `restartRouter`) mounts only `SSORoutes`, `AuthRoutes` and `DeviceRoutes`, so `/api/v1/me/identity` and `/key-rotations` would answer 404 there and these tests would fail for the wrong reason. In `restartRouter`, after `DeviceRoutes(mux, f.db, f.cfg)`, add `IdentityRoutes(mux, f.db)` and `TeamKeyRoutes(mux, f.db)`. Then append to `internal/httpapi/teamkeys_p3c_test.go`, adding `encoding/base64`, `encoding/json`, `net/url` and `time` to its imports:
 
 ```go
 func deviceOnlyBody(pub []byte) string {
@@ -782,7 +790,7 @@ In `teamkeys_test.go` `TestEnvelopeWriteRefusals`, change the `"SSO session"` ca
 | Own identity (`GET`/`PUT /me/identity`) | required | rejected | `PUT`: CSRF + fresh step-up as above; local sessions create `aes-256-gcm`, SSO sessions `none` (device-only) |
 ```
 
-  - §1.9 table "User identity row": after "(`wrap_alg = aes-256-gcm`, 60 bytes)" add "or `none` (device-only, empty; SSO sessions)".
+  - §1.5 (Device contract) table, row "User identity row": after "(`wrap_alg = aes-256-gcm`, 60 bytes)" add "or `none` (device-only, empty; SSO sessions)".
   - §5.1: the `GET /me/identity` row returns `deviceId, publicKey, fingerprint, wrapAlg`. The `PUT /me/identity` row becomes "session + CSRF + user-action step-up | create only: local `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`, SSO `{"publicKey","wrapAlg":"none"}` (each `400` from the other session kind); `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set (password wraps only)".
   - §5.2: "No identity is created while it is `1`" becomes "No password-wrapped identity is created while it is `1`; a device-only one is". The password-change bullet reads "exactly when the user has a password-wrapped (`aes-256-gcm`) identity".
   - §5.3: add `TestSSOSessionCreatesDeviceOnlyIdentity`, `TestDeviceOnlyIdentityIsNeverWrappedByAPassword`, `TestSSOStewardSharesKeysAfterActionStepUp`, `TestSSOGrantIsRecheckedInTheWriteTransaction`; rename `TestUserStepUpRefusesSSOSession`.
@@ -1072,11 +1080,11 @@ git commit -m "protocol: device-link commitment, check code and bundle with Go v
 
 ### Task 4: Server: link relay: create, list, claim, reveal, cancel
 
-**Files:** Modify `internal/storage/migrations/0024_device_linking.sql`, `internal/httpapi/router.go`, `internal/httpapi/ratelimit.go`, `internal/storage/gc.go`, `internal/storage/gc_test.go`, `kynotes.example.yaml`, `internal/httpapi/teamkeys_p3c_test.go`, `DESIGN.md`, `IMPLEMENTATION_PLAN.md`. Create `internal/httpapi/link_routes.go`.
+**Files:** Modify `internal/storage/migrations/0024_device_linking.sql`, `internal/httpapi/router.go`, `internal/httpapi/sso_logout_test.go`, `internal/httpapi/ratelimit.go`, `internal/storage/gc.go`, `internal/storage/gc_test.go`, `kynotes.example.yaml`, `internal/httpapi/teamkeys_p3c_test.go`, `DESIGN.md`, `IMPLEMENTATION_PLAN.md`. Create `internal/httpapi/link_routes.go`.
 
 **Interfaces:**
 - Consumes: `testdata/protocol/link_vectors.json` (Task 3). The test helpers `newPairClient`, `createIdentity`, `addUser`, `register`, `mintToken`, `doDeviceOnly`, `status` and `quote`.
-- Produces: `LinkRoutes`, `linkHandler`, `linkTx`, `sessionLive`, `decode32`, `b64`, `linkTTL`, `linkMaxPending`, `linkBundleBytes` and `linkCommitLabel`. Test helpers `firstLinkVector(t) (commitment, newcomerKey, approverKey []byte)`, `(p *pairClient) secondSession(t)`, `createLinkRequest(t, p, commitment) string`, `openLink(t) (trusted, newcomer *pairClient, id string)` and `linkPath(id, suffix string) string`.
+- Produces: `LinkRoutes`, `linkHandler`, `linkTx`, `sessionLive`, `b64`, `linkTTL`, `linkMaxPending`, `linkBundleBytes` and `linkCommitLabel`. Test helpers `firstLinkVector(t) (commitment, newcomerKey, approverKey []byte)`, `(p *pairClient) secondSession(t)`, `createLinkRequest(t, p, commitment) string`, `openLink(t) (trusted, newcomer *pairClient, id string)` and `linkPath(id, suffix string) string`.
 
 - [ ] **Step 1: Write the failing tests.** Append to `internal/httpapi/teamkeys_p3c_test.go` (imports: `bytes`, `encoding/hex`, `net/http/cookiejar`, `os`):
 
@@ -1420,11 +1428,6 @@ const (
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 
-func decode32(v string) ([]byte, bool) {
-	b, err := base64.StdEncoding.DecodeString(v)
-	return b, err == nil && len(b) == 32
-}
-
 // readField decodes {"<name>": "<base64>"} of exactly size bytes.
 func readField(w http.ResponseWriter, r *http.Request, name string, size int) ([]byte, bool) {
 	var in map[string]string
@@ -1664,7 +1667,7 @@ func cancelLink(db *sql.DB) http.Handler {
 
 The function name `audit` may collide with an existing package symbol. If it does, rename it to `linkAudit` everywhere in this file.
 
-- `router.go`: after `IdentityRoutes(mux, db)`, add `LinkRoutes(mux, db)`.
+- `router.go`: after `IdentityRoutes(mux, db)`, add `LinkRoutes(mux, db)`. In `sso_logout_test.go` `restartRouter`, add `LinkRoutes(mux, f.db)` after the routes Task 2 added (Task 5's `TestSSOAccountLinksASecondBrowser` runs on that fixture).
 - `ratelimit.go`: before the uploads case, add:
 
 ```go
@@ -1941,11 +1944,13 @@ git commit -m "server: approve a link after a fresh step-up; the bundle is colle
 - Consumes: `HeldIdentity` (`identity.ts`), `generateIdentity` and `sameBytes` (`teamKeys.ts`).
 - Produces: `identityProtection`, `storeIdentityKey(): Promise<boolean>`, `loadIdentityRecord`, `getIdentityKey` (finished identities only) and `vaultReady`.
 
-- [ ] **Step 1: Write the failing tests.** Append to `web/src/storage.test.ts`. If it lacks the imports, add `import "fake-indexeddb/auto";` and `afterEach`, `beforeEach` and `vi` from vitest.
+- [ ] **Step 1: Write the failing tests.** In `web/src/storage.test.ts`:
+  - Merge `identityProtection`, `loadIdentityRecord` and `vaultReady` into the existing `./storage` import (line 4). A second import of names it already imports (`clearAllDeviceKeys`, `getIdentityKey`, …) is a duplicate-binding error.
+  - Add `afterEach` to the vitest import and `import { generateIdentity } from "./teamKeys";`.
+  - Replace the file's `held` fixture (`publicKey` filled with 1s, `privateKey` with 2s) with a real key pair: `const held = { deviceId: "dev_00000000000000000000000000", ...generateIdentity() };`. The new public-key check would otherwise turn four existing `getIdentityKey(...)).toEqual(held)` assertions into `undefined`.
+  - Append:
 
 ```ts
-import { clearAllDeviceKeys, clearDeviceKey, getIdentityKey, identityProtection, loadIdentityRecord, storeDeviceKey, storeIdentityKey, vaultReady } from "./storage";
-import { generateIdentity } from "./teamKeys";
 
 const vaultRow = (username: string) => new Promise<Record<string, any> | undefined>((resolve, reject) => {
   const open = indexedDB.open("kynotes-web");
@@ -1972,7 +1977,8 @@ describe("the identity at rest", () => {
   const me = `usr_${"b".repeat(26)}`;
   const held = () => ({ ...generateIdentity(), deviceId: `dev_${"c".repeat(26)}` });
   beforeEach(async () => { vi.stubGlobal("isSecureContext", true); await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
-  afterEach(() => vi.unstubAllGlobals());
+  // Not unstubAllGlobals: that would also drop the file-level localStorage stub.
+  afterEach(() => { vi.stubGlobal("isSecureContext", undefined); });
 
   it("keeps the private key sealed under a non-extractable device key, never raw", async () => {
     const identity = held();
@@ -2015,6 +2021,16 @@ describe("the identity at rest", () => {
     expect(await getIdentityKey("me", me)).toBeUndefined();
   });
 
+  it("writes with an expected identity only while the vault still holds it", async () => {
+    const first = held(), second = held();
+    expect(await storeIdentityKey("me", me, first, null)).toBe(true);
+    expect(await storeIdentityKey("me", me, second, null)).toBe(false);
+    expect(await storeIdentityKey("me", me, second, held())).toBe(false);
+    expect(await getIdentityKey("me", me)).toEqual(first);
+    expect(await storeIdentityKey("me", me, second, first)).toBe(true);
+    expect(await getIdentityKey("me", me)).toEqual(second);
+  });
+
   it("hides a pending identity (no device ID yet) from use, but returns it for reconciliation", async () => {
     const pending = { ...held(), deviceId: "" };
     await storeIdentityKey("me", me, pending);
@@ -2039,7 +2055,7 @@ describe("the identity at rest", () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail.** Run `npm test --prefix web -- storage`. Expected: FAIL (`identityProtection` is not exported; the raw `privateKey` is stored). A `DataCloneError` here means fake-indexeddb cannot hold a `CryptoKey`: stop and report (Evidence status).
+- [ ] **Step 2: Run them to verify they fail.** Run `npm test --prefix web -- storage`. Expected: FAIL (`identityProtection` is not exported; the raw `privateKey` is stored). Run `npm ci --prefix web` first if `web/node_modules` is missing; the pre-flight showed fake-indexeddb 6.2.5 holds a `CryptoKey`, so a `DataCloneError` would mean a different version is installed.
 
 - [ ] **Step 3: Implement.** In `storage.ts`, add `import { x25519 } from "@noble/curves/ed25519.js";` and `import { sameBytes } from "./teamKeys";`. Replace the `VaultRecord` identity field and the identity functions:
 
@@ -2085,10 +2101,21 @@ async function openForDevice(stored: VaultIdentity): Promise<HeldIdentity | unde
   }
 }
 
-/** Keeps the identity in the existing vault record. False: nothing was kept (no record, no IndexedDB). */
-export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<boolean> {
+/** True when the record holds expected for userID (null: holds none), compared by public key. */
+const holds = (record: VaultRecord, userID: string, expected: HeldIdentity | null) => {
+  const current = record.identity?.userID === userID ? record.identity : undefined;
+  return expected === null ? !current : current !== undefined && sameBytes(current.publicKey, expected.publicKey);
+};
+
+/**
+ * Keeps the identity in the existing vault record. expected makes it a compare-and-swap inside one
+ * IndexedDB transaction (sealing happens before it, because WebCrypto awaits would end the
+ * transaction): another tab's key is never overwritten. False: nothing was kept (no record, no
+ * IndexedDB, or the record no longer holds expected).
+ */
+export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean> {
   const stored = await sealForDevice(userID, identity).catch(() => undefined);
-  return stored ? updateRecord(username, (record) => ({ ...record, identity: stored })) : false;
+  return stored ? updateRecord(username, (record) => (expected === undefined || holds(record, userID, expected) ? { ...record, identity: stored } : undefined)) : false;
 }
 
 /** This browser's identity for userID, a pending one (deviceId "") included. Throws when the vault cannot be read. */
@@ -2118,7 +2145,7 @@ export async function vaultReady(username: string): Promise<boolean> {
 
   Delete the old `storeIdentityKey`, `getIdentityKey` and `VaultRecord` definitions. Move `readRecord` and `updateRecord` above these functions if TypeScript complains about use before definition (function declarations are hoisted, so it should not). In `rememberAfter`, `await storeIdentityKey(...)` stays; its boolean is ignored there.
 
-- [ ] **Step 4: Run the tests to verify they pass.** Run `npm test --prefix web`. Expected: PASS. The suites that store identities (keyService, observe, floors) still pass: under node, `isSecureContext` is undefined, so they take the raw path.
+- [ ] **Step 4: Run the tests to verify they pass.** Run `npm test --prefix web`. Expected: PASS. Only `storage.test.ts` stores identities through `storage.ts`; its other tests run without the `isSecureContext` stub (Node has no such global), so they take the raw path, and pass because Step 1 made `held` a real key pair.
 
 - [ ] **Step 5: Commit.**
 
@@ -2135,21 +2162,29 @@ git commit -m "web: keep the identity sealed under a non-extractable device key"
 - Consumes: `generateIdentity` and `sameBytes` (`teamKeys.ts`); `base64` and `fromBase64` (`crypto.ts`).
 - Produces: `DEVICE_ONLY_WRAP`, `PublicIdentity.wrapAlg`, `DeviceOnlyAPI`, `IdentityStore`, `Settled`, `settleSSOIdentity`, `IdentityStatus`, `identityStatus`, `currentCopy`, plus the `api.ts` link functions and types (see Interfaces).
 
-- [ ] **Step 1: Write the failing tests.** Append to `web/src/identity.test.ts`. Reuse the file's existing `keys`/`userID` fixtures; if there are none, derive one with `deriveLoginKeys("pw", "MDEyMzQ1Njc4OWFiY2RlZg==", 1000)` and use `usr_${"a".repeat(26)}`.
+- [ ] **Step 1: Write the failing tests.** Append to `web/src/identity.test.ts`. It already has `userID` and `keys`, where `keys(fill)` is a **function** returning `LoginKeys`: pass `keys(1)`, never `keys`. Merge the new `./identity` names into its existing `./identity` import (a second import of `ensureIdentity`, `rewrapIdentity` or `IdentityAPI` is a duplicate binding), and keep its `base64` import from `./crypto`.
 
 ```ts
-import { currentCopy, DEVICE_ONLY_WRAP, ensureIdentity, identityStatus, rewrapIdentity, settleSSOIdentity, type HeldIdentity, type IdentityStore } from "./identity";
-import { base64 } from "./crypto";
+// Merged into the existing imports (base64 and ensureIdentity/rewrapIdentity are already imported):
+//   ./identity: currentCopy, DEVICE_ONLY_WRAP, identityStatus, settleSSOIdentity, type HeldIdentity, type IdentityStore
 import { generateIdentity } from "./teamKeys";
 
 const dev = `dev_${"d".repeat(26)}`;
 const heldOf = (deviceId = dev): HeldIdentity => ({ ...generateIdentity(), deviceId });
 const publicOf = (held: HeldIdentity, deviceId = held.deviceId) => ({ deviceId, publicKey: base64(held.publicKey), fingerprint: "" });
-/** A vault in memory that records the order of saves. */
+/** A vault in memory that records the order of saves; expected makes a save a compare-and-swap, like storage.ts. */
 function vault(initial?: HeldIdentity, keeps = true) {
   let stored = initial;
   const saves: HeldIdentity[] = [];
-  const store: IdentityStore = { load: async () => stored, save: async (identity) => { saves.push(identity); if (keeps) stored = identity; return keeps; } };
+  const store: IdentityStore = {
+    load: async () => stored,
+    save: async (identity, expected) => {
+      saves.push(identity);
+      if (expected !== undefined && (expected === null ? stored !== undefined : !stored || base64(stored.publicKey) !== base64(expected.publicKey))) return false;
+      if (keeps) stored = identity;
+      return keeps;
+    },
+  };
   return { store, saves, get: () => stored };
 }
 
@@ -2157,9 +2192,9 @@ describe("device-only identities", () => {
   it("are never unlocked or re-wrapped by a password", async () => {
     const api = { myIdentity: vi.fn(async () => ({ deviceId: dev, publicKey: base64(generateIdentity().publicKey), fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP })), putMyIdentity: vi.fn(), stepUp: vi.fn() };
     const record = { deviceId: dev, publicKey: "", fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP, wrappedPrivateKey: "" };
-    expect(await ensureIdentity(api, userID, keys, record)).toBeUndefined();
+    expect(await ensureIdentity(api, userID, keys(1), record)).toBeUndefined();
     expect(api.putMyIdentity).not.toHaveBeenCalled();
-    expect(await rewrapIdentity(api, userID, keys, new Uint8Array(32), undefined)).toBeUndefined();
+    expect(await rewrapIdentity(api, userID, keys(1), new Uint8Array(32), undefined)).toBeUndefined();
     expect(api.stepUp).not.toHaveBeenCalled();
   });
 });
@@ -2209,6 +2244,19 @@ describe("settleSSOIdentity", () => {
     expect(base64(v.get()!.publicKey)).not.toBe(base64(mine.publicKey));
   });
 
+  it("never overwrites a key another tab kept after this run read the vault", async () => {
+    const theirs = heldOf();
+    const v = vault();
+    let loads = 0;
+    // This run reads an empty vault; the other tab then finishes its identity before this run writes.
+    const store: IdentityStore = { load: async () => (loads++ === 0 ? undefined : v.get()), save: v.store.save };
+    await v.store.save(theirs);
+    const api = { myIdentity: vi.fn(async () => (loads > 1 ? publicOf(theirs) : undefined)), putDeviceOnlyIdentity: vi.fn() };
+    expect(await settleSSOIdentity(api, store)).toEqual({ kind: "held", identity: theirs });
+    expect(v.get()).toBe(theirs);
+    expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
+  });
+
   it("adopts the identity another tab created meanwhile", async () => {
     const v = vault();
     let live: ReturnType<typeof publicOf> | undefined;
@@ -2256,7 +2304,15 @@ describe("which identity this browser may use", () => {
   });
 ```
 
-  If `api.test.ts` has no `fetches` stub that answers 204/200, model the stub on `outbound.test.ts` (`vi.fn(async () => new Response("{}", { status: 200 }))`). Then change the mapping so it reads `init.method` and `init.body` from the call it records.
+  `api.test.ts` has no shared `fetches` stub. Put this case in its own `describe` with `afterEach(() => { vi.unstubAllGlobals(); })`, and open the `it` with the same stubs `acceptInvitation`'s test uses (`csrfToken()` reads `document.cookie`):
+
+```ts
+    vi.stubGlobal("document", { cookie: "" });
+    const fetches = vi.fn(async (_path: string, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetches);
+```
+
+  Extend the file's `./api` import with the four functions.
 
 - [ ] **Step 2: Run them to verify they fail.** Run `npm test --prefix web -- identity api`. Expected: FAIL (missing exports).
 
@@ -2272,8 +2328,12 @@ export type PublicIdentity = { deviceId: string; publicKey: string; fingerprint:
 
 ```ts
 export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string }> };
-/** This browser's vault copy: load includes a pending one (deviceId "") and throws when unreadable; save is false when nothing was kept. */
-export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity) => Promise<boolean> };
+/**
+ * This browser's vault copy: load includes a pending one (deviceId "") and throws when unreadable.
+ * save is false when nothing was kept; with expected it writes only while the vault still holds
+ * that identity (null: none), so two tabs never overwrite each other's key.
+ */
+export type IdentityStore = { load: () => Promise<HeldIdentity | undefined>; save: (identity: HeldIdentity, expected?: HeldIdentity | null) => Promise<boolean> };
 export type Settled = { kind: "held"; identity: HeldIdentity } | { kind: "link" } | { kind: "orphaned" } | { kind: "unsaved" };
 
 /**
@@ -2289,16 +2349,17 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
     if (!local || !sameBytes(local.publicKey, fromBase64(live.publicKey))) return { kind: "link" };
     const identity = { ...local, deviceId: live.deviceId };
     // A save that fails leaves the pending copy, which the next run finishes.
-    if (local.deviceId !== live.deviceId) await store.save(identity);
+    if (local.deviceId !== live.deviceId) await store.save(identity, local);
     return { kind: "held", identity };
   }
   if (local?.deviceId && !replace) return { kind: "orphaned" };
   const pending = local && !local.deviceId ? local : { ...generateIdentity(), deviceId: "" };
-  if (pending !== local && !(await store.save(pending))) return { kind: "unsaved" };
+  // Compare-and-swap against what this run read: a key another tab kept meanwhile is never overwritten.
+  if (pending !== local && !(await store.save(pending, local ?? null))) return retried ? { kind: "unsaved" } : settleSSOIdentity(api, store, false, true);
   try {
     const { deviceId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
     const identity = { ...pending, deviceId };
-    await store.save(identity);
+    await store.save(identity, pending);
     return { kind: "held", identity };
   } catch (error) {
     // Another tab of this browser created one meanwhile: settle against it once.
@@ -2323,7 +2384,7 @@ export function currentCopy(local: HeldIdentity | undefined, live: PublicIdentit
 }
 ```
 
-  Import `generateIdentity` and `sameBytes` from `./teamKeys`. In `api.ts`:
+  `generateIdentity` is already imported from `./teamKeys`, and Task 3 imported `sameBytes`; add nothing twice. In `api.ts`:
 
 ```ts
 export const putDeviceOnlyIdentity = (publicKey: string) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ publicKey, wrapAlg: "none" }) });
@@ -2674,7 +2735,7 @@ describe("a steward who shares only on request (single sign-on)", () => {
     };
 ```
 
-  - Add `deferred` to the object `result(…)` builds: `({ container, changed, …, envelopes: seen, deferred, ...rest })`.
+  - Add `deferred` to the object `result(…)` builds: `({ container, changed, …, envelopes: seen, deferred, ...rest })`, and add `"deferred"` to the `Omit<Pass, …>` list of `result`'s `rest` parameter. Without it every `result(…)` call fails to type-check for a missing `deferred`.
   - In the rollback early return, add `deferred: false`.
   - Add `deferred` to `Pass` (it is part of `KySync`).
 
@@ -2708,7 +2769,7 @@ import { useEffect, useRef, useState } from "react";
 import { APIRequestError, cancelLinkRequest, claimLinkRequest, collectLinkRequest, createLinkRequest, linkRequests, myIdentity, revealLinkRequest, type LinkRequestRow } from "../api";
 import type { HeldIdentity } from "../identity";
 import { approveLink, claimLink, finishNewcomerLink, LinkTamperedError, pollNewcomerLink, revealedLink, startNewcomerLink, type ApproverLink, type NewcomerLink } from "../linkFlow";
-import { confirmCheckCode } from "../linking";
+import { confirmCheckCode, type CheckCodeConfirmation } from "../linking";
 
 /** The six characters people match to pick the right request on the trusted browser; identification only. */
 export const linkCodeOf = (id: string) => id.slice(-6).toUpperCase();
@@ -2724,10 +2785,11 @@ export function LinkThisBrowser({ userID, canKeep, save, onLinked }: { userID: s
   const [confirmed, setConfirmed] = useState(false);
   const [status, setStatus] = useState("");
   const attempt = useRef(0);
-  const state = useRef<{ link?: NewcomerLink; bundle?: Uint8Array; confirmed: boolean }>({ confirmed: false });
+  // confirmation: minted by this user's own "Codes match" click, never by the poll loop.
+  const state = useRef<{ link?: NewcomerLink; bundle?: Uint8Array; confirmation?: CheckCodeConfirmation }>({});
   const api = { create: createLinkRequest, collect: collectLinkRequest, reveal: revealLinkRequest, myIdentity };
   const show = (next?: NewcomerLink) => { state.current.link = next; setLink(next); };
-  const reset = () => { attempt.current += 1; state.current = { confirmed: false }; setLink(undefined); setConfirmed(false); };
+  const reset = () => { attempt.current += 1; state.current = {}; setLink(undefined); setConfirmed(false); };
   // Leaving the screen abandons the attempt: polling stops and the request is cancelled.
   useEffect(() => () => {
     attempt.current += 1;
@@ -2737,11 +2799,11 @@ export function LinkThisBrowser({ userID, canKeep, save, onLinked }: { userID: s
 
   /** Runs once both the bundle has arrived and this screen's user confirmed the code. */
   async function finish() {
-    const { link: current, bundle, confirmed: ok } = state.current;
-    if (!current || !bundle || !ok) return;
+    const { link: current, bundle, confirmation } = state.current;
+    if (!current || !bundle || !confirmation) return;
     reset();
     try {
-      onLinked(await finishNewcomerLink(current, bundle, confirmCheckCode(current.id), userID, api, save));
+      onLinked(await finishNewcomerLink(current, bundle, confirmation, userID, api, save));
     } catch (error) {
       setStatus(errorText(error));
     }
@@ -2773,7 +2835,9 @@ export function LinkThisBrowser({ userID, canKeep, save, onLinked }: { userID: s
     }
   }
   function confirm() {
-    state.current.confirmed = true;
+    const current = state.current.link;
+    if (!current?.code) return;
+    state.current.confirmation = confirmCheckCode(current.id);
     setConfirmed(true);
     void finish();
   }
@@ -2915,7 +2979,7 @@ async function settleIdentity(username: string, userID: string, keys: LoginKeys,
   - In `keyNoticeFor`, the blocked line becomes `` `This notebook is not end-to-end shared yet: ${plan.waitingFor.join(", ")} must first sign in to KyNotes once and set up an encryption key.` ``.
 
 - [ ] **Step 4: Workspace identity state.**
-  - Imports: add `myIdentity` and `putDeviceOnlyIdentity` to the `./api` import list; add `currentCopy, identityStatus, settleSSOIdentity, type IdentityStatus` to the `./identity` import; add `identityProtection, loadIdentityRecord, vaultReady` to the `./storage` import; add `import { LinkRequests, LinkThisBrowser } from "./components/DeviceLink";`.
+  - Imports: add `myIdentity` and `putDeviceOnlyIdentity` to the `./api` import list; add `currentCopy, identityStatus, settleSSOIdentity, type IdentityStatus, type IdentityStore` to the `./identity` import; add `identityProtection, loadIdentityRecord, vaultReady` to the `./storage` import; add `import { LinkRequests, LinkThisBrowser } from "./components/DeviceLink";`.
   - Replace the `identityRef`/`heldIdentity` block with:
 
 ```ts
@@ -2941,7 +3005,7 @@ async function settleIdentity(username: string, userID: string, keys: LoginKeys,
   async function setUpSSOIdentity(replace: boolean) {
     if (replace && !confirm("Replace this browser's encryption key with a new one? Team owners must share their notebooks' keys with you again, and colleagues are asked to trust your new key.")) return;
     try {
-      const store = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity: HeldIdentity) => storeIdentityKey(auth.username, auth.user.id, identity) };
+      const store: IdentityStore = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity, expected) => storeIdentityKey(auth.username, auth.user.id, identity, expected) };
       const settled = await settleSSOIdentity({ myIdentity, putDeviceOnlyIdentity }, store, replace);
       if (settled.kind === "unsaved") setError("This browser cannot keep an encryption key (site storage is blocked or unavailable), so none was created.");
       await refreshIdentity();
@@ -2984,7 +3048,7 @@ async function settleIdentity(username: string, userID: string, keys: LoginKeys,
   - In `#device`, replace the missing-fingerprint text with `"This browser holds no encryption key for team notebooks. Link it from a browser that does (below)."`, and after the fingerprint paragraph add:
 
 ```tsx
-              {ownFingerprint && <p className="config-muted">{identityProtection() === "device-key" ? "This browser keeps it under a key it cannot export." : "This site is not served over HTTPS, so this browser keeps the key unprotected on disk."}</p>}
+              {ownFingerprint && <p className="config-muted">{identityProtection() === "device-key" ? "This browser stores it encrypted under a browser key that pages cannot export. Anyone who can read this browser's profile on disk can still recover it: use \"Forget this device\" on shared computers." : "This site is not served over HTTPS, so this browser stores the key unencrypted on disk. Use \"Forget this device\" on shared computers."}</p>}
               {justLinked && <p role="status">Linked. This browser now holds your encryption key.</p>}
 ```
 
@@ -3020,8 +3084,8 @@ git commit -m "web: link screens, SSO key set-up and share-on-request"
 
 - [ ] **Step 2: Spec.**
   - §5 Server, first bullet: after "P3b adds `memberships.invited_by` as `0023`", add "; P3c adds `sso_stepup.scope` and `link_requests` as `0024`".
-  - §6: replace the "**SSO users:**" bullet with "**SSO users:** an SSO session creates a device-only identity after a user-scope KySignOn confirmation (P3c) and other browsers receive it by device linking; no server copy exists until P5's recovery code. Losing every browser needs an administrator password reset (it deletes the identity) until P5."
-  - §6: replace the "**At-rest browser cache:**" bullet with "**At-rest browser cache:** the identity private key rests in IndexedDB sealed under a non-extractable WebCrypto key kept in the same vault record (secure contexts); plain-HTTP origins keep it raw and Settings says so. Script running in the page can still use the device key, so this protects the copy at rest, not against XSS. "Forget this device" deletes both."
+  - §6: replace the "**SSO users:**" bullet with "**SSO users:** an SSO session creates a device-only identity after a user-scope KySignOn confirmation (P3c) and other browsers receive it by device linking; no server copy exists until P5's recovery code. Losing every browser needs an administrator password reset (it deletes the identity) until P5. Whoever operates KyIdentity can log in as the user, so it can create the first identity of an SSO account that has none, or a replacement after an administrator reset; stewards' first-contact fingerprints are the only check (P1's `password_admin_known` guard has no SSO counterpart). It can also start a link request, which succeeds only if the user approves it and confirms a check code read from the attacker's screen."
+  - §6: replace the "**At-rest browser cache:**" bullet with "**At-rest browser cache:** in secure contexts the identity private key is stored in IndexedDB encrypted under a non-extractable WebCrypto key kept in the same vault record; plain-HTTP origins keep it raw and Settings says so. This is not at-rest protection: Chromium writes the non-extractable key's bytes into the same profile (pre-flight, 2026-10-08), so a copy of the profile yields both, and page script can call `decrypt`. It only keeps the raw key out of the record's plain values. "Forget this device" deletes the record; the bytes may remain on disk until the browser compacts its storage."
   - §7 P3c bullet:
     - Replace the route list with the seven routes of this plan's Global Constraints.
     - Replace `0024_link_requests.sql` with `0024_device_linking.sql`.
@@ -3036,10 +3100,15 @@ git commit -m "web: link screens, SSO key set-up and share-on-request"
     - Invitations from SSO sessions carry no keys; the sweep fills them after the invitee accepts.
     - SSO stewards share keys only on a click; every write asks KySignOn.
     - The check code is six digits: a relay in the middle succeeds with probability 10^-6 per attempt, each failure visible.
+    - The device key is not at-rest protection (see §6).
+    - An SSO step-up binds at most 64 KiB of request body (`stepUpAction`); an SSO steward's rotation or wrap larger than that (roughly 250 envelopes) answers 413. `ponytail:` upgrade path: split `putEnvelopes` into batches, one confirmation each.
+    - A password recovery or administrator reset deletes a device-only identity too, although no password wraps it.
+    - Whoever operates KyIdentity can create an SSO account's first identity (see §6).
 
 - [ ] **Step 3: `AGENTS.md`.**
   - In the "Team keys P1" bullet, replace "(create-only, `auth.RequireUserStepUp`: local session + `stepup_at`, SSO refused)" with "(create-only, `auth.RequireUserActionStepUp`: a local password step-up creates `aes-256-gcm`, an SSO KySignOn confirmation creates device-only `wrap_alg='none'`)".
   - Run `grep -n "SSO" AGENTS.md`. In every team-keys line that says SSO sessions are refused for identity creation, envelope writes or rotations, replace that with the user-scope confirmation. Invitation envelopes stay local-password.
+  - The P1 bullet's verify list names `TestUserStepUpRefusesSSOSession`; rename it to `TestUserActionStepUpRefusesUngrantedSSOSession` (Task 2).
   - After the "Team keys P3b" bullet, add:
 
 ```markdown
@@ -3049,12 +3118,14 @@ git commit -m "web: link screens, SSO key set-up and share-on-request"
   identities; a password never unlocks or re-wraps them), envelope `PUT` and key rotations;
   `internal/httpapi/link_routes.go` relays `/api/v1/me/link-requests` (create with a commitment, list, claim,
   reveal, approve after step-up, collect once, cancel): per user, 10-minute TTL, 3 live, both sessions live,
-  session-only, `pairing_per_hour` bucket, audited `identity.link.*`, GC'd, deleted with the identity.
+  session-only, own `link` bucket at the `pairing_per_hour` rate, audited `identity.link.*`, GC'd, deleted
+  with the identity.
   Web: `linking.ts` (commitment, six-digit check code, 61-byte bundle; `testdata/protocol/link_vectors.json`
   from `internal/teamkeys`), `linkFlow.ts` (newcomer and approver steps; the newcomer opens a bundle only
   after its own confirmation and only for the listed identity), `outbound.ts` `sendLinkBundle` (only with
-  a `CheckCodeConfirmation`), `storage.ts` (identity sealed under a non-extractable device key in the
-  vault record; plain HTTP raw; no vault, no identity), `identity.ts` (`settleSSOIdentity` keeps a pending
+  a `CheckCodeConfirmation`), `storage.ts` (identity encrypted under a non-extractable device key in the
+  vault record, which is not at-rest protection; plain HTTP raw; no vault, no identity; compare-and-swap
+  writes), `identity.ts` (`settleSSOIdentity` keeps a pending
   key before the PUT and never overwrites a held identity without "Replace"; `currentCopy` uses the vault
   copy only while the server lists it), `keyService.ts` `deferred` (SSO stewards share on a click),
   `components/DeviceLink.tsx`. Verify `TestSSOUserStepUp*`, `TestSSOStepUpScopeIsBoundToTheGrant`,
@@ -3071,9 +3142,11 @@ git commit -m "web: link screens, SSO key set-up and share-on-request"
   show a six-digit check code; your encryption key moves only after you confirm it matches on both,
   and KyNotes relays it encrypted. Accounts that sign in only through single sign-on can now set up
   an encryption key (confirmed with KySignOn), receive team keys, and, as team owners, share them
-  with "Share keys". Every browser keeps your key sealed under a key it cannot export (plain-HTTP
-  sites keep it unprotected, and Settings says so). Link requests share the device-pairing rate
-  limit (`ratelimit.pairing_per_hour`). Migration `0024` adds `link_requests` and the step-up scope.
+  with "Share keys". Browsers on HTTPS store your key encrypted under a browser key that pages
+  cannot export; this does not protect it from someone who can read the browser's profile on disk,
+  so use "Forget this device" on shared computers (plain-HTTP sites store it unencrypted, and
+  Settings says so). Link requests are limited at the device-pairing rate
+  (`ratelimit.pairing_per_hour`, own bucket). Migration `0024` adds `link_requests` and the step-up scope.
 ```
 
 - [ ] **Step 5: DOX closeout.** Re-read `../AGENTS.md`, then `AGENTS.md`.
@@ -3283,6 +3356,8 @@ git commit -m "web: browser check for linking a second browser of one account"
 | `storage.ts` `generateKey(…, false, …)` → `true` | `storage.test.ts` "keeps the private key sealed…" |
 | `storage.ts` `openForDevice`: skip the public key comparison | `storage.test.ts` "returns nothing for a sealed copy…" |
 | `storage.ts` `getIdentityKey`: return pending identities | `storage.test.ts` "hides a pending identity…" |
+| `storage.ts` `storeIdentityKey`: ignore `expected` | `storage.test.ts` "writes with an expected identity only while the vault still holds it" |
+| `settleSSOIdentity`: pending save without `local ?? null` | `identity.test.ts` "never overwrites a key another tab kept after this run read the vault" |
 | `settleSSOIdentity`: `if (local?.deviceId && !replace)` → `if (false)` | `identity.test.ts` "never replaces an identity this browser holds unless asked" |
 | `settleSSOIdentity`: `PUT` before saving the pending key | `identity.test.ts` "keeps the new key on this browser before the server learns it" |
 | `currentCopy`: return `local` whenever it has a device ID | `identity.test.ts` "is the vault copy only while the server lists it…" |
@@ -3295,7 +3370,7 @@ Expected survivors (record them in the PR if they survive):
 - Dropping the server-side commitment check while the approver-side check stays. `TestLinkRequestRefusals` fails, but the e2e does not: the approver's own check is the user-facing gate, and the server's is defence in depth.
 
 - [ ] **Step 4:** Open the PR with the `pull-request` skill, stacked on `feat/team-keys-p3b` (PR #40). In the body, include:
-  - The resolved ambiguities and the two items needing Yoshi's decision.
+  - The resolved ambiguities and the four items needing Yoshi's decision.
   - The mutation evidence and the e2e result.
   - The docs left unchanged, and why.
   - The SSO-only e2e gap: the browser check links a password account whose browser has no key. The SSO paths are proven by the Go `ssoDo` tests against a real OIDC fixture and by the vitest flow tests, because e2e has no IdP.
