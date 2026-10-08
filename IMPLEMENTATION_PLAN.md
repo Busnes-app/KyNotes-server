@@ -282,7 +282,7 @@ set in config, which is refused when `server.bind` is not a loopback address
 | Device secret storage | `"sha256:" + hex(sha256(secret))`. **Not** scrypt: the secret is 192 bits of `crypto/rand`, so a password KDF buys nothing and costs ~50 ms on every device request |
 | Device public key | X25519, raw 32 bytes, standard base64 on the wire |
 | Device fingerprint | lowercase hex SHA-256 of the raw 32 public-key bytes; server-computed only |
-| User identity row | `platform = 'identity'`, X25519 public key, server-computed fingerprint, `secret_hash = "identity:" + hex(32 random bytes)`; one per user (`devices_one_identity`); its wrapped private key lives in `user_identities` (`wrap_alg = aes-256-gcm`, 60 bytes). Migration `0021_identity_keys.sql` |
+| User identity row | `platform = 'identity'`, X25519 public key, server-computed fingerprint, `secret_hash = "identity:" + hex(32 random bytes)`; one per user (`devices_one_identity`); its wrapped private key lives in `user_identities` (`wrap_alg = aes-256-gcm`, 60 bytes) or `none` (device-only, empty; SSO sessions). Migration `0021_identity_keys.sql` |
 | Identity exclusions | never accepted by device auth; omitted from `GET /devices`; `DELETE /devices/{id}` and `/devices/{id}/containers` answer 404; `/devices/register` refuses `platform = "identity"` and never re-pairs onto an identity row; excluded from the device-envelope save gate |
 | Identity rule | the server derives device identity from the registered public key. Client-supplied identity fields are display-only and are stored encrypted (`label_ciphertext`) |
 
@@ -374,11 +374,11 @@ probing for object existence across accounts.
 | Login, login-params, recovery | none | none | — |
 | Device list, revoke, pairing-token mint | required | rejected | fresh session (< 5 min since login) for mint and revoke |
 | Device registration (redeem pairing token) | none | none (mints one) | pairing token |
-| Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required, local session | rejected | CSRF + `stepup_at` within `StepUpWindow`, rechecked in the write transaction; SSO sessions refused |
+| Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required | rejected | CSRF + fresh step-up (`RequireUserActionStepUp`): local `stepup_at` within `StepUpWindow`, or an SSO KySignOn grant bound to this request (user scope); rechecked in the write transaction |
 | Envelope read (`GET .../envelopes`) | either | either | a device may read only envelopes sealed for **itself** |
 | Container/object/attachment sync | either | either | — |
 | Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
-| Own identity (`GET`/`PUT /me/identity`) | required, local session | rejected | `PUT`: CSRF + `stepup_at` within `StepUpWindow`; SSO sessions refused |
+| Own identity (`GET`/`PUT /me/identity`) | required | rejected | `PUT`: CSRF + fresh step-up as above; local sessions create `aes-256-gcm`, SSO sessions `none` (device-only) |
 
 "Fresh session" = `now - session.created_at < 5 * time.Minute`, else `403
 forbidden` with message `re-authentication required`.
@@ -1237,8 +1237,8 @@ deliberately every phase).
 | DELETE | `/api/v1/devices/{id}` | session + CSRF + fresh | revoke: set `revoked_at`, delete envelopes, delete `device_containers` |
 | GET | `/api/v1/devices/{id}/containers` | session, or that device | selected container IDs |
 | PUT | `/api/v1/devices/{id}/containers` | session + CSRF, or that device | `{"containerIds":[...]}`, replaces the selection |
-| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
-| PUT | `/api/v1/me/identity` | session + CSRF + user step-up | create only: `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`; `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set |
+| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint, wrapAlg`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
+| PUT | `/api/v1/me/identity` | session + CSRF + user-action step-up | create only: local `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`, SSO `{"publicKey","wrapAlg":"none"}` (each `400` from the other session kind); `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set (password wraps only) |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
 | PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; legacy containers: the current generation only; shared containers: any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
@@ -1260,9 +1260,9 @@ deliberately every phase).
 * A device credential may never write envelopes, mint pairing tokens, list other
   devices, or read another device's envelope. Each of those is a named test.
 * Identity rows (`platform = 'identity'`) are excluded from device auth, device listing, revocation (per-device, directory deactivation and SSO role change), selection and re-pairing.
-* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No identity is created while it is `1`.
+* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is.
 * A successful password change clears `stepup_at` on every session of the user.
-* `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has an identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
+* `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
 * Recovery and admin password reset delete the identity row in the same transaction and write an audit row.
 * Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
 * `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
@@ -1291,7 +1291,11 @@ deliberately every phase).
 - `TestSyncSelectionLimitsDeviceContainerListing`
 - `TestContainerMetaUsesBaseVersionConflictRule`
 - `TestIdentityCreateRequiresStepUpCSRFAndIsCreateOnly`
-- `TestUserStepUpRefusesSSOSession`
+- `TestUserActionStepUpRefusesUngrantedSSOSession`
+- `TestSSOSessionCreatesDeviceOnlyIdentity`
+- `TestDeviceOnlyIdentityIsNeverWrappedByAPassword`
+- `TestSSOStewardSharesKeysAfterActionStepUp`
+- `TestSSOGrantIsRecheckedInTheWriteTransaction`
 - `TestIdentityGetNeverReturnsWrappedKey`
 - `TestWrappedIdentityOnlyInPasswordProofs`
 - `TestLoginIdentityErrorMintsNoSession`
@@ -1629,8 +1633,8 @@ Rules:
   at that container's current generation, where the inviter is owner or admin.
   The P3b web client seals the team container only; child workspaces get keys
   from the steward sweep after accept.
-  With envelopes, create needs the envelope `PUT` step-up (local password,
-  SSO refused, `403 step_up_required`), rechecked in the insert transaction;
+  With envelopes, create needs a local password step-up (SSO sessions
+  refused, `403 step_up_required`), rechecked in the insert transaction;
   without envelopes it stays session-only. Accept needs no step-up: it only
   moves envelopes already authorized at insertion.
   Accept rechecks, in the membership transaction, that the inviter is still an

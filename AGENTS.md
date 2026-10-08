@@ -342,12 +342,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
   `scripts/apply-setup-container-check.sh`.
 - Team keys P1: `internal/httpapi/identity_routes.go` serves `GET`/`PUT /api/v1/me/identity`
-  (create-only, `auth.RequireUserStepUp`: local session + `stepup_at`, SSO refused). `GET`
+  (create-only, `auth.RequireUserActionStepUp`: a local password step-up creates `aes-256-gcm`, an SSO KySignOn confirmation creates device-only `wrap_alg='none'`). `GET`
   is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a
   `devices` row with `platform='identity'` and an unusable `secret_hash` (migration 0021,
   `user_identities`); device auth, device list/revoke/selection, directory deactivation and role
   changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
-  and `wrappedIdentityKey` when one exists (`409 identity_rewrap_required`), clears every session's
+  and `wrappedIdentityKey` when a password-wrapped one exists (`409 identity_rewrap_required`), clears every session's
   step-up and shares the step-up lockout; recovery and admin reset delete it with an audit row.
   `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
   `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
@@ -363,9 +363,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
   (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
-  ("Forget this device" clears it). SSO-only users have no identity (open question).
+  ("Forget this device" clears it). SSO sessions create device-only identities (server side; browser side is P3c).
   `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
-  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserStepUpRefusesSSOSession`,
+  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
   `TestRecoveryAndAdminResetDeleteIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
   `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
@@ -375,8 +375,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   makes envelopes insert-only per container/generation/recipient; a member's own identity envelope
   is re-wrap only (stewards or an accepted invitation write it first). Members wrap for their own
   devices, stewards for any member; recipients must be live devices or identities of active members.
-  `PUT .../envelopes` and `POST .../key-rotations` use `auth.RequireUserStepUp` plus
-  `RecheckUserStepUpTx`. Rotation compares and increments `key_generation`, sets
+  `PUT .../envelopes` and `POST .../key-rotations` use `auth.RequireUserActionStepUp` plus
+  `RecheckUserActionTx` (SSO stewards confirm each request with KySignOn; invitation envelopes stay local-password). Rotation compares and increments `key_generation`, sets
   `containers.shared_generation` (migration 0022) once, and requires the caller and every active
   member identity. `checkWriteGate` serves object saves, comment create/rewrite and attachment
   finalize, before streaming and inside the transaction (object saves also recheck role there):

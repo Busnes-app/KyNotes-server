@@ -262,9 +262,7 @@ schedule changes, deposit, export, mirror and restore drill) and the local
 credential routes (user creation and password reset) require a fresh,
 one-use OIDC proof for SSO sessions. Local-password sessions retain the existing
 ten-minute password step-up. Other administrator routes retain their current
-admin/CSRF requirements; this extension does not add step-up to every mutation. SSO sessions cannot create a user identity, write key envelopes or rotate keys
-(`PUT /api/v1/me/identity`, `PUT .../envelopes` and `POST .../key-rotations`
-require a local password step-up).
+admin/CSRF requirements; this extension does not add step-up to every mutation. SSO sessions create device-only identities, write key envelopes and rotate keys after a user-scope confirmation; invitations they send carry no envelopes.
 
 A blocked action returns `403 sso_step_up_required` and a challenge ID. The server
 binds that challenge to the original local session and a SHA-256 digest of the

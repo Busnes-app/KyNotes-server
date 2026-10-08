@@ -197,7 +197,7 @@ const ownIdentityEnvelopeSQL = `SELECT EXISTS(SELECT 1 FROM key_envelopes e JOIN
 const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND d.revoked_at='' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
 
 func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
-	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserActionStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -223,7 +223,7 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		var next int64
 		err := dbTx(db, func(tx *sql.Tx) error {
 			now := time.Now().UTC()
-			if err := auth.RecheckUserStepUpTx(tx, s, now); err != nil {
+			if err := auth.RecheckUserActionTx(tx, s, now); err != nil {
 				return err
 			}
 			role, _, err := memberTx(tx, cid, s.UserID)

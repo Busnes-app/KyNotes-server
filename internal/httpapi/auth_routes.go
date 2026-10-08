@@ -322,7 +322,8 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return errPasswordChanged
 			}
 			var identities int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=?`, s.UserID).Scan(&identities); err != nil {
+			// Only a password-wrapped identity moves with the password; a device-only one is not touched.
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=? AND wrap_alg=?`, s.UserID, identityWrapAlg).Scan(&identities); err != nil {
 				return err
 			}
 			if (identities == 1) != (wrapped != nil) {
@@ -339,7 +340,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return nil
 			}
 			// Bound to the identity the client unwrapped, so a concurrent re-create is not overwritten.
-			res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=?`, wrapped, now, s.UserID, in.IdentityDeviceID)
+			res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=? AND wrap_alg=?`, wrapped, now, s.UserID, in.IdentityDeviceID, identityWrapAlg)
 			if err != nil {
 				return err
 			}

@@ -1,10 +1,14 @@
 package httpapi
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 )
@@ -88,6 +92,23 @@ func TestSSOStepUpScopeIsBoundToTheGrant(t *testing.T) {
 	}
 }
 
+func TestUserActionStepUpNeedsFreshLocalProof(t *testing.T) {
+	f, cookies := userReauthFixture(t)
+	// The same session as a local one: the middleware itself refuses it until a fresh password step-up.
+	if _, err := f.db.Exec(`UPDATE sessions SET sso_issuer='',sso_client_id='',sso_subject=''`); err != nil {
+		t.Fatal(err)
+	}
+	if r := reauthAction(f, cookies, "", "/user-action", `{"x":1}`); r.Code != 403 || !strings.Contains(r.Body.String(), `"step_up_required"`) {
+		t.Fatal("a local session without a step-up passed", r.Code, r.Body.String())
+	}
+	if _, err := f.db.Exec(`UPDATE sessions SET stepup_at=?`, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	if r := reauthAction(f, cookies, "", "/user-action", `{"x":1}`); r.Code != 204 {
+		t.Fatal("a fresh local step-up was refused", r.Code, r.Body.String())
+	}
+}
+
 func TestSSOAdminStepUpRechecksLocalAdminAtVerification(t *testing.T) {
 	f, cookies := reauthFixture(t)
 	_, callback := reauthStart(f, cookies)
@@ -97,5 +118,186 @@ func TestSSOAdminStepUpRechecksLocalAdminAtVerification(t *testing.T) {
 	}
 	if res := f.send(callback); res.Code != 403 {
 		t.Fatal("a demoted admin verified an admin challenge", res.Code)
+	}
+}
+
+func deviceOnlyBody(pub []byte) string {
+	return `{"publicKey":` + quote(base64.StdEncoding.EncodeToString(pub)) + `,"wrapAlg":"none"}`
+}
+
+// ssoPerson signs subject in through the fixture's IdP (no app role): its cookies and user ID.
+func ssoPerson(f *logoutFixture, subject, sid string) ([]*http.Cookie, string) {
+	f.t.Helper()
+	res := f.send(f.beginLogin(subject, sid, time.Now()))
+	if res.Code != 302 {
+		f.t.Fatalf("login %s: %d %s", subject, res.Code, res.Body.String())
+	}
+	var id string
+	if err := f.db.QueryRow(`SELECT id FROM users WHERE username=?`, subject).Scan(&id); err != nil {
+		f.t.Fatal(err)
+	}
+	return liveCookies(res), id
+}
+
+// ssoDo sends method path body as an SSO session. When the route asks for a KySignOn confirmation it
+// completes one for subject (no app role) and retries the identical request with the grant.
+func ssoDo(f *logoutFixture, cookies []*http.Cookie, subject, method, path, body string) *httptest.ResponseRecorder {
+	f.t.Helper()
+	send := func(grant string) *httptest.ResponseRecorder {
+		req := withCookies(httptest.NewRequest(method, path, strings.NewReader(body)), cookies)
+		req.Header.Set("Content-Type", "application/json")
+		if grant != "" {
+			req.Header.Set("X-Kynotes-Step-Up", grant)
+		}
+		return f.send(req)
+	}
+	first := send("")
+	var detail struct {
+		Error struct{ Code, Challenge string }
+	}
+	if first.Code != 403 || json.Unmarshal(first.Body.Bytes(), &detail) != nil || detail.Error.Code != "sso_step_up_required" {
+		return first
+	}
+	start := f.send(withCookies(httptest.NewRequest("POST", "/api/v1/auth/oidc/step-up", strings.NewReader(`{"challenge":"`+detail.Error.Challenge+`"}`)), cookies))
+	var begun struct{ URL string }
+	if start.Code != 200 || json.Unmarshal(start.Body.Bytes(), &begun) != nil {
+		f.t.Fatalf("start: %d %s", start.Code, start.Body.String())
+	}
+	dest, err := url.Parse(begun.URL)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	q := dest.Query()
+	state, now := q.Get("state"), time.Now().Unix()
+	f.mu.Lock()
+	f.proofs[state] = map[string]any{"iss": f.issuer.URL, "aud": "kynotes", "sub": subject, "sid": "fresh-proof", "iat": now, "exp": now + 3600, "nonce": q.Get("nonce"), "auth_time": now, "acr": "urn:kysignon:acr:password", "amr": []string{"pwd"}}
+	f.mu.Unlock()
+	callback := withCookies(httptest.NewRequest("GET", "/api/v1/auth/oidc/callback?code="+state+"&state="+state, nil), cookies)
+	for _, c := range start.Result().Cookies() {
+		callback.AddCookie(c)
+	}
+	if res := f.send(callback); res.Code != 200 {
+		f.t.Fatalf("callback: %d %s", res.Code, res.Body.String())
+	}
+	return send(detail.Error.Challenge)
+}
+
+func TestSSOSessionCreatesDeviceOnlyIdentity(t *testing.T) {
+	f := newLogoutFixture(t)
+	cookies, bob := ssoPerson(f, "bob", "bob-1")
+	// Someone else knows bob's unused password; it wraps nothing here, so it blocks nothing.
+	if _, err := f.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, bob); err != nil {
+		t.Fatal(err)
+	}
+	plain := withCookies(httptest.NewRequest("PUT", "/api/v1/me/identity", strings.NewReader(deviceOnlyBody(identityPub))), cookies)
+	plain.Header.Set("Content-Type", "application/json")
+	if r := f.send(plain); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+		t.Fatal("created without a KySignOn confirmation", r.Code, r.Body.String())
+	}
+	put := func(body string) int { return ssoDo(f, cookies, "bob", "PUT", "/api/v1/me/identity", body).Code }
+	// A password wrap from a session that proved no password, or a wrapped key beside "none": refused.
+	if code := put(string(identityBody(identityPub, identityWrapped))); code != 400 {
+		t.Fatal("SSO session stored a password wrap", code)
+	}
+	if code := put(`{"publicKey":` + quote(base64.StdEncoding.EncodeToString(identityPub)) + `,"wrapAlg":"none","wrappedPrivateKey":` + quote(base64.StdEncoding.EncodeToString(identityWrapped)) + `}`); code != 400 {
+		t.Fatal("device-only identity carried a server copy", code)
+	}
+	if code := put(deviceOnlyBody(identityPub)); code != 200 {
+		t.Fatal("device-only create", code)
+	}
+	var alg string
+	var wrapped []byte
+	if err := f.db.QueryRow(`SELECT wrap_alg,wrapped_private_key FROM user_identities WHERE user_id=?`, bob).Scan(&alg, &wrapped); err != nil || alg != "none" || len(wrapped) != 0 {
+		t.Fatalf("stored %q %d bytes: %v", alg, len(wrapped), err)
+	}
+	get := f.send(withCookies(httptest.NewRequest("GET", "/api/v1/me/identity", nil), cookies))
+	if !strings.Contains(get.Body.String(), `"wrapAlg":"none"`) || strings.Contains(get.Body.String(), "wrappedPrivateKey") {
+		t.Fatal("GET /me/identity", get.Body.String())
+	}
+}
+
+func TestDeviceOnlyIdentityIsNeverWrappedByAPassword(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	p.stepUp(t)
+	if code, _ := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", []byte(deviceOnlyBody(identityPub)), true, false)); code != http.StatusBadRequest {
+		t.Fatal("a password session created a device-only identity", code)
+	}
+	id := p.createIdentity(t)
+	// As if created from a single sign-on session: no server copy.
+	if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)); code != 200 || !strings.Contains(body, `"wrapAlg":"none"`) || strings.Contains(body, base64.StdEncoding.EncodeToString(identityWrapped)) {
+		t.Fatalf("login identity: %d %s", code, body)
+	}
+	change := func(rewrap bool) (int, string) {
+		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000`
+		if rewrap {
+			body += `,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(identityWrapped)) + `,"identityDeviceId":` + quote(id)
+		}
+		return status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body+`}`), true, false))
+	}
+	if code, body := change(true); code != http.StatusConflict || !strings.Contains(body, "identity_rewrap_required") {
+		t.Fatalf("a password wrapped a device-only identity: %d %s", code, body)
+	}
+	if code, body := change(false); code != http.StatusNoContent {
+		t.Fatalf("password change without a re-wrap: %d %s", code, body)
+	}
+	var alg string
+	if err := p.db.QueryRow(`SELECT wrap_alg FROM user_identities WHERE user_id=?`, pairUser).Scan(&alg); err != nil || alg != "none" {
+		t.Fatal(alg, err)
+	}
+}
+
+// ssoTeam creates bob's device-only identity and a team container bob owns at generation 1.
+func ssoTeam(t *testing.T) (f *logoutFixture, cookies []*http.Cookie, bob, device, cid string) {
+	f = newLogoutFixture(t)
+	cookies, bob = ssoPerson(f, "bob", "bob-1")
+	if r := ssoDo(f, cookies, "bob", "PUT", "/api/v1/me/identity", deviceOnlyBody(identityPub)); r.Code != 200 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	if err := f.db.QueryRow(`SELECT device_id FROM user_identities WHERE user_id=?`, bob).Scan(&device); err != nil {
+		t.Fatal(err)
+	}
+	cid = mint(t, "cnt")
+	if _, err := f.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,created_at,updated_at) VALUES(?,'team',?,'','now','now')`, cid, bob); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,'owner','now')`, mint(t, "mem"), cid, bob); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func TestSSOStewardSharesKeysAfterActionStepUp(t *testing.T) {
+	f, cookies, _, device, cid := ssoTeam(t)
+	rotate := "/api/v1/containers/" + cid + "/key-rotations"
+	body := string(rotationBody(1, envJSON(device, 2, 1)))
+	plain := withCookies(httptest.NewRequest("POST", rotate, strings.NewReader(body)), cookies)
+	plain.Header.Set("Content-Type", "application/json")
+	if r := f.send(plain); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+		t.Fatal("rotated without a KySignOn confirmation", r.Code, r.Body.String())
+	}
+	if r := ssoDo(f, cookies, "bob", "POST", rotate, body); r.Code != 200 {
+		t.Fatal("SSO steward rotation", r.Code, r.Body.String())
+	}
+	// Re-wrapping its own identity envelope takes the same confirmation.
+	if r := ssoDo(f, cookies, "bob", "PUT", "/api/v1/containers/"+cid+"/envelopes", string(envelopesBody(envJSON(device, 2, 2)))); r.Code != 204 {
+		t.Fatal("SSO envelope write", r.Code, r.Body.String())
+	}
+}
+
+func TestSSOGrantIsRecheckedInTheWriteTransaction(t *testing.T) {
+	f, cookies, bob, device, cid := ssoTeam(t)
+	// The session dies in the very transaction that consumes the grant.
+	if _, err := f.db.Exec(`CREATE TRIGGER revoke_on_consume AFTER INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.consume' BEGIN UPDATE sessions SET revoked_at='revoked' WHERE user_id='` + bob + `'; END`); err != nil {
+		t.Fatal(err)
+	}
+	if r := ssoDo(f, cookies, "bob", "POST", "/api/v1/containers/"+cid+"/key-rotations", string(rotationBody(1, envJSON(device, 2, 1)))); r.Code == 200 {
+		t.Fatal("a session revoked after its grant still rotated")
+	}
+	var generation int
+	if err := f.db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation); err != nil || generation != 1 {
+		t.Fatal(generation, err)
 	}
 }

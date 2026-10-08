@@ -103,13 +103,13 @@ func TestIdentityCreateRequiresStepUpCSRFAndIsCreateOnly(t *testing.T) {
 	}
 }
 
-func TestUserStepUpRefusesSSOSession(t *testing.T) {
+func TestUserActionStepUpRefusesUngrantedSSOSession(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	p.stepUp(t)
 	if _, err := p.db.Exec(`UPDATE sessions SET sso_issuer='https://idp.example' WHERE user_id=?`, pairUser); err != nil {
 		t.Fatal(err)
 	}
-	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", identityBody(identityPub, identityWrapped), true, false)); code != http.StatusForbidden || !strings.Contains(body, "step_up_required") {
+	if code, body := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", identityBody(identityPub, identityWrapped), true, false)); code != http.StatusForbidden || !strings.Contains(body, "sso_step_up_required") {
 		t.Fatalf("SSO session created an identity: %d %s", code, body)
 	}
 }

@@ -132,7 +132,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		writeJSON(w, out)
 	})))
-	mux.Handle("PUT /api/v1/containers/{id}/envelopes", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PUT /api/v1/containers/{id}/envelopes", auth.RequireUserActionStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -148,7 +148,7 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		err := dbTx(db, func(tx *sql.Tx) error {
 			now := time.Now().UTC()
-			if err := auth.RecheckUserStepUpTx(tx, s, now); err != nil {
+			if err := auth.RecheckUserActionTx(tx, s, now); err != nil {
 				return err
 			}
 			role, generation, err := memberTx(tx, cid, s.UserID)

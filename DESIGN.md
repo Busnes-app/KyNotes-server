@@ -153,8 +153,10 @@ history below the device's high-water mark, from an identity already pinned
 (see below), and reads rows at or above `shared_generation` only with that
 generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
-password resets delete it and write an audit row. SSO-only users have no
-password, hence no `userKEK` and no identity yet (open question).
+password resets delete it and write an audit row. An SSO session creates a
+device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
+request; no copy exists on the server until P5's recovery code, and other
+browsers receive it by device linking. A password never unlocks or re-wraps it.
 
 An owner or admin mints a container's content key for each key generation
 through `POST /containers/{id}/key-rotations`. In one transaction it advances
@@ -164,8 +166,8 @@ The one exception is a member's own identity envelope, which that member may
 re-wrap but never write first: a steward or an accepted invitation supplies
 it. Recipients must be live devices or identities of active members. Any member
 may write envelopes for its own paired devices; owners and admins may write for
-any member. Envelope writes and rotations need a local password step-up; SSO
-sessions are refused. The save gate depends on whether the container has ever
+any member. Envelope writes and rotations need a fresh step-up: a password re-proof for
+local sessions, a KySignOn confirmation of the exact request for SSO sessions. The save gate depends on whether the container has ever
 rotated (`containers.shared_generation`). Until it has, every member's paired
 device needs an envelope at the current generation, as before. Afterwards, the
 writer's own identity needs one. Both gates also need a live membership, and
@@ -272,8 +274,8 @@ owner or admin or by a server administrator, revokes the team and child-workspac
 memberships, advances their key generations, deletes the member's envelopes and
 device selections there, and deletes the pending invitations that member issued.
 A steward then rotates to a new key for the remaining members. An invitation may
-carry envelopes for the invitee's identity; creating it then needs the same
-password step-up as a direct envelope write. They are installed when the
+carry envelopes for the invitee's identity; creating it then needs a local
+password step-up; invitations from SSO sessions carry no envelopes. They are installed when the
 invitation is accepted, only while the generation is unchanged and the inviter
 is still an owner or admin of the live container. Accepting checks the invitation's invitee and expiry inside that transaction. Removing a member deletes pending invitations addressed to them, and accepting is audited. A member who was removed is admitted again by reactivating their revoked membership, with the new role and no keys. A team admin may remove another admin only when its own invitation admitted that admin's current membership; owners and server administrators may remove any non-owner. Invitation creation is rate-limited per account. Envelopes of expired invitations are deleted by the periodic garbage collection.
 

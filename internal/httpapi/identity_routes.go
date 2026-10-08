@@ -23,6 +23,8 @@ const (
 	wrappedIdentityBytes = 60
 )
 
+const deviceOnlyWrapAlg = "none" // created by an SSO session: no server copy until P5's recovery code
+
 var (
 	errIdentityExists  = errors.New("identity exists")
 	errIdentityRewrap  = errors.New("identity rewrap mismatch")
@@ -51,9 +53,8 @@ func loadIdentity(db interface {
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "createdAt": created, "updatedAt": updated}
+	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "wrapAlg": alg, "createdAt": created, "updatedAt": updated}
 	if withWrapped {
-		out["wrapAlg"] = alg
 		out["wrappedPrivateKey"] = base64.StdEncoding.EncodeToString(wrapped)
 	}
 	return out, nil
@@ -74,7 +75,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, identity)
 	})))
-	mux.Handle("PUT /api/v1/me/identity", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PUT /api/v1/me/identity", auth.RequireUserActionStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -85,13 +86,26 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			WrapAlg           string `json:"wrapAlg"`
 			WrappedPrivateKey string `json:"wrappedPrivateKey"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.WrapAlg != identityWrapAlg {
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
+		sso := s.SSOIssuer != ""
 		pub, err := base64.StdEncoding.DecodeString(in.PublicKey)
-		wrapped, ok := decodeWrappedIdentity(in.WrappedPrivateKey)
-		if err != nil || len(pub) != 32 || !ok {
+		var wrapped []byte
+		ok := err == nil && len(pub) == 32
+		switch {
+		case !sso && in.WrapAlg == identityWrapAlg:
+			var good bool
+			wrapped, good = decodeWrappedIdentity(in.WrappedPrivateKey)
+			ok = ok && good
+		case sso && in.WrapAlg == deviceOnlyWrapAlg && in.WrappedPrivateKey == "":
+			// Nothing an SSO session proves could wrap a key: the identity lives only in browsers.
+			wrapped = []byte{}
+		default:
+			ok = false
+		}
+		if !ok {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -109,7 +123,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		err = dbTx(db, func(tx *sql.Tx) error {
 			// Recovery or a password change may have committed since the middleware ran.
-			if err := auth.RecheckUserStepUpTx(tx, s, time.Now().UTC()); err != nil {
+			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
 				return err
 			}
 			var taken, adminKnown int
@@ -119,14 +133,14 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			if taken > 0 {
 				return errIdentityExists
 			}
-			if adminKnown != 0 {
+			if adminKnown != 0 && !sso { // only a password wrap is readable by whoever knows the password
 				return errPasswordChangeRequired
 			}
 			// secret_hash never carries the "sha256:" prefix device auth compares against.
 			if _, err := tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES(?,?,?,?,?,'identity',?)`, deviceID, s.UserID, base64.StdEncoding.EncodeToString(pub), fingerprint, "identity:"+hex.EncodeToString(unusable), now); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, identityWrapAlg, now, now); err != nil {
+			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, in.WrapAlg, now, now); err != nil {
 				return err
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "", RequestID(r))
