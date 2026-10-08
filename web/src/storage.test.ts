@@ -1,9 +1,10 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, reopenLegacy, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
+import { confirmReopenLegacy, ReopenConfirmation } from "./keyring";
 import type { CachedNote, PendingSave } from "./storage";
 
 const shared = indexedDB;
@@ -145,6 +146,28 @@ describe("pin and key-mark writes never downgrade", () => {
     expect(await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 0, generation: 1 })).toBe(true);
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ shared: 2, generation: 3 });
   });
+  it("keeps the legacy closure add-only", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 2, closed: 2 });
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3 });
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: 0 });
+    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2, generation: 3 });
+  });
+
+  it("lowers the legacy closure only through a reopen confirmation for that container", async () => {
+    await storeDeviceKey("alice", "a".repeat(64));
+    await storeKeyState("alice", userID, cnt, { mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3, closed: 2 });
+    for (const forged of [{ containerID: cnt }, Object.create(ReopenConfirmation.prototype), confirmReopenLegacy(`cnt_${"b".repeat(26)}`), undefined])
+      expect(await reopenLegacy("alice", userID, cnt, forged as ReopenConfirmation)).toBe(false);
+    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
+    expect(await reopenLegacy("alice", userID, cnt, confirmReopenLegacy(cnt))).toBe(true);
+    // Back to the pre-closure state; the rest of the key memory is untouched.
+    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
+    // And closing again still sticks.
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: 2 });
+    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
+  });
+
 });
 
 describe("colleague key pins", () => {

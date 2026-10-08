@@ -1,5 +1,5 @@
 import { adminTeams, containers, createAdminTeam, createContainer } from "./api";
-import { publishFloor } from "./floors";
+import { floorOf, publishFloor, raiseFloorIn } from "./floors";
 import { mergeFloor, type KeyFloor, type KeyState } from "./keyring";
 
 /** This device's key memory; the observed floor also goes to the tab-wide store (floors.ts). */
@@ -24,6 +24,20 @@ export async function observeContainer<C extends Reported>(sink: FloorSink, cont
   return container;
 }
 export const observeContainers = <C extends Reported>(sink: FloorSink, list: C[]) => Promise.all(list.map((entry) => observeContainer(sink, entry)));
+
+/**
+ * Stops this device opening a shared container's legacy rows with the login key: in this tab and
+ * every other one at once (floors.ts), and in storage (add-only). Never for a container this tab
+ * has not loaded or this device has not seen shared. False when storage did not keep it; memory
+ * still does until a reload, after which the review runs again.
+ */
+export async function closeLegacy(sink: FloorSink, containerID: string): Promise<boolean> {
+  const floor = floorOf(containerID);
+  const shared = floor?.shared ?? 0;
+  if (!floor || shared === 0) return false;
+  raiseFloorIn(containerID, { ...floor, closed: shared });
+  return sink.save(containerID, { mark: 0, digests: {}, shared, generation: floor.generation ?? 0, closed: shared }).catch(() => false);
+}
 
 // The only callers of the raw container fetchers; every other module imports these instead (observe.test.ts).
 export const listContainers = async (sink: FloorSink) => observeContainers(sink, await containers());

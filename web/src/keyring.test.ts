@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { copyableConflicts, guardContainer, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { confirmReopenLegacy, copyableConflicts, guardContainer, isReopenConfirmation, localReadKeys, mergeFloor, ReopenConfirmation, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -412,5 +412,54 @@ describe("memberKeyStatus", () => {
 
   it("in a never-shared notebook, names only members without an identity", () => {
     expect(memberKeyStatus({ id: cnt, keyGeneration: 1, sharedGeneration: 0 }, [owner.member, bare], [])).toEqual({ [bare.userId]: "no-identity" });
+  });
+});
+
+describe("legacy closure", () => {
+  const container = { id: cnt, keyGeneration: 3, sharedGeneration: 2 };
+  const ck = newContainerKey();
+  const ring = new Map([[3, ck]]);
+  const closed: KeyFloor = { shared: 2, generation: 3, closed: 2 };
+
+  it("refuses the login key for every server row once this device closed legacy reads", () => {
+    // Open: a row below sharing reads with the login key (and is labelled).
+    expect(readKeys(container, ring, legacy, 1, { shared: 2, generation: 3 })).toEqual([legacy]);
+    for (const generation of [0, 1, undefined, 1.5]) expect(readKeys(container, ring, legacy, generation, closed)).toEqual([]);
+    expect(readKeys(container, ring, legacy, 3, closed)).toEqual([ck]);
+    // A server that reports the notebook as never shared changes nothing.
+    expect(readKeys({ ...container, sharedGeneration: 0 }, ring, legacy, 1, closed)).toEqual([]);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 1, { closed: 2 })).toEqual([]);
+  });
+
+  it("still opens this browser's own queued and cached entries with the login key", () => {
+    expect(localReadKeys(container, ring, legacy, WAITING_GENERATION, closed)).toEqual([legacy]);
+    expect(localReadKeys(container, ring, legacy, 1, closed)).toEqual([legacy]);
+    expect(localReadKeys(container, ring, legacy, 3, closed)).toEqual([ck]);
+    expect(closed.closed).toBe(2); // the caller's floor is untouched
+  });
+
+  it("never reopens: merges and raises keep the closure", () => {
+    expect(mergeFloor(closed, { shared: 2, generation: 4 })).toMatchObject({ closed: 2, generation: 4 });
+    expect(mergeFloor({ shared: 2 }, { shared: 2, closed: 2 }).closed).toBe(2);
+    expect(raiseFloor(closed, { id: cnt, keyGeneration: 5, sharedGeneration: 2 }).closed).toBe(2);
+    expect(mergeFloor({ shared: 1 }, { shared: 1 })).not.toHaveProperty("closed");
+  });
+});
+
+describe("reopening legacy reads", () => {
+  it("recognises only confirmations confirmReopenLegacy made, for that container", () => {
+    const real = confirmReopenLegacy(cnt);
+    expect(isReopenConfirmation(real, cnt)).toBe(true);
+    expect(Object.isFrozen(real)).toBe(true);
+    expect(isReopenConfirmation(real, `cnt_${"b".repeat(26)}`)).toBe(false);
+    for (const forged of [{ containerID: cnt }, Object.create(ReopenConfirmation.prototype), Object.assign(Object.create(ReopenConfirmation.prototype), { containerID: cnt }), null, cnt])
+      expect(isReopenConfirmation(forged, cnt)).toBe(false);
+  });
+
+  it("mints a reopen confirmation only from the user's \"Show pre-sharing items again\" confirm", () => {
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./keyring.ts"]));
+    const minting = Object.entries(sources).filter(([name, text]) => name !== "./keyring.ts" && /confirmReopenLegacy\s*\(/.test(text)).map(([name]) => name);
+    expect(minting.filter((name) => name !== "./components/LegacyReview.tsx")).toEqual([]);
   });
 });

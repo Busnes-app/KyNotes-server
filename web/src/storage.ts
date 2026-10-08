@@ -1,6 +1,6 @@
 import { x25519 } from "@noble/curves/ed25519.js";
 import type { HeldIdentity } from "./identity";
-import type { KeyState } from "./keyring";
+import { isReopenConfirmation, type KeyState, type ReopenConfirmation } from "./keyring";
 import { isPinConfirmation, sameKey, type PinConfirmation, type Pins } from "./pins";
 import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
@@ -418,14 +418,30 @@ export async function storeKeyState(username: string, userID: string, containerI
   return updateRecord(username, (record) => {
     const byContainer = statesOf(record, userID);
     const prior: KeyState = byContainer[containerID] ?? { mark: 0, digests: {} };
+    const closed = Math.max(prior.closed ?? 0, state.closed ?? 0);
     const next: KeyState = {
       mark: Math.max(prior.mark, state.mark),
       digests: { ...state.digests, ...prior.digests },
-      // The sharing state this device has seen (KeyFloor) never goes backwards either.
+      // The sharing state this device has seen (KeyFloor), and its legacy closure, never go backwards either.
       shared: Math.max(prior.shared ?? 0, state.shared ?? 0),
       generation: Math.max(prior.generation ?? 0, state.generation ?? 0),
+      ...(closed ? { closed } : {}),
     };
     return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } };
+  });
+}
+
+/**
+ * The one way this device's legacy closure falls: the user confirmed "Show pre-sharing items
+ * again" for this container. Everything else in the key memory stays. Other tabs adopt it by
+ * reading storage (floors.ts reopenFloorIn), never from a message.
+ */
+export async function reopenLegacy(username: string, userID: string, containerID: string, confirmation: ReopenConfirmation): Promise<boolean> {
+  if (!isReopenConfirmation(confirmation, containerID)) return false;
+  return updateRecord(username, (record) => {
+    const byContainer = statesOf(record, userID);
+    const { closed: _, ...open } = byContainer[containerID] ?? { mark: 0, digests: {} };
+    return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: open } } };
   });
 }
 
