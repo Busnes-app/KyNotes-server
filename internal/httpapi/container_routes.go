@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"net/http"
@@ -103,21 +104,6 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var role string
-		var shared int64
-		if db.QueryRow(`SELECT m.role,c.shared_generation FROM memberships m JOIN containers c ON c.id=m.container_id WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &shared) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		if role != "owner" && role != "admin" && role != "editor" {
-			WriteError(w, r, 403, "forbidden", "insufficient role")
-			return
-		}
-		current := r.Header.Get(keySchemeHeader) == keySchemeShared
-		if shared != 0 && !current {
-			writeTeamKeyError(w, r, errStaleClient)
-			return
-		}
 		var in struct {
 			Meta        string `json:"metaCiphertext"`
 			BaseVersion int64  `json:"baseVersion"`
@@ -133,22 +119,19 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var cur int64
-		if db.QueryRow(`SELECT meta_version FROM containers WHERE id=?`, cid).Scan(&cur) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		if cur != in.BaseVersion {
-			WriteError(w, r, 409, "version_conflict", "base version is stale")
-			return
-		}
+		current := r.Header.Get(keySchemeHeader) == keySchemeShared
 		now := time.Now().UTC().Format(time.RFC3339)
 		var seq int64
+		// Every check runs in the write transaction: a rename, rotation or removal
+		// committed after the request arrived must refuse this write, not be overwritten.
 		if e = dbTx(db, func(tx *sql.Tx) error {
-			// Re-read inside the transaction: a rotation may have landed after the checks above.
+			var role string
 			var generation, shared int64
-			if e := tx.QueryRow(`SELECT key_generation,shared_generation FROM containers WHERE id=?`, cid).Scan(&generation, &shared); e != nil {
+			if e := tx.QueryRow(`SELECT m.role,c.key_generation,c.shared_generation FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &generation, &shared); e != nil {
 				return e
+			}
+			if role != "owner" && role != "admin" && role != "editor" {
+				return errInsufficientRole
 			}
 			if shared != 0 && !current {
 				return errStaleClient
@@ -157,12 +140,16 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			if shared != 0 && (in.KeyGeneration == nil || *in.KeyGeneration != generation) {
 				return errKeyRotationIncomplete
 			}
-			return tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=?,updated_at=? WHERE id=? RETURNING change_seq`, meta, cur+1, now, cid).Scan(&seq)
+			e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=meta_version+1,updated_at=? WHERE id=? AND meta_version=? RETURNING change_seq`, meta, now, cid, in.BaseVersion).Scan(&seq)
+			if errors.Is(e, sql.ErrNoRows) {
+				return errVersionConflict
+			}
+			return e
 		}); e != nil {
 			writeTeamKeyError(w, r, e)
 			return
 		}
-		writeJSON(w, map[string]any{"metaVersion": cur + 1, "changeSeq": seq})
+		writeJSON(w, map[string]any{"metaVersion": in.BaseVersion + 1, "changeSeq": seq})
 	})))
 	mux.Handle("DELETE /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {

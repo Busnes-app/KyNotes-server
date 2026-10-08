@@ -24,6 +24,7 @@ var (
 	errKeyRotationIncomplete = errors.New("key rotation incomplete")
 	errMembershipExists      = errors.New("membership exists")
 	errStaleClient           = errors.New("stale client")
+	errVersionConflict       = errors.New("version conflict")
 )
 
 // keySchemeHeader marks a write from a client that seals shared containers with
@@ -64,6 +65,8 @@ func writeTeamKeyError(w http.ResponseWriter, r *http.Request, err error) bool {
 		WriteError(w, r, 409, "already_exists", "key generation changed")
 	case errors.Is(err, errKeyRotationIncomplete):
 		WriteError(w, r, 409, "already_exists", "key rotation incomplete")
+	case errors.Is(err, errVersionConflict):
+		WriteError(w, r, 409, "version_conflict", "base version is stale")
 	case errors.Is(err, errStaleClient):
 		WriteError(w, r, 409, "already_exists", "this notebook uses shared keys: reload the page")
 	default:

@@ -174,6 +174,7 @@ func (p *pairClient) send(method, path string, body []byte) (int, error) {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(keySchemeHeader, keySchemeShared) // a current web client
 	for _, c := range p.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {

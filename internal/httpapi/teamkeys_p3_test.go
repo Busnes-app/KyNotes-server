@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -223,5 +225,67 @@ func TestConflictListingReportsKeyGeneration(t *testing.T) {
 	}
 	if err := json.Unmarshal(data, &list); err != nil || len(list) != 1 || list[0].KeyGeneration == nil || *list[0].KeyGeneration != 2 {
 		t.Fatalf("conflicts=%s %v", data, err)
+	}
+}
+
+func TestConcurrentRenamesFromOneBaseOneWins(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1) // shared at generation 2
+	path := "/api/v1/containers/" + tm.id
+	for round := int64(0); round < 5; round++ {
+		codes := make([]int, 2)
+		errs := make([]error, 2)
+		var wg sync.WaitGroup
+		for i, c := range []*pairClient{tm.owner, tm.editor.pairClient} {
+			wg.Add(1)
+			go func(i int, c *pairClient) {
+				defer wg.Done()
+				codes[i], errs[i] = c.send(http.MethodPatch, path, []byte(fmt.Sprintf(`{"metaCiphertext":"Y3Q=","baseVersion":%d,"keyGeneration":2}`, round)))
+			}(i, c)
+		}
+		wg.Wait()
+		if errs[0] != nil || errs[1] != nil {
+			t.Fatal(errs)
+		}
+		if codes[0]+codes[1] != http.StatusOK+http.StatusConflict {
+			t.Fatalf("round %d codes=%v, want one 200 and one 409", round, codes)
+		}
+		var version int64
+		if err := tm.owner.db.QueryRow(`SELECT meta_version FROM containers WHERE id=?`, tm.id).Scan(&version); err != nil || version != round+1 {
+			t.Fatalf("round %d meta_version=%d %v", round, version, err)
+		}
+	}
+}
+
+// A rename, rotation or removal committed after the PATCH arrived must refuse it.
+func TestMetaPatchRechecksInsideTheTransaction(t *testing.T) {
+	for name, tc := range map[string]struct {
+		commit string
+		code   int
+		want   string
+	}{
+		"rename":   {`UPDATE containers SET meta_version=meta_version+1 WHERE id=?1`, http.StatusConflict, "version_conflict"},
+		"rotation": {`UPDATE containers SET key_generation=key_generation+1 WHERE id=?1`, http.StatusConflict, "key rotation incomplete"},
+		"removal":  {`UPDATE memberships SET revoked_at='now' WHERE container_id=?1 AND user_id=?2`, http.StatusNotFound, "not_found"},
+		"demotion": {`UPDATE memberships SET role='viewer' WHERE container_id=?1 AND user_id=?2`, http.StatusForbidden, "forbidden"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tm := newTeam(t)
+			tm.rotate(t, tm.id, 1) // shared at generation 2
+			commit := func() {
+				if _, err := tm.owner.db.Exec(tc.commit, tm.id, tm.editor.id); err != nil {
+					t.Error(err)
+				}
+			}
+			hdr := map[string]string{"Content-Type": "application/json", keySchemeHeader: keySchemeShared}
+			code, body := tm.editor.sendRacing(t, http.MethodPatch, "/api/v1/containers/"+tm.id, hdr, []byte(`{"metaCiphertext":"Y3Q=","baseVersion":0,"keyGeneration":2}`), commit)
+			if code != tc.code || !strings.Contains(body, tc.want) {
+				t.Fatalf("PATCH after %s=%d %s", name, code, body)
+			}
+			var meta []byte
+			if err := tm.owner.db.QueryRow(`SELECT meta_ciphertext FROM containers WHERE id=?`, tm.id).Scan(&meta); err != nil || string(meta) == "ct" {
+				t.Fatalf("refused PATCH stored its name: %q %v", meta, err)
+			}
+		})
 	}
 }
