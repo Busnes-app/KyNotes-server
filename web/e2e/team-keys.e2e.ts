@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { decryptObject, encryptNote, fromBase64, legacyKeyRef, type KeyRef } from "../src/crypto";
 import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
@@ -130,11 +130,12 @@ async function readPage(page: Page, title: string, comments: string[]) {
   for (const comment of comments) await expect(page.getByText(comment)).toBeVisible();
 }
 
-async function addToTeam(owner: Person, username: string) {
+async function addToTeam(owner: Person, username: string, teamID?: string) {
   const { page } = owner;
   await page.getByRole("button", { name: "Admin" }).click();
   const team = page.getByRole("combobox", { name: "Team", exact: true });
-  await team.selectOption({ index: 1 });
+  // Options read "<name> · <id>": select by value.
+  await team.selectOption(teamID ?? { index: 1 });
   const person = page.getByRole("combobox", { name: "Person", exact: true });
   await person.selectOption((await person.locator("option", { hasText: username }).first().getAttribute("value"))!);
   await withDialog(owner, { type: "alert", text: "Person added to team." }, () => page.getByRole("button", { name: "Add to team" }).click());
@@ -347,6 +348,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await readPage(editor.page, "Owner page", ["owner comment"]);
   await p3b(owner, editor, newcomer, shared, cid, senders);
   await p3c(editor, second, cid, senders);
+  await p4(owner, editor, second, senders);
 }
 
 async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Person, cid: string, senders: Map<string, Uint8Array>) {
@@ -700,4 +702,241 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await newcomer.getByRole("button", { name: "Settings" }).click();
   await withDialog(second, { type: "confirm", text: FORGET }, () => newcomer.getByRole("button", { name: "Forget this device & sign out" }).click());
   await expect.poll(() => vaultOf(newcomer)).toBeNull();
+}
+
+const LEGACY_TEAM = "Legacy Team E2E";
+const LEGACY_CLOSED = "This browser no longer opens items written before this notebook was shared.";
+const LEGACY_CHECKING = "Checking the items written before this notebook was shared…";
+const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook was shared.";
+const LEGACY_LABEL = "Written before sharing; not end-to-end verified";
+const LEGACY_BLOCKED = "These pages use attachments you're sharing; tick them too, or keep the notebook open:";
+const LEAVE_ONE = "1 item you did not tick will stay on the server, and this browser will stop opening them. Share the ticked items and stop opening the rest?";
+const STOP_LEGACY = "Stop opening items written before this notebook was shared? This browser will no longer open any of them, including your own that you have not shared. They stay on the server.";
+const REOPEN_CONFIRM = "Show items written before this notebook was shared again? They are not end-to-end verified: the server could have written or changed any of them. This browser opens them with your login key until you stop again.";
+const STOP = "Stop opening pre-sharing items";
+const REOPEN = "Show pre-sharing items again";
+const FORGED = `obj_${"f".repeat(26)}`;
+// Long, so the dialog's wrapping is exercised too.
+const FORGED_TITLE = "Forged page the server wrote with your login key to look like one of your own notes from before this notebook was shared";
+
+/** This browser's legacy closure for cid (0: still open), read from its vault's key memory. */
+const closedIn = (page: Page, cid: string) => page.evaluate((id) => new Promise<number>((resolve) => {
+  const open = indexedDB.open("kynotes-web");
+  open.onerror = () => resolve(0);
+  open.onsuccess = () => {
+    const all = open.result.transaction("keys").objectStore("keys").getAll();
+    all.onsuccess = () => {
+      open.result.close();
+      const row = (all.result as Array<{ keyStates?: { byContainer: Record<string, { closed?: number }> } }>)[0];
+      resolve(row?.keyStates?.byContainer[id]?.closed ?? 0);
+    };
+  };
+}), cid);
+
+const legacyPath = (cid: string) => (url: URL) => url.pathname === `/api/v1/containers/${cid}/legacy`;
+const legacyListed = (page: Page, cid: string) => page.waitForResponse((response) => legacyPath(cid)(new URL(response.url())));
+
+/**
+ * A malicious server: it seals a page with this account's login key (derivable from what the server
+ * sees at sign-in), labels it below sharing and slips it into the change feed of cid. While listed, it
+ * is in the legacy list too, which also claims it uses every pre-sharing attachment, and the server
+ * accepts a new copy's attach to it.
+ */
+async function forgeLegacyPage(page: Page, cid: string) {
+  const forgery = { listed: true };
+  const bytes = await encryptNote(legacyKeyRef((await vaultOf(page))!.authSecret), cid, { type: "page", title: FORGED_TITLE, body: "" });
+  await page.route((url) => url.pathname === `/api/v1/objects/${FORGED}`, (route) => route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "X-Kynotes-Version": "1", "X-Kynotes-Key-Generation": "1" }, body: Buffer.from(bytes) }));
+  await page.route((url) => url.pathname === `/api/v1/objects/${FORGED}/attachments`, (route) => route.request().method() === "POST" ? route.fulfill({ status: 204 }) : route.fulfill({ json: [] }));
+  await page.route((url) => url.pathname === `/api/v1/containers/${cid}/changes`, async (route) => {
+    const response = await route.fetch();
+    const json = await response.json() as { changes: Array<Record<string, unknown>> };
+    if (new URL(route.request().url()).searchParams.get("since") === "0") json.changes.push({ id: FORGED, kind: "object", changeSeq: 1, deleted: false });
+    await route.fulfill({ response, json });
+  });
+  await page.route(legacyPath(cid), async (route) => {
+    if (!forgery.listed) { await route.continue(); return; }
+    const response = await route.fetch();
+    const json = await response.json() as { objects: Array<Record<string, unknown>>; attachments: Array<{ objectIds: string[] }> };
+    json.objects.push({ id: FORGED, version: 1, keyGeneration: 1 });
+    for (const attachment of json.attachments) attachment.objectIds.push(FORGED);
+    await route.fulfill({ response, json });
+  });
+  return forgery;
+}
+const pageRow = (page: Page, title: string) => page.locator(".note-row", { hasText: title });
+
+/** KYNOTES_E2E_SHOTS=<dir>: each P4 state in Busnes Light and Dark at 1280x900 and 390x844 (UI-VERIFICATION.md). */
+async function shoot(page: Page, state: string, focus: Locator) {
+  const dir = process.env.KYNOTES_E2E_SHOTS;
+  if (!dir) return;
+  const size = page.viewportSize()!;
+  for (const scheme of ["light", "dark"] as const) {
+    for (const [width, height, form] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width, height });
+      await focus.scrollIntoViewIfNeeded();
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const measured = await page.evaluate(() => {
+        const dialog = document.querySelector("dialog[open]");
+        return { scrollWidth: document.documentElement.scrollWidth, dialog: dialog && { overflowY: getComputedStyle(dialog).overflowY, scrolls: dialog.scrollHeight > dialog.clientHeight, right: dialog.getBoundingClientRect().right } };
+      });
+      console.log(`shot ${state}-${scheme}-${form}: ${JSON.stringify(measured)}`);
+      expect(measured.scrollWidth).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: `${dir}/team-keys-p4-${state}-${scheme}-${form}.png` });
+    }
+  }
+  await page.emulateMedia({ colorScheme: null });
+  await page.setViewportSize(size);
+}
+
+async function p4(owner: Person, editor: Person, second: Person, senders: Map<string, Uint8Array>) {
+  // 1. A team the editor writes in before its owner first opens it: those rows use the editor's login key.
+  const before = await listed(owner.page);
+  await owner.page.getByRole("button", { name: "Admin" }).click();
+  await withDialog(owner, { type: "prompt", text: "Team name", answer: LEGACY_TEAM }, () => owner.page.getByRole("button", { name: "Create team" }).click());
+  await expect(owner.page.getByRole("combobox", { name: "Team", exact: true })).toContainText(LEGACY_TEAM);
+  await owner.page.getByRole("button", { name: "← Workspace" }).click();
+  const lid = (await listed(owner.page)).find((id) => !before.includes(id))!;
+  await addToTeam(owner, "editor", lid);
+  await owner.page.goto("about:blank"); // no owner tab mints meanwhile
+  await openTeam(editor.page, `Notebook ${lid.slice(4, 10)}`, lid);
+  await writePage(editor.page, "Pre-sharing page", "pre-sharing comment");
+  await editor.page.locator('input[type="file"]').setInputFiles({ name: "legacy.txt", mimeType: "text/plain", buffer: Buffer.from("legacy attachment bytes") });
+  await expect(editor.page.getByRole("button", { name: /legacy\.txt/ })).toBeVisible();
+  const editorLogin = legacyKeyRef((await vaultOf(editor.page))!.authSecret);
+  const pre = await serverCopy(editor.page, "Pre-sharing page");
+  await expect(titleOf(editorLogin, lid, pre.bytes)).resolves.toBe("Pre-sharing page");
+
+  // 2. The owner opens it: the first key is minted. Nothing listed is the owner's, so its browser
+  // stops opening pre-sharing rows by itself, and counts the editor's.
+  await openTeam(owner.page, LEGACY_TEAM, lid);
+  await expect(owner.page.getByText(/^3 items written before this notebook was shared can be opened only by their authors\./)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => closedIn(owner.page, lid)).toBeGreaterThan(0);
+  await expect(owner.page.getByRole("button", { name: "Review and share…" })).toHaveCount(0);
+  await expect(owner.page.getByRole("button", { name: REOPEN })).toBeVisible();
+  await shoot(owner.page, "others", owner.page.getByText(/can be opened only by their authors/));
+
+  // 3. The editor's browser is still open: its rows read with the login key, labelled. The forged page does too.
+  const forgery = await forgeLegacyPage(editor.page, lid);
+  await openTeam(editor.page, LEGACY_TEAM, lid);
+  await expect(pageRow(editor.page, "Pre-sharing page")).toContainText("Not verified");
+  await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified");
+  await expect(editor.page.getByText(/^4 items you wrote before this notebook was shared are not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
+  await expect(editor.page.getByRole("button", { name: STOP })).toBeVisible();
+  expect(await closedIn(editor.page, lid)).toBe(0);
+  await shoot(editor.page, "banner", editor.page.locator(".legacy-banner"));
+
+  // 4. Review: every item is labelled, nothing is ticked and Share is off until something is. The editor
+  // ticks only its own three; sharing asks before the unticked forged page is hidden.
+  await editor.page.getByRole("button", { name: "Review and share…" }).click();
+  const dialog = editor.page.locator("dialog.legacy-review");
+  const items = ["Page: Pre-sharing page", `Page: ${FORGED_TITLE}`, "Comment: pre-sharing comment", /Attachment: legacy\.txt \(1 KB\)/];
+  for (const label of items) {
+    await expect(dialog.getByLabel(label)).not.toBeChecked();
+    await expect(dialog.locator("li", { has: editor.page.getByLabel(label) })).toContainText(LEGACY_LABEL);
+  }
+  const share = dialog.getByRole("button", { name: "Share ticked items" });
+  await expect(share).toBeDisabled();
+  await shoot(editor.page, "dialog", dialog.getByRole("heading"));
+  for (const label of [items[0], items[2], items[3]]) await dialog.getByLabel(label).check();
+  await expect(share).toBeEnabled();
+  // The server swaps the page's bytes after the review: what is sealed must be what the dialog showed.
+  const swapped = await encryptNote(editorLogin, lid, { type: "page", title: "Swapped by the server", body: "[]" });
+  const reviewed = await serverCopy(editor.page, "Pre-sharing page");
+  const swap = (url: URL) => url.pathname === `/api/v1/objects/${reviewed.id}`;
+  await editor.page.route(swap, (route) => route.request().method() !== "GET" ? route.continue() : route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "X-Kynotes-Version": String(reviewed.version), "X-Kynotes-Key-Generation": String(reviewed.generation) }, body: Buffer.from(swapped) }));
+  await withDialog(editor, { type: "confirm", text: LEAVE_ONE }, () => share.click());
+  await expect(editor.page.getByText(`Shared 3 items. ${LEGACY_CLOSED}`)).toBeVisible({ timeout: 60_000 });
+  await editor.page.unroute(swap);
+  expect(await closedIn(editor.page, lid)).toBeGreaterThan(0);
+  // The server's claim that the forged page uses the shared attachment blocked nothing: its own text does not.
+  await expect(editor.page.getByText(LEGACY_BLOCKED)).toHaveCount(0);
+  await expect(editor.page.getByRole("button", { name: "Tick these too" })).toHaveCount(0);
+
+  // 5. Closed: the forged page is gone although the server still offers it; the shared rows read without a label.
+  await openTeam(editor.page, LEGACY_TEAM, lid);
+  await expect(pageRow(editor.page, "Pre-sharing page")).toBeVisible();
+  await expect(pageRow(editor.page, FORGED_TITLE)).toHaveCount(0);
+  await expect(pageRow(editor.page, "Pre-sharing page")).not.toContainText("Not verified");
+  await readPage(editor.page, "Pre-sharing page", ["pre-sharing comment"]);
+  await expect(editor.page.getByRole("button", { name: "Review and share…" })).toHaveCount(0);
+  await expect(editor.page.getByRole("button", { name: REOPEN })).toBeVisible();
+  await shoot(editor.page, "closed", editor.page.getByRole("button", { name: REOPEN }));
+
+  // 6. The server holds every migrated row under the container key, as reviewed, none under the login key.
+  const keys = await heldKeys(editor.page, lid, senders);
+  const migrated = await serverCopy(editor.page, "Pre-sharing page");
+  expect(migrated.generation).toBeGreaterThan(pre.generation);
+  await expect(titleOf(keys.get(migrated.generation)!, lid, migrated.bytes)).resolves.toBe("Pre-sharing page");
+  await expect(titleOf(editorLogin, lid, migrated.bytes)).rejects.toThrow();
+  const rows = await editor.page.evaluate(async (oid) => ({
+    comments: await (await fetch(`/api/v1/objects/${oid}/comments`)).json() as Array<{ keyGeneration: number }>,
+    attachments: await (await fetch(`/api/v1/objects/${oid}/attachments`)).json() as Array<{ keyGeneration: number }>,
+  }), migrated.id);
+  expect(rows.comments.map((row) => row.keyGeneration)).toEqual([migrated.generation]);
+  expect(rows.attachments.map((row) => row.keyGeneration)).toEqual([migrated.generation]);
+
+  // 7. The owner reads all of it: page, comment and attachment.
+  await openTeam(owner.page, LEGACY_TEAM, lid);
+  await readPage(owner.page, "Pre-sharing page", ["pre-sharing comment"]);
+  const download = owner.page.waitForEvent("download");
+  await owner.page.getByRole("button", { name: /legacy\.txt/ }).click();
+  expect(readFileSync(await (await download).path()).toString()).toBe("legacy attachment bytes");
+  await expect(owner.page.getByText(/can be opened only by/)).toHaveCount(0);
+
+  // 8. Reopening changes nothing: no object is written on load.
+  const writes: string[] = [];
+  editor.page.on("request", (request) => { if (request.method() === "PUT" && /\/api\/v1\/(objects|comments)\//.test(request.url())) writes.push(request.url()); });
+  await openTeam(editor.page, LEGACY_TEAM, lid);
+  expect(writes).toEqual([]);
+
+  // 9. "Show pre-sharing items again" warns first; then the forged page is back, labelled.
+  await withDialog(editor, { type: "confirm", text: REOPEN_CONFIRM }, () => editor.page.getByRole("button", { name: REOPEN }).click());
+  await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified", { timeout: 30_000 });
+  await expect(editor.page.getByText(/^1 item you wrote before this notebook was shared is not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
+  expect(await closedIn(editor.page, lid)).toBe(0);
+  // It survives a reload where the server lists nothing of this user's, which alone would close it again.
+  forgery.listed = false;
+  const answered = legacyListed(editor.page, lid);
+  await openTeam(editor.page, LEGACY_TEAM, lid);
+  await answered;
+  await expect(editor.page.getByText(LEGACY_CHECKING)).toHaveCount(0);
+  await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified");
+  expect(await closedIn(editor.page, lid)).toBe(0);
+  await expect(editor.page.getByRole("button", { name: REOPEN })).toHaveCount(0);
+  // "Stop opening pre-sharing items" closes it again.
+  forgery.listed = true;
+  await openTeam(editor.page, LEGACY_TEAM, lid);
+  await withDialog(editor, { type: "confirm", text: STOP_LEGACY }, () => editor.page.getByRole("button", { name: STOP }).click());
+  await expect(editor.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
+  await expect(pageRow(editor.page, FORGED_TITLE)).toHaveCount(0);
+  expect(await closedIn(editor.page, lid)).toBeGreaterThan(0);
+
+  // 10. A second browser of the editor's account (signed in again after P3c's "Forget this device"),
+  // with nothing of its own listed.
+  await signIn(second.page, "editor", OWN);
+  let answer: "fail" | "empty" = "fail";
+  await second.page.route(legacyPath(lid), (route) => answer === "fail"
+    ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "internal server error" } } })
+    : route.fulfill({ json: { complete: true, objects: [], comments: [], attachments: [], conflicts: [] } }));
+  // A failed list is not an empty one: the banner says why, Stop shows, and nothing closes.
+  await openTeam(second.page, LEGACY_TEAM, lid);
+  const banner = second.page.locator(".legacy-banner");
+  await expect(banner).toContainText(`${LEGACY_UNCHECKED} The server could not list them (500).`, { timeout: 30_000 });
+  await expect(banner.getByRole("button", { name: STOP })).toBeVisible();
+  expect(await closedIn(second.page, lid)).toBe(0);
+  await shoot(second.page, "unchecked", banner);
+  // A complete, empty list: it stops opening them by itself.
+  answer = "empty";
+  await openTeam(second.page, LEGACY_TEAM, lid);
+  await expect(second.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => closedIn(second.page, lid)).toBeGreaterThan(0);
+  // Reopened, then with the list failing again: Stop still closes it with one click.
+  answer = "fail";
+  await withDialog(second, { type: "confirm", text: REOPEN_CONFIRM }, () => second.page.getByRole("button", { name: REOPEN }).click());
+  await expect(banner).toContainText(LEGACY_UNCHECKED, { timeout: 30_000 });
+  expect(await closedIn(second.page, lid)).toBe(0);
+  await withDialog(second, { type: "confirm", text: STOP_LEGACY }, () => banner.getByRole("button", { name: STOP }).click());
+  await expect(second.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
+  expect(await closedIn(second.page, lid)).toBeGreaterThan(0);
 }

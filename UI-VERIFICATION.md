@@ -260,3 +260,22 @@ Findings, not fixed here:
 - At 390 px "Codes differ" wraps under "Approve — send key" and sits 8 px right of it (`.config-card button + button { margin-left: 8px }` at `web/src/styles.css:95` adds to the `.link-actions` gap), so the two buttons do not align.
 - The approver's check-code input is 23 px tall, below a comfortable touch target.
 - The newcomer's Settings "Trusted Device & SSO" intro still says "This browser holds your local zero-knowledge encryption key" directly above "This browser holds no encryption key for team notebooks".
+
+## Team keys P4 (2026-10-08)
+
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle at the P4 head). The captures come from the e2e itself: `KYNOTES_E2E_SHOTS=<absolute docs path> npm run e2e --prefix web` shoots each state at the moment the run reaches it, with the state scrolled into view. The only stubs are the malicious-server routes the e2e already uses (a page sealed with the editor's login key and labelled below sharing, and a `/legacy` answer of 500); nothing was set in the DOM. Each state was shot in Busnes Light and Dark (`emulateMedia` colorScheme) at 1280x900 and 390x844 as `docs/team-keys-p4-<state>-<light|dark>-<desktop|mobile>.png`, two animation frames after each resize. The run asserts `documentElement.scrollWidth` is at most the viewport width.
+
+| State | Files | Result |
+| --- | --- | --- |
+| Editor's banner: 4 items not end-to-end verified, "Review and share…" and "Stop opening pre-sharing items"; the forged page listed with "Not verified" | `banner-*` | Pass; no overflow |
+| Review dialog: four items (one long forged title), each labelled "Written before sharing; not end-to-end verified", nothing ticked, Share disabled | `dialog-*` | Pass; dialog 374 px right edge at 390 px, `overflow-y: auto`; four items fit without scrolling |
+| Editor after sharing: closed line with "Show pre-sharing items again"; the forged page gone | `closed-*` | Pass |
+| Owner after its automatic close: "3 items … can be opened only by their authors" | `others-*` | Pass |
+| Second browser, `/legacy` answered 500: why the check failed, and Stop | `unchecked-*` | Pass |
+
+Not captured as screenshots: the Share-and-hide, Stop and "Show pre-sharing items again" confirms are native `confirm` dialogs, which headless screenshots never contain; the e2e matches each one's full text. The dialog's internal scrolling was not exercised: four items fit at 390x844.
+
+Findings, not fixed here:
+
+- At 1280 px the banner sits in the 235 px list column: "Review and share…" is a small inline button while "Stop opening pre-sharing items" wraps to two lines below it, so the two actions differ in size and weight.
+- "Show pre-sharing items again" is a quiet button in the small monospace status line and reads as plain text.

@@ -605,4 +605,6 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   forged row ticked by the user is sealed, viewers cannot share their pre-sharing rows, rows of removed authors
   stay opaque, pre-P4 tabs ignore a reopen until reloaded, administrator-owned teams wait for sub-project A.
   Verify `TestLegacyRows*`, `npm test` (keyring, storage, floors, observe, drain, api, outbound, migration,
-  legacyWiring, LegacyReview).
+  legacyWiring, LegacyReview) and `npm run e2e --prefix web` (a forged pre-sharing page, sealing the
+  reviewed copy, reopen across a reload, a 500 from `/legacy` never closing; `KYNOTES_E2E_SHOTS=<dir>` writes the
+  `UI-VERIFICATION.md` captures).
