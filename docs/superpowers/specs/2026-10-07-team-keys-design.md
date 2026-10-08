@@ -266,6 +266,7 @@ Each phase can ship on its own.
   - N3: generation-0 edits become unreadable after a password change made before keys arrive. P5 moves to identity-keyed storage.
   - Admin pages cannot read shared team names.
   - A malicious server can add a fake member; it shows as a new member with a new fingerprint. Preventing it needs a signed membership log.
+  - A server that reports an inflated `sharedGeneration` or `keyGeneration` has it stored as this device's floor for good; that notebook then waits for keys until "Forget this device". Denial of service only: the floor never selects a wrong or older key.
   - A first-contact steward can raise the device high-water mark (TOFU), widening the pinned-history exception.
   - Pins never expire.
 
