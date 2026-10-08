@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Team keys phase 3b: invitations send a one-time link, and an invitation from someone who can see
+  your encryption key carries the team's keys, so you can read at once. Team member lists show who
+  has a key, who is waiting and who has none yet; a member waiting for a key can send an owner a
+  request. Settings lists the colleague keys your browser trusts, with fingerprints, and re-trusts a
+  changed one; it also exports (as an unencrypted file) or discards edits stranded for a notebook you
+  lost. A removed member can be invited again, and removal cancels their pending invitations; a team
+  admin can remove an admin it invited; invitation expiry is checked as the invitation is accepted;
+  invitation creation is rate-limited (`ratelimit.invitation_per_hour`, default 30); expired
+  invitations' keys are cleaned up. Migration `0023` adds `memberships.invited_by`.
 - Team keys phase 3a: team notebooks are shared end to end. When an owner or admin opens a team
   notebook whose members all have encryption keys, their browser creates the notebook key and
   shares it; members added later get the notebook's history; removing a member replaces the key

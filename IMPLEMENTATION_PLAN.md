@@ -1227,7 +1227,7 @@ deliberately every phase).
 
 | Method | Path | Credential | Notes |
 |---|---|---|---|
-| GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration` |
+| GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":"<b64>"}` → creates container + `owner` membership + `change_seq` 1 |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
@@ -1627,6 +1627,8 @@ Rules:
   `envelopes:[{containerId,deviceId,keyGeneration,alg,envelope}]` for the
   invitee's live identity, one per container (the team or its child workspaces)
   at that container's current generation, where the inviter is owner or admin.
+  The P3b web client seals the team container only; child workspaces get keys
+  from the steward sweep after accept.
   With envelopes, create needs the envelope `PUT` step-up (local password,
   SSO refused, `403 step_up_required`), rechecked in the insert transaction;
   without envelopes it stays session-only. Accept needs no step-up: it only
@@ -1637,7 +1639,7 @@ Rules:
   read inside that transaction: a consumed, expired, void or other account's
   invitation is `404`. A live membership anywhere in the team scope is `409`;
   rows a removal revoked are reactivated with the invitation's role and no keys.
-  The server-admin add route admits the same way (`admitMemberTx`): `409` for a live member, `404` for an unknown team or user, `500` for a database fault, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. Removal also deletes pending invitations addressed to the removed member. Child workspaces created later copy `invited_by` from the parent membership.
+  The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` from the parent membership.
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
 * **Known limits** (P2, narrowed in P3b): creating a team invitation to a known

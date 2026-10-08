@@ -473,3 +473,32 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `confirmFingerprintChange`; `readKeys` opens rows at or above `sharedGeneration` only with their own
   generation's CK. Callers persist returned pins with `storePins` and tell the user when it returns
   false. Verify `npm test` (`keyring`, `pins`, `teamKeys` suites) and `go test ./internal/teamkeys`.
+- Team keys P3b: invitations and membership keys. Server: `POST /api/v1/invitations/{id}/accept` reads
+  the invitation (token, invitee, pending, unexpired, inviter still a steward) inside its transaction and
+  audits `container.member_accept`; `admitMemberTx` (accept and the server-admin add route, which answers
+  400/404/409/500 distinctly) reactivates rows a removal revoked, restores no keys and records
+  `memberships.invited_by` (migration `0023_membership_inviter.sql`; older rows are empty and fail closed;
+  child workspaces copy it); a team admin removes another admin only when it invited that membership;
+  removal deletes the member's pending invitations, child workspaces included; `ratelimit.invitation_per_hour`
+  limits invitation creation per account (invalid or negative is a startup error); `storage.RunGC` deletes
+  envelopes of expired invitations; the container list is 500, never a partial 200. Web: one-time links
+  `#/invite/<id>/<token>` (`web/src/invitations.ts`) are stashed in session storage and cleared from the
+  address bar, also in an open tab; the token goes only in the accept body; `replaceState` clears only this
+  tab's history. `inviteWithKeys` (`keyService.ts`) seals only the chosen team's current key (never
+  children picked by `teamId`), gated by `keysAllowed` against this device's loaded floor and an accepted
+  key matching the stored digest, for a visible invitee; a changed pin needs confirmation and a first-seen
+  pin goes through `storePins` (a conflict sends no keys) before the step-up; anything else sends a keyless
+  invitation with copy saying why; re-invited members receive history like any newcomer;
+  `memberKeyStatus` labels member rows (informational). Settings colleague keys (`components/PinnedKeys.tsx`,
+  names via `displayName`, re-trust re-fetches the key and stores it compare-and-swap against the "Was" pin,
+  only via `confirmFingerprintChange` → `storeConfirmedPin`) and unsent edits (`components/UnsentEdits.tsx`,
+  `stuckEdits.ts`): edits are bound to the account, an unstamped edit is stamped once the user's own legacy
+  key proves it, team-key-only owner-unknown edits are export-only and never drained or discarded, export is
+  plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
+  newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,
+  `TestRemovedMemberIsReadmittedByReactivation`, `TestTeamAdminRemovesOnlyAdminsItInvited`,
+  `TestRemovalVoidsPendingInvitationsToTheRemovedMember`, `TestAcceptAndAdminAddAreAudited`,
+  `TestAdminAddMapsOnlyConflictsTo409`, `TestContainerListFailsRatherThanReturningPartialList`,
+  `TestInvitationCreationIsRateLimitedPerCaller`, `TestRetryAfterFollowsRefillInterval`,
+  `TestGCDeletesEnvelopesOfExpiredInvitations`, `npm test` (keyring, keyService, pins, invitations,
+  stuckEdits, loadGate) and `npm run e2e --prefix web`.
