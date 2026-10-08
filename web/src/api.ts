@@ -1,10 +1,11 @@
 import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
-import type { Envelope } from "./keyring";
+import type { Envelope, InvitationEnvelope } from "./keyring";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
+export type Invitation = { id: string; token: string; expiresAt: string };
 
 /**
  * A row generation from the server: a non-negative safe integer, else undefined, which readKeys
@@ -161,7 +162,11 @@ export const members = (containerID: string) => request<Array<{ userId: string; 
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
 export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }
-export function inviteMember(containerID: string, inviteeID: string, role: string) { return request<{ id: string; token: string }>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify({ inviteeId: inviteeID, role }) }); }
+/** Envelopes need a fresh password step-up on the server, so a keyless invitation sends none. */
+export function inviteMember(containerID: string, inviteeID: string, role: string, envelopes: InvitationEnvelope[] = []) {
+  return request<Invitation>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify(envelopes.length ? { inviteeId: inviteeID, role, envelopes } : { inviteeId: inviteeID, role }) });
+}
+export const acceptInvitation = (id: string, token: string) => request<void>(`/api/v1/invitations/${encodeURIComponent(id)}/accept`, { method: "POST", body: JSON.stringify({ token }) });
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const comments = (objectID: string): Promise<Comment[]> => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`).then(withGeneration);
 export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }

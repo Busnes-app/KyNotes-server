@@ -7,6 +7,8 @@ import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./te
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
 export type Envelope = { deviceId: string; keyGeneration: number; alg: string; envelope: string };
+/** An envelope sent with an invitation; the web client seals only for the team invited to (never a teamId-claimed child). */
+export type InvitationEnvelope = Envelope & { containerId: string };
 /** The fields of a container that decide its keys. */
 export type KeyedContainer = { id: string; keyGeneration: number; sharedGeneration: number };
 /** Container keys this browser unwrapped, by generation. */
