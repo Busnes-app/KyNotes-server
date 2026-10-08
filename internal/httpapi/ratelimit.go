@@ -87,6 +87,9 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/invitations/") && strings.HasSuffix(path, "/accept"):
 			// Its own bucket at the same rate: bounds guessing and the refusal audit rows a caller can write.
 			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "accept"
+		case r.Method != http.MethodGet && strings.HasPrefix(path, "/api/v1/me/identity/recovery"):
+			// Setting or fetching the recovery-code copy: a handful an hour bounds fetches and audit rows.
+			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "recovery"
 		case r.Method == http.MethodPost && path == "/api/v1/me/link-requests":
 			// Linking a browser is device pairing: the same per-account hourly budget.
 			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "link"
@@ -104,7 +107,7 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "upload"
 		}
 		refill := float64(rate) / 60
-		if label == "pairing" || label == "invitation" || label == "accept" || label == "link" {
+		if label == "pairing" || label == "invitation" || label == "accept" || label == "link" || label == "recovery" {
 			refill = float64(rate) / 3600
 		}
 		identity := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)

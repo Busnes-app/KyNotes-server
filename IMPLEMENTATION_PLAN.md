@@ -426,7 +426,7 @@ gc:
 
 ratelimit:
   login_per_minute: 10
-  pairing_per_hour: 20
+  pairing_per_hour: 20           # device pairing, browser link requests and recovery-code set/fetch, per account, separate buckets
   upload_per_minute: 60
   invitation_per_hour: 30
   link_poll_per_minute: 60        # device-link collect polls and legacy-row lists, per account, separate buckets
@@ -1242,8 +1242,10 @@ deliberately every phase).
 | DELETE | `/api/v1/devices/{id}` | session + CSRF + fresh | revoke: set `revoked_at`, delete envelopes, delete `device_containers` |
 | GET | `/api/v1/devices/{id}/containers` | session, or that device | selected container IDs |
 | PUT | `/api/v1/devices/{id}/containers` | session + CSRF, or that device | `{"containerIds":[...]}`, replaces the selection |
-| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint, wrapAlg`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
+| GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint, wrapAlg, recoveryId` (`""` when none)`, recoverySetAt`; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
 | PUT | `/api/v1/me/identity` | session + CSRF + user-action step-up | create only: local `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`, SSO `{"publicKey","wrapAlg":"none"}` (each `400` from the other session kind); `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set (password wraps only) |
+| PUT | `/api/v1/me/identity/recovery` | session + CSRF + user-action step-up | `{"deviceId","expectedRecoveryId","wrapAlg":"pbkdf2-sha256-600000/aes-256-gcm","wrappedKey":"<b64 76>"}` → `{"recoveryId"}`; compare-and-swap on the identity row and the recovery ID last seen (`""`: none yet), `409 already_exists` otherwise; `404` without an identity; `409 password_change_required` for a local session while `password_admin_known`; audit `identity.recovery.set` (`created`/`replaced`); per-account `recovery` bucket at `pairing_per_hour` (per IP without a session) |
+| POST | `/api/v1/me/identity/recovery/fetch` | session + CSRF + user-action step-up | no body → `{"deviceId","publicKey","recoveryId","wrapAlg","wrappedKey"}`; the same `404` without an identity or without a copy; `409 password_change_required` for a local session while `password_admin_known`; `no-store`; audit `identity.recovery.fetch` (`recovery=<id>`; a miss is `denied`/`none`); same bucket. An SSO browser holding no identity steps up with a KySignOn confirmation of this exact request. The copy is in no other response |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
 | PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; legacy containers: the current generation only; shared containers: any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
@@ -1274,6 +1276,7 @@ deliberately every phase).
   devices, or read another device's envelope. Each of those is a named test.
 * Identity rows (`platform = 'identity'`) are excluded from device auth, device listing, revocation (per-device, directory deactivation and SSO role change), selection and re-pairing.
 * `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is. While it is `1`, every local password step-up for an identity action (identity create, envelope `PUT`, rotation, invitation envelopes) answers `409 password_change_required`, checked in the write transaction. On an account with a KySignOn subject (`users.sso_subject`), `POST /auth/password` while it is `1` needs a user-scope KySignOn confirmation of that exact request from an SSO session (local sessions: `409 sso_sign_in_required`, no challenge; rechecked in the write transaction), so the administrator who set the password cannot clear the flag. A local-only account has no such proof: whoever set its password acts as the user until the user changes it (documented residual).
+* The recovery-code copy (migration `0025_identity_recovery.sql`: `user_identities.recovery_id`, `recovery_alg`, `recovery_wrapped_key`, `recovery_updated_at`) is opaque to the server: it checks the label and the 76-byte length only. It is replaced only by compare-and-swap and returned only by the fetch route. Audit rows name the recovery ID, never the copy.
 * A successful password change clears `stepup_at` on every session of the user.
 * `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
 * Recovery and admin password reset delete the identity row (device-only included) in the same transaction and write an audit row. `identity.create` audits `wrap=<alg>,proof=password|sso:<challenge ID>`.
@@ -1758,7 +1761,7 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation at `ratelimit.pairing_per_hour`, link steps at `ratelimit.login_per_minute` and link collect polls and `GET /containers/{id}/legacy` at `ratelimit.link_poll_per_minute` per user in separate buckets (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation and recovery-code set/fetch at `ratelimit.pairing_per_hour` (separate buckets), link steps at `ratelimit.login_per_minute` and link collect polls and `GET /containers/{id}/legacy` at `ratelimit.link_poll_per_minute` per user in separate buckets (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
   `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds

@@ -169,11 +169,19 @@ history below the device's high-water mark, from an identity already pinned
 generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
 password resets delete it and write an audit row. Device-only identities are
-deleted too: until P5's recovery code that is how an SSO user who has lost every
+deleted too: unless the account saved a recovery code that is how an SSO user who has lost every
 browser starts over, with a new identity that stewards re-share keys to. An SSO session creates a
 device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
-request; no copy exists on the server until P5's recovery code, and other
+request; no password copy exists on the server, and other
 browsers receive it by device linking. A password never unlocks or re-wraps it.
+Every account may also keep a recovery-code copy: the identity private key sealed
+in the browser under a key derived (PBKDF2-SHA256, 600 000 iterations) from a
+one-time 128-bit code the browser shows once. The server stores the copy, never
+the code. It hands the copy only to a session of the same account behind a
+user-action step-up (for an SSO browser holding nothing, a KySignOn confirmation
+of that request), audits each fetch and rate-limits it, and answers the same 404
+whether the account has no identity or no copy. A new code replaces the copy by
+compare-and-swap, so the old code opens nothing on the live database.
 
 An owner or admin mints a container's content key for each key generation
 through `POST /containers/{id}/key-rotations`. In one transaction it advances
