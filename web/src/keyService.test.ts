@@ -579,6 +579,11 @@ describe("inviteWithKeys", () => {
       expect(calls).toEqual([{ envelopes: [] }]);
       expect(api.stepUp).not.toHaveBeenCalled();
     }
+    // A never-shared team has no container key, even when this device recorded one for its generation.
+    const { api, calls } = inviteAPI(true);
+    const recorded = memoryStore({}, { mark: 1, digests: { 1: bytesToHex(sha256(teamKey)) } });
+    expect((await inviteWithKeys(api, { container: { ...team, keyGeneration: 1, sharedGeneration: 0 }, ring: new Map([[1, teamKey]]), floor: {} }, invited, as(owner), recorded, never)).keys).toBe("no-keys");
+    expect(calls).toEqual([{ envelopes: [] }]);
   });
 
   it("sends no keys for a team this device saw at a later sharing state, or saw shared and now reported personal", async () => {
