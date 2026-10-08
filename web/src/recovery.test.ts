@@ -8,7 +8,7 @@ import { base64, deriveRecoveryKEK } from "./crypto";
 import { pbkdf2Sha256 } from "./fallbackCrypto";
 import { DEVICE_ONLY_WRAP, type HeldIdentity, type IdentityStore, type PublicIdentity } from "./identity";
 import { OTHER_COPY } from "./linkFlow";
-import { CONFIRM_FIRST, confirmRecoverySaved, formatRecoveryCode, newRecoveryCode, openRecovery, parseRecoveryCode, prepareRecovery, RECOVERY_ALG, RECOVERY_BYTES, RECOVERY_MOVED, RECOVERY_NONE, RECOVERY_RATE_LIMITED, RECOVERY_STALE, RECOVERY_TYPO, RECOVERY_WRONG, RecoveryCodeError, RecoveryMovedError, recoveryRefusal, resetConfirmed, RESET_CONFIRM, RESET_UNCONFIRMED, resetIdentity, restoreIdentity, saveRecovery, sealRecovery, sealRecoveryForVector, type PreparedRecovery, type RecoveryAPI, type ReplaceInput } from "./recovery";
+import { CONFIRM_FIRST, confirmRecoverySaved, recheck, RESET_UNCERTAIN, ResetUncertainError, formatRecoveryCode, newRecoveryCode, openRecovery, parseRecoveryCode, prepareRecovery, RECOVERY_ALG, RECOVERY_BYTES, RECOVERY_MOVED, RECOVERY_NONE, RECOVERY_RATE_LIMITED, RECOVERY_STALE, RECOVERY_TYPO, RECOVERY_WRONG, RecoveryCodeError, RecoveryMovedError, recoveryRefusal, resetConfirmed, RESET_CONFIRM, RESET_UNCONFIRMED, resetIdentity, restoreIdentity, saveRecovery, sealRecovery, sealRecoveryForVector, type PreparedRecovery, type RecoveryAPI, type ReplaceInput } from "./recovery";
 import source from "./recovery.ts?raw";
 import { generateIdentity, unwrapIdentity } from "./teamKeys";
 
@@ -402,6 +402,59 @@ describe("resetting the identity", () => {
     expect(store.held()?.publicKey).toEqual(fresh.publicKey);
     expect(dropped.replaceIdentity.mock.calls[0]).toEqual([{ publicKey: base64(fresh.publicKey), wrapAlg: DEVICE_ONLY_WRAP, expectedDeviceId: was, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: p.wrappedKey } }]);
     expect(JSON.stringify(dropped.replaceIdentity.mock.calls)).not.toContain(p.code.replaceAll("-", ""));
+  }, 30_000);
+});
+
+describe("showing the code again (I1)", () => {
+  it("asks for a different group each time, so the group just read is never the one asked", async () => {
+    const p = await prepareRecovery(generateIdentity(), user);
+    const seen = new Set<number>();
+    let current = p;
+    for (let i = 0; i < 30; i++) {
+      const next = recheck(current);
+      expect(next.check).not.toBe(current.check);
+      expect(next.code).toBe(p.code);
+      expect(next.identity).toBe(p.identity);
+      // The old group no longer confirms; only the newly asked one does.
+      if (asked(current) !== asked(next)) expect(confirmRecoverySaved(next, asked(current))).toBe(false);
+      seen.add(next.check);
+      current = next;
+    }
+    expect(seen.size).toBeGreaterThan(3);
+    expect(confirmRecoverySaved(current, asked(current))).toBe(true);
+  }, 30_000);
+
+  it("is not confirmed by a confirmation of the shown-again code's predecessor", async () => {
+    const p = await prepareRecovery(generateIdentity(), user);
+    confirmRecoverySaved(p, asked(p));
+    const again = recheck(p);
+    const api = { putRecovery: vi.fn(async () => ({ recoveryId: "rcv_x" })), myIdentity: vi.fn(async () => undefined) };
+    await expect(saveRecovery(api, again, { ...p.identity, deviceId: dev }, "")).rejects.toThrow(CONFIRM_FIRST);
+  }, 30_000);
+});
+
+describe("a reset whose response was lost (M5)", () => {
+  const was = `dev_${"e".repeat(26)}`;
+  it("keeps the same new key for a retry when the server still lists the old one, or cannot be read", async () => {
+    const fresh = generateIdentity();
+    const p = await prepareRecovery(fresh, user);
+    confirmRecoverySaved(p, asked(p));
+    const lost = new TypeError("Failed to fetch");
+    const replace = vi.fn(async (_input: ReplaceInput): Promise<{ deviceId: string }> => { throw lost; });
+    // Old key listed: nothing committed; the error stands.
+    await expect(resetIdentity({ replaceIdentity: replace, myIdentity: async () => ({ deviceId: was, publicKey: base64(generateIdentity().publicKey), fingerprint: "x" }) }, memoryStore(), p, was, "RESET")).rejects.toBe(lost);
+    // The re-read fails too: whether it committed is unknown, and the caller is told so.
+    const unknown = resetIdentity({ replaceIdentity: replace, myIdentity: async () => { throw lost; } }, memoryStore(), p, was, "RESET");
+    await expect(unknown).rejects.toBeInstanceOf(ResetUncertainError);
+    await expect(unknown).rejects.toThrow(RESET_UNCERTAIN);
+    // The retry sends the same new key and code copy, and succeeds.
+    replace.mockImplementationOnce(async () => ({ deviceId: dev }));
+    const store = memoryStore();
+    const done = await resetIdentity({ replaceIdentity: replace, myIdentity: async () => undefined }, store, p, was, "RESET");
+    expect(done.identity.publicKey).toEqual(fresh.publicKey);
+    const bodies = replace.mock.calls.map(([input]) => input);
+    expect(new Set(bodies.map((input) => input.publicKey))).toEqual(new Set([base64(fresh.publicKey)]));
+    expect(new Set(bodies.map((input) => input.recovery.wrappedKey))).toEqual(new Set([p.wrappedKey]));
   }, 30_000);
 });
 

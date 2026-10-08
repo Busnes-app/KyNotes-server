@@ -177,6 +177,11 @@ describe("settlePasswordIdentity", () => {
     expect(base64(v.get()!.publicKey)).toBe(server.record().publicKey);
   });
 
+  it("reports a create the server refused for an administrator-set password, and only that", async () => {
+    expect(await settlePasswordIdentity(fakeServer(true).api, vault().store, userID, keys(1), undefined)).toBe("admin-password");
+    expect(await settlePasswordIdentity(fakeServer().api, vault().store, userID, keys(1), undefined)).toBe(true);
+  });
+
   it("never overwrites a key another tab kept while it was signing in", async () => {
     const server = fakeServer();
     await ensure(server.api, userID, keys(1), undefined);

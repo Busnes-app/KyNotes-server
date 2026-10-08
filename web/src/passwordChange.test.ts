@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import { legacyAtRisk, PASSWORD_CHANGE_NOTE, passwordChangeProblem, passwordChangeWarning, resealWaitingEdits } from "./passwordChange";
+import { legacyAtRisk, PASSWORD_CHANGE_NOTE, passwordChangedStatus, passwordChangeProblem, passwordChangeWarning, resealWaitingEdits } from "./passwordChange";
 import { newContainerKey, WAITING_GENERATION, waitingKey, type KeyFloor } from "./keyring";
 import { clearQueuedSave, getNote, pendingSaves, putNote, queueSave } from "./storage";
 import { generateIdentity } from "./teamKeys";
@@ -25,6 +25,11 @@ describe("password change confirmation", () => {
     expect(passwordChangeProblem("a", "b", true, 0)).toMatch(/do not match/);
     expect(passwordChangeProblem("", "", true, 0)).toBeDefined();
     expect(PASSWORD_CHANGE_NOTE).toMatch(/stopped opening/);
+    // M4: waiting edits are no longer re-encrypted for the password, and are not only team edits.
+    expect(passwordChangedStatus(0)).toBe("Password changed.");
+    expect(passwordChangedStatus(2)).toBe("Password changed. 2 edits waiting on this browser could not be opened and will not be sent; export them under Unsent edits.");
+    expect(passwordChangedStatus(-1)).toMatch(/could not check its unsent edits/);
+    for (const n of [-1, 1, 2]) expect(passwordChangedStatus(n)).not.toMatch(/team|re-encrypted|new password/);
   });
 });
 
@@ -32,7 +37,7 @@ describe("waiting edits across a password change", () => {
   const cnt = "cnt_0123456789abcdefghjkmnpqrs";
   const before = legacyKeyRef("a".repeat(64));
   const after = legacyKeyRef("b".repeat(64));
-  const reseal = () => resealWaitingEdits("a".repeat(64), "b".repeat(64));
+  const reseal = () => resealWaitingEdits("a".repeat(64), "b".repeat(64), me);
   const page = { type: "page" as const, title: "Waiting", body: "text" };
   const me = "usr_0123456789abcdefghjkmnpqrs";
 
@@ -73,7 +78,7 @@ describe("waiting edits across a password change", () => {
     await queueSave(underLogin);
     await putNote(me, underLogin);
     // Nothing is stranded: the identity's entry needs no re-seal, the login-key one moves to the waiting key.
-    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), waiting)).toBe(0);
+    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), me, waiting)).toBe(0);
     const queued = await pendingSaves();
     expect(queued.find((entry) => entry.id === underIdentity.id)!.payload).toEqual(underIdentity.payload);
     const moved = queued.find((entry) => entry.id === underLogin.id)!.payload;
@@ -88,9 +93,33 @@ describe("waiting edits across a password change", () => {
     const waiting = waitingKey(generateIdentity());
     const prior = { id: "obj_p", containerID: cnt, version: 1, payload: await encryptNote(before, cnt, page), updatedAt: "t1", keyGeneration: 1, owner: me };
     await queueSave(prior);
-    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), waiting)).toBe(0);
+    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), me, waiting)).toBe(0);
     const moved = (await pendingSaves()).find((entry) => entry.id === prior.id)!;
     expect(moved.keyGeneration).toBe(WAITING_GENERATION);
     await expect(decryptObject(waiting, cnt, moved.payload)).resolves.toEqual(page);
   });
+
+  it("stamps an unstamped entry the old key opens, and never touches or counts another account's (M3)", async () => {
+    for (const entry of await pendingSaves()) await clearQueuedSave(entry.owner ?? "", entry.id);
+    const waiting = waitingKey(generateIdentity());
+    const other = "usr_9999999999abcdefghjkmnpqrs";
+    const unstamped = { id: "obj_u", containerID: cnt, version: 1, payload: await encryptNote(before, cnt, page), updatedAt: "t1", keyGeneration: 1 };
+    const theirs = { id: "obj_t", containerID: cnt, version: 1, payload: await encryptNote(legacyKeyRef("d".repeat(64)), cnt, page), updatedAt: "t1", keyGeneration: WAITING_GENERATION, owner: other };
+    const unknown = { id: "obj_k", containerID: cnt, version: 1, payload: await encryptNote(legacyKeyRef("d".repeat(64)), cnt, page), updatedAt: "t1", keyGeneration: WAITING_GENERATION };
+    await queueSave({ ...unstamped, owner: "" }); // "" is the store's owner-unknown row (before owner stamps)
+    await queueSave(theirs);
+    await queueSave({ ...unknown, owner: "" });
+    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), me, waiting)).toBe(0);
+    const queued = await pendingSaves();
+    const stamped = queued.find((entry) => entry.id === unstamped.id)!;
+    expect(stamped.owner).toBe(me);
+    expect(stamped.keyGeneration).toBe(WAITING_GENERATION);
+    await expect(decryptObject(waiting, cnt, stamped.payload)).resolves.toEqual(page);
+    // Another account's entry, and an unstamped one nothing proves, stay exactly as they were.
+    expect(queued.find((entry) => entry.id === theirs.id)).toMatchObject({ owner: other, payload: theirs.payload });
+    const left = queued.find((entry) => entry.id === unknown.id)!;
+    expect(left.owner).toBeUndefined();
+    expect(left.payload).toEqual(unknown.payload);
+  });
 });
+

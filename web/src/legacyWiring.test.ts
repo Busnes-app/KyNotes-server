@@ -114,7 +114,7 @@ describe("workspace keys after P5", () => {
   it("seals waiting edits with the identity, and tells the sweep whether the account is recoverable", () => {
     expect(block("  const localKeyFor")).toContain("writeKeyFor(container) ?? (waitingRef.current && { key: waitingRef.current, generation: WAITING_GENERATION })");
     // Read at submit time, not captured at render (M3).
-    expect(main).toContain("resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, waiting())");
+    expect(main).toContain("resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, userID, waiting())");
     expect(main).toContain("waiting={() => waitingRef.current}");
     expect(block("  async function syncKeys(")).toContain("recoverable: recoverable(liveRef.current)");
     expect(main).toContain("canWrap: false, recoverable: false }"); // the list's read-only pass never mints
@@ -137,7 +137,9 @@ describe("workspace keys after P5", () => {
     expect(main.match(/queuedNotice\(stewardHere\(selected\)\)/g)).toHaveLength(2);
     expect(main).toContain("waitingNotice({ steward: stewardHere(selected),");
     expect(main).toContain("others ? `Sealed this notebook's name with its key: ${name}.` : \"\"");
-    expect(main).toContain("{!auth.sso && identityState === \"create\" && <div className=\"conflict-banner\" role=\"status\">{ADMIN_PASSWORD_FIRST}");
+    // Only when the server refused the identity create for an administrator-set password (M2).
+    expect(main).toContain("{!auth.sso && identityState === \"create\" && adminSetPassword.has(auth.user.id) && <div className=\"conflict-banner\" role=\"status\">{ADMIN_PASSWORD_FIRST}");
+    expect(main).toContain("if ((await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin)) === \"admin-password\") adminSetPassword.add(userID);");
   });
 
   it("asks for the password-change acknowledgement only while login-key items remain", () => {
@@ -146,6 +148,7 @@ describe("workspace keys after P5", () => {
     expect(main).toContain("{warning && <p className=\"config-muted\" role=\"alert\">{warning}</p>}");
     expect(main).toContain("<button disabled={busy || (atRisk > 0 && !acknowledged)}>");
     expect(main).toContain("<p className=\"config-muted\">{PASSWORD_CHANGE_NOTE}</p>");
+    expect(main).toContain("setStatus(passwordChangedStatus(stranded));");
   });
 });
 

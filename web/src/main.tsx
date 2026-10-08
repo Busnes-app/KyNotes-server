@@ -79,7 +79,7 @@ import { checkLegacyRows, LegacyClosedError, mayAutoClose, migrateLegacy, review
 import { clearFloors, floorOf, raiseFloorIn, reopenFloorIn, setClosureReader, useFloors } from "./floors";
 import { closeLegacy, createKeyed, listAdminTeams, listContainers, newAdminTeam, newContainer, type Closed, type ClosureSink, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
-import { legacyAtRisk, PASSWORD_CHANGE_NOTE, passwordChangeProblem, passwordChangeWarning, resealWaitingEdits } from "./passwordChange";
+import { legacyAtRisk, PASSWORD_CHANGE_NOTE, passwordChangedStatus, passwordChangeProblem, passwordChangeWarning, resealWaitingEdits } from "./passwordChange";
 import { queuedNotice, stewardOf, UNRECOVERABLE, WAITING, waitingNotice } from "./keyNotices";
 import {
   decryptComment,
@@ -141,11 +141,14 @@ import {
   type PendingUpload,
 } from "./storage";
 
+/** Accounts whose identity create the server refused this page load because an administrator set the password (M2). */
+const adminSetPassword = new Set<string>();
 /** Opens or creates the identity after a password sign-in and keeps it on this browser; failures stay silent (the workspace offers linking). */
 async function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<void> {
   try {
     const store: IdentityStore = { load: () => loadIdentityRecord(username, userID), save: (identity, expected) => storeIdentityKey(username, userID, identity, expected) };
-    await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin);
+    if ((await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin)) === "admin-password") adminSetPassword.add(userID);
+    else adminSetPassword.delete(userID);
   } catch { /* the workspace shows what this browser can do instead */ }
 }
 import {
@@ -2703,7 +2706,7 @@ function Workspace({
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with KySignOn)</button></div>}
                 {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
-                {!auth.sso && identityState === "create" && <div className="conflict-banner" role="status">{ADMIN_PASSWORD_FIRST} <button onClick={() => setView("settings")}>Change password</button></div>}
+                {!auth.sso && identityState === "create" && adminSetPassword.has(auth.user.id) && <div className="conflict-banner" role="status">{ADMIN_PASSWORD_FIRST} <button onClick={() => setView("settings")}>Change password</button></div>}
                 {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
                 {identityState === "held" && live && !live.recoveryId && <div className="conflict-banner" role="status">{RECOVERY_MISSING} <button onClick={() => setView("settings")}>Create recovery code</button></div>}
                 <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
@@ -3081,11 +3084,11 @@ function PasswordSettings({ username, userID, onAuthSecret, waiting, atRisk, onI
       // No identity yet (e.g. an administrator set the old password): create it under the new one.
       if (!rewrapped) void settleIdentity(name, userID, newKeys).then(onIdentityCreated, () => undefined);
       onAuthSecret(newKeys.authSecret);
-      const stranded = await resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, waiting()).catch(() => -1);
+      const stranded = await resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, userID, waiting()).catch(() => -1);
       setCurrent("");
       setNext("");
       setAcknowledged(false);
-      setStatus(stranded === 0 ? "Password changed." : "Password changed. Some team edits waiting on this browser for a notebook's keys could not be re-encrypted for the new password and will not be sent.");
+      setStatus(passwordChangedStatus(stranded));
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Unable to change password",

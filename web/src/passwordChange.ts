@@ -19,6 +19,12 @@ export const passwordChangeWarning = (atRisk: number): string | undefined => atR
 /** Shown on every password change: a closed notebook (P4 Stop) may still hold the user's unsealed items. */
 export const PASSWORD_CHANGE_NOTE = "Items you stopped opening without sealing them can no longer be opened after a password change, even if you show them again.";
 
+/** The status after a change; stranded is resealWaitingEdits' count, or -1 when that check itself failed. */
+export const passwordChangedStatus = (stranded: number): string =>
+  stranded === 0 ? "Password changed."
+    : stranded < 0 ? "Password changed. This browser could not check its unsent edits; look under Unsent edits."
+      : `Password changed. ${stranded} edit${stranded === 1 ? "" : "s"} waiting on this browser could not be opened and will not be sent; export ${stranded === 1 ? "it" : "them"} under Unsent edits.`;
+
 /** Why the change form may not be submitted yet, or undefined when it may. */
 export function passwordChangeProblem(next: string, confirmation: string, acknowledged: boolean, atRisk: number): string | undefined {
   if (!next || next !== confirmation) return "New passwords do not match.";
@@ -34,12 +40,16 @@ const waiting = (entry: CachedNote) => entry.keyGeneration === undefined || entr
  * (at WAITING_GENERATION), or the new login key when this browser holds no identity. That covers edits
  * waiting before P5 or with no identity held, and edits queued at a container generation before P5 (a
  * personal notebook's save, M1). Entries the waiting key already opens are skipped and never counted.
- * Returns how many waiting entries could not be opened with the old key; those stay as they were. An
- * entry at a container generation that the old key does not open is sealed with a container key: untouched.
+ * Only this account's entries count: its own (owner userID), and unstamped ones the old login key opens,
+ * which that proves are its own and which are stamped with userID as the drain does (stuckEdits drainable).
+ * Another account's entries, and unstamped ones nothing proves, are never touched or counted (Unsent
+ * edits lists them). Returns how many of this account's waiting entries could not be opened with the old
+ * key; those stay as they were. An entry at a container generation that the old key does not open is
+ * sealed with a container key: untouched.
  * ponytail: without an identity, these entries move to the new login key rather than be lost. Upgrade:
  * drop that branch once no browser can hold pre-P5 entries.
  */
-export async function resealWaitingEdits(oldAuthSecret: string, newAuthSecret: string, waitingSeal?: KeyRef): Promise<number> {
+export async function resealWaitingEdits(oldAuthSecret: string, newAuthSecret: string, userID: string, waitingSeal?: KeyRef): Promise<number> {
   const from = legacyKeyRef(oldAuthSecret);
   const to = waitingSeal ?? legacyKeyRef(newAuthSecret);
   let unreadable = 0;
@@ -50,11 +60,14 @@ export async function resealWaitingEdits(oldAuthSecret: string, newAuthSecret: s
     return { ...entry, payload: await encryptNote(to, entry.containerID, payload), ...(waitingSeal ? { keyGeneration: WAITING_GENERATION } : {}) };
   };
   for (const item of await pendingSaves()) {
+    const mine = item.owner === userID;
     const next = await reseal(item);
     if (next === "skip") continue;
-    if (!next) { unreadable += 1; continue; }
+    // Another account's entries never open with this account's keys: never changed, never counted.
+    if (!next) { if (mine) unreadable += 1; continue; }
     // A save that replaced the entry meanwhile was sealed by a tab that may already hold the new key.
-    await replaceQueuedSave(item, next);
+    // An unstamped entry the old key opened is this account's: stamped, or skipped if it already queued that page.
+    await replaceQueuedSave(item, mine ? next : { ...next, owner: userID });
     // The draft beside it, under the same owner (or owner-unknown) key.
     const owner = item.owner ?? "";
     const cached = await getNote(owner, item.id).catch(() => undefined);

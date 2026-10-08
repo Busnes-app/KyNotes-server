@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { OTHER_COPY } from "../linkFlow";
 import { newRecoveryCode, RECOVERY_TYPO } from "../recovery";
-import { CodeShown, IdentityReset, normalizeCodeInput, RECOVERY_LAST, RECOVERY_REPLACED, recoveryFileText, RecoveryRestore, restoreAfterStepUp, resetConfirmed, RESET_CONFIRM, TypeBack } from "./RecoveryCode";
+import { checkedPasswordKeys, CodeShown, IdentityReset, RESET_WRONG_PASSWORD, normalizeCodeInput, RECOVERY_LAST, RECOVERY_REPLACED, recoveryFileText, RecoveryRestore, restoreAfterStepUp, resetConfirmed, RESET_CONFIRM, TypeBack } from "./RecoveryCode";
 
 const sources = import.meta.glob<string>(["../**/*.ts", "../**/*.tsx", "!../**/*.test.ts", "!../**/*.test.tsx"], { query: "?raw", import: "default", eager: true });
 const component = sources["./RecoveryCode.tsx"];
@@ -87,4 +87,33 @@ describe("recovery code UI", () => {
     // The typed password is turned into keys and handed to resetIdentity, which steps up with them.
     expect(component).toMatch(/resetIdentity\(recoveryAPI, store, prepared!, live\?\.deviceId \?\? "", RESET_PHRASE, keys && \{ keys, stepUp: password!\.stepUp \}\)/);
   });
+
+  it("asks a new group whenever the code is shown again (I1)", () => {
+    expect(component.match(/onBack=\{\(\) => \{ showAgain\(\); setHidden\(false\); \}\}/g)).toHaveLength(2);
+    expect(component).toContain("current.current = recheck(current.current);");
+  });
+
+  it("checks a reset password before showing a code (M1)", async () => {
+    const userKEK = new Uint8Array(32).fill(7);
+    const derive = async () => ({ authSecret: "s".repeat(64), userKEK });
+    const refused = vi.fn(async () => { throw Object.assign(new Error("401"), { code: "unauthenticated" }); });
+    expect(await checkedPasswordKeys({ derive, stepUp: refused }, "wrong")).toBe(RESET_WRONG_PASSWORD);
+    expect(refused).toHaveBeenCalledWith("s".repeat(64));
+    expect(userKEK.every((byte) => byte === 0)).toBe(true);
+    const ok = vi.fn(async () => undefined);
+    expect(await checkedPasswordKeys({ derive: async () => ({ authSecret: "t", userKEK: new Uint8Array(32) }), stepUp: ok }, "right")).toMatchObject({ authSecret: "t" });
+    // The dialog runs it before any code is prepared.
+    const begin = component.slice(component.indexOf("  async function begin()"), component.indexOf("  async function finish()"));
+    expect(begin.indexOf("await checkedPasswordKeys(")).toBeGreaterThan(-1);
+    expect(begin.indexOf("await checkedPasswordKeys(")).toBeLessThan(begin.indexOf("prepareRecovery("));
+  });
+
+  it("never discards the new key and code when a reset fails, and offers a retry with them (M5)", () => {
+    const finish = component.slice(component.indexOf("  async function finish()"), component.indexOf("  return (", component.indexOf("  async function finish()")));
+    const failure = finish.slice(finish.indexOf("} catch (error) {"));
+    expect(failure).not.toMatch(/forget\(|dropKeys\(/);
+    expect(failure).toContain("setFailed(true);");
+    expect(component).toContain(">Try the reset again</button>");
+  });
 });
+

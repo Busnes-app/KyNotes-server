@@ -3,7 +3,7 @@ import { recoveryAPI } from "../api";
 import type { LoginKeys } from "../crypto";
 import { downloadFile } from "../download";
 import type { HeldIdentity, IdentityStore, PublicIdentity } from "../identity";
-import { confirmRecoverySaved, parseRecoveryCode, prepareRecovery, recoveryRefusal, recoveryTypeBack, RESET_CONFIRM, RESET_PHRASE, resetConfirmed, resetIdentity, restoreIdentity, saveRecovery, type PreparedRecovery } from "../recovery";
+import { confirmRecoverySaved, parseRecoveryCode, prepareRecovery, recheck, recoveryRefusal, recoveryTypeBack, RESET_CONFIRM, RESET_PHRASE, resetConfirmed, resetIdentity, restoreIdentity, saveRecovery, type PreparedRecovery } from "../recovery";
 import { generateIdentity } from "../teamKeys";
 
 export { RESET_CONFIRM, resetConfirmed };
@@ -20,6 +20,8 @@ export const RESET_HELD = "This browser holds your encryption key, so you do not
 export const RESET_NOT_HELD = "Only if no browser holds your key and you have no recovery code. Your personal notebooks are lost.";
 export const RESET_DONE = "Your encryption key was reset. Team owners share their notebooks' keys with you again when they next open them.";
 export const RESET_UNKEPT = "Your encryption key was reset, but this browser could not keep it (site storage is blocked). Restore it with your new recovery code in a browser that allows site storage.";
+export const RESET_WRONG_PASSWORD = "That password is not right. Nothing was reset.";
+export const RESET_RETRY = "The reset did not go through. Keep the code you saved: trying again sends the same new key.";
 export const TYPE_BACK_WRONG = "That group does not match. Check your saved copy, or go back to see the code again.";
 export const stepUpPrompt = (sso: boolean) => sso ? "Confirm it is you in the KySignOn window that opens." : "Confirming it is you…";
 
@@ -49,6 +51,21 @@ export async function restoreAfterStepUp(stepUp: () => Promise<void>, code: stri
 }
 
 /**
+ * The reset's password, checked by a step-up before any code is shown (M1): its keys, or the message to
+ * show. A wrong password's userKEK is zeroed at once.
+ */
+export async function checkedPasswordKeys(password: { derive: (password: string) => Promise<LoginKeys>; stepUp: (authSecret: string) => Promise<unknown> }, typed: string): Promise<LoginKeys | string> {
+  const keys = await password.derive(typed);
+  try {
+    await password.stepUp(keys.authSecret);
+    return keys;
+  } catch (error) {
+    keys.userKEK.fill(0);
+    return (error as { code?: string }).code === "unauthenticated" ? RESET_WRONG_PASSWORD : recoveryRefusal(error, "reset your encryption key").message;
+  }
+}
+
+/**
  * Holds a prepared code only while its card is mounted. Dropping it (unmount, cancel, failure) forgets the
  * code; zeroNew: it carries a new identity (reset) whose private key is zeroed unless the reset used it.
  */
@@ -61,8 +78,10 @@ function usePrepared(zeroNew: boolean) {
     setPrepared(undefined);
   };
   const hold = (next: PreparedRecovery) => { forget(); current.current = next; setPrepared(next); };
+  /** "Show the code again": the same code and key, asked back by a new group (recheck); nothing is zeroed. */
+  const showAgain = () => { if (!current.current) return; current.current = recheck(current.current); setPrepared(current.current); };
   useEffect(() => () => { forget(); }, []);
-  return { prepared, hold, forget };
+  return { prepared, hold, forget, showAgain };
 }
 
 /** The code, once: selectable as a whole, printable or downloadable on a click, never copied or stored. */
@@ -104,7 +123,7 @@ export function TypeBack({ prepared, onBack, onConfirmed }: { prepared: Prepared
 
 /** Create or replace the account's recovery code (held identity required). */
 export function RecoverySetup({ userID, held, live, sso, stepUp, autoStart = false, onSaved }: { userID: string; held: () => Promise<HeldIdentity | undefined>; live: PublicIdentity | null | undefined; sso: boolean; stepUp: () => Promise<void>; autoStart?: boolean; onSaved: () => void }) {
-  const { prepared, hold, forget } = usePrepared(false);
+  const { prepared, hold, forget, showAgain } = usePrepared(false);
   const [hidden, setHidden] = useState(false);
   const [status, setStatus] = useState("");
   async function start() {
@@ -138,7 +157,7 @@ export function RecoverySetup({ userID, held, live, sso, stepUp, autoStart = fal
       <p className="config-muted">{live?.recoveryId ? `You saved a recovery code on ${new Date(live.recoverySetAt ?? "").toLocaleDateString()}.` : RECOVERY_MISSING}</p>
       {!prepared && <button onClick={() => void start()}>{live?.recoveryId ? "Replace recovery code" : "Create recovery code"}</button>}
       {prepared && !hidden && <CodeShown code={prepared.code} onNext={() => setHidden(true)} />}
-      {prepared && hidden && <TypeBack prepared={prepared} onBack={() => setHidden(false)} onConfirmed={save} />}
+      {prepared && hidden && <TypeBack prepared={prepared} onBack={() => { showAgain(); setHidden(false); }} onConfirmed={save} />}
       {status && <p role="status">{status}</p>}
     </section>
   );
@@ -192,7 +211,9 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
   password?: { derive: (password: string) => Promise<LoginKeys>; stepUp: (authSecret: string) => Promise<unknown> };
   startOpen?: boolean;
 }) {
-  const { prepared, hold, forget } = usePrepared(true);
+  const { prepared, hold, forget, showAgain } = usePrepared(true);
+  // A failed reset keeps the new key and code (it may have committed): the user retries with the same key.
+  const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(startOpen);
   const [phrase, setPhrase] = useState("");
   const [typedPassword, setTypedPassword] = useState("");
@@ -201,7 +222,7 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
   const keysRef = useRef<LoginKeys | undefined>(undefined);
   const dropKeys = () => { keysRef.current?.userKEK.fill(0); keysRef.current = undefined; };
   useEffect(() => () => { dropKeys(); }, []);
-  function cancel() { forget(); dropKeys(); setOpen(false); setPhrase(""); setTypedPassword(""); }
+  function cancel() { forget(); dropKeys(); setFailed(false); setOpen(false); setPhrase(""); setTypedPassword(""); }
   async function exportFirst() {
     try {
       const count = await exportWaiting();
@@ -216,8 +237,10 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
     try {
       if (password) {
         dropKeys();
-        keysRef.current = await password.derive(typedPassword);
+        const checked = await checkedPasswordKeys(password, typedPassword);
         setTypedPassword("");
+        if (typeof checked === "string") { setStatus(checked); return; }
+        keysRef.current = checked;
       }
       hold(await prepareRecovery(generateIdentity(), userID));
       setHidden(false);
@@ -232,14 +255,16 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
       if (!keys) await stepUp();
       const { kept } = await resetIdentity(recoveryAPI, store, prepared!, live?.deviceId ?? "", RESET_PHRASE, keys && { keys, stepUp: password!.stepUp });
       setStatus(kept ? RESET_DONE : RESET_UNKEPT);
+      setFailed(false);
       forget(true);
       dropKeys();
       setOpen(false);
       onReset();
     } catch (error) {
-      setStatus(recoveryRefusal(error, "reset your encryption key").message);
-      forget();
-      dropKeys();
+      // Never discarded here: the server may have taken it (ResetUncertainError), and a retry needs the same key.
+      const message = recoveryRefusal(error, "reset your encryption key").message;
+      setStatus(error instanceof Error && error.name === "ResetUncertainError" ? message : `${message} ${RESET_RETRY}`);
+      setFailed(true);
     }
   }
   return (
@@ -264,7 +289,13 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
         </form>
       )}
       {prepared && !hidden && <CodeShown code={prepared.code} onNext={() => setHidden(true)} />}
-      {prepared && hidden && <TypeBack prepared={prepared} onBack={() => setHidden(false)} onConfirmed={finish} />}
+      {prepared && hidden && !failed && <TypeBack prepared={prepared} onBack={() => { showAgain(); setHidden(false); }} onConfirmed={finish} />}
+      {prepared && failed && (
+        <div className="recovery-actions">
+          <button className="secondary danger" onClick={() => void finish()}>Try the reset again</button>
+          <button className="quiet" onClick={cancel}>Cancel</button>
+        </div>
+      )}
       {status && <p role="status">{status}</p>}
     </section>
   );

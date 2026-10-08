@@ -152,6 +152,15 @@ export const resetConfirmed = (typed: string | null | undefined) => typed?.trim(
 /** The type-back prompt: the group is named only once the code is hidden. */
 export const recoveryTypeBack = (group: number) => `Type group ${group} of 7 from your saved copy`;
 
+export const RESET_UNCERTAIN = "The connection failed, so this browser cannot tell whether the reset finished. Keep the code you saved and try again: the retry sends the same new key.";
+/** The reset request and the re-read after it both failed: it may have committed. Keep the prepared key and code. */
+export class ResetUncertainError extends Error {
+  constructor(readonly cause: unknown) {
+    super(RESET_UNCERTAIN);
+    this.name = "ResetUncertainError";
+  }
+}
+
 /** A compare-and-swap lost to another tab or browser; live is the server's identity re-read after it. */
 export class RecoveryMovedError extends Error {
   readonly code = "already_exists";
@@ -169,17 +178,30 @@ export type PreparedRecovery = { readonly code: string; readonly check: number; 
 /** Prepared codes the user typed back from a saved copy; consumed by the one upload they allow. */
 const kept = new WeakSet<PreparedRecovery>();
 
+/** A group 1–7 by rejection sampling over one CSPRNG byte (252 = 36 * 7: every group equally likely), never exclude. */
+function pickGroup(exclude?: number): number {
+  for (;;) {
+    const byte = randomBytes(1)[0];
+    if (byte >= 252) continue;
+    const group = (byte % 7) + 1;
+    if (group !== exclude) return group;
+  }
+}
+
 export async function prepareRecovery(identity: Identity, userID: string): Promise<PreparedRecovery> {
   const { code, secret } = newRecoveryCode();
   try {
-    // Rejection sampling over one CSPRNG byte: 252 = 36 * 7, so every group is equally likely.
-    let byte: number;
-    do byte = randomBytes(1)[0]; while (byte >= 252);
-    return Object.freeze({ code, check: (byte % 7) + 1, identity, userID, wrappedKey: base64(await sealRecovery(secret, identity, userID)) });
+    return Object.freeze({ code, check: pickGroup(), identity, userID, wrappedKey: base64(await sealRecovery(secret, identity, userID)) });
   } finally {
     secret.fill(0);
   }
 }
+
+/**
+ * The same code, asked back by a different random group: for "Show the code again", so the group the
+ * user just read is never the one asked (I1). Unconfirmed: only its own type-back allows an upload.
+ */
+export const recheck = (prepared: PreparedRecovery): PreparedRecovery => Object.freeze({ ...prepared, check: pickGroup(prepared.check) });
 
 /** True when typed is the asked group (prepared.check): a random group, named only after the code is hidden, shows the user kept the whole code. */
 export function confirmRecoverySaved(prepared: PreparedRecovery, typed: string): boolean {
@@ -276,7 +298,9 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
   try {
     ({ deviceId } = await api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...wrap, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } }));
   } catch (error) {
-    const live = await api.myIdentity().catch(() => undefined);
+    // The prepared key stays confirmed (kept) on every failure, so a retry re-sends this same key and copy.
+    let live: PublicIdentity | undefined;
+    try { live = await api.myIdentity(); } catch { throw new ResetUncertainError(error); }
     const listed = live && keyOrUndefined(live.publicKey);
     if (!live || !listed || !sameBytes(listed, prepared.identity.publicKey)) throw error;
     deviceId = live.deviceId;

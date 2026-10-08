@@ -126,10 +126,14 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
  * against the vault copy read before the server round trips, so a key another tab kept meanwhile is
  * never overwritten. False when nothing was kept.
  */
-export async function settlePasswordIdentity(api: IdentityAPI, store: IdentityStore, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<boolean> {
+/**
+ * Kept: true; not kept: false; "admin-password": the server refused the create because an administrator
+ * set this password (password_admin_known, 409 password_change_required; ensureIdentity's only undefined).
+ */
+export async function settlePasswordIdentity(api: IdentityAPI, store: IdentityStore, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<boolean | "admin-password"> {
   const before = await store.load();
   const identity = await ensureIdentity(api, userID, keys, fromLogin);
-  return identity ? store.save(identity, before ?? null) : false;
+  return identity ? store.save(identity, before ?? null) : "admin-password";
 }
 
 /**
