@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { APIRequestError } from "../api";
-import { documentText } from "../document";
 import { confirmReopenLegacy, type ReopenConfirmation } from "../keyring";
-import { approveMigration, itemLabel, type LegacyReview as Review, type MigrationApproval, type Migrated, type MigrationItem } from "../migration";
+import { approveMigration, attachmentsLeftBehind, itemLabel, reviewText, type LegacyReview as Review, type MigrationApproval, type Migrated, type MigrationItem } from "../migration";
 
 const items = (n: number) => `${n} item${n === 1 ? "" : "s"}`;
 export const legacyMine = (n: number) => `${items(n)} you wrote before this notebook was shared ${n === 1 ? "is" : "are"} not end-to-end verified yet. Review and share them with members, or stop opening them here.`;
@@ -12,7 +11,10 @@ export const legacyLeave = (n: number) => `${items(n)} you did not tick will sta
 export const LEGACY_CHECKING = "Checking the items written before this notebook was shared…";
 export const LEGACY_INCOMPLETE = "This browser could not check every item written before this notebook was shared.";
 export const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook was shared.";
-export const LEGACY_INTRO = "Open each item and tick only what you recognise as your own. Ticked items are sealed with this notebook's key exactly as shown here, so every member can read them. Unticked items stay on the server, and this browser stops opening them.";
+export const LEGACY_INTRO = "Read each item in full and tick only what you recognise as your own. Each item shows every piece of text it holds, link targets and attachment names included; save a copy of an attachment to check it. Ticked items are sealed with this notebook's key exactly as shown here, so every member can read them. Unticked items stay on the server, and this browser stops opening them.";
+export const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook was shared; they are not end-to-end verified.";
+export const LEGACY_LEFT_BEHIND = "These ticked pages use attachments you did not tick. Members could not open them, so nothing is shared until you tick them too or untick the page:";
+export const SAVE_COPY = "Save a copy to check";
 export const LEGACY_CLOSED = "This browser no longer opens items written before this notebook was shared.";
 export const STOP_LEGACY = "Stop opening items written before this notebook was shared? This browser will no longer open any of them, including your own that you have not shared. They stay on the server.";
 export const LEGACY_LABEL = "Written before sharing; not end-to-end verified";
@@ -23,6 +25,7 @@ export const REOPEN_CONFIRM = "Show items written before this notebook was share
 export const STOP_BUTTON = "Stop opening pre-sharing items";
 export const SHARE_BUTTON = "Share ticked items";
 export const TICK_THESE = "Tick these too";
+export const TICK_IT = "Tick it too";
 export const REVIEW_BLOCKED = "Review these pages";
 
 /** Why the /legacy check did not finish (migration.ts reviewLegacy rejected). Never an empty list. */
@@ -76,34 +79,47 @@ function ImagePreview({ item }: { item: Extract<MigrationItem, { kind: "attachme
   return <img className="legacy-image" src={url} alt={item.file.name} />;
 }
 
-/** The text a tick vouches for, shown in full: a page's or conflicting version's title and text, a comment's body. */
-function content(item: MigrationItem): string {
-  if (item.kind === "comment") return item.comment.body;
-  if ((item.kind === "object" || item.kind === "conflict") && item.payload.type === "page") return documentText(item.payload.body);
-  return "";
+/** The reviewed bytes as a local file, never opened in the page: what a tick seals, byte for byte. */
+function SaveCopy({ item }: { item: Extract<MigrationItem, { kind: "attachment" }> }) {
+  const [url] = useState(() => URL.createObjectURL(new Blob([item.plaintext.slice().buffer as ArrayBuffer], { type: "application/octet-stream" })));
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  return <a href={url} download={item.file.name}>{SAVE_COPY}</a>;
 }
 
 /** The dialog's list and actions, from the review the dialog opened with. */
-export function LegacyItems({ items: shown, picked, highlight, busy, onToggle, onTickHighlighted, onSelectAll, onCancel, onShare }: { items: readonly MigrationItem[]; picked: ReadonlySet<string>; highlight: ReadonlySet<string>; busy: boolean; onToggle: (id: string) => void; onTickHighlighted: () => void; onSelectAll: () => void; onCancel: () => void; onShare: () => void }) {
+export function LegacyItems({ review, picked, highlight, busy, onToggle, onTick, onTickHighlighted, onSelectAll, onCancel, onShare }: { review: Review | undefined; picked: ReadonlySet<string>; highlight: ReadonlySet<string>; busy: boolean; onToggle: (id: string) => void; onTick: (id: string) => void; onTickHighlighted: () => void; onSelectAll: () => void; onCancel: () => void; onShare: () => void }) {
+  const shown = review?.mine ?? [];
+  const files = new Map(shown.flatMap((item) => (item.kind === "attachment" ? [[item.id, item.file] as const] : [])));
+  // A ticked page pointing at an unticked attachment would be shared broken: Share waits until it is ticked or the page is not.
+  const leftBehind = review ? attachmentsLeftBehind(review, picked) : [];
   return (
     <>
       {highlight.size > 0 && (
         <p>{LEGACY_BLOCKED} <button disabled={busy} onClick={onTickHighlighted}>{TICK_THESE}</button></p>
+      )}
+      {leftBehind.length > 0 && (
+        <div role="alert">
+          {LEGACY_LEFT_BEHIND}
+          <ul>{leftBehind.map((entry) => (
+            <li key={`${entry.id}:${entry.attachment}`}>{entry.title || "Untitled page"}: {entry.name} <button disabled={busy} onClick={() => onTick(entry.attachment)}>{TICK_IT}</button></li>
+          ))}</ul>
+        </div>
       )}
       <ul>
         {shown.map((item) => (
           <li key={item.id} className={highlight.has(item.id) ? "legacy-highlight" : undefined}>
             <label><input type="checkbox" checked={picked.has(item.id)} onChange={() => onToggle(item.id)} /> {itemLabel(item)}</label>
             <div className="legacy-label">{LEGACY_LABEL}</div>
-            {content(item) && <p className="legacy-preview">{content(item)}</p>}
+            <p className="legacy-preview">{reviewText(item, files)}</p>
             {item.kind === "attachment" && PREVIEWABLE.test(item.file.type) && <ImagePreview item={item} />}
+            {item.kind === "attachment" && <SaveCopy item={item} />}
           </li>
         ))}
       </ul>
       <div className="link-actions">
         <button disabled={busy} onClick={onSelectAll}>Select all</button>
         <button className="quiet" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button disabled={busy || picked.size === 0} onClick={onShare}>{SHARE_BUTTON}</button>
+        <button disabled={busy || picked.size === 0 || leftBehind.length > 0} onClick={onShare}>{SHARE_BUTTON}</button>
       </div>
     </>
   );
@@ -113,10 +129,12 @@ export function LegacyItems({ items: shown, picked, highlight, busy, onToggle, o
  * One notebook's pre-sharing items (migration.ts reviewLegacy). checking: the review is still running,
  * and Stop shows anyway. failure: why the check did not finish (never shown as an empty list).
  * closed: this device stopped opening them; only counts and "Show pre-sharing items again" show.
+ * reopened: the user reopened this notebook here (the stored mark), and labelled: rows on screen
+ * were read with the login key; either keeps Stop on screen whatever the server lists.
  * outcome: the last share run, for what blocked closing. The dialog lists the review it opened with.
  */
-export function LegacyReview({ userID, containerID, review, checking, failure, closed, outcome, onShare, onStop, onReopen }: {
-  userID: string; containerID: string; review: Review | undefined; checking: boolean; failure?: string; closed: boolean; outcome?: Migrated;
+export function LegacyReview({ userID, containerID, review, checking, failure, closed, reopened, labelled, outcome, onShare, onStop, onReopen }: {
+  userID: string; containerID: string; review: Review | undefined; checking: boolean; failure?: string; closed: boolean; reopened: boolean; labelled: boolean; outcome?: Migrated;
   onShare: (approval: MigrationApproval) => Promise<void>; onStop: () => Promise<void>; onReopen: (confirmation: ReopenConfirmation) => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -128,7 +146,7 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
   const others = review?.others ?? 0;
   const refused = review?.refused ?? 0;
   const unfinished = !checking && (!review || !review.complete);
-  const open = !closed && (checking || unfinished || mine.length > 0);
+  const open = !closed && (checking || unfinished || mine.length > 0 || reopened || labelled);
   const blocked = outcome?.blockedBy ?? [];
   const run = async (work: () => Promise<unknown>) => { setBusy(true); try { await work(); } finally { setBusy(false); } };
   // Always opens with nothing ticked: blocked pages are only highlighted, and the user ticks them.
@@ -138,7 +156,7 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
     <>
       {open && (
         <div className="conflict-banner legacy-banner" role="status">
-          {checking ? LEGACY_CHECKING : !review ? `${LEGACY_UNCHECKED} ${failure ?? ""}` : mine.length ? legacyMine(mine.length) : LEGACY_INCOMPLETE}
+          {checking ? LEGACY_CHECKING : !review ? `${LEGACY_UNCHECKED} ${failure ?? ""}` : mine.length ? legacyMine(mine.length) : !review.complete ? LEGACY_INCOMPLETE : LEGACY_STILL_OPEN}
           {!checking && review && mine.length > 0 && !review.complete && <> {LEGACY_INCOMPLETE}</>}
           {outcome?.incomplete && <div>{LEGACY_SHARE_INCOMPLETE}</div>}
           {blocked.length > 0 && (
@@ -164,7 +182,8 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
         <h2 id="legacy-review-title">Items written before sharing</h2>
         <p>{LEGACY_INTRO}</p>
         {shown && !shown.complete && <p>{LEGACY_INCOMPLETE}</p>}
-        <LegacyItems items={shown?.mine ?? []} picked={picked} highlight={highlight} busy={busy} onToggle={toggle}
+        <LegacyItems review={shown} picked={picked} highlight={highlight} busy={busy} onToggle={toggle}
+          onTick={(id) => setPicked((value) => new Set([...value, id]))}
           onTickHighlighted={() => setPicked((value) => new Set([...value, ...highlight]))}
           onSelectAll={() => setPicked(new Set((shown?.mine ?? []).map((item) => item.id)))}
           onCancel={() => dialog.current?.close()}

@@ -4,11 +4,11 @@ import { sha256 } from "./fallbackCrypto";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
-import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
+import { confirmReopenLegacy, memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";
 import { confirmFingerprintChange, displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
-import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
+import { clearAllDeviceKeys, closeLegacyStored, getKeyState, getPins, reopenLegacy, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const user = (name: string, c: string, role: string, withIdentity = true) => {
@@ -289,6 +289,30 @@ const login = legacyKeyRef("a".repeat(64));
 
 describe("sharing-state rollback", () => {
   beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+
+  it("a pass that read the closure before a reopen saves without closing again or clearing the mark (I1)", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    await syncContainerKeys(api, cnt, as(owner), memoryStore(), never); // shared at generation 2
+    const store = vault(editor);
+    expect(await closeLegacyStored("me", editor.member.userId, cnt, 2, false)).toBe("closed");
+    // The pass reads the stored closure, then waits on the server while the user reopens.
+    let read!: () => void, release!: () => void;
+    const loaded = new Promise<void>((resolve) => { read = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const saves = vi.fn(store.saveKeyState);
+    const racing: PinStore = { ...store, saveKeyState: saves, loadKeyState: async (id) => { const state = await store.loadKeyState(id); read(); return state; } };
+    const pass = syncContainerKeys({ ...api, envelopes: async (id) => { await gate; return api.envelopes(id); } }, cnt, as(editor, false), racing, never);
+    await loaded;
+    expect(await reopenLegacy("me", editor.member.userId, cnt, confirmReopenLegacy(editor.member.userId, cnt))).toBe(true);
+    release();
+    const result = await pass;
+    expect(result.known.closed).toBe(2); // the pass's own copy is stale
+    expect(saves).toHaveBeenCalled();
+    const stored = await getKeyState("me", editor.member.userId, cnt);
+    expect(stored).toMatchObject({ reopened: true, shared: 2, generation: 2 });
+    expect(stored).not.toHaveProperty("closed");
+  });
 
   it("never writes with the login key once this device has seen the notebook shared, even after a reload", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");

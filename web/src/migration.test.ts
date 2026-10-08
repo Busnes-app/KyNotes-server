@@ -97,6 +97,17 @@ describe("reviewLegacy", () => {
     // b's bytes do not open and c's cannot be fetched: neither is offered, and the list is not complete.
     expect(review.complete).toBe(false);
   });
+
+  it("never counts this user's own attachment as another author's, even without a generation or a page (M7)", async () => {
+    const meta = base64(await encryptAttachmentMetadata(mine, cnt, { name: "mine.pdf", type: "application/pdf", size: 1 }));
+    const theirMeta = base64(await encryptAttachmentMetadata(theirs, cnt, { name: "theirs", type: "", size: 1 }));
+    for (const own of [{ id: id("att", "a"), objectIds: [], metadataCiphertext: meta, keyGeneration: 1 }, { id: id("att", "a"), objectIds: [id("obj", "a")], metadataCiphertext: meta }]) {
+      const review = await reviewLegacy(server({}, { attachments: [own, { id: id("att", "b"), objectIds: [id("obj", "b")], metadataCiphertext: theirMeta, keyGeneration: 1 }] }), { container, floorNow: () => floor, legacy: mine, userId: me });
+      // Only the other author's file is "theirs"; this user's is unaccounted for, so nothing closes by itself.
+      expect(review).toMatchObject({ mine: [], others: 1, complete: false });
+      expect(autoCloses(review, floor)).toBe(false);
+    }
+  });
 });
 
 describe("the /legacy check over the wire (N2)", () => {
@@ -242,12 +253,12 @@ describe("migrateLegacy", () => {
   it("sends nothing without an approval for this user and notebook", async () => {
     const { live } = await seeded();
     const close = vi.fn(async () => true);
-    const good = await prepared(live, [id("obj", "a")]);
+    const good = await prepared(live, [id("obj", "a"), id("att", "a")]);
     const lookalike = { ...good, approval: { userID: me, containerID: cnt, shared: 2, complete: true, unticked: 0, hideConfirmed: 0 } as unknown as MigrationApproval };
     expect(isMigrationApproval(lookalike.approval, me, cnt)).toBe(false);
     expect(isMigrationApproval(Object.create(good.approval), me, cnt)).toBe(false);
     expect(isMigrationApproval(good.approval, me, cnt)).toBe(true);
-    for (const input of [lookalike, await prepared(live, [id("obj", "a")], { containerID: `cnt_${"b".repeat(26)}` }), await prepared(live, [id("obj", "a")], { userID: other })])
+    for (const input of [lookalike, await prepared(live, [id("obj", "a"), id("att", "a")], { containerID: `cnt_${"b".repeat(26)}` }), await prepared(live, [id("obj", "a"), id("att", "a")], { userID: other })])
       await expect(migrateLegacy(live.api, input, close)).rejects.toThrow();
     expect(live.sends).toEqual([]);
     expect(close).not.toHaveBeenCalled();
@@ -342,7 +353,7 @@ describe("migrateLegacy", () => {
   it("a refused or conflicting write keeps legacy reads open and never overwrites the newer version", async () => {
     const { live } = await seeded();
     const close = vi.fn(async () => true);
-    const input = await prepared(live, [id("obj", "a"), id("cmt", "a")]);
+    const input = await prepared(live, [id("obj", "a"), id("cmt", "a"), id("att", "a")]);
     const newer = { ...live.objects.get(id("obj", "a"))!, version: 4 }; // another tab saved meanwhile
     live.objects.set(id("obj", "a"), newer);
     live.api.sendCommentRewrite = async () => { throw Object.assign(new Error("insufficient role"), { code: "forbidden" }); };
@@ -367,9 +378,9 @@ describe("migrateLegacy", () => {
   it("refuses an approval from before a sharing change, and never closes after one mid-run", async () => {
     const { live } = await seeded();
     const close = vi.fn(async () => true);
-    const stale = await prepared(live, [id("obj", "a")]);
+    const stale = await prepared(live, [id("obj", "a"), id("att", "a")]);
     await expect(migrateLegacy(live.api, { ...stale, floorNow: () => ({ shared: 3, generation: 3 }) }, close)).rejects.toThrow(/review/i);
-    await expect(migrateLegacy(live.api, { ...(await prepared(live, [id("obj", "a")])), floorNow: () => undefined }, close)).rejects.toThrow(/review/i);
+    await expect(migrateLegacy(live.api, { ...(await prepared(live, [id("obj", "a"), id("att", "a")])), floorNow: () => undefined }, close)).rejects.toThrow(/review/i);
     // A review of a notebook that was not shared yet approves nothing to seal under a container key.
     const unsharedReview = await reviewLegacy(live.api, { container: { ...container, sharedGeneration: 0 }, floorNow: () => ({}), legacy: mine, userId: me });
     const unshared = approveMigration(me, cnt, unsharedReview, [], 0);
@@ -388,7 +399,7 @@ describe("migrateLegacy", () => {
   it("a second run shares only what the first left, and running it again changes nothing", async () => {
     const { live } = await seeded();
     const close = vi.fn(async () => true);
-    const both = [id("obj", "a"), id("cmt", "a")];
+    const both = [id("obj", "a"), id("att", "a"), id("cmt", "a")]; // the page uses the image, so both go together
     const working = live.api.sendCommentRewrite;
     live.api.sendCommentRewrite = async () => { throw new Error("offline"); }; // the first run dies at the comment
     await migrateLegacy(live.api, await prepared(live, both), close);
@@ -460,7 +471,7 @@ describe("migrateLegacy", () => {
     const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
     for (const fake of [{ ...review }, { mine: review.mine, others: 0, refused: 0, complete: true, shared: 2 }, Object.create(review)])
       expect(() => approveMigration(me, cnt, fake as LegacyReview, [id("obj", "a")], 0)).toThrow();
-    expect(() => approveMigration(me, cnt, review, [id("obj", "a")], 0)).not.toThrow();
+    expect(() => approveMigration(me, cnt, review, [id("obj", "a"), id("att", "a")], 0)).not.toThrow();
   });
 
   it("names the unticked pages that keep a shared attachment and block closing (M4)", async () => {
@@ -498,7 +509,7 @@ describe("migrateLegacy through the outbound gate", () => {
     vi.stubGlobal("fetch", fetches);
     vi.stubGlobal("document", { cookie: "" });
     const { live } = await seeded();
-    const input = await prepared(live, [id("obj", "a")]);
+    const input = await prepared(live, [id("obj", "f")]); // a page without attachments
     // This tab has moved on to generation 3 (a rotation): the run's generation-2 write key is stale.
     clearFloors();
     raiseFloorIn(cnt, { shared: 2, generation: 3 });
@@ -506,7 +517,7 @@ describe("migrateLegacy through the outbound gate", () => {
     const unregister = setWriteKeySource((reported) => keysAllowed(reported, floor) ? writeKey(rotated, new Map([[3, newContainerKey()]]), mine, { shared: 2, generation: 3 }) : undefined);
     try {
       const result = await migrateLegacy({ ...live.api, sendObject }, input, vi.fn(async () => true));
-      expect(result).toMatchObject({ closed: false, failed: [{ id: id("obj", "a"), reason: new KeysWaitingError().message }] });
+      expect(result).toMatchObject({ closed: false, failed: [{ id: id("obj", "f"), reason: new KeysWaitingError().message }] });
       expect(fetches).not.toHaveBeenCalled();
     } finally { unregister(); }
   });

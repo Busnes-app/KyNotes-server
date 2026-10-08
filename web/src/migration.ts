@@ -63,6 +63,8 @@ export async function reviewLegacy(api: ReviewAPI, input: ReviewInput): Promise<
     return openFirst(readKeys(container, new Map(), legacy, generation, now), open).catch(() => undefined);
   };
 
+  // ponytail: every open of a notebook that has not closed re-reads every listed page, other
+  // authors' included, one GET each. Upgrade: keep each row's review by version for the session.
   for (const row of rows.objects) {
     // The current version, re-read: the listed one may have been re-sealed meanwhile.
     const current = await api.readObject(row.id).catch(() => undefined);
@@ -80,8 +82,12 @@ export async function reviewLegacy(api: ReviewAPI, input: ReviewInput): Promise<
     else review.mine.push({ kind: "comment", id: row.id, objectId: row.objectId, comment });
   }
   for (const row of rows.attachments) {
+    // No valid generation to pick a key with: unaccounted for, as for pages.
+    if (row.keyGeneration === undefined) { review.complete = false; continue; }
     const file = await opened(row.keyGeneration, (key) => decryptAttachmentMetadata(key, container.id, fromBase64(row.metadataCiphertext)));
-    if (!file || row.keyGeneration === undefined || !row.objectIds.length) { review.others += 1; continue; }
+    if (!file) { review.others += 1; continue; }
+    // This user's key opens it, but with no page it cannot be shared: unaccounted for, never someone else's.
+    if (!row.objectIds.length) { review.complete = false; continue; }
     // ponytail: every listed attachment of this user is held decrypted for the review. Upgrade: pin a
     // SHA-256 of the plaintext here and stream it again at sharing, refusing a different digest.
     const bytes = await api.downloadAttachment(row.id).catch(() => undefined);
@@ -128,6 +134,61 @@ export async function checkLegacyRows(run: () => Promise<LegacyReview>, floorNow
   const floor = floorNow();
   const autoClosed = autoClose && closedOf(floor) === 0 && autoCloses(review, floor) && (await close().catch(() => false));
   return { review, autoClosed };
+}
+
+/** "attachment://att_…" references in a payload; IDs are fixed-length, so no ID is a prefix of another. */
+const references = (value: unknown): string[] => [...JSON.stringify(value).matchAll(/attachment:\/\/(att_[0-9a-hjkmnp-tv-z]{26})/g)].map((match) => match[1]);
+const sizeText = (bytes: number) => `${bytes} byte${bytes === 1 ? "" : "s"}`;
+const fileText = (file: AttachmentFile) => `${file.name} (${file.type || "unknown type"}, ${sizeText(file.size)})`;
+/** BlockNote's unstyled defaults: nothing a reader would see. */
+const COSMETIC = new Set(["default", "left"]);
+
+/**
+ * Everything a tick seals, as plain text (React renders it as text, never HTML): every string in
+ * the payload with its field name, link targets and table cells included, and each attachment
+ * reference with the name, type and size of the reviewed copy (files: the review's attachments).
+ * A page body that is JSON is walked too, whatever its format. Numbers and flags are left out:
+ * they carry no text.
+ */
+export function reviewText(item: MigrationItem, files: ReadonlyMap<string, AttachmentFile>): string {
+  if (item.kind === "attachment") return `Attachment: ${fileText(item.file)}`;
+  const lines: string[] = [];
+  const show = (key: string, text: string) => {
+    if (!text || (COSMETIC.has(text) && /color|alignment/i.test(key))) return;
+    const refs = references(text).map((id) => (files.has(id) ? `attachment ${fileText(files.get(id)!)}` : `an attachment not in this review (${id})`));
+    lines.push(`${key === "text" ? "" : `${key}: `}${text}${refs.length ? ` → ${refs.join(", ")}` : ""}`);
+  };
+  /** Every string under value, for one table cell. */
+  const strings = (value: unknown): string[] => (typeof value === "string" ? [value] : value && typeof value === "object" ? Object.entries(value).flatMap(([key, inner]) => (key === "type" ? [] : strings(inner))) : []);
+  const walk = (key: string, value: unknown) => {
+    if (typeof value === "string") {
+      if (key === "body") {
+        try {
+          const parsed: unknown = JSON.parse(value);
+          if (parsed && typeof parsed === "object") { walk("", parsed); return; }
+        } catch { /* plain text: shown as it is */ }
+      }
+      if (key === "type" && value === "text") return;
+      show(key, value);
+    } else if (Array.isArray(value)) {
+      // A table row: its cells on one line.
+      if (key === "cells") { lines.push(value.map((cell) => strings(cell).join(" ")).join(" | ")); return; }
+      for (const entry of value) walk(key, entry);
+    } else if (value && typeof value === "object") {
+      for (const [inner, entry] of Object.entries(value)) walk(inner, entry);
+    }
+  };
+  walk("", item.kind === "comment" ? item.comment : item.payload);
+  return lines.join("\n");
+}
+
+/** Reviewed attachments a ticked page or conflicting version uses but the user left unticked: sharing that page would point members at a copy only this login key opens. */
+export function attachmentsLeftBehind(review: LegacyReview, ticked: ReadonlySet<string>): Array<{ id: string; title: string; attachment: string; name: string }> {
+  const attachments = new Map(review.mine.flatMap((item) => (item.kind === "attachment" ? [[item.id, item.file.name] as const] : [])));
+  return review.mine.flatMap((item) => {
+    if ((item.kind !== "object" && item.kind !== "conflict") || !ticked.has(item.id)) return [];
+    return [...new Set(references(item.payload))].filter((id) => attachments.has(id) && !ticked.has(id)).map((id) => ({ id: item.id, title: item.payload.title, attachment: id, name: attachments.get(id)! }));
+  });
 }
 
 /** What the review dialog shows for an item. */
@@ -179,7 +240,9 @@ export class MigrationApproval {
  */
 export const approveMigration = (userID: string, containerID: string, review: LegacyReview, ticked: Iterable<string>, hideConfirmed: number): MigrationApproval => {
   if (!reviews.has(review)) throw new Error("Review this notebook's items first.");
-  return mint(userID, containerID, review, new Set(ticked), hideConfirmed);
+  const picked = new Set(ticked);
+  if (attachmentsLeftBehind(review, picked).length) throw new Error("A ticked page uses an attachment you did not tick. Tick the attachment too, or untick the page.");
+  return mint(userID, containerID, review, picked, hideConfirmed);
 };
 export const isMigrationApproval = (value: unknown, userID: string, containerID: string): value is MigrationApproval =>
   typeof value === "object" && value !== null && approvals.has(value as MigrationApproval) &&

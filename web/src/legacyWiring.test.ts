@@ -21,10 +21,17 @@ describe("workspace pre-sharing wiring", () => {
   it("checks after every load, shows the check while it runs, and never closes on a failed check", () => {
     const check = block("  async function checkLegacy(");
     expect(check).toContain("setLegacyCheck({ containerID: container.id, checking: true });");
-    expect(check).toContain("const autoClose = await mayAutoClose(() => pinStore.loadKeyState(container.id));");
-    expect(check).toContain("await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, () => stopLegacy(container), autoClose);");
+    expect(check).toContain("const autoClose = await mayAutoClose(() => stored);");
+    // The check's own close is automatic: closeLegacyStored re-reads the reopen mark in its transaction (M1).
+    expect(check).toContain("await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, async () => (await stopLegacy(container, true)) === \"closed\", autoClose);");
+    expect(main).toContain("const closureSink: ClosureSink = { close: (containerID, closed, auto) => closeLegacyStored(auth.username, auth.user.id, containerID, closed, auto) };");
+    expect(block("  async function stopLegacy(")).toContain("const outcome = await closeLegacy(closureSink, container.id, auto);");
+    // The stored reopen mark keeps Stop on screen (I2), and rows read with the login key do too.
+    expect(check).toContain("const reopened = !autoClose && (await stored.then((state) => state.reopened === true, () => false));");
+    expect(check.match(/, reopened \}/g)).toHaveLength(3);
+    expect(main).toContain("reopened={legacyCheck.reopened === true} labelled={unverified.size > 0}");
     expect(main).not.toMatch(/reopenedRef/);
-    expect(check).toMatch(/if \("failed" in check\) \{[^]*failure: checkFailure\(check\.failed\) \}\);\n\s*return;\n\s*\}/);
+    expect(check).toMatch(/if \("failed" in check\) \{[^]*failure: checkFailure\(check\.failed\), reopened \}\);\n\s*return;\n\s*\}/);
     expect(check.match(/stopLegacy/g)).toHaveLength(1); // only as checkLegacyRows' close
     // Only checkLegacyRows decides to close by itself; nothing turns a rejection into a review.
     expect(main).not.toMatch(/\bautoCloses\(/);
@@ -36,7 +43,9 @@ describe("workspace pre-sharing wiring", () => {
 
   it("reloads the open notebook when its closure rises, here or in another tab", () => {
     expect(main).toContain("const closedNow = selected ? closedOf(floorFor(selected)) : 0;");
-    expect(main).toContain("const rose = before.closed === 0 && closedNow > 0 && unverifiedRef.current.size > 0;");
+    // Always, labelled pages or not: the review dialog, comments and previews leave the screen too (M3).
+    expect(main).toContain("const rose = before.closed === 0 && closedNow > 0;");
+    expect(block("  async function loadContainer(")).toMatch(/setCommentsForNote\(\[\]\);[^]*setLegacyCheck\(undefined\);/);
     // A reopen here or in another tab (floors.ts adoptStored lowers the closure) refreshes the view too (M2).
     expect(main).toContain("const fell = before.closed > 0 && closedNow === 0;");
     expect(main).toContain("if (selected && before.id === selected.id && (rose || fell)) void selectContainer(selected, parseRoute(location.hash));");
@@ -51,7 +60,7 @@ describe("workspace pre-sharing wiring", () => {
     expect(main).toMatch(/import \{[^}]*\bsendCommentRewrite\b[^}]*\bsendObject\b[^}]*\} from "\.\/outbound";/);
     const share = block("  async function shareLegacy(");
     expect(share).toContain("floorNow: () => floorFor(container)");
-    expect(share).toContain("() => stopLegacy(container));");
+    expect(share).toContain("async () => (await stopLegacy(container)) === \"closed\");");
     expect(share).not.toMatch(/closeLegacy\(/);
   });
 

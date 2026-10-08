@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { legacyKeyRef } from "./crypto";
 import { localKey, newContainerKey, readKeys, WAITING_GENERATION, writeKey, type KeyFloor } from "./keyring";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
-import { closeLegacy, observeContainer, type FloorSink } from "./observe";
-import { clearAllDeviceKeys, getKeyState, storeDeviceKey, storeKeyState } from "./storage";
+import { closeLegacy, observeContainer, type ClosureSink, type FloorSink } from "./observe";
+import { clearAllDeviceKeys, closeLegacyStored, getKeyState, storeDeviceKey, storeKeyState } from "./storage";
 
 vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
 const cnt = `cnt_${"a".repeat(26)}`, me = `usr_${"b".repeat(26)}`;
@@ -15,6 +15,7 @@ const sink = (load: (id: string) => Promise<KeyFloor> = (id) => getKeyState("me"
   load,
   save: (id, state) => storeKeyState("me", me, id, state),
 });
+const closure: ClosureSink = { close: (id, closed, auto) => closeLegacyStored("me", me, id, closed, auto) };
 
 describe("observeContainer", () => {
   beforeEach(async () => { clearFloors(); await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
@@ -77,12 +78,12 @@ describe("observeContainer", () => {
   });
   it("closes legacy reads of a shared notebook in every tab and in storage, never of a never-shared one", async () => {
     raiseFloorIn("other", { shared: 0, generation: 1 });
-    expect(await closeLegacy(sink(), "other")).toBe(false);
+    expect(await closeLegacy(closure, "other")).toBe("not-shared");
     expect(floorOf("other")?.closed).toBeUndefined();
-    expect(await closeLegacy(sink(), `cnt_${"c".repeat(26)}`)).toBe(false); // not loaded in this tab
+    expect(await closeLegacy(closure, `cnt_${"c".repeat(26)}`)).toBe("not-shared"); // not loaded in this tab
 
     raiseFloorIn(cnt, { shared: 2, generation: 3 });
-    expect(await closeLegacy(sink(), cnt)).toBe(true);
+    expect(await closeLegacy(closure, cnt)).toBe("closed");
     expect(floorOf(cnt)).toMatchObject({ shared: 2, generation: 3, closed: 2 });
     expect(await getKeyState("me", me, cnt)).toMatchObject({ closed: 2 });
     expect(readKeys({ sharedGeneration: 2 }, new Map(), login, 1, floorOf(cnt)!)).toEqual([]);
@@ -92,10 +93,22 @@ describe("observeContainer", () => {
     expect(await getKeyState("me", me, cnt)).toMatchObject({ closed: 2, generation: 4 });
   });
 
-  it("closes in memory even when storage cannot keep it", async () => {
+  it("a user's Stop closes in memory even when storage cannot keep it, and says so (M8)", async () => {
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
-    const failing: FloorSink = { load: async () => ({}), save: async () => { throw new Error("full"); } };
-    expect(await closeLegacy(failing, cnt)).toBe(false);
+    const failing: ClosureSink = { close: async () => { throw new Error("full"); } };
+    expect(await closeLegacy(failing, cnt)).toBe("unsaved");
+    expect(floorOf(cnt)?.closed).toBe(2);
+  });
+
+  it("an automatic close changes nothing unless storage kept it (I4)", async () => {
+    raiseFloorIn(cnt, { shared: 2, generation: 2 });
+    for (const outcome of ["unsaved", "reopened"] as const) {
+      expect(await closeLegacy({ close: async () => outcome }, cnt, true)).toBe(outcome);
+      expect(floorOf(cnt)?.closed).toBeUndefined();
+    }
+    expect(await closeLegacy({ close: async () => { throw new Error("no IndexedDB"); } }, cnt, true)).toBe("unsaved");
+    expect(floorOf(cnt)?.closed).toBeUndefined();
+    expect(await closeLegacy(closure, cnt, true)).toBe("closed");
     expect(floorOf(cnt)?.closed).toBe(2);
   });
 

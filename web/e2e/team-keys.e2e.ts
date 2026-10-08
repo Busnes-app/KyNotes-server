@@ -708,6 +708,7 @@ const LEGACY_TEAM = "Legacy Team E2E";
 const LEGACY_CLOSED = "This browser no longer opens items written before this notebook was shared.";
 const LEGACY_CHECKING = "Checking the items written before this notebook was shared…";
 const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook was shared.";
+const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook was shared; they are not end-to-end verified.";
 const LEGACY_LABEL = "Written before sharing; not end-to-end verified";
 const LEGACY_BLOCKED = "These pages use attachments you're sharing; tick them too, or keep the notebook open:";
 const LEAVE_ONE = "1 item you did not tick will stay on the server, and this browser will stop opening them. Share the ticked items and stop opening the rest?";
@@ -904,9 +905,8 @@ async function p4(owner: Person, editor: Person, second: Person, senders: Map<st
   await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified");
   expect(await closedIn(editor.page, lid)).toBe(0);
   await expect(editor.page.getByRole("button", { name: REOPEN })).toHaveCount(0);
-  // "Stop opening pre-sharing items" closes it again.
-  forgery.listed = true;
-  await openTeam(editor.page, LEGACY_TEAM, lid);
+  // Stop stays on screen with nothing of this user's listed, and closes it again.
+  await expect(editor.page.locator(".legacy-banner")).toContainText(LEGACY_STILL_OPEN);
   await withDialog(editor, { type: "confirm", text: STOP_LEGACY }, () => editor.page.getByRole("button", { name: STOP }).click());
   await expect(editor.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
   await expect(pageRow(editor.page, FORGED_TITLE)).toHaveCount(0);

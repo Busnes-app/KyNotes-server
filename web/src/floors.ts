@@ -16,11 +16,18 @@ const closures: Record<string, number> = {};
 const noteClosure = (containerID: string, before: KeyFloor | undefined, after: KeyFloor) => {
   if (closedOf(after) > closedOf(before)) closures[containerID] = (closures[containerID] ?? 0) + 1;
 };
-const merge = (containerID: string, floor: KeyFloor) => {
+/** Without the closure: what a raise carries once the tab holds a floor (single writer, closeFloorIn). */
+const open = (floor: KeyFloor): KeyFloor => { const { closed: _, ...rest } = floor; return rest; };
+/**
+ * closing false: a closure in floor is taken only on the tab's first load of the container (the
+ * stored floor). After that only closeFloorIn and a peer's close message raise it, so a stale read
+ * landing after a reopen never closes the tab again.
+ */
+const merge = (containerID: string, floor: KeyFloor, closing = false) => {
   const minimum = pending[containerID];
   if (minimum) delete pending[containerID];
   const before = floors[containerID];
-  floors = { ...floors, [containerID]: mergeFloor(mergeFloor(before, floor), minimum ?? {}) };
+  floors = { ...floors, [containerID]: mergeFloor(mergeFloor(before, closing || !before ? floor : open(floor)), minimum ?? {}) };
   noteClosure(containerID, before, floors[containerID]);
   changed();
 };
@@ -41,7 +48,8 @@ if (channel) channel.onmessage = (event: MessageEvent) => {
   if (reopened === true) { void adoptStored(containerID); return; }
   if (!count(shared) || !count(generation) || !count(closed)) return;
   const floor: KeyFloor = { shared, generation, ...(closed ? { closed } : {}) };
-  if (floors[containerID]) merge(containerID, floor);
+  // Only closeFloorIn sends a closure, so one in a message is a peer's close.
+  if (floors[containerID]) merge(containerID, floor, true);
   else {
     const before = pending[containerID];
     pending[containerID] = mergeFloor(before, floor);
@@ -71,10 +79,17 @@ async function adoptStored(containerID: string): Promise<void> {
 
 /** undefined: not loaded in this tab, so no key. */
 export const floorOf = (containerID: string): KeyFloor | undefined => floors[containerID];
+/** Raises generations; a closure in floor counts only as this tab's first load (merge). Peers hear the generations only. */
 export function raiseFloorIn(containerID: string, floor: KeyFloor): void {
   merge(containerID, floor);
-  const { shared = 0, generation = 0, closed = 0 } = floors[containerID];
-  channel?.postMessage({ containerID, shared, generation, closed });
+  const { shared = 0, generation = 0 } = floors[containerID];
+  channel?.postMessage({ containerID, shared, generation });
+}
+/** The in-memory half of observe.ts closeLegacy: this tab, then every other one, stops opening legacy rows. */
+export function closeFloorIn(containerID: string, closed: number): void {
+  merge(containerID, { closed }, true);
+  const { shared = 0, generation = 0 } = floors[containerID];
+  channel?.postMessage({ containerID, shared, generation, closed: closedOf(floors[containerID]) });
 }
 /** Second half of a reopen, after storage.ts reopenLegacy returned true: this tab, then every other one, adopts the stored closure. */
 export async function reopenFloorIn(containerID: string): Promise<void> {

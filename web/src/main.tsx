@@ -73,7 +73,7 @@ import { UnsentEdits } from "./components/UnsentEdits";
 import { checkFailure, LEGACY_CLOSED, LegacyReview as LegacyReviewBanner, shareOutcomeText } from "./components/LegacyReview";
 import { checkLegacyRows, LegacyClosedError, mayAutoClose, migrateLegacy, reviewLegacy, type LegacyReview, type Migrated, type MigrationAPI, type MigrationApproval, type ReviewAPI } from "./migration";
 import { clearFloors, floorOf, raiseFloorIn, reopenFloorIn, setClosureReader, useFloors } from "./floors";
-import { closeLegacy, listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
+import { closeLegacy, listAdminTeams, listContainers, newAdminTeam, newContainer, type Closed, type ClosureSink, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
 import {
@@ -120,6 +120,7 @@ import {
   pendingSaves,
   pendingUploads,
   putNote,
+  closeLegacyStored,
   reopenLegacy,
   putUpload,
   queueSave,
@@ -737,7 +738,8 @@ function Workspace({
   };
   // The open notebook's pre-sharing items as this browser last checked them (migration.ts). checking: the
   // review is running (the banner and its Stop button show meanwhile); failure: why it did not finish.
-  const [legacyCheck, setLegacyCheck] = useState<{ containerID: string; review?: LegacyReview; checking: boolean; failure?: string }>();
+  // reopened: this user reopened the notebook here (stored mark), so Stop stays on screen.
+  const [legacyCheck, setLegacyCheck] = useState<{ containerID: string; review?: LegacyReview; checking: boolean; failure?: string; reopened?: boolean }>();
   // The last share run per notebook, so the banner can say why it did not close.
   const [legacyOutcome, setLegacyOutcome] = useState<{ containerID: string; result: Migrated }>();
   const [keyNotice, setKeyNotice] = useState("");
@@ -812,6 +814,8 @@ function Workspace({
   };
   // Every server container read passes the observer (observe.ts), which raises the tab-wide floors.
   const floorSink: FloorSink = { load: pinStore.loadKeyState, save: pinStore.saveKeyState };
+  // The only writer of the stored closure and its reopen mark besides reopenLegacy (observe.ts closeLegacy).
+  const closureSink: ClosureSink = { close: (containerID, closed, auto) => closeLegacyStored(auth.username, auth.user.id, containerID, closed, auto) };
   // Other tabs' reopen hints lower a closure only to what this user's storage holds (floors.ts); sign-out clears it (clearFloors).
   useEffect(() => { setClosureReader(pinStore.loadKeyState); }, [auth.username, auth.user.id]);
   const fingerprintOf = (publicKey: string) => fingerprint(publicKey).catch(() => "unreadable key");
@@ -1340,21 +1344,26 @@ function Workspace({
     if (!floor || Math.max(container.sharedGeneration, floor.shared ?? 0) === 0) return;
     setLegacyCheck({ containerID: container.id, checking: true });
     // A notebook the user reopened (stored, so every tab and reload agrees) never closes by itself.
-    const autoClose = await mayAutoClose(() => pinStore.loadKeyState(container.id));
-    const check = await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, () => stopLegacy(container), autoClose);
+    // closeLegacyStored checks the mark again in the closing transaction.
+    const stored = pinStore.loadKeyState(container.id);
+    const autoClose = await mayAutoClose(() => stored);
+    const reopened = !autoClose && (await stored.then((state) => state.reopened === true, () => false));
+    const check = await checkLegacyRows(() => reviewLegacy(reviewAPI, { container, floorNow, legacy, userId: auth.user.id }), floorNow, async () => (await stopLegacy(container, true)) === "closed", autoClose);
     if (superseded()) return;
     if ("failed" in check) {
       // Closed while it ran (here or in another tab): nothing failed, the closed banner shows.
-      setLegacyCheck(check.failed instanceof LegacyClosedError ? { containerID: container.id, checking: false, review: undefined, failure: undefined } : { containerID: container.id, checking: false, failure: checkFailure(check.failed) });
+      setLegacyCheck(check.failed instanceof LegacyClosedError ? { containerID: container.id, checking: false, review: undefined, failure: undefined, reopened } : { containerID: container.id, checking: false, failure: checkFailure(check.failed), reopened });
       return;
     }
-    setLegacyCheck({ containerID: container.id, review: check.review, checking: false });
+    setLegacyCheck({ containerID: container.id, review: check.review, checking: false, reopened });
   }
-  /** Closes legacy reads for container on this device (the effect below reloads what they showed); false: storage did not keep it. */
-  async function stopLegacy(container: Container): Promise<boolean> {
-    const kept = await closeLegacy(floorSink, container.id);
-    if (!kept) setError("This browser could not remember that it stopped opening items written before sharing; it checks again after a reload.");
-    return kept;
+  /** Closes legacy reads for container on this device (the effect below reloads what they showed); auto: the check's own close. */
+  async function stopLegacy(container: Container, auto = false): Promise<Closed> {
+    const outcome = await closeLegacy(closureSink, container.id, auto);
+    if (auto) return outcome; // nothing closed unless storage kept it: nothing to explain
+    if (outcome === "unsaved") setError("This browser stopped opening items written before sharing until a reload, but could not remember it; it checks again after a reload.");
+    if (outcome === "not-shared") setError("This notebook is not loaded as shared in this tab yet; nothing was stopped. Reload and try again.");
+    return outcome;
   }
   const migrationAPI = (container: Container): MigrationAPI => ({
     readObject,
@@ -1381,7 +1390,7 @@ function Workspace({
     if (!container || !write) { setError("This notebook is waiting for its keys; nothing was shared."); return; }
     let result: Migrated;
     try {
-      result = await migrateLegacy(migrationAPI(container), { container, floorNow: () => floorFor(container), legacy, userId: auth.user.id, write, ring: ringsRef.current[container.id] ?? noKeys, approval }, () => stopLegacy(container));
+      result = await migrateLegacy(migrationAPI(container), { container, floorNow: () => floorFor(container), legacy, userId: auth.user.id, write, ring: ringsRef.current[container.id] ?? noKeys, approval }, async () => (await stopLegacy(container)) === "closed");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Nothing was shared.");
       await selectContainer(container, parseRoute(location.hash));
@@ -1400,15 +1409,16 @@ function Workspace({
     // Lowers this tab (the effect below reloads it) and tells the others to re-read storage.
     await reopenFloorIn(container.id);
   }
-  // Closed here or in another tab while this notebook is open: reload once, so rows it read with the
-  // login key leave the screen. Cached copies this browser wrote itself may stay (localReadKeys).
+  // Closed here or in another tab while this notebook is open: reload once, so everything read with the
+  // login key leaves the screen (pages, the review dialog, comments, previews). Cached copies this
+  // browser wrote itself may stay (localReadKeys).
   // Reopened (here or in another tab, adopted from storage): reload, so the pre-sharing rows show again.
   const closedNow = selected ? closedOf(floorFor(selected)) : 0;
   const closedBefore = useRef({ id: "", closed: 0 });
   useEffect(() => {
     const before = closedBefore.current;
     closedBefore.current = { id: selected?.id ?? "", closed: closedNow };
-    const rose = before.closed === 0 && closedNow > 0 && unverifiedRef.current.size > 0;
+    const rose = before.closed === 0 && closedNow > 0;
     const fell = before.closed > 0 && closedNow === 0;
     if (selected && before.id === selected.id && (rose || fell)) void selectContainer(selected, parseRoute(location.hash));
   }, [selected?.id, closedNow]);
@@ -2657,8 +2667,8 @@ function Workspace({
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
                 {!queueMode && selected && legacyCheck?.containerID === selected.id && (
                   <LegacyReviewBanner key={selected.id} userID={auth.user.id} containerID={selected.id} review={legacyCheck.review} checking={legacyCheck.checking} failure={legacyCheck.failure}
-                    closed={closedOf(floorFor(selected)) > 0} outcome={legacyOutcome?.containerID === selected.id ? legacyOutcome.result : undefined}
-                    onShare={shareLegacy} onStop={async () => { if (await stopLegacy(selected)) setError(LEGACY_CLOSED); }} onReopen={(confirmation) => reopenLegacyReads(selected, confirmation)} />
+                    closed={closedOf(floorFor(selected)) > 0} reopened={legacyCheck.reopened === true} labelled={unverified.size > 0} outcome={legacyOutcome?.containerID === selected.id ? legacyOutcome.result : undefined}
+                    onShare={shareLegacy} onStop={async () => { if ((await stopLegacy(selected)) === "closed") setError(LEGACY_CLOSED); }} onReopen={(confirmation) => reopenLegacyReads(selected, confirmation)} />
                 )}
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">Members are waiting for this notebook's keys. <button className="quiet" onClick={() => void shareKeysNow()}>Share keys (confirm with KySignOn)</button></div>}
                 {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so team notebooks stay locked here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
