@@ -325,14 +325,24 @@ describe("main.tsx key wiring", () => {
     const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
     const admin = main.slice(main.indexOf("function AdminTeams("));
     const body = admin.slice(0, admin.indexOf("\nfunction ", 1) > 0 ? admin.indexOf("\nfunction ", 1) : undefined).replace(/\/\/.*$/gm, "");
-    // Every use of the login key: its declaration, readKeys (floor-aware), and the write of a name the admin creates.
+    // Every use of the login key: its declaration and readKeys (floor-aware). It never seals a name.
     const uses = [...body.matchAll(/[^\n]*\blegacy\b[^\n]*/g)].map((m) => m[0]);
-    expect(uses).toHaveLength(3);
+    expect(uses).toHaveLength(2);
     // Token count, not lines: a second use on a readKeys line (e.g. "? ... : [legacy]") is caught too.
-    expect(body.match(/\blegacy\b/g)).toHaveLength(3);
+    expect(body.match(/\blegacy\b/g)).toHaveLength(2);
     expect(uses.filter((line) => /const legacy = legacyKeyRef\(/.test(line))).toHaveLength(1);
     expect(uses.filter((line) => /readKeys\(.*\blegacy\b/.test(line))).toHaveLength(1);
-    expect(uses.filter((line) => /encryptContainerMeta\(legacy\b/.test(line))).toHaveLength(1);
+  });
+
+  it("never seals with the login key: no seal call takes it, writeKey has no slot for it, and local copies never fall back to it", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    const sources = import.meta.glob<string>(["./drain.ts", "./migration.ts", "./outbound.ts", "./keyService.ts", "./keyring.ts"], { query: "?raw", import: "default", eager: true });
+    for (const [file, source] of Object.entries({ "./main.tsx": main, ...sources }))
+      expect(source, file).not.toMatch(/(?:encrypt|seal)\w*\(\s*(?:legacy|login|from)\b/i);
+    expect(writeKey).toHaveLength(3); // (container, ring, floor): no login key to fall back to
+    const localKeyFor = main.slice(main.indexOf("  const localKeyFor"), main.indexOf("\n", main.indexOf("  const localKeyFor")));
+    expect(localKeyFor).toContain("waitingRef.current");
+    expect(localKeyFor).not.toMatch(/\blegacy\b/);
   });
 
   it("uses the local exception only for entries this browser sealed itself", () => {

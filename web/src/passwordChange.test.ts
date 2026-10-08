@@ -2,7 +2,9 @@ import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
-import { getNote, pendingSaves, putNote, queueSave } from "./storage";
+import { WAITING_GENERATION, waitingKey } from "./keyring";
+import { clearQueuedSave, getNote, pendingSaves, putNote, queueSave } from "./storage";
+import { generateIdentity } from "./teamKeys";
 
 vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
 
@@ -54,5 +56,24 @@ describe("waiting edits across a password change", () => {
     await reseal();
     expect((await getNote(me, row.id))!.payload).toEqual(row.payload);
     expect((await pendingSaves()).some((entry) => entry.id === row.id)).toBe(false);
+  });
+
+  it("leaves edits sealed with the identity's waiting key alone, counts none of them, and moves login-key ones onto it", async () => {
+    for (const entry of await pendingSaves()) await clearQueuedSave(entry.owner ?? "", entry.id);
+    const waiting = waitingKey(generateIdentity());
+    const underIdentity = { id: "obj_i", containerID: cnt, version: 1, payload: await encryptNote(waiting, cnt, page), updatedAt: "t1", keyGeneration: WAITING_GENERATION, owner: me };
+    const underLogin = { id: "obj_l", containerID: cnt, version: 1, payload: await encryptNote(before, cnt, page), updatedAt: "t1", keyGeneration: WAITING_GENERATION, owner: me };
+    await queueSave(underIdentity);
+    await queueSave(underLogin);
+    await putNote(me, underLogin);
+    // Nothing is stranded: the identity's entry needs no re-seal, the login-key one moves to the waiting key.
+    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), waiting)).toBe(0);
+    const queued = await pendingSaves();
+    expect(queued.find((entry) => entry.id === underIdentity.id)!.payload).toEqual(underIdentity.payload);
+    const moved = queued.find((entry) => entry.id === underLogin.id)!.payload;
+    await expect(decryptObject(waiting, cnt, moved)).resolves.toEqual(page);
+    // Never onto the new login key: the password is no longer what keeps it readable.
+    await expect(decryptObject(after, cnt, moved)).rejects.toThrow();
+    await expect(decryptObject(waiting, cnt, (await getNote(me, underLogin.id))!.payload)).resolves.toEqual(page);
   });
 });

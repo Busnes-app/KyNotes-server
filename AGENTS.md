@@ -411,7 +411,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   record, local fingerprints; trust rules in the next bullet). Trust prompts and key notices name people
   only through `displayName(username, userId)`: one sanitized line, `<userId> · <name>`, ID first so a name
   cannot pose as it, name capped at 64 characters. Reads: at or above `sharedGeneration`
-  only that generation's key, below it and personal the legacy key, malformed generation no key.
+  only that generation's key, below it and never-shared the legacy key, malformed generation no key.
+  The login key never seals (P5): `writeKey(container, ring, floor)` has no write key for a never-shared
+  container, so the `outbound.ts` gate refuses it; local copies wait under `waitingKey(identity)` (HKDF
+  `kynotes/waiting/v1`) or are not kept; `planSweep` mints a first key for every keyed member only when
+  the caller's identity is `recoverable` (plan `unrecoverable` otherwise; re-mints never wait).
   `main.tsx` reaches the login key only through
   `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
   keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty
@@ -444,9 +448,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   into a floor they already hold after validating the ID pattern and non-negative safe integers, and `syncContainerKeys` raises it through `onFloor` before any
   envelope fetch and again the moment `rotate` succeeds; the post-mint ring opens from the accepted
   rows, never a re-fetch, so a pass that later throws still pauses writes), and a lower report is plan
-  `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
-  `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
-  (`needsKeyPass`) but never skip one.
+  `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only and
+  decide no key; every notebook gets a key pass. `keyring.test.ts` fails if a key module reads them.
   `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
   pass then stops before upload (plan `untrusted`). A pass that stops on a pin it could not keep
   (declined, unsaved or conflicting) re-opens against the stored pins (`persistedOnly`) and returns, and
