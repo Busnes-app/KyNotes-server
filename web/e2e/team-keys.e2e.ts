@@ -606,23 +606,15 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   expect(await openRequests(approver)).toEqual([]);
   await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
 
-  // 3. A reload mid-attempt ends it: the one-time key was in memory only, so the request is never answered.
+  // 3. A reload mid-attempt ends it: pagehide sends a keepalive cancel, so the server drops the request too.
   id = await startLink(newcomer);
+  await expect(approver.locator("#link-devices .pin-row", { hasText: linkCode(id) })).toBeVisible();
   await newcomer.reload();
+  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
+  await expect(approver.locator("#link-devices .pin-row", { hasText: linkCode(id) })).toHaveCount(0);
   await expect(newcomer.getByText(LINK_BANNER)).toBeVisible();
   await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
   await expect(newcomer.locator("#link-this-browser .link-code")).toHaveCount(0);
-  await approver.locator("#link-devices .pin-row", { hasText: linkCode(id) }).getByRole("button", { name: "Approve…" }).click();
-  await expect(approver.locator("#link-devices")).toContainText(`Waiting for request ${linkCode(id)} to answer…`);
-  // Three of the approver's two-second polls later the reloaded browser has still revealed nothing.
-  for (let polls = 0; polls < 3; polls++) await approver.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/me/link-requests" && response.request().method() === "GET");
-  expect(await newcomer.evaluate(async (rid) => {
-    const csrf = document.cookie.split("; ").find((value) => value.startsWith("csrf_token="))?.slice(11) ?? "";
-    return (await (await fetch(`/api/v1/me/link-requests/${rid}/collect`, { method: "POST", headers: { "X-CSRF-Token": csrf } })).json() as { state: string }).state;
-  }, id)).toBe("claimed");
-  await expect(typedCode(approver)).toHaveCount(0);
-  await approver.locator("#link-devices").getByRole("button", { name: "Cancel" }).click();
-  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
 
   // 4. The approver leaving its screen after the claim (unmount) cancels the request; the newcomer sees it end.
   id = await startLink(newcomer);

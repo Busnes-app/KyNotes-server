@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acceptInvitation, APIRequestError, claimLinkRequest, collectLinkRequest, createLinkRequest, inviteMember, putDeviceOnlyIdentity, readObject, revealLinkRequest, serverGeneration } from "./api";
+import { acceptInvitation, APIRequestError, cancelLinkRequest, claimLinkRequest, collectLinkRequest, createLinkRequest, inviteMember, putDeviceOnlyIdentity, readObject, revealLinkRequest, serverGeneration } from "./api";
 
 const obj = `obj_${"a".repeat(26)}`;
 const serve = (headers: Record<string, string>) => vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { headers })));
@@ -81,6 +81,21 @@ describe("device-only identities and device links", () => {
       `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/reveal {"newcomerKey":"bmV3"}`,
       `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/collect undefined`,
     ]);
+  });
+
+  it("cancels a link request with CSRF, and with keepalive when the page is going away", async () => {
+    vi.stubGlobal("document", { cookie: "csrf_token=t" });
+    const fetches = vi.fn(async (_path: string, _init?: RequestInit) => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetches);
+    const id = `lnk_${"a".repeat(26)}`;
+    await cancelLinkRequest(id);
+    await cancelLinkRequest(id, true);
+    for (const [path, init] of fetches.mock.calls) {
+      expect(path).toBe(`/api/v1/me/link-requests/${id}`);
+      expect(init?.method).toBe("DELETE");
+      expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("t");
+    }
+    expect(fetches.mock.calls.map(([, init]) => init?.keepalive)).toEqual([false, true]);
   });
 
   it("keeps the open challenge of a step_up_pending refusal, so it can be cancelled", async () => {

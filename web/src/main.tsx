@@ -3485,7 +3485,9 @@ function SettingsView({
             <section id="device" className="config-card">
               <h2>Trusted Device & SSO</h2>
               <p className="config-muted">
-                This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password.
+                {ownFingerprint
+                  ? "This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password."
+                  : "This browser keeps your sign-in for instant 1-click SSO login without entering a password."}
               </p>
               <p className="config-muted">Your user ID: <code>{userID}</code>. Team owners need it to invite you.</p>
               <p className="config-muted">

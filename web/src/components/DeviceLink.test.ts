@@ -34,7 +34,10 @@ describe("link screens", () => {
     expect(screen).toContain("() => mounted.current && !activeRef.current, cancelLinkRequest)");
     expect(screen).toContain("<button disabled={claimPending}");
     // Leaving mid-send never deletes a bundle that may just have been stored.
-    expect(screen).toContain("if (!sending.current) quietCancel(open.id);");
+    expect(screen).toContain("if (!sending.current) quietCancel(open.id, leaving);");
+    // A reload or close ends both sides' attempts with a keepalive cancel.
+    expect(screen.match(/addEventListener\("pagehide", leave\)/g)).toHaveLength(2);
+    expect(screen.match(/removeEventListener\("pagehide", leave\)/g)).toHaveLength(2);
   });
 
   it("checks for another local copy before starting a link", () => {

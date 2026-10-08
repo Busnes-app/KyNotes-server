@@ -13,7 +13,8 @@ const DIFFERED = "Linking cancelled: the codes differed. Someone may be interfer
 const CANCELLED = "Request cancelled.";
 const pause = () => new Promise((resolve) => setTimeout(resolve, POLL_MS));
 const ended = (error: unknown) => error instanceof LinkEndedError || (error instanceof APIRequestError && error.code === "not_found");
-const quietCancel = (id: string) => void cancelLinkRequest(id).catch(() => undefined);
+/** leaving: the page is going away (pagehide), so the cancel is sent keepalive. */
+const quietCancel = (id: string, leaving = false) => void cancelLinkRequest(id, leaving).catch(() => undefined);
 export type Status = ReturnType<typeof linkRefusal>;
 
 /** A refusal or outcome; an open KySignOn confirmation it names can be cancelled from here. */
@@ -40,7 +41,7 @@ export function LinkThisBrowser({ userID, canKeep, store, onLinked }: { userID: 
   const api = { create: createLinkRequest, collect: collectLinkBundle, reveal: revealLinkRequest, myIdentity };
 
   /** Ends the attempt here (the one-time key is zeroed) and on the server. Nothing retries: a new attempt is a new click. */
-  function stop(message?: string) {
+  function stop(message?: string, leaving = false) {
     generation.current += 1;
     const { attempt } = state.current;
     state.current = {};
@@ -49,11 +50,15 @@ export function LinkThisBrowser({ userID, canKeep, store, onLinked }: { userID: 
     setStatus(message ? { message } : undefined);
     if (attempt) {
       endLink(attempt);
-      quietCancel(attempt.id);
+      quietCancel(attempt.id, leaving);
     }
   }
-  // Leaving the screen abandons the attempt.
-  useEffect(() => () => stop(), []);
+  // Leaving the screen, or the page (reload, close), abandons the attempt.
+  useEffect(() => {
+    const leave = () => stop(undefined, true);
+    addEventListener("pagehide", leave);
+    return () => { removeEventListener("pagehide", leave); stop(); };
+  }, []);
 
   /** Runs once both the bundle has arrived and this screen's user confirmed the code. */
   async function finish() {
@@ -200,18 +205,24 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
       if (!stopped) timer = setTimeout(() => void tick(), POLL_MS);
     };
     timer = setTimeout(() => void tick(), 0);
-    return () => {
-      stopped = true;
-      mounted.current = false;
-      clearTimeout(timer);
-      // Leaving the screen abandons the attempt. A send in flight may have stored the bundle:
-      // never delete it from under the newcomer (it collects it, or the request expires).
+    // Leaving the screen, or the page, abandons the attempt. A send in flight may have stored the
+    // bundle: never delete it from under the newcomer (it collects it, or the request expires).
+    const abandon = (leaving: boolean) => {
       const open = activeRef.current;
       activeRef.current = undefined;
       if (open) {
         endLink(open);
-        if (!sending.current) quietCancel(open.id);
+        if (!sending.current) quietCancel(open.id, leaving);
       }
+    };
+    const leave = () => { abandon(true); setActive(undefined); setTyped(""); };
+    addEventListener("pagehide", leave);
+    return () => {
+      stopped = true;
+      mounted.current = false;
+      clearTimeout(timer);
+      removeEventListener("pagehide", leave);
+      abandon(false);
     };
   }, [userID]);
 
@@ -281,7 +292,7 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
         <>
           <label className="field">
             <span>Check code shown on the other browser</span>
-            <input value={typed} onChange={(event) => setTyped(event.currentTarget.value)} inputMode="numeric" autoComplete="off" spellCheck={false} />
+            <input className="check-code-input" value={typed} onChange={(event) => setTyped(event.currentTarget.value)} inputMode="numeric" autoComplete="one-time-code" spellCheck={false} />
           </label>
           <p className="config-muted">Type it from the other browser's screen. If that browser shows no code, or this one does not accept it, choose Codes differ.</p>
           <div className="link-actions">

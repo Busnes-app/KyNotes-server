@@ -164,7 +164,8 @@ export const revealLinkRequest = (id: string, newcomerKey: string) => request<vo
 export const approveLinkRequest = (id: string, bundle: string) => request<void>(linkURL(id, "/approve"), { method: "POST", body: JSON.stringify({ bundle }) });
 /** A POST (CSRF, no-store): collecting deletes the approved bundle. Only outbound.ts collectLinkBundle calls this. */
 export const collectLinkRequest = (id: string) => request<LinkState>(linkURL(id, "/collect"), { method: "POST" });
-export const cancelLinkRequest = (id: string) => request<void>(linkURL(id), { method: "DELETE" });
+/** keepalive: sent from pagehide, so the request outlives the page (same-origin, custom headers allowed). */
+export const cancelLinkRequest = (id: string, keepalive = false) => request<void>(linkURL(id), { method: "DELETE", keepalive });
 /** Cancels an open KySignOn confirmation (the challenge a 409 step_up_pending names). */
 export const cancelSSOStepUp = (challenge: string) => request<void>(`/api/v1/auth/oidc/step-up/${encodeURIComponent(challenge)}`, { method: "DELETE" });
 export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: async (authSecret) => (await stepUp(authSecret))?.identity };
