@@ -88,22 +88,8 @@ func freshLocalProof(s Session) bool {
 	return !s.StepUpAt.IsZero() && time.Since(s.StepUpAt) <= StepUpWindow
 }
 
-// RequireUserStepUp gates one-way doors on the caller's own account: any local
-// session that re-proved its login secret within StepUpWindow. SSO sessions are
-// refused; their step-up proves the IdP, not the password these routes rely on.
-func RequireUserStepUp(db *sql.DB, next http.Handler) http.Handler {
-	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s, _ := SessionFromContext(r)
-		if !HasUserStepUp(s) {
-			WriteAuthError(w, "step_up_required", "re-enter your password to continue")
-			return
-		}
-		next.ServeHTTP(w, r)
-	}))
-}
-
-// HasUserStepUp is the RequireUserStepUp test, for routes that need it only for
-// some request bodies.
+// HasUserStepUp: a local session re-proved its login secret within StepUpWindow. SSO sessions
+// fail; their proof is the IdP, not the password. Invitations need it only when they carry envelopes.
 func HasUserStepUp(s Session) bool {
 	return s.SSOIssuer == "" && freshLocalProof(s)
 }
@@ -277,9 +263,10 @@ func RecheckSessionTx(tx *sql.Tx, s Session, now time.Time) (passwordHash string
 	return passwordHash, err
 }
 
-// RecheckUserStepUpTx re-proves, inside the writing transaction, what
-// RequireUserStepUp authorized: the session is live, its step-up is the one the
-// middleware read and still in window, the password it proved is current, and nobody else knows it.
+// RecheckUserStepUpTx re-proves, inside the writing transaction, what HasUserStepUp or the
+// local path of RequireUserActionStepUp authorized: the session is live, its step-up is the one
+// the middleware read and still in window, the password it proved is current, and nobody else
+// knows it.
 func RecheckUserStepUpTx(tx *sql.Tx, s Session, now time.Time) error {
 	stepUp, passwordHash, err := liveSessionTx(tx, s, now)
 	if err != nil {
