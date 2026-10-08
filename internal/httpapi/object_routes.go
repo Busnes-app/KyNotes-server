@@ -55,7 +55,7 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		rows, e := db.Query(`SELECT c.id,c.base_version,c.current_version,c.ciphertext_bytes,c.created_at,c.resolved_at FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.object_id=? AND m.revoked_at='' ORDER BY c.created_at`, uid, r.PathValue("id"))
+		rows, e := db.Query(`SELECT c.id,c.base_version,c.current_version,c.ciphertext_bytes,c.key_generation,c.created_at,c.resolved_at FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.object_id=? AND m.revoked_at='' ORDER BY c.created_at`, uid, r.PathValue("id"))
 		if e != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
@@ -64,9 +64,9 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 		out := []map[string]any{}
 		for rows.Next() {
 			var id, created, res string
-			var base, cur, size int64
-			_ = rows.Scan(&id, &base, &cur, &size, &created, &res)
-			out = append(out, map[string]any{"id": id, "baseVersion": base, "currentVersion": cur, "bytes": size, "createdAt": created, "resolved": res != ""})
+			var base, cur, size, generation int64
+			_ = rows.Scan(&id, &base, &cur, &size, &generation, &created, &res)
+			out = append(out, map[string]any{"id": id, "baseVersion": base, "currentVersion": cur, "bytes": size, "keyGeneration": generation, "createdAt": created, "resolved": res != ""})
 		}
 		writeJSON(w, out)
 	})))

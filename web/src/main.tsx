@@ -66,7 +66,7 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { openFirst, readKeys, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { localKey, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem } from "./passwordChange";
@@ -90,6 +90,7 @@ import {
   base64,
   fromBase64,
   legacyKeyRef,
+  type KeyRef,
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
@@ -626,6 +627,10 @@ function Workspace({
   /** Keys a row may be read with: always the row's own generation, never a default. */
   const readKeysFor = (container: Pick<Container, "id" | "sharedGeneration">, generation: number | undefined) => readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation);
   const writeKeyFor = (container: Container) => writeKey(container, ringsRef.current[container.id] ?? noKeys, legacy);
+  /** Local copies: the write key, or the waiting seal that only this device can send later. */
+  const localKeyFor = (container: Container) => localKey(container, ringsRef.current[container.id] ?? noKeys, legacy);
+  /** Takes a container's new generations into the open notebook without dropping its other fields. */
+  const adoptGenerations = (next: Container) => setSelected((value) => (value?.id === next.id ? { ...value, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : value));
   // Read-only until a team owner shares this generation's key.
   const keyWait = Boolean(selected && !writeKey(selected, rings[selected.id] ?? noKeys, legacy));
   const [keyNotice, setKeyNotice] = useState("");
@@ -664,60 +669,86 @@ function Workspace({
     saveKeyState: (containerID, state) => storeKeyState(auth.username, auth.user.id, containerID, state),
   };
   const fingerprintOf = (publicKey: string) => fingerprint(publicKey).catch(() => "unreadable key");
+  // A declined key is remembered for this container and that exact key; a different new key asks again.
+  const declineID = (containerID: string, change: PinChange) => `${containerID}:${change.member.userId}:${change.member.identity?.publicKey ?? ""}`;
   /** The only path to a pin replacement: an explicit yes in a dialog that shows the fingerprints. */
   function confirmChangedKeys(containerID: string) {
     return async (changes: PinChange[]) => {
-      const declined = (change: PinChange) => declinedKeys.current.has(`${containerID}:${change.member.userId}`);
-      if (changes.some(declined)) return false;
+      if (changes.some((change) => declinedKeys.current.has(declineID(containerID, change)))) return false;
       const lines = await Promise.all(changes.map(async (change) => `${change.member.username}: ${await fingerprintOf(change.member.identity!.publicKey)} (was ${await fingerprintOf(change.pinned)})`));
       const accepted = confirm(`The encryption key of ${changes.map((change) => change.member.username).join(", ")} changed since this browser last saw it. A password reset or account recovery does this; so would a server substituting its own key. Compare these fingerprints with the person (Settings shows theirs) before continuing:\n\n${lines.join("\n")}\n\nTrust the new key and exchange this notebook's keys with it?`);
-      if (!accepted) for (const change of changes) declinedKeys.current.add(`${containerID}:${change.member.userId}`);
+      if (!accepted) for (const change of changes) declinedKeys.current.add(declineID(containerID, change));
       return accepted;
     };
   }
-  async function keyNoticeFor(result: KeySync, fresh: MemberKey[]) {
+  async function keyNoticeFor(result: KeySync, fresh: MemberKey[], asked: boolean) {
     const notices: string[] = [];
     const plan = result.plan;
     if (plan.kind === "blocked") notices.push(`This notebook is not end-to-end shared yet: ${plan.waitingFor.join(", ")} must first sign in with a password to get an encryption key. Accounts that sign in only through single sign-on cannot hold one yet.`);
-    else if (plan.kind === "untrusted") notices.push(`No keys were exchanged with ${plan.members.join(", ")}: you did not confirm their new encryption key.`);
+    else if (plan.kind === "untrusted") notices.push(asked ? `No keys were exchanged with ${plan.members.join(", ")}: you did not confirm their new encryption key.` : `The encryption key of ${plan.members.join(", ")} changed. Reopen this notebook to compare fingerprints.`);
     else if (plan.kind === "pins-unsaved") notices.push("No keys were exchanged: this browser could not save the colleague keys it checked. Allow site storage and reopen the notebook.");
     if (result.conflicts.length) notices.push("A different key was offered for this notebook than the one this device already accepted; it was refused.");
     if (fresh.length) notices.push(`Now sharing with: ${(await Promise.all(fresh.map(async (member) => `${member.username} (fingerprint ${await fingerprintOf(member.identity!.publicKey)})`))).join(", ")}.`);
     if (!result.keyStateSaved) notices.push("This browser could not save its key memory; after a reload it cannot tell if this notebook's keys were swapped.");
     return notices.join(" ");
   }
-  /** Loads this browser's keys for a team container and, as its owner or admin, shares them. Returns it at its current generation. */
-  async function syncKeys(container: Container): Promise<Container> {
-    // Personal notebooks keep the login-derived key until personal containers move to shared keys (P5).
-    if (container.kind !== "team" && !container.teamId) return container;
-    const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChangedKeys(container.id), ringsRef.current[container.id]);
-    putRing(container.id, result.ring);
-    const next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
-    setItems((value) => value.map((entry) => (entry.id === next.id ? { ...entry, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : entry)));
-    // Pins a failed save did not keep are not announced.
-    const fresh = [...(unannounced.current[container.id] ?? []), ...(result.plan.kind === "pins-unsaved" ? [] : result.fresh)];
-    if ((loadingContainerID.current ?? selectedRef.current?.id) === container.id) {
-      delete unannounced.current[container.id];
-      setKeyNotice(await keyNoticeFor(result, fresh));
-    } else {
-      unannounced.current[container.id] = fresh;
-    }
-    return result.minted ? resealName(next) : next;
+  // One key pass per container at a time, so an older pass never replaces a newer ring.
+  const keyPasses = useRef(new Map<string, Promise<unknown>>());
+  function serialized<T>(containerID: string, run: () => Promise<T>): Promise<T> {
+    const next = (keyPasses.current.get(containerID) ?? Promise.resolve()).catch(() => undefined).then(run);
+    keyPasses.current.set(containerID, next.catch(() => undefined));
+    return next;
   }
-  /** After a mint, the name this browser already shows is sealed again with the new key, so members can read it. */
-  async function resealName(container: Container): Promise<Container> {
-    const name = namesRef.current[container.id];
-    const write = writeKeyFor(container);
-    if (!write || !name || !container.metaCiphertext) return container;
-    try {
-      const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
-      const result = await updateContainer(container.id, encoded, container.metaVersion);
-      const next = { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
-      setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
+  /**
+   * Loads this browser's keys for a team container and, as its owner or admin, shares them.
+   * Returns it at its current generation. A background pass never opens a dialog: a changed
+   * colleague key is only reported until the user opens the notebook.
+   */
+  function syncKeys(container: Container, background = false): Promise<Container> {
+    // Personal notebooks keep the login-derived key until personal containers move to shared keys (P5).
+    if (container.kind !== "team" && !container.teamId) return Promise.resolve(container);
+    return serialized(container.id, async () => {
+      const confirmChanged = background ? () => false : confirmChangedKeys(container.id);
+      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id]);
+      putRing(container.id, result.ring);
+      let next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
+      setItems((value) => value.map((entry) => (entry.id === next.id ? { ...entry, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : entry)));
+      let renamed = "";
+      if (result.minted) [next, renamed] = await resealName(next);
+      // Pins a failed save did not keep are not announced.
+      const fresh = [...(unannounced.current[container.id] ?? []), ...(result.plan.kind === "pins-unsaved" ? [] : result.fresh)];
+      if ((loadingContainerID.current ?? selectedRef.current?.id) === container.id) {
+        delete unannounced.current[container.id];
+        setKeyNotice([await keyNoticeFor(result, fresh, !background), renamed].filter(Boolean).join(" "));
+      } else {
+        unannounced.current[container.id] = fresh;
+      }
       return next;
+    });
+  }
+  /**
+   * After a mint, the name this browser already shows is sealed again with the new key, so
+   * members can read it. Only that trusted name is resealed, from the server's latest state.
+   */
+  async function resealName(container: Container): Promise<[Container, string]> {
+    const name = namesRef.current[container.id];
+    if (!name) return [container, ""];
+    try {
+      const latest = await currentContainer(container.id);
+      const write = writeKeyFor(latest);
+      if (!write || !latest.metaCiphertext) return [container, ""];
+      const meta = fromBase64(latest.metaCiphertext);
+      const current = { ...container, metaCiphertext: latest.metaCiphertext, metaVersion: latest.metaVersion, changeSeq: latest.changeSeq };
+      const opened = (keys: KeyRef[]) => openFirst(keys, (key) => decryptContainerMeta(key, container.id, meta)).then((value) => value.name, () => undefined);
+      if ((await opened([write.key])) !== undefined) return [current, ""];
+      // Older keys are tried only to compare with the trusted name, never to show a name.
+      if ((await opened([legacy, ...(ringsRef.current[container.id] ?? noKeys).values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
+      const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
+      const result = await updateContainer(container.id, encoded, latest.metaVersion, write.generation);
+      setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
+      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, ""];
     } catch {
-      // A rename elsewhere won; it was sealed with the current key. Another account's legacy name stays opaque until renamed.
-      return container;
+      return [container, "This notebook's name could not be shared with its members yet. Rename it to try again."];
     }
   }
   // Bumped to remount the open page's editor on content it did not produce.
@@ -918,11 +949,26 @@ function Workspace({
     }, 30000);
     return () => window.clearInterval(timer);
   }, [selected?.id, selectedNote?.id]);
+  // The open shared notebook's keys follow the 90-second foreground refresh, so a waiting banner clears.
+  const refreshKeys = useRef<() => void>(() => undefined);
+  refreshKeys.current = () => {
+    const open = selectedRef.current;
+    if (!open || (open.kind !== "team" && !open.teamId) || loadingContainerID.current || document.visibilityState !== "visible") return;
+    void syncKeys(open, true)
+      .then((next) => {
+        adoptGenerations(next);
+        // Edits queued while keys were missing can go out now.
+        if (writeKeyFor(next)) void drainQueue();
+      })
+      .catch(() => undefined);
+  };
   useEffect(() => {
-    const refresh = () =>
+    const refresh = () => {
       void notifications()
         .then((value) => setNotificationCount(value.length))
         .catch(() => setNotificationCount(0));
+      refreshKeys.current();
+    };
     refresh();
     const timer = window.setInterval(refresh, 90000);
     return () => window.clearInterval(timer);
@@ -1000,14 +1046,19 @@ function Workspace({
       const loaded = value;
       const nextNames: Record<string, string> = {};
       const identity = await heldIdentity();
+      // The list just fetched answers every pass, instead of one list fetch per container.
+      const listed: KeyAPI = { ...keyAPI, container: async (id) => loaded.find((entry) => entry.id === id) ?? currentContainer(id) };
       for (const item of loaded) {
         try {
           let keyed: Container = item;
           // Shared names need their keys. This pass only reads: it never steps up, wraps, rotates
           // or asks about a changed key. A steward's sharing waits until the notebook is opened.
           if (item.sharedGeneration > 0) {
-            const result = await syncContainerKeys(keyAPI, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id]);
-            putRing(item.id, result.ring);
+            const result = await serialized(item.id, async () => {
+              const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id]);
+              putRing(item.id, pass.ring);
+              return pass;
+            });
             if (result.plan.kind !== "pins-unsaved" && result.fresh.length) unannounced.current[item.id] = [...(unannounced.current[item.id] ?? []), ...result.fresh];
             keyed = { ...item, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
           }
@@ -1220,11 +1271,7 @@ function Workspace({
       if (!write) throw new Error("This notebook is waiting for keys");
       const encrypted = await encryptContainerMeta(write.key, container.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
-      const result = await updateContainer(
-        container.id,
-        encoded,
-        container.metaVersion,
-      );
+      const result = await updateContainer(container.id, encoded, container.metaVersion, write.generation);
       const named = {
         ...container,
         metaCiphertext: encoded,
@@ -1253,7 +1300,7 @@ function Workspace({
       if (!write) throw new Error("This team notebook is waiting for keys");
       const encrypted = await encryptContainerMeta(write.key, container.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
-      const result = await updateContainer(container.id, encoded, container.metaVersion);
+      const result = await updateContainer(container.id, encoded, container.metaVersion, write.generation);
       const named = { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
       setNames((value) => ({ ...value, [named.id]: name }));
       setItems((value) => [...value, named]);
@@ -1270,17 +1317,16 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      const write = writeKeyFor(selected);
+      // Seal with the server's current generation, never this tab's possibly retired one.
+      const fresh = await syncKeys(await currentContainer(selected.id));
+      const write = writeKeyFor(fresh);
       if (!write) throw new Error("This notebook is waiting for a team owner to share its keys");
-      const encrypted = await encryptContainerMeta(write.key, selected.id, name);
-      const encoded = btoa(String.fromCharCode(...encrypted));
-      const result = await updateContainer(
-        selected.id,
-        encoded,
-        selected.metaVersion,
-      );
+      const encrypted = await encryptContainerMeta(write.key, fresh.id, name);
+      const encoded = base64(encrypted);
+      // The tab's base version keeps a concurrent rename a conflict instead of overwriting it.
+      const result = await updateContainer(fresh.id, encoded, selected.metaVersion, write.generation);
       const next = {
-        ...selected,
+        ...fresh,
         metaCiphertext: encoded,
         metaVersion: result.metaVersion,
         changeSeq: result.changeSeq,
@@ -1333,12 +1379,18 @@ function Workspace({
     if (!selected) return undefined;
     if (!automatic) setBusy(true);
     try {
-      const write = writeKeyFor(selected);
-      if (!write) throw new Error("This notebook is waiting for a team owner to share its keys; your change was not saved.");
+      const write = localKeyFor(selected);
       const encrypted = await encryptNote(write.key, selected.id, notePayload(note));
       const savedAt = new Date().toISOString();
       const containerID = selected.id;
       await cacheWrite(() => putNote({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
+      if (write.generation === WAITING_GENERATION) {
+        // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
+        await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation });
+        setSyncStatus("local");
+        setError("Saved on this device only. It is sent once a team owner shares this notebook's keys; until then, do not clear this browser's data.");
+        return note;
+      }
       try {
         const result = await saveObject(note.id, encrypted, note.version, write.generation);
         await clearQueuedSave(note.id);
@@ -1416,9 +1468,17 @@ function Workspace({
       setSyncStatus("syncing");
       let remaining = false;
       let attention = false;
+      // One key pass per container per drain.
+      const synced = new Map<string, Promise<Container>>();
       for (const item of queued) {
         try {
-          const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration ?? 1);
+          if (item.keyGeneration === undefined || item.keyGeneration === WAITING_GENERATION) {
+            // Never sent without a real generation: re-seal it for the current key; the next drain sends it.
+            await rekeyQueued(item, synced).catch(() => undefined);
+            remaining = true;
+            continue;
+          }
+          const result = await saveObject(item.id, item.payload, item.version, item.keyGeneration);
           await clearQueuedSave(item.id);
           const saved = { version: result.version, updatedAt: item.updatedAt };
           patchNotes((value) => carrySaved(value, item.id, saved));
@@ -1440,7 +1500,7 @@ function Workspace({
             attention = true;
           } else {
             // A retired generation: re-encrypt for the current key; the next drain sends it.
-            if (error instanceof APIRequestError && error.code === "already_exists") await rekeyQueued(item).catch(() => undefined);
+            if (error instanceof APIRequestError && error.code === "already_exists") await rekeyQueued(item, synced).catch(() => undefined);
             remaining = true;
           }
         }
@@ -1453,14 +1513,16 @@ function Workspace({
     }
   }
   /** Re-seals a queued save for its container's current key; leaves it queued while keys are pending. */
-  async function rekeyQueued(item: PendingSave) {
-    const container = await syncKeys(await currentContainer(item.containerID));
+  async function rekeyQueued(item: PendingSave, synced: Map<string, Promise<Container>>) {
+    // A background pass: it never opens a dialog.
+    if (!synced.has(item.containerID)) synced.set(item.containerID, currentContainer(item.containerID).then((found) => syncKeys(found, true)));
+    const container = await synced.get(item.containerID)!;
+    adoptGenerations(container);
     const write = writeKeyFor(container);
     if (!write || write.generation === item.keyGeneration) return;
     const payload = await openFirst(readKeysFor(container, item.keyGeneration), (key) => decryptObject(key, item.containerID, item.payload));
     if (!payload) return;
     await queueSave({ ...item, payload: await encryptNote(write.key, item.containerID, payload), keyGeneration: write.generation });
-    if (selectedRef.current?.id === container.id) setSelected(container);
   }
   async function remove(note: Note) {
     if (!confirm("Delete this page?")) return;
@@ -1478,8 +1540,7 @@ function Workspace({
   function persistDraft(note: Note) {
     if (!selected) return;
     const containerID = selected.id;
-    const write = writeKeyFor(selected);
-    if (!write) return;
+    const write = localKeyFor(selected);
     void cacheWrite(async () => putNote({
       id: note.id,
       containerID,
@@ -1492,15 +1553,17 @@ function Workspace({
   /** Encrypted write for an object that is not the open page (sections, moved pages). */
   async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
     if (!selected) return null;
-    const write = writeKeyFor(selected);
-    if (!write) {
-      setError("This notebook is waiting for a team owner to share its keys; the change was not saved.");
-      return null;
-    }
+    const write = localKeyFor(selected);
     const encrypted = await encryptNote(write.key, selected.id, payload);
     const updatedAt = new Date().toISOString();
     const containerID = selected.id;
     await cacheWrite(() => putNote({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
+    if (write.generation === WAITING_GENERATION) {
+      await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation });
+      setSyncStatus("local");
+      setError("Saved on this device only. It is sent once a team owner shares this notebook's keys; until then, do not clear this browser's data.");
+      return null;
+    }
     try {
       const result = await saveObject(id, encrypted, version, write.generation);
       await clearQueuedSave(id);
@@ -1752,8 +1815,7 @@ function Workspace({
       for (const conflict of (await objectConflicts(open.id)).filter((item) => !item.resolved)) {
         try {
           const bytes = await conflictCiphertext(conflict.id);
-          // A rejected copy has no generation: only the current key reads it, which no removed member holds.
-          const decrypted = await openFirst(readKeysFor(container, container.keyGeneration), (key) => decryptObject(key, containerID, bytes)).catch(() => undefined);
+          const decrypted = await openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, containerID, bytes)).catch(() => undefined);
           if (decrypted?.type === "page") rejected.push({ id: conflict.id, createdAt: conflict.createdAt, payload: decrypted });
           else unreadable += 1;
         } catch (error) {
@@ -1850,7 +1912,7 @@ function Workspace({
     } catch (error) {
       if (resealed || !(error instanceof APIRequestError && error.code === "already_exists")) throw error;
       // The key generation moved during the upload: re-seal the file for the current key and send it again.
-      const container = await syncKeys(await currentContainer(job.containerID));
+      const container = await syncKeys(await currentContainer(job.containerID), true);
       const keys = readKeysFor(container, job.keyGeneration);
       const plaintext = await openFirst(keys, (key) => decryptAttachment(key, job.containerID, job.payload));
       const file = await openFirst(keys, (key) => decryptAttachmentMetadata(key, job.containerID, fromBase64(job.metadataCiphertext)));
@@ -2713,6 +2775,15 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
   useEffect(() => {
     void reload();
   }, [authSecret]);
+  /**
+   * Admin pages hold no team keys, so they only name never-shared teams, with this account's
+   * login key. The generation sent lets the server refuse it if the team was shared meanwhile.
+   */
+  async function nameUnsharedTeam(entry: AdminTeam, name: string) {
+    if (entry.sharedGeneration || entry.keyGeneration === undefined) throw new Error("Shared teams are renamed from the team notebook.");
+    const encoded = base64(await encryptContainerMeta(legacy, entry.id, name));
+    await updateContainer(entry.id, encoded, entry.metaVersion ?? 0, entry.keyGeneration);
+  }
   async function createTeam() {
     const name = prompt("Team name", "New team")?.trim();
     if (!name) return;
@@ -2720,9 +2791,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
       // The server mints the container ID, which is part of the metadata key.
       // Create first, then immediately replace the empty metadata with ciphertext.
       const created = await createAdminTeam("");
-      const encrypted = await encryptContainerMeta(legacy, created.id, name);
-      const encoded = btoa(String.fromCharCode(...encrypted));
-      await updateContainer(created.id, encoded, created.metaVersion ?? 0);
+      await nameUnsharedTeam(created, name);
       setTeam(created.id);
       await reload();
     } catch (error) {
@@ -2736,9 +2805,10 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
     const name = prompt("Team name", teamNames[selected.id] ?? "Team")?.trim();
     if (!name) return;
     try {
-      const encrypted = await encryptContainerMeta(legacy, selected.id, name);
-      const encoded = btoa(String.fromCharCode(...encrypted));
-      await updateContainer(selected.id, encoded, selected.metaVersion ?? 0);
+      // Re-read: the team may have been shared since this list loaded.
+      const latest = (await adminTeams()).find((entry) => entry.id === selected.id);
+      if (!latest) throw new Error("Team not found");
+      await nameUnsharedTeam(latest, name);
       await reload();
     } catch (error) {
       alert(error instanceof Error ? error.message : "Unable to rename team");

@@ -108,9 +108,10 @@ export function createContainer(kind = "workbook", metaCiphertext = "", teamId =
   });
 }
 
-export function updateContainer(id: string, metaCiphertext: string, baseVersion: number) {
+/** keyGeneration is the generation the name was sealed with; a shared container refuses any but the current one. */
+export function updateContainer(id: string, metaCiphertext: string, baseVersion: number, keyGeneration: number) {
   return request<{ metaVersion: number; changeSeq: number }>(`/api/v1/containers/${encodeURIComponent(id)}`, {
-    method: "PATCH", body: JSON.stringify({ metaCiphertext, baseVersion }),
+    method: "PATCH", body: JSON.stringify({ metaCiphertext, baseVersion, keyGeneration }),
   });
 }
 
@@ -180,7 +181,7 @@ export async function readObject(objectID: string, version?: number) {
   return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
 }
 
-export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration = 1) {
+export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration: number) {
   return request<{ version: number; resourceId?: string; commitReceipt?: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}`, {
     method: "PUT",
     body: bytes as unknown as BodyInit,
@@ -202,7 +203,7 @@ export function attachToObject(objectID: string, attachmentID: string, objectVer
 export const objectAttachments = (objectID: string) => request<Array<{ id: string; bytes: number; metadataCiphertext: string; keyGeneration: number }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`);
 export async function downloadAttachment(attachmentID: string) { const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error("Unable to download attachment"); return new Uint8Array(await response.arrayBuffer()); }
 
-export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`);
+export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; keyGeneration: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`);
 export async function conflictCiphertext(conflictID: string) { const response = await fetch(`/api/v1/conflicts/${encodeURIComponent(conflictID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error(`Unable to read conflicting version (${response.status})`); return new Uint8Array(await response.arrayBuffer()); }
 export const resolveConflict = (conflictID: string) => request<void>(`/api/v1/conflicts/${encodeURIComponent(conflictID)}/resolve`, { method: "POST" });
 

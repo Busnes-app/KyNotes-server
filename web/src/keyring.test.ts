@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { localKey, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -207,6 +207,18 @@ describe("keyring", () => {
     // Old cache entries carry no keyGeneration; a never-shared container has only the legacy key.
     expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, undefined)).toEqual([legacy]);
     expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, Number.NaN)).toEqual([legacy]);
+  });
+
+  it("seals an edit made while keys are missing for this device only, and reads it back", async () => {
+    const shared = { id: cnt, keyGeneration: 3, sharedGeneration: 2 };
+    const waiting = localKey(shared, new Map(), legacy);
+    expect(waiting).toEqual({ key: legacy, generation: WAITING_GENERATION });
+    // Never a generation the server would accept, and never the current key's slot.
+    expect(WAITING_GENERATION).toBeLessThan(1);
+    const sealed = await encryptNote(waiting.key, cnt, { title: "W", body: "" });
+    await expect(openFirst(readKeys(shared, new Map(), legacy, WAITING_GENERATION), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
+    const k3 = newContainerKey();
+    expect(localKey(shared, new Map([[3, k3]]), legacy)).toEqual({ key: k3, generation: 3 });
   });
 
   it("never opens a newer row with a removed member's older key", async () => {

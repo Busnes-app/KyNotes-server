@@ -121,6 +121,18 @@ export function writeKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
 }
 
 /**
+ * Generation 0 marks a local edit made while the current key is missing. It is sealed with
+ * the login-derived key, stays on this device (the server's generations start at 1, and the
+ * queue never sends it) and is re-sealed for the current key once that key arrives.
+ */
+export const WAITING_GENERATION = 0;
+
+/** The key a local copy is sealed with: writeKey, or the waiting seal while that is missing. */
+export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRef): WriteKey {
+  return writeKey(container, ring, legacy) ?? { key: legacy, generation: WAITING_GENERATION };
+}
+
+/**
  * The one key a row may be read with. Rows at or above sharedGeneration open only
  * with their own generation's CK, so neither a relabelled legacy row nor a removed
  * member's older CK can stand in for a newer generation. Older rows are legacy.

@@ -175,3 +175,53 @@ func TestContainersReportSharedGeneration(t *testing.T) {
 		t.Fatalf("create=%d %s", code, created)
 	}
 }
+
+func TestSharedNameNeedsCurrentGeneration(t *testing.T) {
+	tm := newTeam(t)
+	rename := func(body string) (int, string) {
+		return status(t, tm.editor.do(t, http.MethodPatch, "/api/v1/containers/"+tm.id, []byte(body), true, false))
+	}
+	// Never shared: a name without a generation is accepted (legacy key).
+	if code, body := rename(`{"metaCiphertext":"Y3Q=","baseVersion":0}`); code != http.StatusOK {
+		t.Fatalf("legacy rename=%d %s", code, body)
+	}
+	tm.rotate(t, tm.id, 1) // shared at generation 2
+	for name, body := range map[string]string{
+		"no generation":  `{"metaCiphertext":"Y3Q=","baseVersion":1}`,
+		"retired":        `{"metaCiphertext":"Y3Q=","baseVersion":1,"keyGeneration":1}`,
+		"not yet minted": `{"metaCiphertext":"Y3Q=","baseVersion":1,"keyGeneration":3}`,
+	} {
+		if code, out := rename(body); code != http.StatusConflict || !strings.Contains(out, "already_exists") {
+			t.Fatalf("%s=%d %s", name, code, out)
+		}
+	}
+	var version int64
+	if err := tm.owner.db.QueryRow(`SELECT meta_version FROM containers WHERE id=?`, tm.id).Scan(&version); err != nil || version != 1 {
+		t.Fatalf("stale rename stored: version=%d %v", version, err)
+	}
+	if code, body := rename(`{"metaCiphertext":"Y3Q=","baseVersion":1,"keyGeneration":2}`); code != http.StatusOK {
+		t.Fatalf("current rename=%d %s", code, body)
+	}
+}
+
+func TestConflictListingReportsKeyGeneration(t *testing.T) {
+	tm := newTeam(t)
+	oid, _ := tm.editor.save(t, tm.id, "", 1)
+	tm.rotate(t, tm.id, 1)
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusOK {
+		t.Fatalf("save=%d", code)
+	}
+	stale := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1", "X-Kynotes-Key-Scheme": "shared-v1"}
+	if code, body := tm.editor.rawWrite(t, http.MethodPut, "/api/v1/objects/"+oid, stale, "rejected"); code != http.StatusConflict {
+		t.Fatalf("stale base=%d %s", code, body)
+	}
+	res := tm.editor.do(t, http.MethodGet, "/api/v1/objects/"+oid+"/conflicts", nil, false, false)
+	data, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	var list []struct {
+		KeyGeneration *int64 `json:"keyGeneration"`
+	}
+	if err := json.Unmarshal(data, &list); err != nil || len(list) != 1 || list[0].KeyGeneration == nil || *list[0].KeyGeneration != 2 {
+		t.Fatalf("conflicts=%s %v", data, err)
+	}
+}

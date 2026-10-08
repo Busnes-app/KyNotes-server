@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"net/http"
@@ -122,6 +121,8 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		var in struct {
 			Meta        string `json:"metaCiphertext"`
 			BaseVersion int64  `json:"baseVersion"`
+			// The generation the name was sealed with; required once the container is shared.
+			KeyGeneration *int64 `json:"keyGeneration"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
@@ -144,12 +145,19 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		var seq int64
 		if e = dbTx(db, func(tx *sql.Tx) error {
-			// The shared_generation guard catches a rotation that landed after the check above.
-			e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=?,updated_at=? WHERE id=? AND (shared_generation=0 OR ?) RETURNING change_seq`, meta, cur+1, now, cid, current).Scan(&seq)
-			if errors.Is(e, sql.ErrNoRows) {
+			// Re-read inside the transaction: a rotation may have landed after the checks above.
+			var generation, shared int64
+			if e := tx.QueryRow(`SELECT key_generation,shared_generation FROM containers WHERE id=?`, cid).Scan(&generation, &shared); e != nil {
+				return e
+			}
+			if shared != 0 && !current {
 				return errStaleClient
 			}
-			return e
+			// A shared name is sealed with the current generation only, so readers never need an older key.
+			if shared != 0 && (in.KeyGeneration == nil || *in.KeyGeneration != generation) {
+				return errKeyRotationIncomplete
+			}
+			return tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=?,updated_at=? WHERE id=? RETURNING change_seq`, meta, cur+1, now, cid).Scan(&seq)
 		}); e != nil {
 			writeTeamKeyError(w, r, e)
 			return
