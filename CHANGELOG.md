@@ -19,8 +19,15 @@
   An administrator password reset no longer deletes your encryption key. If you lose every browser and
   the code, Settings can reset your key, and your personal notebooks are lost. Writing now needs your
   encryption key on that browser: accounts still on an administrator-set password change it first, and
-  single sign-on accounts save a recovery code before their personal notebooks get keys. Database
-  migration 0025.
+  single sign-on accounts save a recovery code before their personal notebooks get keys. Single sign-on
+  no longer asks for a "master password": nothing it would unlock exists. An account linked to KySignOn
+  never gets a password copy of its key, including through a reset from a local session. An administrator
+  password reset also revokes the account's paired device credentials. Team member management and "New
+  team notebook" show only to team owners and admins. The creator of a notebook whose key or name failed
+  to set up can delete it at any time, as long as it holds nothing. Creating a notebook in a team with
+  other members no longer fails. After a reset, edits that were waiting for a notebook's key are never
+  sent; Settings lists them under Unsent edits for export. A reset whose answer never reached the browser
+  is explained on the next load. Database migration 0025.
 - Team keys phase 3c: link a new browser to your account from one you already use. Both screens
   show a six-digit check code; you type the code from the new browser into the one you already use,
   and your encryption key moves only after you confirm it matches on both. KyNotes relays it
@@ -54,8 +61,7 @@
   for new content. A member waiting for a key sees the notebook read-only; edits made meanwhile
   wait on the device and are saved under the new key when it arrives. Keys are accepted only from
   an authenticated sender. Browsers remember colleagues' key fingerprints and ask before trusting
-  a changed one (Settings shows your own). Single sign-on-only accounts cannot hold keys yet, so a
-  team that includes one stays unshared, and the owner sees who is missing.
+  a changed one (Settings shows your own).
   `GET /api/v1/containers` reports `sharedGeneration`; `PATCH /api/v1/containers/{id}` takes
   `keyGeneration` (required on a shared notebook, `409 already_exists` unless current); conflict
   listings report `keyGeneration`.
@@ -71,7 +77,6 @@
   login or `/setup` and wrapped under a key derived from the password (migration 0021). Password
   change now re-wraps it; a web bundle from before this release cannot change the password of a
   user who has an identity (`409 identity_rewrap_required`): reload to get the current bundle.
-  SSO-only users get none yet.
   Accounts whose password an administrator or operator set (admin create or reset,
   `BOOTSTRAP_ADMIN_*`, `user add`) get their identity only after their own password change.
   `POST /api/v1/setup` no longer accepts a plaintext `password`

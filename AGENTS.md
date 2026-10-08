@@ -143,10 +143,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   client path.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
   that expires after 15 seconds.
-- `web/` persists local zero-knowledge device keys in the IndexedDB keys vault upon
-  password login/setup to enable seamless 1-click SSO returns on trusted devices,
-  while providing explicit "Forget this device" controls to clear stored secrets;
-  sessions without a cached device key prompt for the master password once.
+- `web/` keeps a vault record per account in IndexedDB (the password sign-in's verifier, or for
+  a KySignOn session a random per-browser value from `ssoDeviceSecret`) beside the identity, with
+  "Forget this device" to clear it. KySignOn sessions are never asked for a password; a local
+  session without a record signs in with its password, and a refused password lets no one in.
 - `web/` surfaces server-confirmed save times and treats `version_conflict`
   responses separately from offline failures, preserving the encrypted local
   draft without endlessly retrying a stale version. Server-kept conflicting
@@ -167,7 +167,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `POST /api/v1/admin/teams` is the explicit admin team-creation path; it
   creates the owner membership and records `admin.team.create`. It takes no name
   (`400` for a non-empty `metaCiphertext`); the owner's browser seals one after the first
-  key. The admin list returns ciphertext for browser-side decryption.
+  key. The admin list carries name ciphertext that administrator pages never decrypt (they show
+  only names this browser sealed); it passes through `observeContainers` for the key floors.
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
@@ -354,7 +355,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `user_identities`); device auth, device list/revoke/selection, directory deactivation and role
   changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
   and `wrappedIdentityKey` when a password-wrapped one exists (`409 identity_rewrap_required`), clears every session's
-  step-up and shares the step-up lockout; recovery and admin reset remove only its password copy (audit `identity.password_wrap.delete`).
+  step-up and shares the step-up lockout; recovery and admin reset remove only its password copy (audit `identity.password_wrap.delete`), and admin reset revokes paired device credentials in the same transaction.
   `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
   `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
   or a password/step-up changed (403 for `PUT`) after the middleware writes nothing.
@@ -541,7 +542,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `stuckEdits.ts`): edits are bound to the account; the note cache and save queue are keyed by
   `[owner, id]` (IndexedDB v6 cleared older rows once), so no save, replace, clear or
   read touches another account's entry; every entry carries its owner, and Unsent edits lists this
-  account's edits for notebooks it lost (export, discard). Export is plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
+  account's edits for notebooks it lost and those sealed under a previous key (export, discard). Export is plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
   newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,
   `TestRemovedMemberIsReadmittedByReactivation`, `TestTeamAdminRemovesOnlyAdminsItInvited`,
   `TestRemovalVoidsPendingInvitationsToTheRemovedMember`, `TestAcceptAndAdminAddAreAudited`,
@@ -611,12 +612,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `internal/teamkeys`), upload only after `confirmRecoverySaved` (a random type-back group, fresh each time
   the code is shown; `components/RecoveryCode.tsx` only), restore checks the checksum first and never
   overwrites another key, reset needs the typed phrase and retries with the same key after a lost response.
+  A KySignOn-linked account's reset is device-only from any session (`409 device_only_required`; the
+  browser re-sends it). The browser notes a reset's new key before sending (`resetSent`) and explains a
+  committed reset whose answer never arrived; edits waiting under the replaced key are marked `previousKey`,
+  never sent, and listed under Unsent edits. A notebook's creator (still its owner or admin) deletes it
+  without the recent-sign-in window only while it was never keyed or named and holds nothing (spec P5 item 24).
+  Add person, Remove and New team notebook show only to stewards (member role from the server).
   A replaced code stays valid in database backups; only a reset cuts it off. Awaiting Yoshi: D-P5-1
-  (resets keep the identity) and D-P5-2 (the stricter never-password-wrap-after-reset option, not built).
+  (resets keep the identity), D-P5-2 (the stricter never-password-wrap-after-reset option, not built),
+  and P3c (1) raw identity on plain HTTP (P5 adds restored identities), (3) the device-key layer and
+  (4) IdP-operator powers (P5 adds replacing the recovery code and resetting an SSO account's identity).
   Known limits are in spec §7 "P5 as built". Verify `TestIdentityRecovery*`, `TestIdentityReset*`,
   `TestRecoveryAndAdminResetKeepIdentity`, `TestPasswordChangeReadds*`, `TestSSOAccountSetsAndFetches*`,
-  `TestSSOResetStaysDeviceOnly`, `go test ./internal/teamkeys`, `npm test` (recovery, identity, keyring,
-  keyService, drain, contentKeys, workspaceWiring, keyNotices, RecoveryCode) and
+  `TestSSOResetStaysDeviceOnly`, `TestLinkedAccountResetIsDeviceOnlyFromALocalSession`,
+  `TestNonStewardsCannotManageMembersOrCreateTeamNotebooks`, `TestCreatorDeletesABlankNotebookWithoutARecentSignIn`,
+  `TestAdminPasswordResetRevokesPairedDevices`, `go test ./internal/teamkeys`, `npm test` (recovery, identity,
+  keyring, keyService, drain, contentKeys, workspaceWiring, keyNotices, RecoveryCode, storage, stuckEdits) and
   `npm run e2e --prefix web`.
 - Team keys, legacy key removed (2026-10-08, spec §9): no content key derives from `authSecret`. Server: a
   container takes content, names, envelopes, invitation envelopes and uploads only once it has a key
@@ -624,8 +635,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   every write carries `X-Kynotes-Key-Scheme: shared-v2`; `GET /containers/{id}/legacy` and
   `PUT /comments/{id}` are gone (`TestRemovedLegacyRoutesStayGone`); no migration. Web: IndexedDB v6 drops
   the earlier cache, queue and uploads once; `readKeys`/`ownCopyKeys` are the only key choices;
-  `contentKeys.test.ts` guards the brand and `noLegacyReview.test.ts` the absence of the review. Probe:
+  `contentKeys.test.ts` guards the brand. Probe:
   password-wrapped identity (`teamkeys.UserKEK`/`SealIdentity`/`OpenIdentity`), notebook keyed at creation.
   Verify `TestUnkeyedContainerRefusesEveryWrite`, `TestEveryWriteNeedsTheCurrentKeyScheme`,
   `TestContainerCreationTakesNoName`, `TestIdentityWrapAgreesWithVectors`, `npm test` (contentKeys,
-  noLegacyReview, keyring, drain, storage, stuckEdits, workspaceWiring) and `npm run e2e --prefix web`.
+  keyring, drain, storage, stuckEdits, workspaceWiring) and `npm run e2e --prefix web`.
