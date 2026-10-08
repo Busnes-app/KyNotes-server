@@ -482,7 +482,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   false. Verify `npm test` (`keyring`, `pins`, `teamKeys` suites) and `go test ./internal/teamkeys`.
 - Team keys P3b: invitations and membership keys. Server: `POST /api/v1/invitations/{id}/accept` reads
   the invitation (token, invitee, pending, unexpired, inviter still a steward) inside its transaction and
-  audits `container.member_accept`; `admitMemberTx` (accept and the server-admin add route, which answers
+  audits `container.member_accept`; a refused accept or server-admin add is audited after its rolled-back
+  transaction (`auditRefusal`: outcome `denied`, or `failure` for a 500, reason = the response code only);
+  `admitMemberTx` (accept and the server-admin add route, which answers
   400/404/409/500 distinctly) reactivates rows a removal revoked, restores no keys and records
   `memberships.invited_by` (migration `0023_membership_inviter.sql`; older rows are empty and fail closed;
   child workspaces copy it); a team admin removes another admin only when it invited that membership;
@@ -505,6 +507,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,
   `TestRemovedMemberIsReadmittedByReactivation`, `TestTeamAdminRemovesOnlyAdminsItInvited`,
   `TestRemovalVoidsPendingInvitationsToTheRemovedMember`, `TestAcceptAndAdminAddAreAudited`,
+  `TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly`,
   `TestAdminAddMapsOnlyConflictsTo409`, `TestContainerListFailsRatherThanReturningPartialList`,
   `TestInvitationCreationIsRateLimitedPerCaller`, `TestRetryAfterFollowsRefillInterval`,
   `TestGCDeletesEnvelopesOfExpiredInvitations`, `npm test` (keyring, keyService, pins, invitations,

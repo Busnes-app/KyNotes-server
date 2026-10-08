@@ -23,8 +23,8 @@ func recordAudit(db *sql.DB, actor, event, container, object, requestID string) 
 	recordAuditOutcome(db, actor, event, container, object, "success", "", requestID)
 }
 
-// recordAuditOutcome writes one flat audit row. outcome is "success" or
-// "failure"; reason is operator-facing text already bounded by the caller and
+// recordAuditOutcome writes one flat audit row. outcome is "success",
+// "failure" or "denied"; reason is operator-facing text already bounded by the caller and
 // never a secret.
 func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, reason, requestID string) {
 	_ = storage.RecordAuditOutcome(db, actor, event, container, object, outcome, reason, requestID)
@@ -104,7 +104,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		s, _ := auth.SessionFromContext(r)
 		now := time.Now().UTC().Format(time.RFC3339)
-		if err := dbTx(db, func(tx *sql.Tx) error {
+		err := dbTx(db, func(tx *sql.Tx) error {
 			var ok bool
 			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, cid, in.UserID).Scan(&ok); err != nil {
 				return err
@@ -116,7 +116,11 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 				return err
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "admin.team.member_add", cid, in.UserID, "success", "", RequestID(r))
-		}); errors.Is(err, errMembershipExists) {
+		})
+		if err != nil {
+			auditRefusal(db, r, s.UserID, "admin.team.member_add", cid, in.UserID, err)
+		}
+		if errors.Is(err, errMembershipExists) {
 			WriteError(w, r, 409, "already_exists", "unable to add member")
 			return
 		} else if writeTeamKeyError(w, r, err) {

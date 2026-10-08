@@ -46,33 +46,58 @@ func (v envelopeIn) bytes() ([]byte, bool) {
 
 // writeTeamKeyError maps team-key and write-gate errors; false when err is nil.
 func writeTeamKeyError(w http.ResponseWriter, r *http.Request, err error) bool {
-	switch {
-	case err == nil:
+	if err == nil {
 		return false
-	case errors.Is(err, auth.ErrSessionInvalid):
-		auth.WriteAuthError(w, "unauthenticated", "authentication required")
-	case errors.Is(err, auth.ErrStepUpInvalid):
-		auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
-	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
-		WriteError(w, r, 404, "not_found", "not found")
-	case errors.Is(err, errInsufficientRole):
-		WriteError(w, r, 403, "forbidden", "insufficient role")
-	case errors.Is(err, errEnvelopeInvalid):
-		WriteError(w, r, 400, "invalid_request", "invalid request")
-	case errors.Is(err, errEnvelopeExists):
-		WriteError(w, r, 409, "already_exists", "envelope already exists")
-	case errors.Is(err, errGenerationMoved):
-		WriteError(w, r, 409, "already_exists", "key generation changed")
-	case errors.Is(err, errKeyRotationIncomplete):
-		WriteError(w, r, 409, "already_exists", "key rotation incomplete")
-	case errors.Is(err, errVersionConflict):
-		WriteError(w, r, 409, "version_conflict", "base version is stale")
-	case errors.Is(err, errStaleClient):
-		WriteError(w, r, 409, "already_exists", "this notebook uses shared keys: reload the page")
-	default:
-		WriteError(w, r, 500, "internal", "internal server error")
+	}
+	status, code, message := teamKeyError(err)
+	if code == "unauthenticated" || code == "step_up_required" {
+		auth.WriteAuthError(w, code, message)
+	} else {
+		WriteError(w, r, status, code, message)
 	}
 	return true
+}
+
+// teamKeyError maps a team-key route error to its response; err is not nil.
+func teamKeyError(err error) (status int, code, message string) {
+	switch {
+	case errors.Is(err, auth.ErrSessionInvalid):
+		return 401, "unauthenticated", "authentication required"
+	case errors.Is(err, auth.ErrStepUpInvalid):
+		return 403, "step_up_required", "re-enter your password to continue"
+	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
+		return 404, "not_found", "not found"
+	case errors.Is(err, errInsufficientRole):
+		return 403, "forbidden", "insufficient role"
+	case errors.Is(err, errEnvelopeInvalid):
+		return 400, "invalid_request", "invalid request"
+	case errors.Is(err, errEnvelopeExists):
+		return 409, "already_exists", "envelope already exists"
+	case errors.Is(err, errGenerationMoved):
+		return 409, "already_exists", "key generation changed"
+	case errors.Is(err, errKeyRotationIncomplete):
+		return 409, "already_exists", "key rotation incomplete"
+	case errors.Is(err, errVersionConflict):
+		return 409, "version_conflict", "base version is stale"
+	case errors.Is(err, errStaleClient):
+		return 409, "already_exists", "this notebook uses shared keys: reload the page"
+	default:
+		return 500, "internal", "internal server error"
+	}
+}
+
+// auditRefusal records a failed membership attempt outside its rolled-back transaction. The reason
+// is the response code, so the audit says no more than the caller was told.
+func auditRefusal(db *sql.DB, r *http.Request, actor, event, container, object string, err error) {
+	outcome, code := "denied", "already_exists"
+	if !errors.Is(err, errMembershipExists) {
+		var status int
+		status, code, _ = teamKeyError(err)
+		if status == 500 {
+			outcome = "failure"
+		}
+	}
+	recordAuditOutcome(db, actor, event, container, object, outcome, code, RequestID(r))
 }
 
 // memberTx returns the caller's role and the container's current generation.

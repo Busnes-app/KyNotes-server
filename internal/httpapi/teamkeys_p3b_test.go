@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 )
@@ -170,6 +171,68 @@ func TestAcceptAndAdminAddAreAudited(t *testing.T) {
 	}
 	if n := audit("container.member_accept", pairUser, "role=admin,readmit=true"); n != 1 {
 		t.Fatalf("re-admission audits=%d", n)
+	}
+}
+
+func TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly(t *testing.T) {
+	tm := newTeam(t)
+	type row struct{ actor, container, object, outcome, reason string }
+	refusals := func(event string) []row {
+		t.Helper()
+		rows, err := tm.owner.db.Query(`SELECT actor_user_id,container_id,object_id,outcome,reason_code FROM audit_events WHERE event=? AND outcome<>'success' ORDER BY rowid`, event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []row
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.actor, &r.container, &r.object, &r.outcome, &r.reason); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, r)
+		}
+		return out
+	}
+	guest, other := tm.owner.addUser(t, "guest"), tm.owner.addUser(t, "other")
+	inv, _ := invite(t, tm.owner, tm.id, guest.id)
+	// Another account's accept: the same 404 as an unknown invitation, and an audit that names neither team nor inviter.
+	if code := accept(t, other.pairClient, inv); code != http.StatusNotFound {
+		t.Fatalf("accept=%d", code)
+	}
+	live, _ := invite(t, tm.owner, tm.id, tm.editor.id)
+	if code := accept(t, tm.editor.pairClient, live); code != http.StatusConflict {
+		t.Fatalf("accept by a live member=%d", code)
+	}
+	want := []row{{other.id, "", inv[0], "denied", "not_found"}, {tm.editor.id, "", live[0], "denied", "already_exists"}}
+	if got := refusals("container.member_accept"); !slices.Equal(got, want) {
+		t.Fatalf("accept refusals=%+v want %+v", got, want)
+	}
+	// The refused attempt wrote nothing else: the invitation is still pending and no membership exists.
+	var state string
+	if err := tm.owner.db.QueryRow(`SELECT status FROM invitations WHERE id=?`, inv[0]).Scan(&state); err != nil || state != "pending" {
+		t.Fatalf("status=%q %v", state, err)
+	}
+	if n, _, _ := livesOf(t, tm, other.id, tm.id); n != 0 {
+		t.Fatalf("live=%d", n)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	post := func(cid, uid string) int {
+		code, _ := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
+		return code
+	}
+	unknown := mint(t, "cnt")
+	if post(tm.id, tm.editor.id) != http.StatusConflict || post(unknown, other.id) != http.StatusNotFound {
+		t.Fatal("admin add did not refuse")
+	}
+	want = []row{{pairUser, tm.id, tm.editor.id, "denied", "already_exists"}, {pairUser, unknown, other.id, "denied", "not_found"}}
+	if got := refusals("admin.team.member_add"); !slices.Equal(got, want) {
+		t.Fatalf("admin add refusals=%+v want %+v", got, want)
+	}
+	if n, _, _ := livesOf(t, tm, other.id, tm.id); n != 0 {
+		t.Fatalf("live=%d", n)
 	}
 }
 

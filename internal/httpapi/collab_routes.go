@@ -196,6 +196,9 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			}
 			return moveInvitationEnvelopesTx(tx, id, s.UserID, now)
 		})
+		if e != nil {
+			auditRefusal(db, r, s.UserID, "container.member_accept", "", id, e)
+		}
 		if errors.Is(e, errMembershipExists) {
 			WriteError(w, r, 409, "already_exists", "membership already exists")
 			return
