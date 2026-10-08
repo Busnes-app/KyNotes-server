@@ -30,6 +30,13 @@ describe("invitation links", () => {
     expect(stashedInvite(storage)).toBeUndefined();
   });
 
+  it("clears the address bar even when session storage refuses the link", () => {
+    const replaceState = vi.fn();
+    const refusing = { setItem: () => { throw new Error("QuotaExceededError"); } };
+    expect(() => stashInviteLink({ hash: `#/invite/${id}/${token}`, pathname: "/app" }, { replaceState }, refusing)).toThrow();
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/app");
+  });
+
   it("ignores a tampered stash", () => {
     const storage = memory();
     storage.setItem("kynotes-invitation", JSON.stringify({ id: "inv_x", token }));

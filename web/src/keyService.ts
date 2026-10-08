@@ -1,8 +1,10 @@
+import { bytesToHex } from "@noble/ciphers/utils.js";
 import { base64 } from "./crypto";
+import { sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import type { Invitation } from "./api";
 import { guardContainer, keysAllowed, mergeFloor, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type InvitationEnvelope, type KeyedContainer, type KeyFloor, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type ReportedContainer, type SweepPlan } from "./keyring";
-import { comparePins, confirmFingerprintChange, displayName, type PinChange, type PinConfirmation, type Pins } from "./pins";
+import { comparePins, confirmFingerprintChange, displayName, publicKeyBytes, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import type { PinsStored } from "./storage";
 
 export type KeyAPI = {
@@ -214,19 +216,23 @@ export type InviteAPI = Pick<KeyAPI, "userIdentity" | "stepUp"> & {
  * a steward's sweep shares them after the invitee joins:
  * - cannot-wrap: this browser has no identity, or the session is single sign-on.
  * - rollback: the server reports an older sharing state than this device has seen (keysAllowed).
- * - no-keys: this browser holds no current shared key for the team.
+ * - no-keys: this browser holds no current shared key for the team that this device accepted
+ *   (stored digest), or this tab has not loaded the team's floor yet.
  * - no-identity: the invitee's key is not visible (no identity, or no shared notebook with you).
+ * - invalid-identity: the invitee's key is malformed, or the server refused the sealed key
+ *   (invalid_request: their device changed meanwhile).
  * - untrusted: a changed key was not confirmed, or another pass pinned a different key first.
  * - pins-unsaved: the invitee's pin could not be kept.
  * - moved: a generation changed meanwhile.
  */
-export type InviteKeys = "sealed" | "cannot-wrap" | "rollback" | "no-keys" | "no-identity" | "untrusted" | "pins-unsaved" | "moved";
+export type InviteKeys = "sealed" | "cannot-wrap" | "rollback" | "no-keys" | "no-identity" | "invalid-identity" | "untrusted" | "pins-unsaved" | "moved";
 export type Invited = { invitation: Invitation; keys: InviteKeys; recipient?: MemberKey };
 /**
  * The team the user chose to invite to. Child workspaces are never added here: teamId is a server
- * claim. floor: this tab's in-memory floor (mergeFloor), merged with the stored one, which can lag.
+ * claim. floor: this tab's in-memory floor (mergeFloor), merged with the stored one, which can lag;
+ * undefined (not loaded yet) sends no keys.
  */
-export type InviteTarget = { container: ReportedContainer; ring: Keyring; floor?: KeyFloor };
+export type InviteTarget = { container: ReportedContainer; ring: Keyring; floor: KeyFloor | undefined };
 
 /**
  * Invites invitee to the target team. Keys go only when this device's floor allows them, this
@@ -239,12 +245,16 @@ export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invit
   const { container, ring } = target;
   const plain = async (keys: InviteKeys): Promise<Invited> => ({ invitation: await api.invite(container.id, invitee.userId, invitee.role, []), keys });
   if (!caller.identity || !caller.canWrap) return plain("cannot-wrap");
+  if (!target.floor) return plain("no-keys");
   // This device's floor decides, never the server's sharing state alone.
-  if (!keysAllowed(container, mergeFloor(target.floor, await store.loadKeyState(container.id)))) return plain("rollback");
+  const state = await store.loadKeyState(container.id);
+  if (!keysAllowed(container, mergeFloor(target.floor, state))) return plain("rollback");
   const key = container.sharedGeneration > 0 ? ring.get(container.keyGeneration) : undefined;
-  if (!key) return plain("no-keys");
+  // Only the key this device accepted for the generation leaves it, never one the caller merely holds.
+  if (!key || state.digests[container.keyGeneration] !== bytesToHex(sha256(key))) return plain("no-keys");
   const identity = await api.userIdentity(invitee.userId);
   if (!identity) return plain("no-identity");
+  try { publicKeyBytes(identity.publicKey); } catch { return plain("invalid-identity"); }
   const member: MemberKey = { ...invitee, identity: { deviceId: identity.deviceId, publicKey: identity.publicKey } };
   let pins = await store.load();
   const { changed } = comparePins(pins, [member]);
@@ -257,7 +267,8 @@ export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invit
   const sealed = sealFor(member, container.id, container.keyGeneration, key, { ...caller.identity, userId: caller.userId }, pins);
   // A first-seen pin is kept before the key leaves; a different pin another pass stored meanwhile wins.
   if (sealed.fresh.length) {
-    const stored = await store.addFresh(sealed.pins);
+    // Only the invitee's pin: storePins merges under stored pins, so an unrelated pin never conflicts here.
+    const stored = await store.addFresh({ [member.userId]: identity.publicKey });
     if (!stored.ok) return plain(stored.conflicts.length ? "untrusted" : "pins-unsaved");
   }
   await api.stepUp();
@@ -265,7 +276,9 @@ export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invit
     return { invitation: await api.invite(container.id, invitee.userId, invitee.role, [{ ...sealed.envelope, containerId: container.id }]), keys: "sealed", recipient: member };
   } catch (error) {
     // already_exists: a generation moved after this browser read it; the sweep shares the new key after accept.
-    if (code(error) !== "already_exists") throw error;
-    return plain("moved");
+    if (code(error) === "already_exists") return plain("moved");
+    // invalid_request: the server refused the envelope (the invitee's device changed meanwhile).
+    if (code(error) === "invalid_request") return plain("invalid-identity");
+    throw error;
   }
 }

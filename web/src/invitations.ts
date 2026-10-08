@@ -14,14 +14,18 @@ export function parseInviteLink(hash: string): InviteLink | undefined {
 }
 
 /**
- * Moves an invitation link out of the address bar (and history) into this tab's session storage,
- * so it survives a sign-in that leaves the page (single sign-on). True when there was one.
+ * Moves an invitation link out of the address bar and this tab's session-history entry into its
+ * session storage, so it survives a sign-in that leaves the page (single sign-on). True when there
+ * was one. The address bar is cleared even when storage throws (the error still propagates).
  */
 export function stashInviteLink(location: Pick<Location, "hash" | "pathname">, history: Pick<History, "replaceState">, storage: Pick<Storage, "setItem">): boolean {
   const link = parseInviteLink(location.hash);
   if (!link) return false;
-  storage.setItem(KEY, JSON.stringify(link));
-  history.replaceState(null, "", location.pathname);
+  try {
+    storage.setItem(KEY, JSON.stringify(link));
+  } finally {
+    history.replaceState(null, "", location.pathname);
+  }
   return true;
 }
 
