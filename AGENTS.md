@@ -416,6 +416,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   container, so the `outbound.ts` gate refuses it; local copies wait under `waitingKey(identity)` (HKDF
   `kynotes/waiting/v1`) or are not kept; `planSweep` mints a first key for every keyed member only when
   the caller's identity is `recoverable` (plan `unrecoverable` otherwise; re-mints never wait).
+  Notebooks are created only through `createNamed` (`observe.ts` `createKeyed`: a still-empty notebook
+  whose mint or naming failed is deleted). Waiting copy follows the member list, never `kind`
+  (`web/src/keyNotices.ts`). A password change moves every queued login-key entry onto the waiting key
+  (`resealWaitingEdits`) and asks for an acknowledgement only while `legacyAtRisk` counts notebooks.
   `main.tsx` reaches the login key only through
   `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
   keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty

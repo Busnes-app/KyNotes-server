@@ -7,7 +7,7 @@ import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 const TEMPORARY = "temporary horse battery staple";
 const OWN = "my own horse battery staple";
 const TEAM = "Team Keys E2E";
-const WAITING = "Waiting for a team owner to share this notebook's keys. It is read-only until then.";
+const WAITING = "This notebook is read-only until its keys reach this browser.";
 
 /** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
 type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
@@ -47,13 +47,20 @@ async function signIn(page: Page, username: string, password: string) {
 }
 
 /** An administrator-set password blocks the identity; the user's own change creates it. */
+/** On Settings: the acknowledgement appears only while a notebook may still hold login-key items. */
+async function changeOwnPassword(page: Page, current: string, next: string) {
+  await page.getByLabel("Current password").fill(current);
+  await page.getByLabel("New password", { exact: true }).fill(next);
+  await page.getByLabel("Confirm new password").fill(next);
+  const ack = page.getByRole("checkbox");
+  if (await ack.isVisible()) await ack.check();
+  await page.getByRole("button", { name: "Change password" }).click();
+  await expect(page.getByText("Password changed.")).toBeVisible();
+}
+
 async function takeOverPassword(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByLabel("Current password").fill(TEMPORARY);
-  await page.getByLabel("New password", { exact: true }).fill(OWN);
-  await page.getByLabel("Confirm new password").fill(OWN);
-  await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Change password" }).click();
+  await changeOwnPassword(page, TEMPORARY, OWN);
   await expect.poll(() => vaultOf(page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
   await page.getByRole("button", { name: "← Workspace" }).click();
 }

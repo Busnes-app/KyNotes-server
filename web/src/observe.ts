@@ -55,3 +55,20 @@ export const listContainers = async (sink: FloorSink) => observeContainers(sink,
 export const newContainer = async (sink: FloorSink, ...args: Parameters<typeof createContainer>) => observeContainer(sink, await createContainer(...args));
 export const listAdminTeams = async (sink: FloorSink) => observeContainers(sink, await adminTeams());
 export const newAdminTeam = async (sink: FloorSink, metaCiphertext: string) => observeContainer(sink, await createAdminTeam(metaCiphertext));
+
+export const NOT_CREATED = "The notebook could not get its own key, so it was not created. Try again.";
+/**
+ * Creates a container, then keys and names it (setUp). If setUp fails the new container is still empty
+ * and unnamed, so it is deleted rather than left behind as an "Unnamed" notebook; NOT_CREATED then says
+ * so. If the delete is refused too, setUp's own error stands (NOT_KEYED: reopen it to finish).
+ */
+export async function createKeyed<C extends { id: string }>(create: () => Promise<C>, setUp: (created: C) => Promise<C>, remove: (id: string) => Promise<void>): Promise<C> {
+  const created = await create();
+  try {
+    return await setUp(created);
+  } catch (error) {
+    if (await remove(created.id).then(() => true, () => false)) throw new Error(NOT_CREATED, { cause: error });
+    throw error;
+  }
+}
+

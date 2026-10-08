@@ -95,9 +95,11 @@ describe("workspace keys after P5", () => {
     // Refused before anything is created, so a refused mint never leaves an unnamed notebook behind.
     expect(create).toContain("if (!(await heldIdentity())) throw new Error(NO_KEY_HERE);");
     expect(create).toContain("if (!recoverable(liveRef.current)) throw new Error(UNRECOVERABLE);");
-    expect(create.indexOf("throw new Error(UNRECOVERABLE)")).toBeLessThan(create.indexOf("await create()"));
-    expect(create.indexOf("throw new Error(NO_KEY_HERE)")).toBeLessThan(create.indexOf("await create()"));
-    expect(create).toContain("const container = await syncKeys(await create(), false, () => false, true);");
+    expect(create.indexOf("throw new Error(UNRECOVERABLE)")).toBeLessThan(create.indexOf("createKeyed(create,"));
+    expect(create.indexOf("throw new Error(NO_KEY_HERE)")).toBeLessThan(create.indexOf("createKeyed(create,"));
+    // A failed mint or naming deletes the still-empty notebook (observe.ts createKeyed, M2).
+    expect(create).toContain("}, deleteContainer);");
+    expect(create).toContain("const container = await syncKeys(created, false, () => false, true);");
     expect(create).toContain("if (!write) throw new Error(NOT_KEYED);");
     expect(main.match(/createNamed\(/g)).toHaveLength(4); // the definition, a notebook, a team workspace, an administrator's team
     // Every creation goes through createNamed.
@@ -111,11 +113,39 @@ describe("workspace keys after P5", () => {
 
   it("seals waiting edits with the identity, and tells the sweep whether the account is recoverable", () => {
     expect(block("  const localKeyFor")).toContain("writeKeyFor(container) ?? (waitingRef.current && { key: waitingRef.current, generation: WAITING_GENERATION })");
-    expect(main).toContain("resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, waiting)");
+    // Read at submit time, not captured at render (M3).
+    expect(main).toContain("resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, waiting())");
+    expect(main).toContain("waiting={() => waitingRef.current}");
     expect(block("  async function syncKeys(")).toContain("recoverable: recoverable(liveRef.current)");
     expect(main).toContain("canWrap: false, recoverable: false }"); // the list's read-only pass never mints
     expect(main.match(/waitingRef\.current\)/g)?.length).toBeGreaterThanOrEqual(3); // localReadKeysFor, readyToSend, attachmentStep
     expect(main).toContain("waitingRef.current = identityRef.current && waitingKey(identityRef.current);");
     expect(main).toMatch(/knownNames\[entry\.id\] \?\? teamNames\[entry\.id\]/); // AdminTeams reads the live prop, not a stale closure
   });
+
+  it("checks the account's identity once per session until it changes (M5)", () => {
+    // null means "checked, none": only an unchecked session refetches before a key pass or a creation.
+    expect(main).toContain("liveRef.current = live ?? null;");
+    expect(main.match(/if \(liveRef\.current === undefined\) await refreshIdentity\(\)/g)).toHaveLength(2);
+    expect(main).not.toMatch(/if \(!liveRef\.current\)/);
+    // A password change that creates the identity re-checks it.
+    expect(main).toContain("settleIdentity(name, userID, newKeys).then(onIdentityCreated,");
+  });
+
+  it("never tells an owner to wait for a team owner; copy follows the member list (keyNotices.ts)", () => {
+    expect(main).not.toMatch(/once a team owner shares|Waiting for a team owner/);
+    expect(main.match(/queuedNotice\(stewardHere\(selected\)\)/g)).toHaveLength(2);
+    expect(main).toContain("waitingNotice({ steward: stewardHere(selected),");
+    expect(main).toContain("others ? `Shared this notebook's name with members: ${name}.` : \"\"");
+    expect(main).toContain("{!auth.sso && identityState === \"create\" && <div className=\"conflict-banner\" role=\"status\">{ADMIN_PASSWORD_FIRST}");
+  });
+
+  it("asks for the password-change acknowledgement only while login-key items remain", () => {
+    expect(main).toContain("passwordChangeProblem(next, confirmation, acknowledged, atRisk)");
+    expect(main).toContain("atRisk={legacyAtRisk(items, floorOf)}");
+    expect(main).toContain("{warning && <p className=\"config-muted\" role=\"alert\">{warning}</p>}");
+    expect(main).toContain("<button disabled={busy || (atRisk > 0 && !acknowledged)}>");
+    expect(main).toContain("<p className=\"config-muted\">{PASSWORD_CHANGE_NOTE}</p>");
+  });
 });
+

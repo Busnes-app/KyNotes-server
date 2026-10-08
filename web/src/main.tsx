@@ -20,6 +20,7 @@ import {
   createObject,
   deleteUpload,
   createSealedShareLink,
+  deleteContainer,
   deleteObject,
   downloadAttachment,
   fetchShareCiphertext,
@@ -73,9 +74,10 @@ import { UnsentEdits } from "./components/UnsentEdits";
 import { checkFailure, LEGACY_CLOSED, LegacyReview as LegacyReviewBanner, shareOutcomeText } from "./components/LegacyReview";
 import { checkLegacyRows, LegacyClosedError, mayAutoClose, migrateLegacy, reviewLegacy, type LegacyReview, type Migrated, type MigrationAPI, type MigrationApproval, type ReviewAPI } from "./migration";
 import { clearFloors, floorOf, raiseFloorIn, reopenFloorIn, setClosureReader, useFloors } from "./floors";
-import { closeLegacy, listAdminTeams, listContainers, newAdminTeam, newContainer, type Closed, type ClosureSink, type FloorSink } from "./observe";
+import { closeLegacy, createKeyed, listAdminTeams, listContainers, newAdminTeam, newContainer, type Closed, type ClosureSink, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
-import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
+import { legacyAtRisk, PASSWORD_CHANGE_NOTE, passwordChangeProblem, passwordChangeWarning, resealWaitingEdits } from "./passwordChange";
+import { queuedNotice, stewardOf, UNRECOVERABLE, WAITING, waitingNotice } from "./keyNotices";
 import {
   decryptComment,
   decryptAttachment,
@@ -182,10 +184,9 @@ type PlainComment = {
 type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number };
 type QueueEntry = { note: Note; container: Container };
 const ROLLBACK = "The server reported an older key state for this notebook than this device has seen; writes are paused.";
-const WAITING = "This notebook is read-only until its keys reach this browser.";
-const UNRECOVERABLE = "This notebook gets its own key once your encryption key can be recovered. Save a recovery code in Settings first.";
 const NOT_KEYED = "The notebook was created, but its key is not set up yet. Open it again to finish.";
 const NO_KEY_HERE = "This browser does not hold your encryption key, so it cannot create a notebook. Link it, or restore your key with your recovery code, in Settings.";
+const ADMIN_PASSWORD_FIRST = "An administrator set your password. Change it in Settings before you can write in your notebooks.";
 const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
 const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
@@ -719,6 +720,8 @@ function Workspace({
   // Read-only until this generation's key reaches this browser.
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
+  /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
+  const stewardHere = (container: Container) => stewardOf(keyMembers?.containerID === container.id ? keyMembers.members : undefined, auth.user.id);
   const rollback = Boolean(selected && rolledBack(selected));
   /** keyWait at run time, for handlers: true (and says why) when nothing may change in the open notebook. */
   const readOnlyForKeys = () => {
@@ -763,8 +766,11 @@ function Workspace({
   const identityRef = useRef<HeldIdentity | undefined>(undefined);
   // Seals edits waiting for a key (N3): set with the identity copy, so a password change never strands them.
   const waitingRef = useRef<KeyRef | undefined>(undefined);
-  // The account's identity as the server lists it: recoverable() gates a notebook's first key.
-  const liveRef = useRef<PublicIdentity | undefined>(undefined);
+  // The account's identity as the server lists it: recoverable() gates a notebook's first key, and Settings
+  // shows the code state. null: checked, none (M5: key passes do not refetch; refreshIdentity re-checks
+  // after an identity is created, restored or linked). undefined: not checked yet.
+  const liveRef = useRef<PublicIdentity | null | undefined>(undefined);
+  const [live, setLive] = useState<PublicIdentity | null>();
   /** The vault copy, used only while the server lists it as this account's identity (or cannot be reached). */
   async function heldIdentity() {
     if (!identityRef.current) {
@@ -780,7 +786,8 @@ function Workspace({
   async function refreshIdentity() {
     identityRef.current = undefined;
     const [local, live] = await Promise.all([loadIdentityRecord(auth.username, auth.user.id).catch(() => undefined), myIdentity()]);
-    liveRef.current = live;
+    liveRef.current = live ?? null;
+    setLive(live ?? null);
     setIdentityState(identityStatus(local, live));
     await heldIdentity();
   }
@@ -870,7 +877,7 @@ function Workspace({
   async function syncKeys(container: Container, background = false, superseded: () => boolean = () => false, share = false): Promise<Container> {
     // Every notebook gets a pass: its floor first, then its keys. A never-shared notebook the user owns is minted here.
     await ensureFloor(container);
-    if (!liveRef.current) await refreshIdentity().catch(() => undefined);
+    if (liveRef.current === undefined) await refreshIdentity().catch(() => undefined);
     return serialized(container.id, async () => {
       const confirmChanged = background ? () => false : (changes: PinChange[]) => !superseded() && confirmChangedKeys(container.id)(changes);
       const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso || share, recoverable: recoverable(liveRef.current) }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
@@ -880,7 +887,7 @@ function Workspace({
       let next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
       setItems((value) => value.map((entry) => (entry.id === next.id ? { ...entry, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : entry)));
       let renamed = "";
-      if (result.minted) [next, renamed] = await resealName(next);
+      if (result.minted) [next, renamed] = await resealName(next, result.members.some((member) => member.userId !== auth.user.id));
       // Pins a failed save did not keep are not announced.
       const fresh = [...(unannounced.current[container.id] ?? []), ...(result.plan.kind === "pins-unsaved" ? [] : result.fresh)];
       if (!superseded() && (loadingContainerID.current ?? selectedRef.current?.id) === container.id) {
@@ -906,7 +913,7 @@ function Workspace({
    * After a mint, the name this browser already shows is sealed again with the new key, so
    * members can read it. Only that trusted name is resealed, from the server's latest state.
    */
-  async function resealName(container: Container): Promise<[Container, string]> {
+  async function resealName(container: Container, others: boolean): Promise<[Container, string]> {
     try {
       const latest = await currentContainer(container.id);
       // Never hand back the older generations: a newer one without its key must stay read-only.
@@ -936,7 +943,7 @@ function Workspace({
       const result = await sendContainerName({ container: latest, generation: write.generation }, encoded, latest.metaVersion);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
       // Visible on purpose: a name read with a key the server can derive now reaches every member (spec §6).
-      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, `Shared this notebook's name with members: ${name}.`];
+      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, others ? `Shared this notebook's name with members: ${name}.` : ""];
     } catch {
       return [container, "This notebook's name could not be shared with its members yet. Rename it to try again."];
     }
@@ -1569,19 +1576,22 @@ function Workspace({
   /**
    * Creates a notebook, mints its first key before anything is written (the user's click is the consent;
    * an SSO session confirms the rotation with KySignOn) and seals its name with that key. The login key
-   * never seals: a notebook whose mint did not happen stays unnamed and read-only until its owner reopens it.
+   * never seals. A notebook whose mint or naming failed is deleted while still empty (createKeyed); if that
+   * is refused it stays unnamed and read-only until its owner reopens it.
    */
   async function createNamed(create: () => Promise<Container>, name: string): Promise<Container> {
     // Checked before anything is created: a refused mint must not leave an unnamed notebook behind.
     if (!(await heldIdentity())) throw new Error(NO_KEY_HERE);
-    if (!liveRef.current) await refreshIdentity().catch(() => undefined);
+    if (liveRef.current === undefined) await refreshIdentity().catch(() => undefined);
     if (!recoverable(liveRef.current)) throw new Error(UNRECOVERABLE);
-    const container = await syncKeys(await create(), false, () => false, true);
-    const write = writeKeyFor(container);
-    if (!write) throw new Error(NOT_KEYED);
-    const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
-    const result = await sendContainerName({ container, generation: write.generation }, encoded, container.metaVersion);
-    const named = { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
+    const named = await createKeyed(create, async (created) => {
+      const container = await syncKeys(created, false, () => false, true);
+      const write = writeKeyFor(container);
+      if (!write) throw new Error(NOT_KEYED);
+      const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
+      const result = await sendContainerName({ container, generation: write.generation }, encoded, container.metaVersion);
+      return { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
+    }, deleteContainer);
     setNames((value) => ({ ...value, [named.id]: name }));
     setItems((value) => [...value.filter((entry) => entry.id !== named.id), named]);
     return named;
@@ -1689,7 +1699,7 @@ function Workspace({
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
         await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
         setSyncStatus("local");
-        setError("Saved on this device only. It is sent once a team owner shares this notebook's keys; until then, do not clear this browser's data.");
+        setError(queuedNotice(stewardHere(selected)));
         return note;
       }
       try {
@@ -1884,7 +1894,7 @@ function Workspace({
     if (write.generation === WAITING_GENERATION) {
       await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
       setSyncStatus("local");
-      setError("Saved on this device only. It is sent once a team owner shares this notebook's keys; until then, do not clear this browser's data.");
+      setError(queuedNotice(stewardHere(selected)));
       return null;
     }
     try {
@@ -2668,16 +2678,20 @@ function Workspace({
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : <>Waiting for a team owner to share this notebook's keys. It is read-only until then. <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}</div>}
+                {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
+                  const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
+                  return <>{notice.text}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
+                })()}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
                 {!queueMode && selected && legacyCheck?.containerID === selected.id && (
                   <LegacyReviewBanner key={selected.id} userID={auth.user.id} containerID={selected.id} review={legacyCheck.review} checking={legacyCheck.checking} failure={legacyCheck.failure}
                     closed={closedOf(floorFor(selected)) > 0} reopened={legacyCheck.reopened === true} labelled={unverified.size > 0} outcome={legacyOutcome?.containerID === selected.id ? legacyOutcome.result : undefined}
                     onShare={shareLegacy} onStop={async () => { if ((await stopLegacy(selected)) === "closed") setError(LEGACY_CLOSED); }} onReopen={(confirmation) => reopenLegacyReads(selected, confirmation)} />
                 )}
-                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">Members are waiting for this notebook's keys. <button className="quiet" onClick={() => void shareKeysNow()}>Share keys (confirm with KySignOn)</button></div>}
-                {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so team notebooks stay locked here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
+                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with KySignOn)</button></div>}
+                {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks stay locked here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so team owners can share notebooks with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+                {!auth.sso && identityState === "create" && <div className="conflict-banner" role="status">{ADMIN_PASSWORD_FIRST} <button onClick={() => setView("settings")}>Change password</button></div>}
                 {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (an administrator reset removes it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
                 <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
                 {invitation && (
@@ -2992,7 +3006,8 @@ function Workspace({
             onLinked={() => void refreshIdentity().catch(() => undefined)}
             createTeam={createTeam}
             knownNames={names}
-            waiting={waitingRef.current}
+            waiting={() => waitingRef.current}
+            atRisk={legacyAtRisk(items, floorOf)}
           />
         )}
       </>
@@ -3010,7 +3025,9 @@ function Workspace({
   );
 }
 
-function PasswordSettings({ username, userID, onAuthSecret, waiting }: { username: string; userID: string; onAuthSecret: (authSecret: string) => void; waiting?: KeyRef }) {
+/** waiting is read at submit time (M3): the identity may load after this renders. */
+function PasswordSettings({ username, userID, onAuthSecret, waiting, atRisk, onIdentityCreated }: { username: string; userID: string; onAuthSecret: (authSecret: string) => void; waiting: () => KeyRef | undefined; atRisk: number; onIdentityCreated: () => void }) {
+  const warning = passwordChangeWarning(atRisk);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [status, setStatus] = useState("");
@@ -3023,7 +3040,7 @@ function PasswordSettings({ username, userID, onAuthSecret, waiting }: { usernam
         "confirm",
       ) as HTMLInputElement
     )?.value;
-    const problem = passwordChangeProblem(next, confirmation, acknowledged);
+    const problem = passwordChangeProblem(next, confirmation, acknowledged, atRisk);
     if (problem) {
       setStatus(problem);
       return;
@@ -3047,9 +3064,9 @@ function PasswordSettings({ username, userID, onAuthSecret, waiting }: { usernam
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
       }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
       // No identity yet (e.g. an administrator set the old password): create it under the new one.
-      if (!rewrapped) void settleIdentity(name, userID, newKeys);
+      if (!rewrapped) void settleIdentity(name, userID, newKeys).then(onIdentityCreated, () => undefined);
       onAuthSecret(newKeys.authSecret);
-      const stranded = await resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, waiting).catch(() => -1);
+      const stranded = await resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret, waiting()).catch(() => -1);
       setCurrent("");
       setNext("");
       setAcknowledged(false);
@@ -3093,18 +3110,20 @@ function PasswordSettings({ username, userID, onAuthSecret, waiting }: { usernam
           <span>Confirm new password</span>
           <input name="confirm" type="password" required />
         </label>
-        <p className="config-muted" role="alert">{PASSWORD_CHANGE_WARNING}</p>
-        <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            onChange={(event) => setAcknowledged(event.target.checked)}
-            style={{ width: "18px", height: "18px" }}
-            required
-          />
-          <span>I understand which notes become unreadable.</span>
-        </label>
-        <button disabled={busy || !acknowledged}>
+        {warning && <p className="config-muted" role="alert">{warning}</p>}
+        {warning && (
+          <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+              style={{ width: "18px", height: "18px" }}
+            />
+            <span>I understand those items become unreadable.</span>
+          </label>
+        )}
+        <p className="config-muted">{PASSWORD_CHANGE_NOTE}</p>
+        <button disabled={busy || (atRisk > 0 && !acknowledged)}>
           {busy ? "Changing…" : "Change password"}
         </button>
       </form>
@@ -3460,6 +3479,7 @@ function SettingsView({
   createTeam,
   knownNames,
   waiting,
+  atRisk,
   legacyKey,
   colleagueNames,
   teamKeys,
@@ -3485,14 +3505,15 @@ function SettingsView({
   onAuthSecret: (authSecret: string) => void;
   createTeam: (name: string) => Promise<string>;
   knownNames: Record<string, string>;
-  waiting?: KeyRef;
+  waiting: () => KeyRef | undefined;
+  atRisk: number;
   identityState: IdentityStatus | "unknown";
   /** A single sign-on session: it creates its key from the notebook list, not with a password. */
   sso: boolean;
   heldIdentity: () => Promise<HeldIdentity | undefined>;
   identityStore: IdentityStore;
   stepUp: () => Promise<void>;
-  onLinked: (identity: HeldIdentity) => void;
+  onLinked: (identity?: HeldIdentity) => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
   const [status, setStatus] = useState<{
@@ -3593,7 +3614,7 @@ function SettingsView({
               <button onClick={() => applyTheme(theme)}>Apply theme</button>
             </section>
             <div id="password">
-              <PasswordSettings username={username} userID={userID} onAuthSecret={onAuthSecret} waiting={waiting} />
+              <PasswordSettings username={username} userID={userID} onAuthSecret={onAuthSecret} waiting={waiting} atRisk={atRisk} onIdentityCreated={() => onLinked()} />
             </div>
             <section id="device" className="config-card">
               <h2>Trusted Device & SSO</h2>

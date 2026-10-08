@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { legacyKeyRef } from "./crypto";
 import { localKey, newContainerKey, readKeys, WAITING_GENERATION, writeKey, type KeyFloor } from "./keyring";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
-import { closeLegacy, observeContainer, type ClosureSink, type FloorSink } from "./observe";
+import { closeLegacy, createKeyed, NOT_CREATED, observeContainer, type ClosureSink, type FloorSink } from "./observe";
 import { clearAllDeviceKeys, closeLegacyStored, getKeyState, storeDeviceKey, storeKeyState } from "./storage";
 
 vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
@@ -112,4 +112,26 @@ describe("observeContainer", () => {
     expect(floorOf(cnt)?.closed).toBe(2);
   });
 
+});
+
+describe("createKeyed", () => {
+  const made = { id: "cnt_new" };
+  it("deletes the empty container when keying or naming fails, and says it was not created (M2)", async () => {
+    const remove = vi.fn(async () => {});
+    await expect(createKeyed(async () => made, async () => { throw new Error("not keyed"); }, remove)).rejects.toThrow(NOT_CREATED);
+    expect(remove).toHaveBeenCalledWith("cnt_new");
+  });
+
+  it("keeps the setup error when the delete is refused, and deletes nothing that was set up", async () => {
+    await expect(createKeyed(async () => made, async () => { throw new Error("not keyed"); }, async () => { throw new Error("forbidden"); })).rejects.toThrow("not keyed");
+    const remove = vi.fn(async () => {});
+    await expect(createKeyed(async () => made, async (created) => ({ ...created, named: true }), remove)).resolves.toEqual({ id: "cnt_new", named: true });
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("creates nothing to delete when create itself fails", async () => {
+    const remove = vi.fn(async () => {});
+    await expect(createKeyed(async () => { throw new Error("offline"); }, async (c: { id: string }) => c, remove)).rejects.toThrow("offline");
+    expect(remove).not.toHaveBeenCalled();
+  });
 });

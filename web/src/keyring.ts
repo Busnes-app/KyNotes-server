@@ -124,7 +124,7 @@ export type OpenKeyringInput = {
   held?: Keyring;
 };
 
-const isSteward = (role: string) => role === "owner" || role === "admin";
+export const isSteward = (role: string) => role === "owner" || role === "admin";
 
 /**
  * Opens this identity's envelopes, accepting only keys a trusted sender sealed:

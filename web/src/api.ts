@@ -122,6 +122,8 @@ export function createContainer(kind = "workbook", metaCiphertext = "", teamId =
 }
 
 /** keyGeneration is the generation the name was sealed with; a shared container refuses any but the current one. */
+/** Owner only, and only within five minutes of sign-in (server rule); createKeyed's best-effort cleanup. */
+export const deleteContainer = (id: string) => request<void>(`/api/v1/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
 export function updateContainer(id: string, metaCiphertext: string, baseVersion: number, keyGeneration: number) {
   return request<{ metaVersion: number; changeSeq: number }>(`/api/v1/containers/${encodeURIComponent(id)}`, {
     method: "PATCH", body: JSON.stringify({ metaCiphertext, baseVersion, keyGeneration }),

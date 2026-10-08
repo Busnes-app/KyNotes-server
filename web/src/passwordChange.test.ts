@@ -1,24 +1,30 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
-import { WAITING_GENERATION, waitingKey } from "./keyring";
+import { legacyAtRisk, PASSWORD_CHANGE_NOTE, passwordChangeProblem, passwordChangeWarning, resealWaitingEdits } from "./passwordChange";
+import { newContainerKey, WAITING_GENERATION, waitingKey, type KeyFloor } from "./keyring";
 import { clearQueuedSave, getNote, pendingSaves, putNote, queueSave } from "./storage";
 import { generateIdentity } from "./teamKeys";
 
 vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
 
 describe("password change confirmation", () => {
-  it("warns what becomes unreadable and what happens to waiting team edits", () => {
-    expect(PASSWORD_CHANGE_WARNING).toMatch(/unreadable/i);
-    expect(PASSWORD_CHANGE_WARNING).toMatch(/waiting on this browser .* re-encrypted/i);
-  });
-
-  it("requires matching passwords and an explicit acknowledgement", () => {
-    expect(passwordChangeProblem("", "", true)).toBeDefined();
-    expect(passwordChangeProblem("a", "b", true)).toMatch(/do not match/);
-    expect(passwordChangeProblem("a", "a", false)).toMatch(/confirm/i);
-    expect(passwordChangeProblem("a", "a", true)).toBeUndefined();
+  it("asks for an acknowledgement only while a notebook may still hold login-key items", () => {
+    const floors: Record<string, KeyFloor> = { cnt_a: { shared: 2, closed: 2 }, cnt_b: { shared: 2 }, cnt_c: {} };
+    const at = (id: string) => floors[id];
+    // Shared and closed here: nothing at risk. Shared but still open, or never shared: at risk.
+    expect(legacyAtRisk([{ id: "cnt_a", sharedGeneration: 2 }], at)).toBe(0);
+    expect(legacyAtRisk([{ id: "cnt_a", sharedGeneration: 2 }, { id: "cnt_b", sharedGeneration: 2 }, { id: "cnt_c", sharedGeneration: 0 }, { id: "cnt_d", sharedGeneration: 0 }], at)).toBe(3);
+    // Never shared counts even with a closure mark: its rows have no other key.
+    expect(legacyAtRisk([{ id: "cnt_e", sharedGeneration: 0 }], () => ({ closed: 2 }))).toBe(1);
+    expect(passwordChangeWarning(0)).toBeUndefined();
+    expect(passwordChangeWarning(2)).toMatch(/^2 notebooks may still hold items sealed with your current password/);
+    expect(passwordChangeProblem("a", "a", false, 0)).toBeUndefined();
+    expect(passwordChangeProblem("a", "a", false, 1)).toMatch(/confirm/i);
+    expect(passwordChangeProblem("a", "a", true, 1)).toBeUndefined();
+    expect(passwordChangeProblem("a", "b", true, 0)).toMatch(/do not match/);
+    expect(passwordChangeProblem("", "", true, 0)).toBeDefined();
+    expect(PASSWORD_CHANGE_NOTE).toMatch(/stopped opening/);
   });
 });
 
@@ -32,7 +38,7 @@ describe("waiting edits across a password change", () => {
 
   it("re-seals generation-0 queue entries and their drafts for the new login key, and nothing else", async () => {
     const waiting = { id: "obj_w", containerID: cnt, version: 1, payload: await encryptNote(before, cnt, page), updatedAt: "t1", keyGeneration: 0, owner: me };
-    const sent = { id: "obj_s", containerID: cnt, version: 1, payload: await encryptNote(before, cnt, page), updatedAt: "t1", keyGeneration: 3, owner: me };
+    const sent = { id: "obj_s", containerID: cnt, version: 1, payload: await encryptNote(newContainerKey(), cnt, page), updatedAt: "t1", keyGeneration: 3, owner: me };
     await queueSave(waiting);
     await queueSave(sent);
     await putNote(me, waiting);
@@ -75,5 +81,16 @@ describe("waiting edits across a password change", () => {
     // Never onto the new login key: the password is no longer what keeps it readable.
     await expect(decryptObject(after, cnt, moved)).rejects.toThrow();
     await expect(decryptObject(waiting, cnt, (await getNote(me, underLogin.id))!.payload)).resolves.toEqual(page);
+  });
+
+  it("moves a personal edit queued before P5 at a container generation onto the waiting key, so a password change never strands it (M1)", async () => {
+    for (const entry of await pendingSaves()) await clearQueuedSave(entry.owner ?? "", entry.id);
+    const waiting = waitingKey(generateIdentity());
+    const prior = { id: "obj_p", containerID: cnt, version: 1, payload: await encryptNote(before, cnt, page), updatedAt: "t1", keyGeneration: 1, owner: me };
+    await queueSave(prior);
+    expect(await resealWaitingEdits("a".repeat(64), "b".repeat(64), waiting)).toBe(0);
+    const moved = (await pendingSaves()).find((entry) => entry.id === prior.id)!;
+    expect(moved.keyGeneration).toBe(WAITING_GENERATION);
+    await expect(decryptObject(waiting, cnt, moved.payload)).resolves.toEqual(page);
   });
 });

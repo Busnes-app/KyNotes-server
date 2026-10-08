@@ -136,7 +136,7 @@ export async function settlePasswordIdentity(api: IdentityAPI, store: IdentitySt
  * The account's key outlives every browser: the server holds a password copy or a recovery-code copy.
  * A notebook's first key waits for this (keyring.ts planSweep), so no notebook becomes lost with a browser.
  */
-export const recoverable = (live: PublicIdentity | undefined): boolean =>
+export const recoverable = (live: PublicIdentity | null | undefined): boolean =>
   Boolean(live && (live.wrapAlg === IDENTITY_WRAP_ALG || live.recoveryId));
 
 const holdsLive = (local: HeldIdentity | undefined, live: PublicIdentity) => local !== undefined && sameBytes(local.publicKey, fromBase64(live.publicKey));
