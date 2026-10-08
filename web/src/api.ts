@@ -252,12 +252,6 @@ export const objectConflicts = (objectID: string) => request<Array<{ id: string;
 export async function conflictCiphertext(conflictID: string) { const response = await fetch(`/api/v1/conflicts/${encodeURIComponent(conflictID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error(`Unable to read conflicting version (${response.status})`); return new Uint8Array(await response.arrayBuffer()); }
 export const resolveConflict = (conflictID: string) => request<void>(`/api/v1/conflicts/${encodeURIComponent(conflictID)}/resolve`, { method: "POST" });
 
-export function createShareLink(objectID: string, expiresAt: string, version = 0) {
-  return request<{ id: string; token: string; objectId: string; version: number; expiresAt: string; commitReceipt: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/share-links`, {
-    method: "POST", body: JSON.stringify({ version, expiresAt }),
-  });
-}
-
 export function createSealedShareLink(ciphertext: Uint8Array, expiresAt: string) {
   let binary = ""; for (const byte of ciphertext) binary += String.fromCharCode(byte);
   return request<{ id: string; token: string; expiresAt: string }>("/api/v1/share-links", { method: "POST", body: JSON.stringify({ ciphertext: btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""), expiresAt }) });

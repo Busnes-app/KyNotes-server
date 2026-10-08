@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asContentKey, base64, decryptNote, encryptNote, type KeyRef } from "./crypto";
-import { guardContainer, mergeFloor, memberKeyStatus, keysAllowed, NO_FLOOR, ownCopyKeys, raiseFloor, localKey, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, waitingKey, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
+import { guardContainer, mergeFloor, memberKeyStatus, keysAllowed, NO_FLOOR, ownCopyKeys, raiseFloor, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, waitingKey, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -200,15 +200,15 @@ describe("keyring", () => {
   it("seals an edit made while keys are missing for this device only, and reads it back only as its own copy", async () => {
     const shared = { id: cnt, keyGeneration: 3, sharedGeneration: 2 };
     const seal = waitingKey(generateIdentity());
-    const waiting = localKey(shared, new Map(), seal, NO_FLOOR);
-    expect(waiting).toEqual({ key: seal, generation: WAITING_GENERATION });
+    expect(writeKey(shared, new Map(), NO_FLOOR)).toBeUndefined();
+    const waiting = { key: seal, generation: WAITING_GENERATION }; // main.tsx localKeyFor
     // Never a generation the server would accept, and never the current key's slot.
     expect(WAITING_GENERATION).toBeLessThan(1);
     const sealed = await encryptNote(waiting.key, cnt, { title: "W", body: "" });
     await expect(openFirst(ownCopyKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR, seal), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
     expect(readKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR)).toEqual([]);
     const k3 = newContainerKey();
-    expect(localKey(shared, new Map([[3, k3]]), seal, NO_FLOOR)).toEqual({ key: k3, generation: 3 });
+    expect(writeKey(shared, new Map([[3, k3]]), NO_FLOOR)).toEqual({ key: k3, generation: 3 });
   });
 
   it("never opens a newer row with a removed member's older key", async () => {
@@ -347,9 +347,6 @@ describe("sharing-state rollback", () => {
     const unkeyed = { id: cnt, keyGeneration: 3, sharedGeneration: 0 };
     expect(guardContainer(unkeyed, seen).rollback).toBe(true);
     expect(writeKey(unkeyed, ring, seen)).toBeUndefined();
-    // The local waiting seal never leaves the device; it is never a server write key.
-    const seal = waitingKey(generateIdentity());
-    expect(localKey(unkeyed, ring, seal, seen).generation).toBe(WAITING_GENERATION);
     // Reads keep the floor's first keyed generation: the current one opens with its key, older ones with none.
     expect(readKeys(unkeyed, ring, 3, seen)).toEqual([k3]);
     expect(readKeys(unkeyed, new Map([[1, k3]]), 1, seen)).toEqual([]);
@@ -371,9 +368,6 @@ describe("nothing is sealed before the first key, and kind never decides keys", 
   it("gives an unkeyed notebook no write key and no read key", () => {
     const fresh = { id: cnt, kind: "workbook", keyGeneration: 1, sharedGeneration: 0 };
     expect(writeKey(fresh, new Map([[1, k2]]), {})).toBeUndefined();
-    // A local copy waits under the seal the caller passes (waitingKey), at generation 0.
-    const seal = waitingKey(generateIdentity());
-    expect(localKey(fresh, new Map(), seal, {})).toEqual({ key: seal, generation: WAITING_GENERATION });
     expect(readKeys(fresh, new Map([[1, k2]]), 1, {})).toEqual([]);
   });
 

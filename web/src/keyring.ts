@@ -167,11 +167,6 @@ export function writeKey(reported: KeyedContainer, ring: Keyring, floor: KeyFloo
  */
 export const WAITING_GENERATION = 0;
 
-/** The key a local copy is sealed with: writeKey, or seal (waitingKey) at WAITING_GENERATION while that is missing. */
-export function localKey(container: KeyedContainer, ring: Keyring, seal: KeyRef, floor: KeyFloor): WriteKey {
-  return writeKey(container, ring, floor) ?? { key: seal, generation: WAITING_GENERATION };
-}
-
 /**
  * Seals this browser's edits that wait for a key (N3). Derived from the identity alone, so they survive
  * a password change, and "Forget this device" once the identity comes back (link, recovery code, password).
