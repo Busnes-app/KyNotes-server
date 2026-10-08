@@ -1093,7 +1093,7 @@ async function p5(owner: Person, editor: Person, cid: string, another: () => Pro
   await field.fill(` ${code.toLowerCase()} `);
   await restoreButton.click();
   // The restore card unmounts once the key is held, so Settings says what a link says (main.tsx justLinked).
-  await expect(restored.page.getByRole("status").filter({ hasText: LINKED })).toBeVisible({ timeout: 30_000 });
+  await expect(restored.page.getByRole("status").filter({ hasText: "Restored. This browser now holds your encryption key." })).toBeVisible({ timeout: 30_000 });
   await expect(restore).toHaveCount(0);
   const back = (await vaultOf(restored.page))!.identity!;
   expect(back.publicKey).toEqual(editorKey.publicKey);

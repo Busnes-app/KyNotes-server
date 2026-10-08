@@ -1,6 +1,6 @@
 import { AdminBackup } from "./components/AdminBackup";
 import { ConfirmPassword } from "./components/ConfirmPassword";
-import { IdentityReset, RECOVERY_MISSING, RecoveryRestore, RecoverySetup } from "./components/RecoveryCode";
+import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
 import { exportUnsent } from "./stuckEdits";
 import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -3321,7 +3321,7 @@ function SettingsView({
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
   const [ownFingerprint, setOwnFingerprint] = useState("");
-  const [justLinked, setJustLinked] = useState(false);
+  const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
   async function exportWaiting(): Promise<number> {
     const queued = (await pendingSaves()).filter((item) => item.owner === userID);
@@ -3438,7 +3438,7 @@ function SettingsView({
               {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped"
                 ? "This browser keeps it wrapped under a browser key that pages cannot export. That is not protection at rest: anyone who can read this browser's profile on disk can still recover it. Use \"Forget this device\" on shared computers."
                 : "This site is not served over HTTPS, so this browser stores your key unwrapped in its site storage. Anyone who can read this browser's profile can copy it. Use \"Forget this device\" on shared computers."}</p>}
-              {justLinked && <p role="status">Linked. This browser now holds your encryption key.</p>}
+              {justLinked && <p role="status">{justLinked === "restored" ? RECOVERY_RESTORED : "Linked. This browser now holds your encryption key."}</p>}
               {onForgetDevice && (
                 <button
                   type="button"
@@ -3450,8 +3450,8 @@ function SettingsView({
               )}
             </section>
             {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
-            {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked(true); onIdentityChanged(); }} />}
-            {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked(true); onIdentityChanged(); }} />}
+            {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked("linked"); onIdentityChanged(); }} />}
+            {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked("restored"); onIdentityChanged(); }} />}
             {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
             <PinnedKeys username={username} userID={userID} names={colleagueNames} />
             <UnsentEdits username={username} userID={userID} keysFor={keysFor} />
