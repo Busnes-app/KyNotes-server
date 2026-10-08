@@ -89,6 +89,7 @@ import {
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { loadGate } from "./loadGate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
 import {
@@ -836,6 +837,7 @@ function Workspace({
   const [queueMode, setQueueMode] = useState(false);
   const [loadingContainer, setLoadingContainer] = useState(false);
   const loadingContainerID = useRef<string | undefined>(undefined);
+  const loads = useMemo(loadGate, []);
   // Versions saved while a load reads; the load's fresh list would otherwise drop them.
   const loadCarried = useRef(new Map<string, { version: number; updatedAt?: string }>());
   const carryDuringLoad = (id: string, saved: { version: number; updatedAt?: string }) => {
@@ -1204,25 +1206,26 @@ function Workspace({
   }
   /** Null when the open page could not be flushed and stays open. */
   async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
+    // Every call supersedes the ones before it, a second load of the same notebook included.
+    const load = loads.begin();
     loadingContainerID.current = container.id;
     setLoadingContainer(true);
     try {
-      return await loadContainer(container, route);
+      return await loadContainer(container, route, load.superseded);
     } finally {
-      // A later switch owns the flag now.
-      if (loadingContainerID.current === container.id) {
+      // A later load owns the flag now.
+      if (!load.superseded()) {
         loadingContainerID.current = undefined;
         setLoadingContainer(false);
       }
     }
   }
-  async function loadContainer(container: Container, route?: Route): Promise<Note[] | null> {
+  async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean): Promise<Note[] | null> {
     // Workspace navigation destroys the current editor. Finish its latest
     // encrypted save before replacing the note list so the next load cannot
     // fall back to an older plain document.
     if (!(await flushOpenPage())) return null;
-    // Another switch started meanwhile: its results win.
-    const superseded = () => loadingContainerID.current !== container.id;
+    // Another load started meanwhile: its results win.
     if (superseded()) return [];
     // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
@@ -2380,7 +2383,7 @@ function Workspace({
               }}
             />
           )}
-          <section className="note-list">
+          <section className="note-list" aria-busy={loadingContainer}>
             <div className="list-header">
               <div>
                 <div className="section-label">
