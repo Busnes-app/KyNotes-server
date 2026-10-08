@@ -275,7 +275,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Backup/recovery mutations, `POST /api/v1/admin/users`,
   `POST /api/v1/admin/users/{id}/password` and the SSO settings mutations (`POST /admin/sso`,
   `/admin/sso/pair`, verify `TestAdminSSOAndPairing`) use `auth.RequireStepUp`, so a stolen admin
-  cookie cannot mint local credentials. Local sessions re-prove their
+  cookie cannot mint local credentials. The SSO client and directory HMAC secrets are write-only:
+  admin responses carry only `clientSecretSet`/`hmacSecretSet` (`ssoView`), and an empty field on save
+  keeps the stored secret. Database errors reach clients only as `500 internal`; `writeInternal` logs
+  the detail (`TestDatabaseErrorsNeverReachTheClient`). Local sessions re-prove their
   derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
   with fresh signed auth_time and ordinary assurance through the existing PKCE callback.

@@ -3247,14 +3247,16 @@ function AdminSSO({ username }: { username: string }) {
           />
         </label>
         <label className="field">
-          <span>Client Secret (Optional for PKCE)</span>
+          <span>{settings.clientSecretSet ? "Client Secret: set. Enter a new one only to replace it" : "Client Secret (Optional for PKCE)"}</span>
           <input
             type="password"
+            autoComplete="new-password"
             value={settings.clientSecret ?? ""}
             onChange={(e) => setSettings({ ...settings, clientSecret: e.target.value })}
-            placeholder="••••••••"
+            placeholder={settings.clientSecretSet ? "Leave empty to keep the current secret" : ""}
           />
         </label>
+        <p className="config-muted">Directory sync secret: {settings.hmacSecretSet ? "set" : "not set"}</p>
         <label className="field">
           <span>Custom Redirect URI (Optional override)</span>
           <input

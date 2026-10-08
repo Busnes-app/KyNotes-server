@@ -338,8 +338,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 	})))
 	if ssoStore != nil {
 		handleGetSSO := auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			settings := ssoStore.Load()
-			writeJSON(w, settings)
+			writeJSON(w, ssoView(ssoStore.Load()))
 		}))
 		mux.Handle("GET /api/v1/admin/sso", handleGetSSO)
 		mux.Handle("GET /api/admin/sso", handleGetSSO)
@@ -355,13 +354,21 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return
 			}
+			// Secrets are write-only: an empty field keeps the stored one.
+			current := ssoStore.Load()
+			if in.ClientSecret == "" {
+				in.ClientSecret = current.ClientSecret
+			}
+			if in.HMACSecret == "" {
+				in.HMACSecret = current.HMACSecret
+			}
 			if err := ssoStore.Save(in); err != nil {
 				WriteError(w, r, 500, "internal", "failed to save SSO settings")
 				return
 			}
 			s, _ := auth.SessionFromContext(r)
 			recordAudit(db, s.UserID, "admin.sso_update", "", "", r.Header.Get("X-Request-Id"))
-			writeJSON(w, in)
+			writeJSON(w, ssoView(in))
 		}))
 		mux.Handle("POST /api/v1/admin/sso", handlePostSSO)
 		mux.Handle("POST /api/admin/sso", handlePostSSO)
@@ -416,10 +423,17 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			writeJSON(w, map[string]any{
 				"success":  true,
 				"systemId": resp.SystemID,
-				"settings": newSettings,
+				"settings": ssoView(newSettings),
 			})
 		}))
 		mux.Handle("POST /api/v1/admin/sso/pair", handlePairSSO)
 		mux.Handle("POST /api/admin/sso/pair", handlePairSSO)
 	}
+}
+
+// ssoView is what an administrator page sees of the SSO settings: the client and directory
+// secrets are write-only, reported only as set or not.
+func ssoView(s sso.SSOSettings) map[string]any {
+	return map[string]any{"enabled": s.Enabled, "issuerUrl": s.IssuerURL, "clientId": s.ClientID, "redirectUri": s.RedirectURI,
+		"autoProvision": s.AutoProvision, "clientSecretSet": s.ClientSecret != "", "hmacSecretSet": s.HMACSecret != ""}
 }

@@ -214,33 +214,57 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	}
 
 	rec := send("/api/v1/admin/sso/pair", pairJSON)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 from admin sso pair, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "shared-hmac-secret-xyz") {
+		t.Fatalf("admin sso pair: %d %s", rec.Code, rec.Body.String())
 	}
-
 	var pairRes map[string]any
 	_ = json.NewDecoder(rec.Body).Decode(&pairRes)
 	if pairRes["success"] != true || pairRes["systemId"] != "sys_paired_123" {
 		t.Fatalf("unexpected pair result: %+v", pairRes)
 	}
 
-	// Verify GET /api/v1/admin/sso returns paired configuration
-	getReq := httptest.NewRequest("GET", "/api/v1/admin/sso", nil)
-	getReq.AddCookie(sessionCookie)
-	getRec := httptest.NewRecorder()
-	router.ServeHTTP(getRec, getReq)
-
-	if getRec.Code != http.StatusOK {
-		t.Fatalf("expected 200 from GET /api/v1/admin/sso, got %d", getRec.Code)
+	// Secrets are write-only: no admin response carries one, on any alias; GET says only whether each is set.
+	get := func(want map[string]any) {
+		t.Helper()
+		for _, path := range []string{"/api/v1/admin/sso", "/api/admin/sso"} {
+			req := httptest.NewRequest("GET", path, nil)
+			req.AddCookie(sessionCookie)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			body := rec.Body.String()
+			var got map[string]any
+			if rec.Code != http.StatusOK || json.Unmarshal([]byte(body), &got) != nil {
+				t.Fatalf("GET %s: %d %s", path, rec.Code, body)
+			}
+			for _, secret := range []string{"shared-hmac-secret-xyz", strings.Repeat("x", 32), strings.Repeat("c", 32), "hmacSecret\"", "clientSecret\""} {
+				if strings.Contains(body, secret) {
+					t.Fatalf("GET %s echoed a secret (%s): %s", path, secret, body)
+				}
+			}
+			for k, v := range want {
+				if got[k] != v {
+					t.Fatalf("GET %s %s=%v want %v: %s", path, k, got[k], v, body)
+				}
+			}
+		}
 	}
+	get(map[string]any{"enabled": true, "issuerUrl": mockKySignOn.URL, "hmacSecretSet": true, "clientSecretSet": false})
 
-	var ssoSettings sso.SSOSettings
-	_ = json.NewDecoder(getRec.Body).Decode(&ssoSettings)
-	if !ssoSettings.Enabled || ssoSettings.IssuerURL != mockKySignOn.URL || ssoSettings.HMACSecret != "shared-hmac-secret-xyz" {
-		t.Fatalf("unexpected sso settings in admin response: %+v", ssoSettings)
-	}
-	if rec := send("/api/v1/admin/sso", settingsJSON); rec.Code != http.StatusOK {
+	withClient, _ := json.Marshal(sso.SSOSettings{Enabled: true, IssuerURL: "https://issuer.example", ClientID: "kynotes", ClientSecret: strings.Repeat("c", 32), HMACSecret: strings.Repeat("x", 32)})
+	if rec := send("/api/v1/admin/sso", withClient); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), strings.Repeat("c", 32)) || strings.Contains(rec.Body.String(), strings.Repeat("x", 32)) {
 		t.Fatalf("settings save after step-up: %d %s", rec.Code, rec.Body.String())
+	}
+	get(map[string]any{"issuerUrl": "https://issuer.example", "hmacSecretSet": true, "clientSecretSet": true})
+	// Saving with empty secret fields keeps the stored secrets.
+	if rec := send("/api/admin/sso", []byte(`{"enabled":true,"issuerUrl":"https://issuer.example","clientId":"kynotes"}`)); rec.Code != http.StatusOK {
+		t.Fatalf("save without secrets: %d %s", rec.Code, rec.Body.String())
+	}
+	if kept := sso.NewStore(db).Load(); kept.ClientSecret != strings.Repeat("c", 32) || kept.HMACSecret != strings.Repeat("x", 32) {
+		t.Fatalf("an empty field replaced a secret: %+v", kept)
+	}
+	var audits2 int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE reason_code LIKE '%xxxx%' OR reason_code LIKE '%cccc%' OR object_id LIKE '%xxxx%' OR object_id LIKE '%cccc%' OR object_id LIKE '%shared-hmac%'`).Scan(&audits2); err != nil || audits2 != 0 {
+		t.Fatal("an audit row carries a secret", audits2, err)
 	}
 }
 

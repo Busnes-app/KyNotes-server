@@ -3,9 +3,21 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
+	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/reqid"
 )
+
+// errorLog receives the detail of errors the client sees only as "internal".
+// ponytail: package-level because route constructors take no logger; pass NewRouter's logger down if more call sites need it.
+var errorLog = logging.New(os.Stderr, "info", "json")
+
+// writeInternal logs err on the server and answers the generic 500: database errors never reach the client.
+func writeInternal(w http.ResponseWriter, r *http.Request, event string, err error) {
+	errorLog.Error("internal error", "request_id", RequestID(r), "event", event, "error_kind", err.Error())
+	WriteError(w, r, http.StatusInternalServerError, "internal", "internal server error")
+}
 
 type ErrorBody struct {
 	Error ErrorDetail `json:"error"`
