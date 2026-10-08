@@ -22,10 +22,10 @@ describe("outbound ciphertext gate", () => {
     fetches.mockClear();
     vi.stubGlobal("fetch", fetches);
     vi.stubGlobal("document", { cookie: "" });
-    // main.tsx's writeKeyFor: the tab-wide floor, this tab's ring, the login key.
+    // main.tsx's writeKeyFor: the tab-wide floor and this tab's ring.
     unregister = setWriteKeySource((container) => {
       const floor = floorOf(container.id);
-      return floor && keysAllowed(container, floor) ? writeKey(container, ring, login, floor) : undefined;
+      return floor && keysAllowed(container, floor) ? writeKey(container, ring, floor) : undefined;
     });
   });
   afterEach(() => { unregister(); vi.unstubAllGlobals(); });
@@ -42,7 +42,7 @@ describe("outbound ciphertext gate", () => {
     // The key arrives: the payload and metadata are re-sealed before any chunk is sent.
     const key = newContainerKey();
     ring.set(2, key);
-    const write = writeKey(shared, ring, login, floorOf(cnt)!)!;
+    const write = writeKey(shared, ring, floorOf(cnt)!)!;
     const step = await attachmentStep(job, shared, floorOf(cnt), write, ring, login);
     expect(step.kind).toBe("reseal");
     if (step.kind !== "reseal") return;
@@ -58,10 +58,10 @@ describe("outbound ciphertext gate", () => {
     expect((fetches.mock.calls[0] as unknown as [string, RequestInit])[1].body).toEqual(resealed.payload);
   });
 
-  it("refuses a stale container object, an unloaded floor, and any send with no workspace mounted", () => {
+  it("refuses a never-shared container (no login-key send), a stale container object, an unloaded floor, and any send with no workspace mounted", () => {
     raiseFloorIn(cnt, { shared: 0, generation: 1 });
     const unshared: ReportedContainer = { id: cnt, kind: "team", keyGeneration: 1, sharedGeneration: 0 };
-    expect(() => sendCiphertext({ container: unshared, generation: 1 })).not.toThrow();
+    expect(() => sendCiphertext({ container: unshared, generation: 1 })).toThrow(KeysWaitingError);
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     expect(() => sendCiphertext({ container: unshared, generation: 1 })).toThrow(KeysWaitingError);
     expect(() => sendCiphertext({ container: { ...unshared, id: `cnt_${"b".repeat(26)}` }, generation: 1 })).toThrow(KeysWaitingError);

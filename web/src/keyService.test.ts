@@ -320,14 +320,14 @@ describe("sharing-state rollback", () => {
     const ownerStore = memoryStore();
     await syncContainerKeys(api, cnt, as(owner), ownerStore, never);
     const seen = await syncContainerKeys(api, cnt, as(editor), vault(editor), never);
-    expect(writeKey(seen.container, seen.ring, login, seen.known)).toEqual({ key: seen.ring.get(2), generation: 2 });
+    expect(writeKey(seen.container, seen.ring, seen.known)).toEqual({ key: seen.ring.get(2), generation: 2 });
     // The server now reports the notebook as never shared (legacy metadata).
     state.shared = 0;
     for (const who of [editor, owner]) {
       const store = who === editor ? vault(editor) : ownerStore;
       const after = await syncContainerKeys(api, cnt, as(who), store, never);
       expect(after.plan).toEqual({ kind: "rollback" });
-      expect(writeKey(after.container, after.ring, login, after.known)).toBeUndefined();
+      expect(writeKey(after.container, after.ring, after.known)).toBeUndefined();
       expect(readKeys(after.container, after.ring, login, 2, after.known)).not.toContain(login);
     }
     // A steward is not tricked into minting a "first" key or uploading anything.
@@ -336,7 +336,7 @@ describe("sharing-state rollback", () => {
     // Reload: only what storage kept.
     const known = await getKeyState("me", editor.member.userId, cnt);
     expect(known).toMatchObject({ shared: 2, generation: 2 });
-    expect(writeKey({ id: cnt, keyGeneration: 2, sharedGeneration: 0 }, seen.ring, login, known)).toBeUndefined();
+    expect(writeKey({ id: cnt, keyGeneration: 2, sharedGeneration: 0 }, seen.ring, known)).toBeUndefined();
   });
 
   it("refuses a lowered key generation, persisted across a reload", async () => {
@@ -349,8 +349,8 @@ describe("sharing-state rollback", () => {
     const after = await syncContainerKeys(api, cnt, as(editor), vault(editor), never);
     expect(after.plan).toEqual({ kind: "rollback" });
     expect(after.ring.get(2)).toBeDefined();
-    expect(writeKey(after.container, after.ring, login, after.known)).toBeUndefined();
-    expect(writeKey(after.container, after.ring, login, await getKeyState("me", editor.member.userId, cnt))).toBeUndefined();
+    expect(writeKey(after.container, after.ring, after.known)).toBeUndefined();
+    expect(writeKey(after.container, after.ring, await getKeyState("me", editor.member.userId, cnt))).toBeUndefined();
   });
 });
 
@@ -435,7 +435,7 @@ describe("keys from a refused first-contact sender", () => {
     expect(results[winner].ring.get(2)).toEqual(keys[winner]);
     // The loser returns no key for the generation, so nothing could be written with it.
     expect(results[loser].ring.get(2)).toBeUndefined();
-    expect(writeKey(results[loser].container, results[loser].ring, login, results[loser].known)).toBeUndefined();
+    expect(writeKey(results[loser].container, results[loser].ring, results[loser].known)).toBeUndefined();
     // Only the winner's key digest is remembered.
     const stored = await getKeyState("me", editor.member.userId, cnt);
     expect(stored.digests[2]).toBe(bytesToHex(sha256(keys[winner])));
@@ -491,11 +491,11 @@ describe("a pass that fails after raising the floor", () => {
     };
     let memory: KeyFloor = { shared: prior.shared, generation: prior.generation };
     const ring = new Map([[2, newContainerKey()]]);
-    expect(writeKey(old, ring, login, memory)).toBeDefined();
+    expect(writeKey(old, ring, memory)).toBeDefined();
     await expect(syncContainerKeys(api, cnt, as(editor), memoryStore({}, prior), never, ring, (id, floor) => { expect(id).toBe(cnt); memory = mergeFloor(memory, floor); })).rejects.toThrow("offline");
     expect(memory).toMatchObject({ generation: 3, shared: raised.sharedGeneration });
     // The open notebook still holds the old container: nothing may be written under its key or the login key.
-    expect(writeKey(old, ring, login, memory)).toBeUndefined();
+    expect(writeKey(old, ring, memory)).toBeUndefined();
   });
 });
 
@@ -507,9 +507,9 @@ describe("a mint the server accepted", () => {
     expect(result.minted).toBe(true);
     expect(store.known()).toMatchObject({ shared, generation, mark: generation });
     expect(memory).toMatchObject({ shared, generation });
-    expect(writeKey(old, result.ring, login, memory)).toBeUndefined();
+    expect(writeKey(old, result.ring, memory)).toBeUndefined();
     // The minted key is this browser's own and stays usable without a re-fetch.
-    expect(writeKey(result.container, result.ring, login, memory)?.generation).toBe(generation);
+    expect(writeKey(result.container, result.ring, memory)?.generation).toBe(generation);
   };
 
   it("raises and publishes the floor with no post-mint fetch (first sharing)", async () => {

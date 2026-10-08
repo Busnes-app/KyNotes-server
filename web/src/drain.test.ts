@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { base64, decryptAttachment, decryptObject, encryptAttachment, encryptAttachmentMetadata, encryptNote, legacyKeyRef } from "./crypto";
 import { attachmentStep, NOT_SAVED, noteConflictMessage, notSaved, queuedSaveStep, readyToSend } from "./drain";
-import { newContainerKey, writeKey, type KeyFloor, type KeyedContainer, type Keyring } from "./keyring";
+import { newContainerKey, WAITING_GENERATION, waitingKey, writeKey, type KeyFloor, type KeyedContainer, type Keyring } from "./keyring";
 import type { PendingSave, PendingUpload } from "./storage";
+import { generateIdentity } from "./teamKeys";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const login = legacyKeyRef("a".repeat(64));
 
 /** The drain as main.tsx runs it: upload only what readyToSend returns. */
 async function drain(item: PendingSave, container: KeyedContainer, floor: KeyFloor, ring: Keyring, upload: (save: PendingSave) => void) {
-  const ready = await readyToSend(item, container, floor, writeKey(container, ring, login, floor), ring, login);
+  const ready = await readyToSend(item, container, floor, writeKey(container, ring, floor), ring, login);
   if (ready) upload(ready);
   return ready;
 }
@@ -69,23 +70,41 @@ describe("queued save drain", () => {
     const floor: KeyFloor = { shared: 2, generation: 2, closed: 2 };
     const file = { name: "a.png", type: "image/png", size: 2 };
     const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: 1, chunkBytes: 2, nextChunk: 0, payload: await encryptAttachment(login, cnt, new Uint8Array([1, 2])), metadataCiphertext: base64(await encryptAttachmentMetadata(login, cnt, file)), ...file };
-    const step = await attachmentStep(job, container, floor, writeKey(container, ring, login, floor), ring, login);
+    const step = await attachmentStep(job, container, floor, writeKey(container, ring, floor), ring, login);
     expect(step).toMatchObject({ kind: "reseal", file });
     if (step.kind === "reseal") expect(step.plaintext).toEqual(new Uint8Array([1, 2]));
     await expect(decryptAttachment(key, cnt, job.payload)).rejects.toThrow();
   });
 
-  it("sends an entry as is only when it is sealed for the current write key", () => {
+  it("sends an entry as is only when it is sealed for the current write key; a never-shared notebook has none and waits", () => {
     const ring = new Map([[1, newContainerKey()]]);
     const unshared = { id: cnt, keyGeneration: 1, sharedGeneration: 0 };
-    expect(queuedSaveStep(unshared, {}, 1, writeKey(unshared, ring, login, {}))).toBe("send");
-    expect(queuedSaveStep(unshared, undefined, 1, writeKey(unshared, ring, login, {}))).toBe("wait");
+    expect(queuedSaveStep(unshared, {}, 1, writeKey(unshared, ring, {}))).toBe("wait");
+    expect(queuedSaveStep(unshared, undefined, 1, writeKey(unshared, ring, {}))).toBe("wait");
     expect(queuedSaveStep(unshared, {}, 0, { key: login, generation: 0 })).toBe("reseal");
     // A server reporting a key generation below sharing: a legacy row of that generation is still re-sealed.
     const odd = { id: cnt, keyGeneration: 1, sharedGeneration: 2 };
     const floor = { shared: 2, generation: 1 };
-    expect(writeKey(odd, ring, login, floor)?.generation).toBe(1);
-    expect(queuedSaveStep(odd, floor, 1, writeKey(odd, ring, login, floor))).toBe("reseal");
+    expect(writeKey(odd, ring, floor)?.generation).toBe(1);
+    expect(queuedSaveStep(odd, floor, 1, writeKey(odd, ring, floor))).toBe("reseal");
+  });
+});
+
+describe("waiting edits", () => {
+  it("a waiting edit survives a password change: it opens with the identity's waiting key, never the new login key", async () => {
+    const me = "usr_me", page = { title: "waiting", body: "edit" };
+    const k2 = newContainerKey();
+    const shared = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
+    const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", payload: new Uint8Array() };
+    const identity = generateIdentity();
+    const waiting = waitingKey(identity);
+    const before = { ...item, keyGeneration: WAITING_GENERATION, owner: me, payload: await encryptNote(waiting, cnt, page) };
+    const newLogin = legacyKeyRef("c".repeat(64));
+    const ready = await readyToSend(before, shared, { shared: 2, generation: 2 }, { key: k2, generation: 2 }, new Map([[2, k2]]), newLogin, waiting);
+    expect(ready?.keyGeneration).toBe(2);
+    await expect(decryptObject(k2, cnt, ready!.payload)).resolves.toMatchObject({ title: page.title });
+    // Without the waiting key (another identity, or none) it stays queued, never re-sealed from a wrong key.
+    await expect(readyToSend(before, shared, { shared: 2, generation: 2 }, { key: k2, generation: 2 }, new Map([[2, k2]]), newLogin)).rejects.toThrow();
   });
 });
 

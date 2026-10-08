@@ -22,10 +22,12 @@ export function queuedSaveStep(container: Pick<KeyedContainer, "sharedGeneration
  * An unstamped entry gets readKeys, so the legacy closure applies to it.
  * write is the caller's writeKeyFor(container); floor its current tab-wide floor.
  */
-export async function readyToSend(item: PendingSave, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef): Promise<PendingSave | undefined> {
+export async function readyToSend(item: PendingSave, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef, waiting?: KeyRef): Promise<PendingSave | undefined> {
   const step = queuedSaveStep(container, floor, item.keyGeneration, write);
   if (step !== "reseal") return step === "send" ? item : undefined;
-  const keys = (item.owner === undefined ? readKeys : localReadKeys)(container, ring, legacy, item.keyGeneration, floor!);
+  const keys = item.owner === undefined
+    ? readKeys(container, ring, legacy, item.keyGeneration, floor!) // unstamped: not proven to be this browser's
+    : localReadKeys(container, ring, legacy, item.keyGeneration, floor!, waiting);
   const payload = await openFirst(keys, (key) => decryptObject(key, item.containerID, item.payload));
   if (!payload) return undefined;
   return { ...item, payload: await encryptNote(write!.key, item.containerID, payload), keyGeneration: write!.generation };
@@ -42,10 +44,10 @@ export async function sealAttachment(write: WriteKey, containerID: string, plain
  * it (payload and metadata, opened with its own generation's key; localReadKeys: this browser
  * wrote it, from a file the user picked) into a new upload, or wait.
  */
-export async function attachmentStep(job: PendingUpload, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef): Promise<{ kind: "send" } | { kind: "wait" } | { kind: "reseal"; plaintext: Uint8Array; file: AttachmentFile }> {
+export async function attachmentStep(job: PendingUpload, container: KeyedContainer, floor: KeyFloor | undefined, write: WriteKey | undefined, ring: Keyring, legacy: KeyRef, waiting?: KeyRef): Promise<{ kind: "send" } | { kind: "wait" } | { kind: "reseal"; plaintext: Uint8Array; file: AttachmentFile }> {
   const step = queuedSaveStep(container, floor, job.keyGeneration, write);
   if (step !== "reseal") return { kind: step };
-  const keys = localReadKeys(container, ring, legacy, job.keyGeneration, floor!);
+  const keys = localReadKeys(container, ring, legacy, job.keyGeneration, floor!, waiting);
   const plaintext = await openFirst(keys, (key) => decryptAttachment(key, job.containerID, job.payload));
   const file = await openFirst(keys, (key) => decryptAttachmentMetadata(key, job.containerID, fromBase64(job.metadataCiphertext)));
   return { kind: "reseal", plaintext, file };

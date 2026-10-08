@@ -25,11 +25,11 @@ describe("observeContainer", () => {
     await storeKeyState("me", me, cnt, { mark: 2, digests: {}, shared: 2, generation: 2 });
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     const ring = new Map([[2, newContainerKey()]]);
-    expect(writeKey(old, ring, login, floorOf(cnt)!)).toBeDefined();
+    expect(writeKey(old, ring, floorOf(cnt)!)).toBeDefined();
     await observeContainer(sink(), { ...old, keyGeneration: 3 });
     expect(await getKeyState("me", me, cnt)).toMatchObject({ shared: 2, generation: 3, mark: 2 });
     expect(floorOf(cnt)).toMatchObject({ shared: 2, generation: 3 });
-    expect(writeKey(old, ring, login, floorOf(cnt)!)).toBeUndefined();
+    expect(writeKey(old, ring, floorOf(cnt)!)).toBeUndefined();
   });
 
   it("never lowers a floor, and a first-sharing report stops the login key", async () => {
@@ -38,7 +38,7 @@ describe("observeContainer", () => {
     expect(floorOf(cnt)).toMatchObject({ shared: 4, generation: 5 });
     expect(await getKeyState("me", me, cnt)).toMatchObject({ shared: 4, generation: 5 });
     await observeContainer(sink(), { id: "other", keyGeneration: 2, sharedGeneration: 2 });
-    expect(writeKey({ id: "other", keyGeneration: 1, sharedGeneration: 0 }, new Map(), login, floorOf("other")!)).toBeUndefined();
+    expect(writeKey({ id: "other", keyGeneration: 1, sharedGeneration: 0 }, new Map(), floorOf("other")!)).toBeUndefined();
   });
 
   it("raises memory when storage cannot be read, but leaves an unknown floor unknown", async () => {
@@ -52,14 +52,14 @@ describe("observeContainer", () => {
     expect(await getKeyState("me", me, "other")).toMatchObject({ shared: 2, generation: 3 });
   });
 
-  it("an admin list that sees first sharing stops the workspace's login-key seal", async () => {
-    // The workspace loaded the team container unshared and still holds that object.
+  it("an admin list that sees first sharing leaves the workspace's stale unshared copy without a write key", async () => {
+    // The workspace loaded the team container unshared and still holds that object: never-shared, so no write key.
     const held = { id: cnt, keyGeneration: 1, sharedGeneration: 0 };
     await observeContainer(sink(), held);
-    expect(writeKey(held, new Map(), login, floorOf(cnt)!)).toEqual({ key: login, generation: 1 });
+    expect(writeKey(held, new Map(), floorOf(cnt)!)).toBeUndefined();
     // The admin page (its own component, the same tab-wide store) lists the team as shared.
     await observeContainer(sink(), { id: cnt, kind: "team", ownerUserId: me, keyGeneration: 2, sharedGeneration: 2 });
-    expect(writeKey(held, new Map(), login, floorOf(cnt)!)).toBeUndefined();
+    expect(writeKey(held, new Map(), floorOf(cnt)!)).toBeUndefined();
     // The edit stays local under the waiting seal, which the queue never sends.
     expect(localKey(held, new Map(), login, floorOf(cnt)!).generation).toBe(WAITING_GENERATION);
   });

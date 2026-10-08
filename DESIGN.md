@@ -208,9 +208,8 @@ writer's own identity needs one. Both gates also need a live membership, and
 the write transaction checks them again. Object saves also recheck the writer's
 role there; comment and attachment writes recheck only the gate.
 
-The web client seals a team container's content with its container key once
-the container is shared. A row at or above `sharedGeneration` opens only with
-its own generation's key; rows below it, and personal containers, use the
+The web client seals every container's content with its container key and never with the login-derived key: a container that was never shared is read-only until its owner's browser mints its first key, at creation or on its first open (team keys P5), and only once the owner's identity is recoverable (a password copy or a recovery-code copy exists). A row at or above `sharedGeneration` opens only with
+its own generation's key; rows below it, and rows of a never-shared container, use the
 legacy login-derived key; a missing or malformed generation gets no key, so it
 fails closed. Rows below `sharedGeneration` are sealed with their author's legacy key, which the server can derive, so
 it can forge one labelled below `sharedGeneration`. The client labels such rows "not end-to-end verified"
@@ -226,8 +225,7 @@ cannot change anything there: pages, sections, groups, moves, deletes, comments,
 attachments and conflict copies are disabled and their handlers refuse, so no
 empty object is created. Edits already in progress when the key went missing
 wait in the encrypted local queue at generation 0, are never uploaded at that
-generation, and are resealed under the current key when keys arrive; a
-password change in the same browser re-seals them for the new login key. Shared containers refuse content writes that lack the
+generation, and are resealed under the current key when keys arrive; they are sealed with a key derived from the identity (HKDF label `kynotes/waiting/v1`), so a password change leaves them readable; older ones sealed with the login key are re-sealed by a password change in the same browser. Shared containers refuse content writes that lack the
 `X-Kynotes-Key-Scheme: shared-v1` header, so a page loaded before shared keys
 cannot write. A container meta `PATCH` on a shared container must carry
 `keyGeneration` equal to the current generation; a missing, zero, old or future
@@ -238,8 +236,7 @@ stale base is `409 version_conflict`, so concurrent renames never overwrite
 each other. Conflict listings report each
 copy's `keyGeneration`. Owners and admins mint keys only through rotation;
 envelope `PUT` may add a member to any shared generation that already has
-envelopes (history for newcomers) and never mints one. The first mint waits
-until every member has an identity. Envelopes are v2 and sender-authenticated:
+envelopes (history for newcomers) and never mints one. Envelopes are v2 and sender-authenticated:
 a browser accepts a key only from its own identity, from a current owner or
 admin whose identity matches its pin, or from a pinned identity for a
 generation below the device's high-water mark. The first key per generation
@@ -254,8 +251,7 @@ keeps, add-only per container, the highest `sharedGeneration` and
 generation, and a lower report pauses writes ("The server reported an older key
 state for this notebook than this device has seen"), so a server cannot roll a
 shared notebook back to the login key or an older generation. This applies to
-every container: a server relabelling a seen-shared notebook as personal gets
-the same pause, because `kind` and `teamId` never decide keys.
+every container. Relabelling a notebook as personal or team changes nothing, because `kind` and `teamId` never decide keys. A team's first key is minted for every member with an identity; members without one are wrapped by a later sweep.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks

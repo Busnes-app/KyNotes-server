@@ -514,7 +514,7 @@ describe("migrateLegacy through the outbound gate", () => {
     clearFloors();
     raiseFloorIn(cnt, { shared: 2, generation: 3 });
     const rotated: ReportedContainer = { ...container, keyGeneration: 3 };
-    const unregister = setWriteKeySource((reported) => keysAllowed(reported, floor) ? writeKey(rotated, new Map([[3, newContainerKey()]]), mine, { shared: 2, generation: 3 }) : undefined);
+    const unregister = setWriteKeySource((reported) => keysAllowed(reported, floor) ? writeKey(rotated, new Map([[3, newContainerKey()]]), { shared: 2, generation: 3 }) : undefined);
     try {
       const result = await migrateLegacy({ ...live.api, sendObject }, input, vi.fn(async () => true));
       expect(result).toMatchObject({ closed: false, failed: [{ id: id("obj", "f"), reason: new KeysWaitingError().message }] });

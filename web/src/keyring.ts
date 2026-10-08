@@ -1,9 +1,9 @@
 import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
 import { base64, fromBase64, type KeyRef } from "./crypto";
-import { sha256 } from "./fallbackCrypto";
+import { hkdfSha256, sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { displayName, FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
-import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
+import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
+import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope, type Identity } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
 export type Envelope = { deviceId: string; keyGeneration: number; alg: string; envelope: string };
@@ -78,7 +78,7 @@ export const isReopenConfirmation = (value: unknown, userID: string, containerID
 /** Single use: true once for an unused confirmation of this user and container, false ever after. */
 export const consumeReopenConfirmation = (value: unknown, userID: string, containerID: string): boolean =>
   isReopenConfirmation(value, userID, containerID) && reopenConfirmations.delete(value);
-/** For containers this device never tracks (personal notebooks until P5). */
+/** For containers this device never tracks (a container this tab has not loaded a floor for). */
 export const NO_FLOOR: KeyFloor = {};
 
 /** floor raised by what the server reports now: the value to persist before using the container. */
@@ -109,13 +109,11 @@ export function guardContainer<C extends KeyedContainer>(container: C, floor: Ke
 export type ReportedContainer = KeyedContainer & { kind: string; teamId?: string };
 
 /**
- * Whether this device may hand out any key for the container now. False on a rollback, and when
- * a container this device has seen shared is reported as personal: kind and teamId come from the
- * server, so they never lower the floor. writeKey still applies the floor itself.
+ * Whether this device may hand out any key for the container now: not while the server reports an
+ * older sharing state than this device has seen. kind and teamId are server claims and decide nothing.
  */
-export function keysAllowed(container: ReportedContainer, floor: KeyFloor): boolean {
-  const relabelled = (floor.shared ?? 0) > 0 && container.kind !== "team" && !container.teamId;
-  return !relabelled && !guardContainer(container, floor).rollback;
+export function keysAllowed(container: KeyedContainer, floor: KeyFloor): boolean {
+  return !guardContainer(container, floor).rollback;
 }
 const sharedFloor = (container: Pick<KeyedContainer, "sharedGeneration">, floor: KeyFloor) => Math.max(container.sharedGeneration, floor.shared ?? 0);
 export type OpenKeyringInput = {
@@ -198,29 +196,36 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
 }
 
 /**
- * The key new content in this container is sealed with. Legacy containers keep the
- * login-derived key. A shared container needs the container key at its current
- * generation; undefined means "waiting for keys" and nothing may be written.
+ * The key new content in this container is sealed with: the container key at its current generation.
+ * Never the login-derived key, which the server can derive (F1): a container that was never shared has
+ * no write key until its first key is minted. undefined means read-only and "waiting for keys".
  */
-export function writeKey(reported: KeyedContainer, ring: Keyring, legacy: KeyRef, floor: KeyFloor): WriteKey | undefined {
+export function writeKey(reported: KeyedContainer, ring: Keyring, floor: KeyFloor): WriteKey | undefined {
   const { container, rollback } = guardContainer(reported, floor);
-  if (rollback) return undefined;
-  if (container.sharedGeneration === 0) return { key: legacy, generation: container.keyGeneration };
+  if (rollback || container.sharedGeneration === 0) return undefined;
   const key = ring.get(container.keyGeneration);
   return key && { key, generation: container.keyGeneration };
 }
 
 /**
  * Generation 0 marks a local edit made while the current key is missing. It is sealed with
- * the login-derived key, stays on this device (the server's generations start at 1, and the
+ * the identity's waitingKey (the login-derived key only before P5, or on a browser that holds no
+ * identity), stays on this device (the server's generations start at 1, and the
  * queue never sends it) and is re-sealed for the current key once that key arrives.
  */
 export const WAITING_GENERATION = 0;
 
-/** The key a local copy is sealed with: writeKey, or the waiting seal while that is missing. */
-export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRef, floor: KeyFloor): WriteKey {
-  return writeKey(container, ring, legacy, floor) ?? { key: legacy, generation: WAITING_GENERATION };
+/** The key a local copy is sealed with: writeKey, or seal (waitingKey) at WAITING_GENERATION while that is missing. */
+export function localKey(container: KeyedContainer, ring: Keyring, seal: KeyRef, floor: KeyFloor): WriteKey {
+  return writeKey(container, ring, floor) ?? { key: seal, generation: WAITING_GENERATION };
 }
+
+/**
+ * Seals this browser's edits that wait for a key (N3). Derived from the identity alone, so they survive
+ * a password change, and "Forget this device" once the identity comes back (link, recovery code, password).
+ */
+export const waitingKey = (identity: Pick<Identity, "privateKey">): KeyRef =>
+  hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1"));
 
 /**
  * The login-derived key for a legacy row, or none once this device closed legacy reads for the
@@ -246,12 +251,14 @@ export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ri
 }
 
 /**
- * readKeys for an entry this browser wrote to IndexedDB itself (queued saves, pending uploads,
- * cached copies). The server cannot write those, so the closure, which guards server rows, does
- * not apply: an edit queued before the closure, or waiting at generation 0, still re-seals.
+ * readKeys for an entry this browser wrote to IndexedDB itself (queued saves, pending uploads, cached
+ * copies). The server cannot write those, so the closure, which guards server rows, does not apply, and
+ * a waiting entry may try the identity's waiting key before the login key (older entries).
  */
-export const localReadKeys = (container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor): KeyRef[] =>
-  readKeys(container, ring, legacy, generation, { ...floor, closed: 0 });
+export const localReadKeys = (container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor, waiting?: KeyRef): KeyRef[] => {
+  const keys = readKeys(container, ring, legacy, generation, { ...floor, closed: 0 });
+  return generation === WAITING_GENERATION && waiting ? [waiting, ...keys] : keys;
+};
 
 /**
  * True exactly when readKeys opens a shared container's row with the login-derived key: the
@@ -284,29 +291,25 @@ export async function openFirst<T>(keys: KeyRef[], open: (key: KeyRef) => Promis
 
 export type SweepPlan =
   | { kind: "idle" }
-  | { kind: "blocked"; waitingFor: string[] }
+  | { kind: "unrecoverable" }
   | { kind: "mint"; recipients: MemberKey[] }
   | { kind: "wrap"; grants: Array<{ member: MemberKey; generation: number }> };
 
-
 /**
  * What an owner or admin's browser must do so every member holds the container keys.
- * - Never shared: mint the first key, but only once every member has an identity, so
- *   no member (SSO-only users, accounts awaiting a password change) is locked out.
+ * - Never shared: mint the first key for every member with an identity (the others are wrapped by a
+ *   later sweep), but only once the caller's own identity is recoverable: a key only a browser holds
+ *   would lose the notebook with the browser.
  * - Shared, current generation empty (after a removal): mint the next key.
- * - Otherwise wrap every generation this browser holds for each member missing it,
- *   so newcomers read history and members whose identity was reset get back in.
+ * - Otherwise wrap every generation this browser holds for each member missing it.
  * Only keys this browser unwrapped are ever wrapped (P2 rule 7).
  */
-export function planSweep(input: { container: KeyedContainer; me: string; members: MemberKey[]; envelopes: Envelope[]; ring: Keyring }): SweepPlan {
+export function planSweep(input: { container: KeyedContainer; me: string; members: MemberKey[]; envelopes: Envelope[]; ring: Keyring; recoverable: boolean }): SweepPlan {
   const { container, me, members, envelopes, ring } = input;
   const self = members.find((member) => member.userId === me);
   if (!self?.identity || !isSteward(self.role)) return { kind: "idle" };
   const keyed = members.filter((member) => member.identity);
-  if (container.sharedGeneration === 0) {
-    const waitingFor = members.filter((member) => !member.identity).map((member) => displayName(member.username, member.userId));
-    return waitingFor.length ? { kind: "blocked", waitingFor } : { kind: "mint", recipients: keyed };
-  }
+  if (container.sharedGeneration === 0) return input.recoverable ? { kind: "mint", recipients: keyed } : { kind: "unrecoverable" };
   if (!envelopes.some((row) => row.keyGeneration === container.keyGeneration)) return { kind: "mint", recipients: keyed };
   const held = new Set(envelopes.map((row) => `${row.deviceId}:${row.keyGeneration}`));
   const grants = keyed.flatMap((member) => [...ring.keys()]
@@ -347,7 +350,7 @@ export type MemberKeyStatus = "has-key" | "waiting" | "no-identity";
 /**
  * What each member holds, for the member list. Shared notebooks: the current generation's key
  * (has-key), an identity waiting for a steward (waiting), or no identity to wrap for. A
- * never-shared notebook lists only members without an identity, who block its first key.
+ * never-shared notebook lists only members without an identity; the first key is minted without them.
  * Built from server data: it informs and never decides trust.
  */
 export function memberKeyStatus(container: KeyedContainer, members: MemberKey[], envelopes: Envelope[]): Record<string, MemberKeyStatus> {
