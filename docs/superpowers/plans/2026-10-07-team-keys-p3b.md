@@ -24,7 +24,7 @@ Two Settings cards (`components/PinnedKeys.tsx` and `components/UnsentEdits.tsx`
 
 **Spec:** `docs/superpowers/specs/2026-10-07-team-keys-design.md`: §3 (membership flows), §5, §6 (pins), §7 (P2 as built and its known limits, P3a as built and its parked N1, P3b), §8. Conventions follow `docs/superpowers/plans/2026-10-07-team-keys-p3a.md`.
 
-**Evidence status:** this plan was **not** prototyped. The code blocks were written against `feat/team-keys-p3b` at `38a2a2b`, and none of them has been compiled or run. Each task's own test step is the first proof. If a block does not compile, fix the code and keep the test's assertions.
+**Evidence status:** this plan was **not** prototyped. The code blocks were written against `feat/team-keys-p3b` at `38a2a2b`, then amended against `9ee0c41` (P3a floors: `KeyFloor`, `guardContainer`, `keysAllowed`, `storePins` returning `PinsStored`); see `.superpowers/sdd/2026-10-07-team-keys-p3b/preflight.md`. None of them has been compiled or run. Each task's own test step is the first proof. If a block does not compile, fix the code and keep the test's assertions.
 
 ---
 
@@ -39,12 +39,12 @@ Two Settings cards (`components/PinnedKeys.tsx` and `components/UnsentEdits.tsx`
 | Rate limit | `ratelimit.invitation_per_hour`, default `30`, env `KYNOTES_RATELIMIT_INVITATION_PER_HOUR`. Applies to `POST` on `/api/v1/containers/{id}/invitations` and its `/api/…` alias. Keyed by session user (IP without a session), refilled per hour. Over the limit: `429 rate_limited`, `Retry-After: 60`. `0` disables it, like the other limits |
 | GC | Every `storage.RunGC` run executes `DELETE FROM invitation_envelopes WHERE invitation_id IN (SELECT id FROM invitations WHERE status='pending' AND expires_at<=now)`. Invitation rows stay |
 | Invite link | `<origin>/#/invite/<inv_ID>/<token>`. The ID matches `inv_[0-9a-hjkmnp-tv-z]{26}`; the token is 43 base64url characters. On page load the link moves to `sessionStorage["kynotes-invitation"]` and leaves the address bar through `history.replaceState` |
-| Invite-time keys | Only for a caller with an identity and a password session (`!auth.sso`). Targets: the team plus each child workspace with `sharedGeneration > 0` whose **current** generation key this browser holds. The invitee's identity comes from `GET /users/{id}/identity`. A changed pin is confirmed (decline: no keys). Pins are saved before the step-up. The step-up runs before `POST`. On `409 already_exists`, it retries once without keys. Every other outcome sends the invitation without keys |
+| Invite-time keys | Only for a caller with an identity and a password session (`!auth.sso`). Target: the team container the user invited to, only. `kind`/`teamId` never choose which keys leave, so child workspaces get keys from the steward sweep after accept. The target's floor comes from `store.loadKeyState`: if `keysAllowed(team, floor)` is false, no keys are sent (`rollback`). A key is sealed only when `sharedGeneration > 0` and this browser holds the **current** generation. The invitee's identity comes from `GET /users/{id}/identity`. A changed pin is confirmed (decline: no keys). A first-seen pin goes through `store.addFresh` (`storePins`) before the step-up: `{ok:false}` with conflicts sends no keys (`untrusted`), and without conflicts (`pins-unsaved`). The step-up runs before `POST`. On `409 already_exists`, it retries once without keys (`moved`). Each of these outcomes still sends the invitation, without keys. Thrown errors (step-up, network, a malformed identity key) surface, and nothing is sent |
 | Member status | `has-key` (identity holds an envelope at the current generation), `waiting`, `no-identity`. Labels: "has key", "waiting for key", "no encryption key yet". A never-shared notebook shows only `no-identity` |
 | Pin re-trust | Settings re-trusts only a `changed` row, and only the exact key it displays, through `confirmFingerprintChange` → `storeConfirmedPin` (spec §6). Pins are never deleted here ("Forget this device" clears them all) |
 | Unsent edits | Pending saves whose `containerID` is missing from a successful `GET /api/v1/containers`. Export decrypts with the legacy login key only (generation-0 edits). Discard requires a confirm |
 | Error codes | No new codes |
-| Unchanged (checked) | Envelope byte format v2, `insertInvitationEnvelopeTx`, `moveInvitationEnvelopesTx`, the identity-visibility SQL, `keyring.openKeyring`/`planSweep`/`sealFor`, `CanvasPage.tsx`, mobile/probe clients |
+| Unchanged (checked) | Envelope byte format v2, `insertInvitationEnvelopeTx`, `moveInvitationEnvelopesTx`, the identity-visibility SQL, `keyring.openKeyring`/`planSweep`/`sealFor`/`guardContainer`/`keysAllowed`, `storage.storePins` (`PinsStored`), `CanvasPage.tsx`, mobile/probe clients |
 | Out of scope | Device linking and SSO identities (P3c), legacy-row migration (P4), pending uploads for lost notebooks, in-app key requests, an invite role picker (the UI keeps `editor`) |
 
 ## Resolved ambiguities (recorded in the spec in Task 11)
@@ -56,22 +56,25 @@ Two Settings cards (`components/PinnedKeys.tsx` and `components/UnsentEdits.tsx`
 5. **Expiry recheck.** The invitation is read once, inside the transaction, so one check exists and the test pins it. The previous outer read is deleted rather than duplicated.
 6. **Expired invitation envelopes.** The hourly GC deletes them. The invitation rows stay as history, and accept already refuses them. Adding an `expired` status write was rejected: nothing reads it.
 7. **Rate limit shape.** A config key, like every other limit (`ratelimit.invitation_per_hour`, default 30 per user per hour). The server cannot tell a probing caller from an honest one, so the bucket bounds the liveness signal rather than removing it. The residual limit is recorded.
-8. **Invite-time scope.** Only the current generation of each shared container this browser holds is sealed. `invitation_envelopes` accepts only the current generation (P2 rule 8), and the sweep backfills history after accept. The invitee's identity is visible only when the inviter already shares a live container with them (P2 rule 9). Strangers therefore always get a keyless invitation. The prompt says which case applied, and shows the sealed key's fingerprint so the inviter can compare it (TOFU, made visible).
+8. **Invite-time scope.** Only the current generation of the team container the user invited to is sealed, and only when `keysAllowed` passes against this device's floor. Child workspaces are not sealed at invite time: the browser can name them only through the server's `teamId`, and a server that relabelled another notebook as a child would get its key handed to the invitee. Their keys arrive through the steward sweep after accept (`ponytail:`; upgrade path: a parent link the team key authenticates). `invitation_envelopes` accepts only the current generation (P2 rule 8), and the sweep backfills history after accept. The invitee's identity is visible only when the inviter already shares a live container with them (P2 rule 9). Strangers therefore always get a keyless invitation. The prompt says which case applied, and shows the sealed key's fingerprint so the inviter can compare it (TOFU, made visible).
 9. **Asking a steward.** No server route. The waiting banner offers "Ask an owner". It copies a request naming the notebook's owners and admins and carrying the member's own fingerprint and the notebook link, for the member to send out of band. Notifications today carry only mentions, and a key-request notification would be a new table and route for a convenience.
 10. **Member status is informational.** It is computed in the browser from the envelope list and the identity lookups, both of which come from the server. It never decides trust: `openKeyring` and the pins do.
 11. **Colleague names in Settings.** Pins store user IDs only. Settings shows usernames seen in key passes this session, and falls back to the user ID. The vault record format is unchanged.
 12. **N1 scope.** Settings lists queued **saves** for notebooks the server no longer lists. It lists nothing when the list cannot be fetched, so an outage never offers sendable work for deletion. Export opens only what the legacy key opens: generation-0 edits and pre-sharing rows. Edits sealed with a shared key this tab no longer holds are counted and left out. Pending uploads for lost notebooks are out of scope (`ponytail:`; upgrade path: the same card over `pendingUploads()`).
 13. **Double-load race (root cause).** `loadContainer` decided "superseded" by comparing `loadingContainerID` with the container's ID. Two loads of the **same** notebook (an auto-load plus a click) therefore both believed they were current. The first load's `finally` cleared the flag. The second load then saw itself superseded and returned early, after it had already emptied the page list. Each `selectContainer` call now takes a ticket from `loadGate()`, and only the newest ticket may finish.
 14. **Finding user IDs.** Non-admins have no directory, so Settings shows the user's own ID ("Team owners need it to invite you"). The invite prompt still asks for a user ID.
+15. **Re-invited members receive history like any newcomer** (controller ruling: re-inviting is an explicit owner decision; withholding would hide team work). The steward sweep wraps every generation it holds for the re-admitted identity, including those minted while the member was away.
 
 ## Review Focus (likely failure modes and their pinning tests)
 
 1. **Re-admission restores more than the new grant**: an old role, an old inviter, old envelopes, or a deleted child workspace. A reasonable person expects a fresh membership with the new role and no keys until a steward or the invitation supplies them. Pinned by `TestRemovedMemberIsReadmittedByReactivation`: role and row count, no envelopes, a live member is still `409`, and the server-admin add route behaves the same. Also pinned by `TestTeamAdminRemovesOnlyAdminsItInvited`, last step: the owner's re-invite makes the peer the owner's invitee.
 2. **An expired invitation, or another account's, is accepted.** The expected result is `404`, with the invitation still pending and no membership created. Pinned by `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`. Mutations: drop `expires_at>?`; drop `invitee_id=?`.
 3. **Invite-time keys reach a substituted or unconfirmed key, or leave before the pin is kept or without a step-up.** Pinned by these `keyService.test.ts` tests:
-   - "seals each shared container's current key for a visible invitee, pinned and stepped up first" (call order).
+   - "seals the team's current key for a visible invitee, pinned and stepped up first" (call order).
    - "asks before sealing for a changed invitee key; a decline sends no keys".
    - "never sends keys whose recipient pin this device could not keep".
+   - "sends no keys when another pass pinned a different key for the invitee first" (`PinsStored` conflict).
+   - "sends no keys for a team this device saw at a later sharing state, or saw shared and now reported personal" (`keysAllowed`).
 4. **Clicking the notebook the app is still opening leaves an empty page list.** Pinned by `loadGate.test.ts` "lets only the newest load finish, even for the same notebook" and "decides superseded loads by ticket, never by notebook ID". The e2e step 6 smoke test also covers it.
 5. **"Discard unsent edits" offers sendable work**, either while the notebook list is unreachable or for a notebook still listed. Pinned by `stuckEdits.test.ts` "are the queued edits of notebooks the server no longer lists, and none when the list is unknown".
 
@@ -144,9 +147,10 @@ export function memberKeyStatus(container: KeyedContainer, members: MemberKey[],
 // keyService.ts
 export type KeySync = { /* P3a fields */ members: MemberKey[]; envelopes: Envelope[] };
 export type InviteAPI = Pick<KeyAPI, "userIdentity" | "stepUp"> & { invite: (containerID: string, inviteeID: string, role: string, envelopes: InvitationEnvelope[]) => Promise<Invitation> };
-export type InviteKeys = "sealed" | "cannot-wrap" | "no-keys" | "no-identity" | "untrusted" | "pins-unsaved" | "moved";
+export type InviteKeys = "sealed" | "cannot-wrap" | "rollback" | "no-keys" | "no-identity" | "untrusted" | "pins-unsaved" | "moved";
 export type Invited = { invitation: Invitation; keys: InviteKeys; recipient?: MemberKey };
-export function inviteWithKeys(api: InviteAPI, teamID: string, shared: Array<{ container: KeyedContainer; ring: Keyring }>, invitee: Member, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>): Promise<Invited>;
+export type InviteTarget = { container: ReportedContainer; ring: Keyring };
+export function inviteWithKeys(api: InviteAPI, target: InviteTarget, invitee: Member, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>): Promise<Invited>;
 
 // pins.ts
 export type PinRow = { userId: string; pinned: string; current?: string; state: "same" | "changed" | "unseen" };
@@ -918,8 +922,8 @@ git commit -m "web: invitation links, accept and invitation envelopes in the API
 **Files:** Modify `web/src/keyring.ts`, `web/src/keyring.test.ts`, `web/src/keyService.ts`, `web/src/keyService.test.ts`.
 
 **Interfaces:**
-- Consumes: `InvitationEnvelope` (Task 5), `Invitation` (Task 5), and the P3a `sealFor`, `comparePins`, `confirmFingerprintChange`, `PinStore`, `Caller`.
-- Produces: `memberKeyStatus`, `MemberKeyStatus`, `KeySync.members`, `KeySync.envelopes`, `inviteWithKeys`, `InviteAPI`, `InviteKeys`, `Invited`.
+- Consumes: `InvitationEnvelope` (Task 5), `Invitation` (Task 5), and the P3a `sealFor`, `comparePins`, `confirmFingerprintChange`, `keysAllowed`, `ReportedContainer`, `PinStore` (`addFresh` returns `PinsStored`; `loadKeyState` gives the floor), `Caller`.
+- Produces: `memberKeyStatus`, `MemberKeyStatus`, `KeySync.members`, `KeySync.envelopes`, `inviteWithKeys`, `InviteAPI`, `InviteKeys`, `InviteTarget`, `Invited`.
 
 - [ ] **Step 1: Write the failing tests.** In `keyring.test.ts`, add `memberKeyStatus` to the `./keyring` import and append:
 
@@ -940,17 +944,12 @@ describe("memberKeyStatus", () => {
 });
 ```
 
-In `keyService.test.ts`, change the imports to:
+In `keyService.test.ts`, extend the existing imports; drop none, since the P3a tests still use `beforeEach`, `legacyKeyRef`, `readKeys`, `writeKey`, `fake-indexeddb/auto` and the `./storage` helpers:
+- `vitest`: add `type Mock`.
+- `./keyring`: add `memberKeyStatus`, `openKeyring`, `type InvitationEnvelope`, `type KeyFloor`, `type Keyring`, `type ReportedContainer`.
+- `./keyService`: add `inviteWithKeys`, `type Caller`, `type InviteAPI`, `type InviteKeys`.
 
-```ts
-import { describe, expect, it, vi, type Mock } from "vitest";
-import { base64 } from "./crypto";
-import type { PublicIdentity } from "./identity";
-import { memberKeyStatus, newContainerKey, openKeyring, sealFor, type Envelope, type InvitationEnvelope, type KeyedContainer, type Keyring, type KeyState, type Member } from "./keyring";
-import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type KeyAPI, type PinStore } from "./keyService";
-```
-
-(Keep the `./pins` and `./teamKeys` imports.) Append:
+Append:
 
 ```ts
 describe("key status from a sync", () => {
@@ -970,10 +969,9 @@ describe("key status from a sync", () => {
 });
 
 describe("inviteWithKeys", () => {
-  const team: KeyedContainer = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
-  const child: KeyedContainer = { id: `cnt_${"d".repeat(26)}`, keyGeneration: 3, sharedGeneration: 3 };
-  const teamKey = newContainerKey(), childKey = newContainerKey();
-  const shared = [{ container: team, ring: new Map([[2, teamKey]]) as Keyring }, { container: child, ring: new Map([[3, childKey]]) as Keyring }];
+  const team: ReportedContainer = { id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 };
+  const teamKey = newContainerKey();
+  const target = { container: team, ring: new Map([[2, teamKey]]) as Keyring };
   const owner = user("owner", "e", "owner"), invitee = user("invitee", "f", "editor");
   const invited: Member = { ...invitee.member, role: "editor" };
   const inviteAPI = (visible = true, refuseKeys = false) => {
@@ -990,46 +988,50 @@ describe("inviteWithKeys", () => {
     return { api, calls };
   };
 
-  it("seals each shared container's current key for a visible invitee, pinned and stepped up first", async () => {
+  it("seals the team's current key for a visible invitee, pinned and stepped up first", async () => {
     const { api, calls } = inviteAPI();
     const store = memoryStore();
-    const result = await inviteWithKeys(api, cnt, shared, invited, as(owner), store, never);
+    const result = await inviteWithKeys(api, target, invited, as(owner), store, never);
     expect(result.keys).toBe("sealed");
     expect(result.recipient?.identity?.publicKey).toBe(invitee.public!.publicKey);
-    expect(calls[0].envelopes.map((row) => [row.containerId, row.keyGeneration, row.deviceId])).toEqual([[team.id, 2, invitee.held!.deviceId], [child.id, 3, invitee.held!.deviceId]]);
+    expect(calls[0].envelopes.map((row) => [row.containerId, row.keyGeneration, row.deviceId])).toEqual([[team.id, 2, invitee.held!.deviceId]]);
     expect(store.get()).toEqual({ [invitee.member.userId]: invitee.public!.publicKey });
     const sent = (api.invite as Mock).mock.invocationCallOrder[0];
     expect(store.addFresh.mock.invocationCallOrder[0]).toBeLessThan(sent);
     expect((api.stepUp as Mock).mock.invocationCallOrder[0]).toBeLessThan(sent);
-    // The invitee opens each key as one a current steward sent.
+    // The invitee opens the key as one a current steward sent.
     const steward = { ...owner.member, identity: { deviceId: owner.public!.deviceId, publicKey: owner.public!.publicKey } };
-    for (const [container, key] of [[team, teamKey], [child, childKey]] as const) {
-      const rows = calls[0].envelopes.filter((row) => row.containerId === container.id);
-      const opened = openKeyring({ containerID: container.id, envelopes: rows, me: { ...invitee.held!, userId: invitee.member.userId }, members: [steward], pins: {}, known: { mark: 0, digests: {} } });
-      expect(opened.ring.get(container.keyGeneration)).toEqual(key);
-    }
+    const opened = openKeyring({ containerID: team.id, envelopes: calls[0].envelopes, me: { ...invitee.held!, userId: invitee.member.userId }, members: [steward], pins: {}, known: { mark: 0, digests: {} } });
+    expect(opened.ring.get(team.keyGeneration)).toEqual(teamKey);
   });
 
   it("invites without keys when it cannot see the invitee, cannot wrap, or holds no current key", async () => {
-    const cases: Array<[boolean, Caller, Array<{ container: KeyedContainer; ring: Keyring }>, InviteKeys]> = [
-      [false, as(owner), shared, "no-identity"],
-      [true, as(owner, false), shared, "cannot-wrap"],
-      [true, { userId: owner.member.userId, canWrap: true }, shared, "cannot-wrap"],
-      [true, as(owner), [{ container: team, ring: new Map([[1, teamKey]]) }, { container: { ...child, sharedGeneration: 0 }, ring: new Map([[3, childKey]]) }], "no-keys"],
+    const cases: Array<[boolean, Caller, typeof target, InviteKeys]> = [
+      [false, as(owner), target, "no-identity"],
+      [true, as(owner, false), target, "cannot-wrap"],
+      [true, { userId: owner.member.userId, canWrap: true }, target, "cannot-wrap"],
+      [true, as(owner), { container: team, ring: new Map([[1, teamKey]]) }, "no-keys"],
+      [true, as(owner), { container: { ...team, keyGeneration: 1, sharedGeneration: 0 }, ring: new Map([[1, teamKey]]) }, "no-keys"],
     ];
-    for (const [visible, caller, rings, keys] of cases) {
+    for (const [visible, caller, given, keys] of cases) {
       const { api, calls } = inviteAPI(visible);
-      expect((await inviteWithKeys(api, cnt, rings, invited, caller, memoryStore(), never)).keys).toBe(keys);
+      expect((await inviteWithKeys(api, given, invited, caller, memoryStore(), never)).keys).toBe(keys);
       expect(calls).toEqual([{ envelopes: [] }]);
       expect(api.stepUp).not.toHaveBeenCalled();
     }
   });
 
-  it("skips a never-shared child and one whose current key this browser lacks", async () => {
-    const { api, calls } = inviteAPI();
-    const rings = [shared[0], { container: { ...child, sharedGeneration: 0 }, ring: new Map([[3, childKey]]) as Keyring }, { container: { ...child, id: `cnt_${"h".repeat(26)}` }, ring: new Map([[2, childKey]]) as Keyring }];
-    expect((await inviteWithKeys(api, cnt, rings, invited, as(owner), memoryStore(), never)).keys).toBe("sealed");
-    expect(calls[0].envelopes.map((row) => row.containerId)).toEqual([team.id]);
+  it("sends no keys for a team this device saw at a later sharing state, or saw shared and now reported personal", async () => {
+    const cases: Array<[ReportedContainer, KeyFloor]> = [
+      [team, { shared: 2, generation: 3 }], // the server rolled the generation back
+      [{ ...team, kind: "workbook" }, { shared: 2, generation: 2 }], // relabelled personal, no teamId
+    ];
+    for (const [container, floor] of cases) {
+      const { api, calls } = inviteAPI();
+      expect((await inviteWithKeys(api, { container, ring: target.ring }, invited, as(owner), memoryStore({}, { mark: 0, digests: {}, ...floor }), never)).keys).toBe("rollback");
+      expect(calls).toEqual([{ envelopes: [] }]);
+      expect(api.stepUp).not.toHaveBeenCalled();
+    }
   });
 
   it("asks before sealing for a changed invitee key; a decline sends no keys", async () => {
@@ -1037,27 +1039,36 @@ describe("inviteWithKeys", () => {
     const store = memoryStore({ [invitee.member.userId]: stale });
     const declined = inviteAPI();
     const ask = vi.fn(() => false);
-    expect((await inviteWithKeys(declined.api, cnt, shared, invited, as(owner), store, ask)).keys).toBe("untrusted");
+    expect((await inviteWithKeys(declined.api, target, invited, as(owner), store, ask)).keys).toBe("untrusted");
     expect(ask).toHaveBeenCalledWith([{ member: expect.objectContaining({ userId: invitee.member.userId }), pinned: stale }]);
     expect(declined.calls).toEqual([{ envelopes: [] }]);
     expect(store.get()[invitee.member.userId]).toBe(stale);
     const confirmed = inviteAPI();
-    expect((await inviteWithKeys(confirmed.api, cnt, shared, invited, as(owner), store, () => true)).keys).toBe("sealed");
+    expect((await inviteWithKeys(confirmed.api, target, invited, as(owner), store, () => true)).keys).toBe("sealed");
     expect(store.confirm).toHaveBeenCalledTimes(1);
     expect(store.get()[invitee.member.userId]).toBe(invitee.public!.publicKey);
-    expect(confirmed.calls[0].envelopes).toHaveLength(2);
+    expect(confirmed.calls[0].envelopes).toHaveLength(1);
   });
 
   it("never sends keys whose recipient pin this device could not keep", async () => {
     const { api, calls } = inviteAPI();
-    expect((await inviteWithKeys(api, cnt, shared, invited, as(owner), memoryStore({}, undefined, false), never)).keys).toBe("pins-unsaved");
+    expect((await inviteWithKeys(api, target, invited, as(owner), memoryStore({}, undefined, false), never)).keys).toBe("pins-unsaved");
+    expect(calls).toEqual([{ envelopes: [] }]);
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("sends no keys when another pass pinned a different key for the invitee first", async () => {
+    const { api, calls } = inviteAPI();
+    // storePins compares in its own transaction: the first-seen pin lost to a concurrent pass.
+    const store = { ...memoryStore(), addFresh: vi.fn(async (): Promise<PinsStored> => ({ ok: false, conflicts: [invitee.member.userId] })) };
+    expect((await inviteWithKeys(api, target, invited, as(owner), store, never)).keys).toBe("untrusted");
     expect(calls).toEqual([{ envelopes: [] }]);
     expect(api.stepUp).not.toHaveBeenCalled();
   });
 
   it("falls back to an invitation without keys when a generation moved meanwhile", async () => {
     const { api, calls } = inviteAPI(true, true);
-    expect((await inviteWithKeys(api, cnt, shared, invited, as(owner), memoryStore(), never)).keys).toBe("moved");
+    expect((await inviteWithKeys(api, target, invited, as(owner), memoryStore(), never)).keys).toBe("moved");
     expect(calls).toEqual([{ envelopes: [] }]);
   });
 });
@@ -1087,9 +1098,21 @@ export function memberKeyStatus(container: KeyedContainer, members: MemberKey[],
 ```
 
 - [ ] **Step 4: `KeySync` reports members and envelopes.** In `keyService.ts`:
-  - Change the keyring import to also take `type InvitationEnvelope`, and add `import type { Invitation } from "./api";`.
+  - Change the keyring import to also take `keysAllowed`, `type InvitationEnvelope` and `type ReportedContainer`, and add `import type { Invitation } from "./api";`.
   - In the `KeySync` doc comment, add "members and envelopes: what this pass last saw, including its own writes (memberKeyStatus)." Add the fields `members: MemberKey[]; envelopes: Envelope[];` to the type.
   - In `pass`, after `const envelopes = await api.envelopes(container.id);`, add `let seen: Envelope[] = envelopes;`.
+  - The rollback early return builds its `Pass` by hand, so it needs the new fields too. Replace:
+
+```ts
+    if (rollback) return { container, changed: [], conflicts: opened.conflicts, known: latest.saved!.known, fresh: [], ring: opened.ring, plan: { kind: "rollback" }, minted: false };
+```
+
+  with:
+
+```ts
+    if (rollback) return { container, changed: [], conflicts: opened.conflicts, known: latest.saved!.known, fresh: [], ring: opened.ring, plan: { kind: "rollback" }, minted: false, members, envelopes };
+```
+
   - Replace the `result` definition with:
 
 ```ts
@@ -1124,33 +1147,36 @@ export type InviteAPI = Pick<KeyAPI, "userIdentity" | "stepUp"> & {
   invite: (containerID: string, inviteeID: string, role: string, envelopes: InvitationEnvelope[]) => Promise<Invitation>;
 };
 /**
- * sealed: the invitation carries the current keys. Otherwise it went out without keys, and a
- * steward's sweep shares them after the invitee joins:
+ * sealed: the invitation carries the team's current key. Otherwise it went out without keys, and
+ * a steward's sweep shares them after the invitee joins:
  * - cannot-wrap: this browser has no identity, or the session is single sign-on.
- * - no-keys: this browser holds no current shared key.
+ * - rollback: the server reports an older sharing state than this device has seen (keysAllowed).
+ * - no-keys: this browser holds no current shared key for the team.
  * - no-identity: the invitee's key is not visible (no identity, or no shared notebook with you).
- * - untrusted: a changed key that was not confirmed.
+ * - untrusted: a changed key was not confirmed, or another pass pinned a different key first.
  * - pins-unsaved: the invitee's pin could not be kept.
  * - moved: a generation changed meanwhile.
  */
-export type InviteKeys = "sealed" | "cannot-wrap" | "no-keys" | "no-identity" | "untrusted" | "pins-unsaved" | "moved";
+export type InviteKeys = "sealed" | "cannot-wrap" | "rollback" | "no-keys" | "no-identity" | "untrusted" | "pins-unsaved" | "moved";
 export type Invited = { invitation: Invitation; keys: InviteKeys; recipient?: MemberKey };
+/** The team the user chose to invite to. Child workspaces are never added here: teamId is a server claim. */
+export type InviteTarget = { container: ReportedContainer; ring: Keyring };
 
 /**
- * Invites invitee to team teamID. It sends keys only when this browser holds the current key of
- * the team (and of each shared child workspace) and can see the invitee's identity. Each key is
- * sealed for that identity: the pin is checked (a changed key only after confirmation) and saved
- * before anything leaves, then a fresh step-up runs. The server installs these envelopes at accept
- * while the generation is unchanged. Anything less sends the invitation without keys.
+ * Invites invitee to the target team. Keys go only when this device's floor allows them, this
+ * browser holds the team's current key, and it can see the invitee's identity. The key is sealed
+ * for that identity: the pin is checked (a changed key only after confirmation) and a first-seen
+ * pin is stored before anything leaves, then a fresh step-up runs. The server installs the
+ * envelope at accept while the generation is unchanged. Anything less sends no keys.
  */
-export async function inviteWithKeys(api: InviteAPI, teamID: string, shared: Array<{ container: KeyedContainer; ring: Keyring }>, invitee: Member, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>): Promise<Invited> {
-  const plain = async (keys: InviteKeys): Promise<Invited> => ({ invitation: await api.invite(teamID, invitee.userId, invitee.role, []), keys });
+export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invitee: Member, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>): Promise<Invited> {
+  const { container, ring } = target;
+  const plain = async (keys: InviteKeys): Promise<Invited> => ({ invitation: await api.invite(container.id, invitee.userId, invitee.role, []), keys });
   if (!caller.identity || !caller.canWrap) return plain("cannot-wrap");
-  const held = shared.flatMap(({ container, ring }) => {
-    const key = container.sharedGeneration > 0 ? ring.get(container.keyGeneration) : undefined;
-    return key ? [{ container, key }] : [];
-  });
-  if (!held.length) return plain("no-keys");
+  // This device's floor decides, never the server's sharing state alone.
+  if (!keysAllowed(container, await store.loadKeyState(container.id))) return plain("rollback");
+  const key = container.sharedGeneration > 0 ? ring.get(container.keyGeneration) : undefined;
+  if (!key) return plain("no-keys");
   const identity = await api.userIdentity(invitee.userId);
   if (!identity) return plain("no-identity");
   const member: MemberKey = { ...invitee, identity: { deviceId: identity.deviceId, publicKey: identity.publicKey } };
@@ -1162,19 +1188,15 @@ export async function inviteWithKeys(api: InviteAPI, teamID: string, shared: Arr
     if (!(await store.confirm(confirmation))) return plain("pins-unsaved");
     pins = confirmation.pins;
   }
-  const me = { ...caller.identity, userId: caller.userId };
-  let fresh = false;
-  const envelopes: InvitationEnvelope[] = held.map(({ container, key }) => {
-    const sealed = sealFor(member, container.id, container.keyGeneration, key, me, pins);
-    pins = sealed.pins;
-    fresh ||= sealed.fresh.length > 0;
-    return { ...sealed.envelope, containerId: container.id };
-  });
-  // The pin is kept before any key leaves this browser.
-  if (fresh && !(await store.addFresh(pins))) return plain("pins-unsaved");
+  const sealed = sealFor(member, container.id, container.keyGeneration, key, { ...caller.identity, userId: caller.userId }, pins);
+  // A first-seen pin is kept before the key leaves; a different pin another pass stored meanwhile wins.
+  if (sealed.fresh.length) {
+    const stored = await store.addFresh(sealed.pins);
+    if (!stored.ok) return plain(stored.conflicts.length ? "untrusted" : "pins-unsaved");
+  }
   await api.stepUp();
   try {
-    return { invitation: await api.invite(teamID, invitee.userId, invitee.role, envelopes), keys: "sealed", recipient: member };
+    return { invitation: await api.invite(container.id, invitee.userId, invitee.role, [{ ...sealed.envelope, containerId: container.id }]), keys: "sealed", recipient: member };
   } catch (error) {
     // already_exists: a generation moved after this browser read it; the sweep shares the new key after accept.
     if (code(error) !== "already_exists") throw error;
@@ -1600,6 +1622,7 @@ git commit -m "web: only the newest notebook load finishes"
 const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
 const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
   "cannot-wrap": "The invitation carries no keys: this browser cannot share keys (sign in with your password).",
+  rollback: "The invitation carries no keys: the server reports an older sharing state for this team than this browser has seen.",
   "no-keys": "The invitation carries no keys: this browser holds none for this team yet. A team owner's browser shares them after the person joins.",
   "no-identity": "The invitation carries no keys: you cannot see this person's encryption key yet. A team owner's browser shares them after they join.",
   untrusted: "The invitation carries no keys: you did not confirm this person's new encryption key.",
@@ -1627,7 +1650,7 @@ try { stashInviteLink(location, history, sessionStorage); } catch { /* session s
 
 - [ ] **Step 4: Key passes report members.**
   - In `syncKeys`, after `putRing(container.id, result.ring);`, add `for (const member of result.members) colleagueNames.current[member.userId] = member.username;`.
-  - Inside its `if ((loadingContainerID.current ?? selectedRef.current?.id) === container.id) {` block, before `setKeyNotice(…)`, add `setKeyMembers({ containerID: container.id, members: result.members, status: memberKeyStatus(result.container, result.members, result.envelopes) });`.
+  - Inside its `if ((loadingContainerID.current ?? selectedRef.current?.id) === container.id) {` block, before `setKeyNotice(…)`, add `setKeyMembers({ containerID: container.id, members: result.members, status: result.plan.kind === "rollback" ? {} : memberKeyStatus(result.container, result.members, result.envelopes) });`. A rolled-back server's generations would mislabel every member, and the rollback notice already explains the pause.
   - In `loadContainers`, after `putRing(item.id, pass.ring);`, add `for (const member of pass.members) colleagueNames.current[member.userId] = member.username;`.
 
 - [ ] **Step 5: Invite, join, ask.** Replace `invite()` with:
@@ -1635,14 +1658,15 @@ try { stashInviteLink(location, history, sessionStorage); } catch { /* session s
 ```ts
   async function invite() {
     const team = selected;
-    if (!team || team.kind !== "team") return;
+    if (!team) return;
     const userID = prompt("User ID to invite (Settings shows each person's user ID)")?.trim();
     if (!userID) return;
     try {
-      const shared = [team, ...items.filter((entry) => entry.teamId === team.id)].map((container) => ({ container, ring: ringsRef.current[container.id] ?? noKeys }));
+      // Only the notebook the user chose: kind and teamId never pick which keys leave this browser.
+      const target = { container: team, ring: ringsRef.current[team.id] ?? noKeys };
       const invitee = { userId: userID, username: colleagueNames.current[userID] ?? userID, role: "editor" };
       const caller = { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso };
-      const { invitation: made, keys, recipient } = await inviteWithKeys({ userIdentity, stepUp: keyAPI.stepUp, invite: inviteMember }, team.id, shared, invitee, caller, pinStore, confirmChangedKeys(team.id));
+      const { invitation: made, keys, recipient } = await inviteWithKeys({ userIdentity, stepUp: keyAPI.stepUp, invite: inviteMember }, target, invitee, caller, pinStore, confirmChangedKeys(team.id));
       const carried = keys === "sealed" && recipient?.identity
         ? `The invitation carries this team's keys, sealed for the key with fingerprint ${await fingerprintOf(recipient.identity.publicKey)}; compare it with ${invitee.username} (their Settings shows it).`
         : INVITE_WITHOUT_KEYS[keys as Exclude<InviteKeys, "sealed">];
@@ -1681,16 +1705,16 @@ try { stashInviteLink(location, history, sessionStorage); } catch { /* session s
   }
 ```
 
-- [ ] **Step 6: Render.** Replace the key-wait line:
+- [ ] **Step 6: Render.** Replace the key-wait line (P3a shows `ROLLBACK` in it on a rollback; asking an owner cannot fix a rollback, so the button appears only while waiting):
 
 ```tsx
-                {!queueMode && keyWait && <div className="workspace-kind" role="status">Waiting for a team owner to share this notebook's keys. It is read-only until then.</div>}
+                {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : "Waiting for a team owner to share this notebook's keys. It is read-only until then."}</div>}
 ```
 
 with:
 
 ```tsx
-                {!queueMode && keyWait && <div className="workspace-kind" role="status">Waiting for a team owner to share this notebook's keys. It is read-only until then. <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></div>}
+                {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : <>Waiting for a team owner to share this notebook's keys. It is read-only until then. <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}</div>}
 ```
 
 After the `keyNotice` line, add:
@@ -1781,17 +1805,16 @@ git commit -m "web: join by link, invite with keys, member key status, colleague
 
 - [ ] **Step 2: Spec.**
   - §5 Server, first bullet: after "P2 adds `invitation_envelopes`, `author_user_id` and `containers.shared_generation` as `0022`", add "; P3b adds `memberships.invited_by` as `0023`".
-  - §7 P3b bullet: append "(plan: `docs/superpowers/plans/2026-10-07-team-keys-p3b.md`)".
+  - §7 P3b bullet: change "(`invitation_envelopes`, team plus child workspaces)" to "(`invitation_envelopes`; as built, the team container only, see P3b ruling 8)", and append "(plan: `docs/superpowers/plans/2026-10-07-team-keys-p3b.md`)".
   - §7 P3c bullet: change `0023_link_requests.sql` to `0024_link_requests.sql`.
-  - After the "**P3a as built.**" block, add a "**P3b as built.** Resolved ambiguities:" block. Record resolved ambiguities 1–14 above as numbered one-line items, then a "Known limits:" list:
-    - Invitation keys cover only the current generation. History arrives with the steward sweep.
+  - After the "**P3a as built.**" block, add a "**P3b as built.** Resolved ambiguities:" block. Record resolved ambiguities 1–15 above as numbered one-line items, then a "Known limits:" list:
+    - Invitation keys cover only the current generation of the team container. Child workspaces and history arrive with the steward sweep.
     - An invitee with no live notebook in common with the inviter gets a keyless invitation.
     - Member key status and steward names are server data, so they are informational only.
     - Asking for keys is out of band.
     - Expired invitation envelopes last until the next GC run.
     - Admins admitted before migration 0023 have no recorded inviter.
     - Pending uploads for lost notebooks are not listed (`ponytail:`).
-    - Re-admitted members receive the history minted while they were away.
   - In the P2 "Known limits left for later phases" sentence, append "P3b resolves all but the first two; the liveness signal is now rate-limited."
 
 - [ ] **Step 3: `AGENTS.md`.** After the "Team keys P3a client trust" bullet, add:
@@ -1804,9 +1827,11 @@ git commit -m "web: join by link, invite with keys, member key status, colleague
   only when it invited that membership; `ratelimit.invitation_per_hour` limits invitation creation per
   account; `storage.RunGC` deletes envelopes of expired invitations. Web: one-time links
   `#/invite/<id>/<token>` (`web/src/invitations.ts`, kept in session storage across sign-in and removed
-  from the address bar); `inviteWithKeys` (`keyService.ts`) seals the current keys of the team and its
-  shared children for a visible invitee, pin checked and saved first, then step-up, else a keyless
-  invitation; `memberKeyStatus` labels member rows (informational); Settings colleague keys
+  from the address bar); `inviteWithKeys` (`keyService.ts`) seals only the chosen team's current key
+  (never children picked by `teamId`), gated by `keysAllowed` against this device's floor, for a
+  visible invitee; a changed pin needs confirmation and a first-seen pin goes through `storePins`
+  (a conflict sends no keys) before the step-up; anything else sends a keyless invitation;
+  re-invited members receive history like any newcomer; `memberKeyStatus` labels member rows (informational); Settings colleague keys
   (`components/PinnedKeys.tsx`, re-trust only via `confirmFingerprintChange` → `storeConfirmedPin`) and
   unsent edits for lost notebooks (`components/UnsentEdits.tsx`, `stuckEdits.ts`); `loadGate.ts` lets only
   the newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,
@@ -2068,9 +2093,11 @@ git commit -m "web: browser check for invitations, key status, re-trust and unse
 | `ratelimit.go`: delete the invitation `case` | `TestInvitationCreationIsRateLimitedPerCaller` |
 | `gc.go`: delete the `invitation_envelopes` delete | `TestGCDeletesEnvelopesOfExpiredInvitations` |
 | `inviteWithKeys`: skip the `changed.length` block | `keyService.test.ts` asks before sealing for a changed invitee key… |
-| `inviteWithKeys`: delete `await api.stepUp();` | `keyService.test.ts` seals each shared container's current key… |
-| `inviteWithKeys`: `if (fresh && !(await store.addFresh(pins)))` → `if (false)` | `keyService.test.ts` never sends keys whose recipient pin… |
-| `inviteWithKeys`: `container.sharedGeneration > 0 ?` → `true ?` | `keyService.test.ts` skips a never-shared child… |
+| `inviteWithKeys`: delete `await api.stepUp();` | `keyService.test.ts` seals the team's current key… |
+| `inviteWithKeys`: delete `if (!stored.ok) return plain(…);` | `keyService.test.ts` never sends keys whose recipient pin… and …another pass pinned a different key… |
+| `inviteWithKeys`: `stored.conflicts.length ? "untrusted" : "pins-unsaved"` → `"pins-unsaved"` | `keyService.test.ts` …another pass pinned a different key… |
+| `inviteWithKeys`: `!keysAllowed(…)` → `false` | `keyService.test.ts` sends no keys for a team this device saw at a later sharing state… |
+| `inviteWithKeys`: `container.sharedGeneration > 0 ?` → `true ?` | `keyService.test.ts` invites without keys when it… holds no current key |
 | `memberKeyStatus`: drop the `row.keyGeneration === container.keyGeneration` filter | `keyring.test.ts` reports has key, waiting… |
 | `stuckSaves`: `live ? … : []` → `queued.filter((item) => !live?.has(item.containerID))` | `stuckEdits.test.ts` …none when the list is unknown |
 | `loadGate`: `latest !== ticket` → `false` | `loadGate.test.ts` lets only the newest load finish… |
