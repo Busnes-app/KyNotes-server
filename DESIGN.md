@@ -215,7 +215,9 @@ keeps, add-only per container, the highest `sharedGeneration` and
 `keyGeneration` the server ever reported; key choices use the higher shared
 generation, and a lower report pauses writes ("The server reported an older key
 state for this notebook than this device has seen"), so a server cannot roll a
-shared notebook back to the login key or an older generation.
+shared notebook back to the login key or an older generation. This applies to
+every container: a server relabelling a seen-shared notebook as personal gets
+the same pause, because `kind` and `teamId` never decide keys.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks

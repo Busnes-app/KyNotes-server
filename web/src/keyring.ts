@@ -54,6 +54,18 @@ export function guardContainer<C extends KeyedContainer>(container: C, floor: Ke
     rollback: container.sharedGeneration < shared || container.keyGeneration < generation,
   };
 }
+/** A container as the server lists it; kind and teamId are server claims, for layout only. */
+export type ReportedContainer = KeyedContainer & { kind: string; teamId?: string };
+
+/**
+ * Whether this device may hand out any key for the container now. False on a rollback, and when
+ * a container this device has seen shared is reported as personal: kind and teamId come from the
+ * server, so they never lower the floor. writeKey still applies the floor itself.
+ */
+export function keysAllowed(container: ReportedContainer, floor: KeyFloor): boolean {
+  const relabelled = (floor.shared ?? 0) > 0 && container.kind !== "team" && !container.teamId;
+  return !relabelled && !guardContainer(container, floor).rollback;
+}
 const sharedFloor = (container: Pick<KeyedContainer, "sharedGeneration">, floor: KeyFloor) => Math.max(container.sharedGeneration, floor.shared ?? 0);
 export type OpenKeyringInput = {
   containerID: string; envelopes: Envelope[]; me: Me | undefined; members: MemberKey[]; pins: Pins;

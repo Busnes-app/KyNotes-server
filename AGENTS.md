@@ -415,8 +415,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   versions are never copied (`copyableConflicts`). The first mint re-seals the shown name and says so.
   Rollback rule: `KeyState` also keeps the highest `shared`/`generation` the server reported (add-only,
   persisted by `syncContainerKeys` before use); `writeKey`/`readKeys`/`legacyRow` require that floor and
-  `guardContainer` applies it, `main.tsx` passes it only through `floorFor` (a team container without a
-  loaded floor gets no key), and a lower report is plan `rollback`: writes paused, never the login key.
+  `guardContainer` applies it, `main.tsx` passes it only through `floorFor`, a thin lookup for every
+  container (no loaded floor, no key; `ensureFloor` before first use), and a lower report is plan
+  `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
+  `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
+  (`needsKeyPass`) but never skip one.
   `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
   pass then stops before upload (plan `untrusted`).
   Server: containers report `sharedGeneration`; shared containers refuse writes without

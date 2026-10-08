@@ -66,7 +66,7 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { copyableConflicts, guardContainer, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
@@ -641,7 +641,18 @@ function Workspace({
   const floorsRef = useRef<Record<string, KeyFloor>>({});
   const [, setFloors] = useState(floorsRef.current);
   const putFloor = (containerID: string, floor: KeyFloor) => { floorsRef.current = { ...floorsRef.current, [containerID]: floor }; setFloors(floorsRef.current); };
-  const floorFor = (container: Pick<Container, "id" | "kind" | "teamId">): KeyFloor | undefined => (container.kind !== "team" && !container.teamId ? NO_FLOOR : floorsRef.current[container.id]);
+  // A thin lookup for every container, personal ones included: kind and teamId are server claims.
+  const floorFor = (container: Pick<Container, "id">): KeyFloor | undefined => floorsRef.current[container.id];
+  /** Loads this device's floor for a container before its first use (normally empty for a new one). */
+  async function ensureFloor(container: Pick<Container, "id">): Promise<KeyFloor> {
+    const known = floorFor(container);
+    if (known) return known;
+    const loaded = await pinStore.loadKeyState(container.id);
+    putFloor(container.id, loaded);
+    return loaded;
+  }
+  /** A key pass is needed when the server or this device says shared; kind may only add a pass, never skip one. */
+  const needsKeyPass = (container: Container) => container.sharedGeneration > 0 || (floorFor(container)?.shared ?? 0) > 0 || container.kind === "team" || Boolean(container.teamId);
   /** Keys a row may be read with: always the row's own generation, never a default. */
   const readKeysFor = (container: Container, generation: number | undefined) => {
     const floor = floorFor(container);
@@ -650,12 +661,12 @@ function Workspace({
   const legacyRowFor = (container: Container, generation: number | undefined) => legacyRow(container, generation, floorFor(container) ?? NO_FLOOR);
   const writeKeyFor = (container: Container) => {
     const floor = floorFor(container);
-    return floor && writeKey(container, ringsRef.current[container.id] ?? noKeys, legacy, floor);
+    return floor && keysAllowed(container, floor) ? writeKey(container, ringsRef.current[container.id] ?? noKeys, legacy, floor) : undefined;
   };
   /** Local copies: the write key, or the waiting seal that only this device can send later. */
   const localKeyFor = (container: Container) => writeKeyFor(container) ?? { key: legacy, generation: WAITING_GENERATION };
   /** The server reported an older sharing state than this device has seen: writes are paused. */
-  const rolledBack = (container: Container) => { const floor = floorFor(container); return Boolean(floor && guardContainer(container, floor).rollback); };
+  const rolledBack = (container: Container) => { const floor = floorFor(container); return Boolean(floor && !keysAllowed(container, floor)); };
   /** Takes a container's new generations into the open notebook without dropping its other fields. */
   const adoptGenerations = (next: Container) => setSelected((value) => (value?.id === next.id ? { ...value, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : value));
   // Read-only until a team owner shares this generation's key.
@@ -754,9 +765,11 @@ function Workspace({
    * Returns it at its current generation. A background pass never opens a dialog: a changed
    * colleague key is only reported until the user opens the notebook.
    */
-  function syncKeys(container: Container, background = false): Promise<Container> {
-    // Personal notebooks keep the login-derived key until personal containers move to shared keys (P5).
-    if (container.kind !== "team" && !container.teamId) return Promise.resolve(container);
+  async function syncKeys(container: Container, background = false): Promise<Container> {
+    // Every container's floor is loaded first. Personal notebooks keep the login key until P5,
+    // unless the server or this device says shared.
+    await ensureFloor(container);
+    if (!needsKeyPass(container)) return container;
     return serialized(container.id, async () => {
       const confirmChanged = background ? () => false : confirmChangedKeys(container.id);
       const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id]);
@@ -1015,7 +1028,7 @@ function Workspace({
   const refreshKeys = useRef<() => void>(() => undefined);
   refreshKeys.current = () => {
     const open = selectedRef.current;
-    if (!open || (open.kind !== "team" && !open.teamId) || loadingContainerID.current || document.visibilityState !== "visible") return;
+    if (!open || !needsKeyPass(open) || loadingContainerID.current || document.visibilityState !== "visible") return;
     void syncKeys(open, true)
       .then((next) => {
         adoptGenerations(next);
@@ -1114,8 +1127,8 @@ function Workspace({
         try {
           let keyed: Container = item;
           // Team containers: this device's sharing floor first, so a server reporting "never shared" still gets the shared rules.
-          const floor = item.kind === "team" || item.teamId ? await pinStore.loadKeyState(item.id) : NO_FLOOR;
-          if (floor !== NO_FLOOR) putFloor(item.id, floor);
+          const floor = await pinStore.loadKeyState(item.id);
+          putFloor(item.id, floor);
           // Shared names need their keys. This pass only reads: it never steps up, wraps, rotates
           // or asks about a changed key. A steward's sharing waits until the notebook is opened.
           // ponytail: a full key pass per shared notebook on every list load (members, one identity
@@ -1341,6 +1354,8 @@ function Workspace({
     setBusy(true);
     try {
       const container = await createContainer("workbook");
+      // Its floor before first use: normally empty, but never skipped for an ID this device knows.
+      await ensureFloor(container);
       const write = writeKeyFor(container);
       if (!write) throw new Error("This notebook is waiting for keys");
       const encrypted = await encryptContainerMeta(write.key, container.id, name);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { copyableConflicts, guardContainer, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { copyableConflicts, guardContainer, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -376,5 +376,26 @@ describe("sharing-state rollback", () => {
     expect(guardContainer(lowered, seen).rollback).toBe(true);
     expect(writeKey(lowered, withOld, legacy, seen)).toBeUndefined();
     expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, withOld, legacy, seen)).toEqual({ key: k3, generation: 3 });
+  });
+});
+
+describe("server-claimed kind never decides keys", () => {
+  const legacy = legacyKeyRef("a".repeat(64));
+  const k2 = newContainerKey();
+  const seen = { shared: 2, generation: 2 };
+
+  it("gives a seen-shared notebook relabelled personal no write key and no legacy read", () => {
+    const relabelled = { id: cnt, kind: "personal", keyGeneration: 2, sharedGeneration: 0 };
+    expect(keysAllowed(relabelled, seen)).toBe(false);
+    expect(writeKey(relabelled, new Map([[2, k2]]), legacy, seen)).toBeUndefined();
+    expect(readKeys(relabelled, new Map([[2, k2]]), legacy, 2, seen)).not.toContain(legacy);
+    // Still shared on the server, but called personal: also refused.
+    expect(keysAllowed({ ...relabelled, sharedGeneration: 2 }, seen)).toBe(false);
+  });
+
+  it("leaves a never-shared personal notebook and a team notebook alone", () => {
+    expect(keysAllowed({ id: cnt, kind: "workbook", keyGeneration: 1, sharedGeneration: 0 }, {})).toBe(true);
+    expect(keysAllowed({ id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 }, seen)).toBe(true);
+    expect(keysAllowed({ id: cnt, kind: "workbook", teamId: "cnt_t", keyGeneration: 2, sharedGeneration: 2 }, seen)).toBe(true);
   });
 });
