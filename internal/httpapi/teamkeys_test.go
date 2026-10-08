@@ -604,7 +604,7 @@ func (p *pairClient) attach(t *testing.T, cid string, generation int64) int {
 	if res.StatusCode != http.StatusOK || json.Unmarshal(data, &up) != nil {
 		t.Fatalf("upload create=%d %s", res.StatusCode, data)
 	}
-	if code, body := p.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+up.ID, map[string]string{"X-Kynotes-Chunk-Index": "0"}, []byte("abcd"), func() {}); code != http.StatusOK {
+	if code, body := p.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+up.ID, map[string]string{"X-Kynotes-Chunk-Index": "0", keySchemeHeader: keySchemeShared}, []byte("abcd"), func() {}); code != http.StatusOK {
 		t.Fatalf("chunk=%d %s", code, body)
 	}
 	code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/uploads/"+up.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(generation, 10)+`}`), true, false))

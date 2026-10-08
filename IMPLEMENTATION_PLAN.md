@@ -1243,7 +1243,8 @@ deliberately every phase).
 |---|---|---|---|
 | GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":""}` → creates container + `owner` membership + `change_seq` 1; `metaCiphertext` must be empty (`400`); the name is sealed after the first key |
-| PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
+| POST | `/api/v1/admin/teams` | session + CSRF, server admin | `{}` → creates a `team` container + the caller's `owner` membership, audited `admin.team.create`; `metaCiphertext` must be empty (`400`); the owner's browser seals the name after the first key |
+| PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n,"keyGeneration":n}` → §1.11 rules on `meta_version`; `keyGeneration` must equal the current generation of a container that has a key (missing, zero, old or future, or no key yet: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
 | GET | `/api/v1/devices` | session | id, fingerprint, platform, created/last-seen, revoked; never the secret |
 | POST | `/api/v1/devices/pairing-token` | session + CSRF + fresh | → `{"token":"...","expiresAt":"...","deepLink":"kynotes://pair?..."}` |
@@ -1485,8 +1486,8 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v1/containers/{id}/uploads` | `{"declaredBytes":n,"expectedDigest":"<hex>","kind":"attachment\|preview"}` → `{"uploadId","chunkBytes","expiresAt","nextChunk":0}` |
-| PATCH | `/api/v1/uploads/{id}` | `application/octet-stream` chunk; header `X-Kynotes-Chunk-Index` |
+| POST | `/api/v1/containers/{id}/uploads` | `{"declaredBytes":n,"expectedDigest":"<hex>","kind":"attachment\|preview"}` → `{"uploadId","chunkBytes","expiresAt","nextChunk":0}`; needs `X-Kynotes-Key-Scheme: shared-v2` and a container that has a key (write gate, §9) |
+| PATCH | `/api/v1/uploads/{id}` | `application/octet-stream` chunk; header `X-Kynotes-Chunk-Index`; same scheme and key check as upload start |
 | GET | `/api/v1/uploads/{id}` | → status, `receivedBytes`, `nextChunk`, `expiresAt` |
 | POST | `/api/v1/uploads/{id}/finalize` | `{"metadataCiphertext":"<b64>","keyGeneration":n,"previewUploadId":"ups_..."}` → `{"attachmentId","digest","bytes"}` |
 | DELETE | `/api/v1/uploads/{id}` | abort; removes the temp file |
@@ -1687,11 +1688,11 @@ Rules:
   both roles in the transaction: an admin cannot remove an owner, nor an admin whose current membership it did not invite (`memberships.invited_by`).
   A steward then calls `POST /containers/{id}/key-rotations`. The server never
   sees the key; it enforces that the generation moved and which envelopes exist.
-* **Write gate**: new content (object save, comment create, attachment finalize) and container names need a live membership, `X-Kynotes-Key-Scheme: shared-v2` (else `409 already_exists`, `this notebook uses shared keys: reload the page`), a container that has a key (`shared_generation > 0`, set by its first rotation), the current `key_generation`, and an envelope for the writer's own live identity at it. A failed gate is `409 already_exists` with message `key rotation incomplete`. The gate runs before the body streams and again in the write transaction. Object saves record the session user in `object_versions.author_user_id`.
+* **Write gate**: upload start, chunks and preview finalize need a live membership, `X-Kynotes-Key-Scheme: shared-v2` and a container that has a key. New content (object save, comment create, attachment finalize) and container names need a live membership, `X-Kynotes-Key-Scheme: shared-v2` (else `409 already_exists`, `this notebook uses shared keys: reload the page`), a container that has a key (`shared_generation > 0`, set by its first rotation), the current `key_generation`, and an envelope for the writer's own live identity at it. A failed gate is `409 already_exists` with message `key rotation incomplete`. The gate runs before the body streams and again in the write transaction. Object saves record the session user in `object_versions.author_user_id`.
 * **Invitation envelopes**: `POST /containers/{id}/invitations` may carry
   `envelopes:[{containerId,deviceId,keyGeneration,alg,envelope}]` for the
   invitee's live identity, one per container (the team or its child workspaces)
-  at that container's current generation, where the inviter is owner or admin.
+  at that container's current generation, where the inviter is owner or admin; a container without a key refuses them (`409 already_exists`, `key rotation incomplete`) and accept installs none there.
   The P3b web client seals the team container only; child workspaces get keys
   from the steward sweep after accept.
   With envelopes, create needs a local password step-up (SSO sessions

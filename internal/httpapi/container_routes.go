@@ -80,8 +80,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		id, _ := ids.Mint("cnt")
 		mem, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
-		var e error
-		e = dbTx(db, func(tx *sql.Tx) error {
+		e := dbTx(db, func(tx *sql.Tx) error {
 			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
@@ -89,11 +88,11 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT ?,?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
 					return e
 				}
-				_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, s.UserID, now, in.TeamID, s.UserID)
-				return e
+				_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, s.UserID, now, in.TeamID, s.UserID)
+				return err
 			}
-			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
-			return e
+			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
+			return err
 		})
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")

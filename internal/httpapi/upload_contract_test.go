@@ -122,6 +122,7 @@ func (u *uploadClient) chunk(t *testing.T, id string, index int, data string) *h
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Kynotes-Chunk-Index", strconv.Itoa(index))
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range u.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {
@@ -149,6 +150,7 @@ func TestChunkOutOfOrderIsRejectedWithExpectedNext(t *testing.T) {
 	id := u.upload(t, 8, nil)
 	req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader("abcd"))
 	req.Header.Set("X-Kynotes-Chunk-Index", "1")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range u.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {
@@ -175,6 +177,7 @@ func TestIdenticalChunkRetryIsAcceptedAsNoOp(t *testing.T) {
 	for _, index := range []int{0, 0} {
 		req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader("abcd"))
 		req.Header.Set("X-Kynotes-Chunk-Index", strconv.Itoa(index))
+		req.Header.Set(keySchemeHeader, keySchemeShared)
 		for _, c := range u.hc.Jar.Cookies(req.URL) {
 			req.AddCookie(c)
 			if c.Name == "csrf_token" {
@@ -198,6 +201,7 @@ func TestDifferentBytesForSameChunkIndexIsRejected(t *testing.T) {
 	for index, data := range []string{"abcd", "wxyz"} {
 		req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader(data))
 		req.Header.Set("X-Kynotes-Chunk-Index", strconv.Itoa(index))
+		req.Header.Set(keySchemeHeader, keySchemeShared)
 		for _, c := range u.hc.Jar.Cookies(req.URL) {
 			req.AddCookie(c)
 			if c.Name == "csrf_token" {
@@ -215,6 +219,7 @@ func TestDifferentBytesForSameChunkIndexIsRejected(t *testing.T) {
 	}
 	req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader("bad!"))
 	req.Header.Set("X-Kynotes-Chunk-Index", "1")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range u.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {

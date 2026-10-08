@@ -134,6 +134,7 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 	r.Body.Close()
 	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/uploads/"+upload.ID, bytes.NewReader(data))
 	req.Header.Set("X-Kynotes-Chunk-Index", "0")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, x := range jar.Cookies(req.URL) {
 		if x.Name == "csrf_token" {
 			req.Header.Set("X-CSRF-Token", x.Value)

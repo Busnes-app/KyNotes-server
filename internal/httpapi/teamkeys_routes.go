@@ -300,23 +300,36 @@ type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// checkWriteGate admits a content write by userID into cid at generation requested: the writer
-// sends keySchemeShared, the container has a key (shared_generation > 0), requested is its current
-// generation and the writer's own identity holds an envelope there. Call it before streaming a
-// body and again inside the write transaction.
-func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
+// checkContainerKeyed admits bytes from userID into cid before any generation is named (upload
+// start, chunks, preview finalize): a live member, sending keySchemeShared, into a container that
+// has a key (shared_generation > 0). It returns the current generation.
+func checkContainerKeyed(q rowQuerier, cid, userID, scheme string) (int64, error) {
 	var generation, shared int64
 	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
-		return errNotMember
+		return 0, errNotMember
 	}
+	if err != nil {
+		return 0, err
+	}
+	if scheme != keySchemeShared {
+		return 0, errStaleClient
+	}
+	if shared == 0 {
+		return 0, errKeyRotationIncomplete
+	}
+	return generation, nil
+}
+
+// checkWriteGate admits a content write by userID into cid at generation requested: the container
+// passes checkContainerKeyed, requested is its current generation and the writer's own identity
+// holds an envelope there. Call it before streaming a body and again inside the write transaction.
+func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
+	generation, err := checkContainerKeyed(q, cid, userID, scheme)
 	if err != nil {
 		return err
 	}
-	if scheme != keySchemeShared {
-		return errStaleClient
-	}
-	if shared == 0 || requested != generation {
+	if requested != generation {
 		return errKeyRotationIncomplete
 	}
 	var admitted bool
@@ -403,8 +416,8 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 		return errEnvelopeInvalid
 	}
 	var role string
-	var generation int64
-	err := tx.QueryRow(`SELECT m.role,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation)
+	var generation, shared int64
+	err := tx.QueryRow(`SELECT m.role,c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errEnvelopeInvalid
 	}
@@ -413,6 +426,10 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 	}
 	if !isSteward(role) {
 		return errInsufficientRole
+	}
+	// Keys are minted only by key-rotations: a container without one takes no envelope.
+	if shared == 0 {
+		return errKeyRotationIncomplete
 	}
 	if v.KeyGeneration != generation {
 		return errGenerationMoved
@@ -438,7 +455,7 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 // container is still at their generation and whose identity is still live; the
 // rest are dropped for the key steward sweep to fill.
 func moveInvitationEnvelopesTx(tx *sql.Tx, invitationID, invitee, now string) error {
-	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
+	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.shared_generation>0 AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
 	if err != nil {
 		return err
 	}

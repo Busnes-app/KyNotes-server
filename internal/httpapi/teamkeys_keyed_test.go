@@ -54,8 +54,9 @@ func TestUnkeyedContainerRefusesEveryWrite(t *testing.T) {
 	if _, code := tm.editor.comment(t, object.ID, 1); code != http.StatusConflict {
 		t.Fatalf("comment without a key=%d", code)
 	}
-	if code := tm.editor.attach(t, tm.id, 1); code != http.StatusConflict {
-		t.Fatalf("attachment without a key=%d", code)
+	// Uploads are refused at the start, before any bytes stream.
+	if code, body := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", []byte(`{"declaredBytes":4,"kind":"attachment"}`), true, false)); code != http.StatusConflict || !strings.Contains(body, "key rotation incomplete") {
+		t.Fatalf("upload without a key=%d %s", code, body)
 	}
 	if code, body := status(t, tm.editor.do(t, http.MethodPatch, "/api/v1/containers/"+tm.id, []byte(`{"metaCiphertext":"Y3Q=","baseVersion":0,"keyGeneration":1}`), true, false)); code != http.StatusConflict || !strings.Contains(body, "key rotation incomplete") {
 		t.Fatalf("name without a key=%d %s", code, body)
@@ -84,13 +85,60 @@ func TestEveryWriteNeedsTheCurrentKeyScheme(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("save=%d", code)
 	}
+	// Upload sessions opened by a current client, so chunk and finalize reach their own gates.
+	upload := func(kind string, chunk bool) string {
+		code, body := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", []byte(`{"declaredBytes":4,"kind":`+quote(kind)+`}`), true, false))
+		var up struct {
+			ID string `json:"uploadId"`
+		}
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &up) != nil {
+			t.Fatalf("upload create=%d %s", code, body)
+		}
+		if chunk {
+			if code, body := tm.editor.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+up.ID, map[string]string{"X-Kynotes-Chunk-Index": "0", keySchemeHeader: keySchemeShared}, []byte("abcd"), func() {}); code != http.StatusOK {
+				t.Fatalf("chunk=%d %s", code, body)
+			}
+		}
+		return up.ID
+	}
+	chunkless, attachment, preview := upload("attachment", false), upload("attachment", true), upload("preview", true)
 	for _, scheme := range []string{"", "shared-v1"} {
 		headers := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1"}
+		json := map[string]string{"Content-Type": "application/json"}
 		if scheme != "" {
 			headers[keySchemeHeader] = scheme
+			json[keySchemeHeader] = scheme
 		}
-		if code, body := tm.editor.rawWrite(t, http.MethodPut, "/api/v1/objects/"+oid, headers, "ciphertext"); code != http.StatusConflict || !strings.Contains(body, "reload") {
-			t.Fatalf("save with scheme %q=%d %s", scheme, code, body)
+		for name, write := range map[string]func() (int, string){
+			"save": func() (int, string) {
+				return tm.editor.rawWrite(t, http.MethodPut, "/api/v1/objects/"+oid, headers, "ciphertext")
+			},
+			"comment": func() (int, string) {
+				return tm.editor.rawWrite(t, http.MethodPost, "/api/v1/objects/"+oid+"/comments", json, `{"bodyCiphertext":"Y3Q=","keyGeneration":2}`)
+			},
+			"meta": func() (int, string) {
+				return tm.editor.rawWrite(t, http.MethodPatch, "/api/v1/containers/"+tm.id, json, `{"metaCiphertext":"Y3Q=","baseVersion":0,"keyGeneration":2}`)
+			},
+			"upload start": func() (int, string) {
+				return tm.editor.rawWrite(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", json, `{"declaredBytes":4,"kind":"attachment"}`)
+			},
+			"upload chunk": func() (int, string) {
+				h := map[string]string{"X-Kynotes-Chunk-Index": "0"}
+				if scheme != "" {
+					h[keySchemeHeader] = scheme
+				}
+				return tm.editor.rawWrite(t, http.MethodPatch, "/api/v1/uploads/"+chunkless, h, "abcd")
+			},
+			"attachment finalize": func() (int, string) {
+				return tm.editor.rawWrite(t, http.MethodPost, "/api/v1/uploads/"+attachment+"/finalize", json, `{"metadataCiphertext":"","keyGeneration":2}`)
+			},
+			"preview finalize": func() (int, string) {
+				return tm.editor.rawWrite(t, http.MethodPost, "/api/v1/uploads/"+preview+"/finalize", json, `{}`)
+			},
+		} {
+			if code, body := write(); code != http.StatusConflict || !strings.Contains(body, "reload") {
+				t.Fatalf("%s with scheme %q=%d %s", name, scheme, code, body)
+			}
 		}
 	}
 	headers := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1", keySchemeHeader: "shared-v2"}
@@ -135,5 +183,32 @@ func TestUnkeyedContainerNeedsARotationNotAnEnvelope(t *testing.T) {
 		if code, body := write(); code != http.StatusConflict || !strings.Contains(body, "reload") {
 			t.Fatalf("%s from an old tab=%d %s", name, code, body)
 		}
+	}
+}
+
+// A container without a key takes no envelope through an invitation either: refused at creation,
+// and never installed on accept.
+func TestUnkeyedContainerTakesNoInvitationEnvelope(t *testing.T) {
+	tm := newTeam(t)
+	tm.owner.stepUp(t)
+	invitee := tm.owner.addUser(t, "invitee")
+	inviteeID := invitee.createIdentity(t)
+	withEnvelope := []byte(`{"inviteeId":` + quote(invitee.id) + `,"role":"editor","envelopes":[{"containerId":` + quote(tm.id) + `,` + envJSON(inviteeID, 1, 1)[1:] + `]}`)
+	if code, body := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/invitations", withEnvelope, true, false)); code != http.StatusConflict || !strings.Contains(body, "key rotation incomplete") {
+		t.Fatalf("invitation envelope without a key=%d %s", code, body)
+	}
+	inv, code := invite(t, tm.owner, tm.id, invitee.id)
+	if code != http.StatusOK {
+		t.Fatalf("invite=%d", code)
+	}
+	if _, err := tm.owner.db.Exec(`INSERT INTO invitation_envelopes(invitation_id,container_id,device_id,key_generation,alg,envelope) VALUES(?,?,?,1,?,?)`, inv[0], tm.id, inviteeID, envelopeAlg, bytes.Repeat([]byte{1}, 93)); err != nil {
+		t.Fatal(err)
+	}
+	if code := accept(t, invitee.pairClient, inv); code != http.StatusNoContent {
+		t.Fatalf("accept=%d", code)
+	}
+	var installed int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM key_envelopes WHERE container_id=?`, tm.id).Scan(&installed); err != nil || installed != 0 {
+		t.Fatalf("accept installed %d envelopes without a key: %v", installed, err)
 	}
 }

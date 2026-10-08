@@ -165,9 +165,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
 - `POST /api/v1/admin/teams` is the explicit admin team-creation path; it
-  creates the owner membership and records `admin.team.create`. Team names are
-  encrypted in the browser using the team ID before metadata is updated; the
-  admin list returns ciphertext for browser-side decryption.
+  creates the owner membership and records `admin.team.create`. It takes no name
+  (`400` for a non-empty `metaCiphertext`); the owner's browser seals one after the first
+  key. The admin list returns ciphertext for browser-side decryption.
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
