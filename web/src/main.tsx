@@ -6,7 +6,6 @@ import {
   addAdminTeamMember,
   adminAudit,
   adminSSO,
-  adminTeams,
   adminUsers,
   attachToObject,
   APIRequestError,
@@ -14,11 +13,8 @@ import {
   changes,
   checkSetup,
   comments,
-  containers,
   createAdminUser,
-  createAdminTeam,
   createComment,
-  createContainer,
   createObject,
   createUpload,
   deleteUpload,
@@ -68,6 +64,7 @@ import {
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
 import { copyableConflicts, keysAllowed, legacyRow, mergeFloor, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
+import { listAdminTeams, listContainers, newAdminTeam, newContainer, nextFloor, type FloorSink } from "./observe";
 import { fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
 import {
@@ -708,7 +705,7 @@ function Workspace({
     return identityRef.current;
   }
   async function currentContainer(id: string): Promise<Container> {
-    const found = (await containers()).find((entry) => entry.id === id);
+    const found = (await listContainers(floorSink)).find((entry) => entry.id === id);
     if (!found) throw new Error("Notebook not found");
     return found;
   }
@@ -728,6 +725,12 @@ function Workspace({
     confirm: (confirmation) => storeConfirmedPin(auth.username, auth.user.id, confirmation),
     loadKeyState: (containerID) => getKeyState(auth.username, auth.user.id, containerID),
     saveKeyState: (containerID, state) => storeKeyState(auth.username, auth.user.id, containerID, state),
+  };
+  // Every server container read passes the observer (observe.ts), which raises these floors.
+  const floorSink: FloorSink = {
+    load: pinStore.loadKeyState,
+    save: pinStore.saveKeyState,
+    publish: (containerID, floor, loaded) => { const next = nextFloor(floorsRef.current[containerID], floor, loaded); if (next) putFloor(containerID, next); },
   };
   const fingerprintOf = (publicKey: string) => fingerprint(publicKey).catch(() => "unreadable key");
   // Pins are per user, so a decline covers every notebook; a different new key asks again.
@@ -798,10 +801,11 @@ function Workspace({
   async function resealName(container: Container): Promise<[Container, string]> {
     try {
       const latest = await currentContainer(container.id);
+      // Never hand back the older generations: a newer one without its key must stay read-only.
+      const current = { ...container, metaCiphertext: latest.metaCiphertext, metaVersion: latest.metaVersion, changeSeq: latest.changeSeq, keyGeneration: latest.keyGeneration, sharedGeneration: latest.sharedGeneration };
       const write = writeKeyFor(latest);
-      if (!write || !latest.metaCiphertext) return [container, ""];
+      if (!write || !latest.metaCiphertext) return [current, ""];
       const meta = fromBase64(latest.metaCiphertext);
-      const current = { ...container, metaCiphertext: latest.metaCiphertext, metaVersion: latest.metaVersion, changeSeq: latest.changeSeq };
       const opened = (keys: KeyRef[]) => openFirst(keys, (key) => decryptContainerMeta(key, container.id, meta)).then((value) => value.name, () => undefined);
       if ((await opened([write.key])) !== undefined) return [current, ""];
       const ring = ringsRef.current[container.id] ?? noKeys;
@@ -1118,7 +1122,7 @@ function Workspace({
   }, [dirty, selected?.id]);
   async function loadContainers() {
     try {
-      const value = await containers();
+      const value = await listContainers(floorSink);
       const loaded = value;
       const nextNames: Record<string, string> = {};
       const identity = await heldIdentity();
@@ -1354,7 +1358,7 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      const container = await createContainer("workbook");
+      const container = await newContainer(floorSink, "workbook");
       // Its floor before first use: normally empty, but never skipped for an ID this device knows.
       await ensureFloor(container);
       const write = writeKeyFor(container);
@@ -1385,7 +1389,7 @@ function Workspace({
     setBusy(true);
     try {
       // Mint the workspace's own key before naming it, so the name is shared too.
-      const container = await syncKeys(await createContainer("workbook", "", teamContainer.id));
+      const container = await syncKeys(await newContainer(floorSink, "workbook", "", teamContainer.id));
       const write = writeKeyFor(container);
       if (!write) throw new Error("This team notebook is waiting for keys");
       const encrypted = await encryptContainerMeta(write.key, container.id, name);
@@ -2880,9 +2884,16 @@ function AdminUserActions({
   );
 }
 
-function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: string }) {
+function AdminTeams({ users, authSecret, username, userID }: { users: AdminUser[]; authSecret: string; username: string; userID: string }) {
   // Admin pages hold no team keys: only names still under this account's legacy key are readable here.
   const legacy = legacyKeyRef(authSecret);
+  // This device's sharing floors for the listed teams (observe.ts); unknown means not named here.
+  const floors = useRef<Record<string, KeyFloor>>({});
+  const floorSink: FloorSink = {
+    load: (containerID) => getKeyState(username, userID, containerID),
+    save: (containerID, state) => storeKeyState(username, userID, containerID, state),
+    publish: (containerID, floor, loaded) => { const next = nextFloor(floors.current[containerID], floor, loaded); if (next) floors.current[containerID] = next; },
+  };
   const [teams, setTeams] = useState<AdminTeam[]>([]);
   const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [team, setTeam] = useState("");
@@ -2890,7 +2901,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
   const [role, setRole] = useState("editor");
   async function reload() {
     try {
-      const nextTeams = await adminTeams();
+      const nextTeams = await listAdminTeams(floorSink);
       const nextNames: Record<string, string> = {};
       for (const entry of nextTeams) {
         if (!entry.metaCiphertext) continue;
@@ -2916,7 +2927,8 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
    * login key. The generation sent lets the server refuse it if the team was shared meanwhile.
    */
   async function nameUnsharedTeam(entry: AdminTeam, name: string) {
-    if (entry.sharedGeneration || entry.keyGeneration === undefined) throw new Error("Shared teams are renamed from the team notebook.");
+    if (!floors.current[entry.id]) throw new Error("This browser could not check whether this team is shared. Try again.");
+    if (entry.sharedGeneration || floors.current[entry.id].shared || entry.keyGeneration === undefined) throw new Error("Shared teams are renamed from the team notebook.");
     const encoded = base64(await encryptContainerMeta(legacy, entry.id, name));
     await updateContainer(entry.id, encoded, entry.metaVersion ?? 0, entry.keyGeneration);
   }
@@ -2926,7 +2938,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
     try {
       // The server mints the container ID, which is part of the metadata key.
       // Create first, then immediately replace the empty metadata with ciphertext.
-      const created = await createAdminTeam("");
+      const created = await newAdminTeam(floorSink, "");
       await nameUnsharedTeam(created, name);
       setTeam(created.id);
       await reload();
@@ -2942,7 +2954,7 @@ function AdminTeams({ users, authSecret }: { users: AdminUser[]; authSecret: str
     if (!name) return;
     try {
       // Re-read: the team may have been shared since this list loaded.
-      const latest = (await adminTeams()).find((entry) => entry.id === selected.id);
+      const latest = (await listAdminTeams(floorSink)).find((entry) => entry.id === selected.id);
       if (!latest) throw new Error("Team not found");
       await nameUnsharedTeam(latest, name);
       await reload();
@@ -3338,7 +3350,7 @@ function SettingsView({
               ))}
             </section>
             <div id="teams">
-              <AdminTeams users={users} authSecret={authSecret} />
+              <AdminTeams users={users} authSecret={authSecret} username={username} userID={userID} />
             </div>
             <section id="audit" className="config-card">
               <h2>Audit log</h2>

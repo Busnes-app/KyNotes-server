@@ -416,7 +416,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Rollback rule: `KeyState` also keeps the highest `shared`/`generation` the server reported (add-only,
   persisted by `syncContainerKeys` before use); `writeKey`/`readKeys`/`legacyRow` require that floor and
   `guardContainer` applies it, `main.tsx` passes it only through `floorFor`, a thin lookup for every
-  container (no loaded floor, no key; `ensureFloor` before first use; `putFloor` merges add-only via
+  container (no loaded floor, no key; `ensureFloor` before first use; every server container read
+  passes the observer (`web/src/observe.ts`: list, current, create, admin team list/create), which
+  raises the stored and in-memory floor before the row is used, and `observe.test.ts` fails if
+  `main.tsx` imports a raw container fetcher; `putFloor` merges add-only via
   `mergeFloor`, and `syncContainerKeys` hands it the raised floor through `onFloor` before any
   envelope fetch and again the moment `rotate` succeeds; the post-mint ring opens from the accepted
   rows, never a re-fetch, so a pass that later throws still pauses writes), and a lower report is plan
