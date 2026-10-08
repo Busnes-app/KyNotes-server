@@ -89,7 +89,8 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "accept"
 		case r.Method != http.MethodGet && (path == "/api/v1/me/identity" || strings.HasPrefix(path, "/api/v1/me/identity/recovery")):
 			// Creating or resetting the identity, setting or fetching its recovery-code copy: a handful an hour
-			// bounds resets, fetches and audit rows.
+			// bounds resets, fetches and audit rows. ponytail: reuses pairing_per_hour; upgrade path is a
+			// dedicated recovery_per_hour key.
 			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "recovery"
 		case r.Method == http.MethodPost && path == "/api/v1/me/link-requests":
 			// Linking a browser is device pairing: the same per-account hourly budget.

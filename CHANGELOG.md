@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Team keys phase 5: personal notebooks now get their own encryption keys, like team notebooks, so the
+  server can no longer read them and changing your password no longer makes them unreadable. Each
+  notebook gets its key when you create it or first open it after this update. You then review and seal
+  your older items, as in team notebooks. A one-time recovery code, shown once in your browser, gets your
+  key back on a new browser when no other browser has it; the server keeps only a copy it cannot open.
+  An administrator password reset no longer deletes your encryption key. If you lose every browser and
+  the code, Settings can reset your key, and your personal notebooks are lost. Writing now needs your
+  encryption key on that browser: accounts still on an administrator-set password change it first, and
+  single sign-on accounts save a recovery code before their personal notebooks get keys. Database
+  migration 0025.
 - Team keys phase 4: a shared notebook now offers to share the pages, comments, attachments and
   conflicting versions you wrote before it was shared. You read them and tick the ones you recognise;
   exactly what you read is sealed with the notebook's key so every member can read it. Afterwards, and on any browser where
