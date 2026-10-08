@@ -90,7 +90,7 @@ export function SectionTabs(props: Props) {
         onClick={() => onSelect(id)}
       >
         {title || "Untitled section"}
-        {props.unverified.has(id) && <em title="Written before this notebook was shared; not end-to-end verified."> · not verified</em>}
+        {props.unverified.has(id) && <em title="Written before this notebook had its own key; not end-to-end verified."> · not verified</em>}
       </button>
       {section && current === id && (
         <>
@@ -114,7 +114,7 @@ export function SectionTabs(props: Props) {
         onClick={() => props.onOpenGroup(group.id)}
       >
         <span aria-hidden="true">📁 </span>{group.title || "Untitled group"}
-        {props.unverified.has(group.id) && <em title="Written before this notebook was shared; not end-to-end verified."> · not verified</em>}
+        {props.unverified.has(group.id) && <em title="Written before this notebook had its own key; not end-to-end verified."> · not verified</em>}
       </button>
       <button className="quiet section-tab-menu" style={{ anchorName: `--group-${group.id}` }} popoverTarget={`group-menu-${group.id}`} aria-label={`Group options for ${group.title || "Untitled group"}`}>⋯</button>
       {menu("group", group, index, groups.length, () => props.onDeleteGroup(group))}

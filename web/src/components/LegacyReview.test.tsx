@@ -74,7 +74,7 @@ describe("the pre-sharing banner", () => {
     const html = text(banner({ checking: true }));
     expect(html).toContain(LEGACY_CHECKING);
     expect(html).toContain(STOP_BUTTON);
-    expect(html).not.toContain("Review and share");
+    expect(html).not.toContain("Review and seal");
   });
 
   it("a failed check shows the banner, the reason and Stop (N2)", () => {
@@ -115,12 +115,12 @@ describe("the pre-sharing banner", () => {
     expect(closed).not.toContain(STOP_BUTTON);
   });
 
-  it("a closed notebook offers only \"Show pre-sharing items again\"", async () => {
+  it("a closed notebook offers only \"Show older items again\"", async () => {
     const html = text(banner({ review: await review(), closed: true }));
     expect(html).toContain(LEGACY_CLOSED);
     expect(html).toContain(REOPEN_LEGACY);
     expect(html).not.toContain(STOP_BUTTON);
-    expect(html).not.toContain("Review and share");
+    expect(html).not.toContain("Review and seal");
     expect(text(banner({ review: await review() }))).not.toContain(REOPEN_LEGACY);
   });
 
@@ -132,9 +132,9 @@ describe("the pre-sharing banner", () => {
     expect(html).toContain("Untitled page");
     expect(html).toContain(REVIEW_BLOCKED);
     expect(html).not.toContain(TICK_THESE); // ticking happens in the dialog, by the user
-    expect(shareOutcomeText(outcome({ shared: ["x"], incomplete: true }))).toBe(`Shared 1 item. ${LEGACY_SHARE_INCOMPLETE}`);
-    expect(shareOutcomeText(outcome({ shared: ["x", "y"], closed: true }))).toBe(`Shared 2 items. ${LEGACY_CLOSED}`);
-    expect(shareOutcomeText(outcome({ failed: [{ id: "x", reason: "offline" }] }))).toMatch(/^1 of the ticked items could not be shared \(offline\)/);
+    expect(shareOutcomeText(outcome({ shared: ["x"], incomplete: true }))).toBe(`Sealed 1 item. ${LEGACY_SHARE_INCOMPLETE}`);
+    expect(shareOutcomeText(outcome({ shared: ["x", "y"], closed: true }))).toBe(`Sealed 2 items. ${LEGACY_CLOSED}`);
+    expect(shareOutcomeText(outcome({ failed: [{ id: "x", reason: "offline" }] }))).toMatch(/^1 of the ticked items could not be sealed \(offline\)/);
   });
 
   it("\"Tick these too\" offers only the blocked pages and their attachments that the review still offers", async () => {
@@ -269,3 +269,20 @@ describe("the review dialog", () => {
     expect(source).toContain("openDialog(new Set())");
   });
 });
+
+describe("review copy for every notebook (P5)", () => {
+  const source = import.meta.glob<string>("./LegacyReview.tsx", { query: "?raw", import: "default", eager: true })["./LegacyReview.tsx"];
+  const strings = source.match(/"[^"\n]*"|`[^`\n]*`/g)!.join("\n");
+
+  it("says seal, never share, in what the user reads", () => {
+    expect(SHARE_BUTTON).toBe("Seal ticked items");
+    expect(legacyLeave(1)).toMatch(/Seal the ticked items/);
+    expect(shareOutcomeText(outcome({ shared: ["x"] }))).toMatch(/^Sealed 1 item\./);
+    expect(strings).not.toMatch(/\b(?:[Ss]hare|[Ss]hared|[Ss]haring|[Mm]embers could)\b/);
+  });
+
+  it("decides nothing from a notebook's kind or teamId (item.kind is the review item's own type)", () => {
+    expect(source.replace(/\/\*[^]*?\*\//g, "").replace(/\/\/.*$/gm, "")).not.toMatch(/\.teamId\b|\.kind\s*[!=]==?\s*["'](?:team|workbook|project|personal)["']|container\.kind/);
+  });
+});
+

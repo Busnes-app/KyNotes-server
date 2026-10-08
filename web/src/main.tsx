@@ -190,10 +190,10 @@ const ROLLBACK = "The server reported an older key state for this notebook than 
 const NOT_KEYED = "The notebook was created, but its key is not set up yet. Open it again to finish.";
 const NO_KEY_HERE = "This browser does not hold your encryption key, so it cannot create a notebook. Link it, or restore your key with your recovery code, in Settings.";
 const ADMIN_PASSWORD_FIRST = "An administrator set your password. Change it in Settings before you can write in your notebooks.";
-const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
-const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
+const UNVERIFIED = "Written before this notebook had its own key; not end-to-end verified.";
+const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook had its own key is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to seal it.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
-const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
+const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook had its own key, which are not end-to-end verified. Move or edit those subpages on their own first.";
 /** What Settings suggests without a key: only an action this browser can actually take from here. */
 function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
   if (state === "link") return " Link it from a browser that does (below).";
@@ -751,7 +751,7 @@ function Workspace({
     unverifiedRef.current = next;
     setUnverified(next);
   };
-  // The open notebook's pre-sharing items as this browser last checked them (migration.ts). checking: the
+  // The open notebook's older items as this browser last checked them (migration.ts). checking: the
   // review is running (the banner and its Stop button show meanwhile); failure: why it did not finish.
   // reopened: this user reopened the notebook here (stored mark), so Stop stays on screen.
   const [legacyCheck, setLegacyCheck] = useState<{ containerID: string; review?: LegacyReview; checking: boolean; failure?: string; reopened?: boolean }>();
@@ -947,7 +947,7 @@ function Workspace({
         // keys this browser accepted may supply it, newest first; the forgeable legacy key may not.
         const older = [...ring.entries()].filter(([generation]) => generation < write.generation).sort(([a], [b]) => b - a).map(([, key]) => key);
         name = (await opened(older)) ?? "";
-        if (!name) return [current, "This notebook's name could not be shared with its members yet. Rename it so every member can read it."];
+        if (!name) return [current, others ? "This notebook's name could not be shared with its members yet. Rename it so every member can read it." : "This notebook's name could not be sealed with its key yet. Rename it to try again."];
         const shown = name;
         setNames((value) => ({ ...value, [container.id]: shown }));
       }
@@ -955,9 +955,9 @@ function Workspace({
       const result = await sendContainerName({ container: latest, generation: write.generation }, encoded, latest.metaVersion);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
       // Visible on purpose: a name read with a key the server can derive now reaches every member (spec §6).
-      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, others ? `Shared this notebook's name with members: ${name}.` : ""];
+      return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, others ? `Sealed this notebook's name with its key: ${name}.` : ""];
     } catch {
-      return [container, "This notebook's name could not be shared with its members yet. Rename it to try again."];
+      return [container, others ? "This notebook's name could not be shared with its members yet. Rename it to try again." : "This notebook's name could not be sealed with its key yet. Rename it to try again."];
     }
   }
   // Bumped to remount the open page's editor on content it did not produce.
@@ -1416,12 +1416,12 @@ function Workspace({
   async function shareLegacy(approval: MigrationApproval) {
     const container = selectedRef.current;
     const write = container && writeKeyFor(container);
-    if (!container || !write) { setError("This notebook is waiting for its keys; nothing was shared."); return; }
+    if (!container || !write) { setError("This notebook is waiting for its keys; nothing was sealed."); return; }
     let result: Migrated;
     try {
       result = await migrateLegacy(migrationAPI(container), { container, floorNow: () => floorFor(container), legacy, userId: auth.user.id, write, ring: ringsRef.current[container.id] ?? noKeys, approval }, async () => (await stopLegacy(container)) === "closed");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Nothing was shared.");
+      setError(error instanceof Error ? error.message : "Nothing was sealed.");
       await selectContainer(container, parseRoute(location.hash));
       return;
     }
@@ -1429,7 +1429,7 @@ function Workspace({
     setLegacyOutcome({ containerID: container.id, result });
     setError(shareOutcomeText(result));
   }
-  /** "Show pre-sharing items again", after the user's confirm minted confirmation (LegacyReview.tsx). */
+  /** "Show older items again", after the user's confirm minted confirmation (LegacyReview.tsx). */
   async function reopenLegacyReads(container: Container, confirmation: ReopenConfirmation) {
     if (!(await reopenLegacy(auth.username, auth.user.id, container.id, confirmation))) {
       setError("This browser could not show items written before sharing again; try again.");
@@ -2241,7 +2241,7 @@ function Workspace({
         showSection(pageSection(placed));
       }
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
-      else if (unverifiedKept) setError(`${unverifiedKept} version(s) were written before this notebook was shared and are not end-to-end verified, so they were not copied. They remain on the server.`);
+      else if (unverifiedKept) setError(`${unverifiedKept} version(s) were written before this notebook had its own key and are not end-to-end verified, so they were not copied. They remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
       if (!failed && !unreadable && !unverifiedKept) {
         setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
@@ -2868,7 +2868,7 @@ function Workspace({
                   </div>
                 )}
                 {unverified.has(selectedNote.id) && (
-                  <div className="conflict-banner" role="status">{UNVERIFIED} Editing or moving it shares it with every member under this notebook's key.</div>
+                  <div className="conflict-banner" role="status">{UNVERIFIED} Editing or moving it seals it with this notebook's key.</div>
                 )}
                 <input
                   className="title-input"

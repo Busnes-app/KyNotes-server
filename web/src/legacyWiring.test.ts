@@ -136,7 +136,7 @@ describe("workspace keys after P5", () => {
     expect(main).not.toMatch(/once a team owner shares|Waiting for a team owner/);
     expect(main.match(/queuedNotice\(stewardHere\(selected\)\)/g)).toHaveLength(2);
     expect(main).toContain("waitingNotice({ steward: stewardHere(selected),");
-    expect(main).toContain("others ? `Shared this notebook's name with members: ${name}.` : \"\"");
+    expect(main).toContain("others ? `Sealed this notebook's name with its key: ${name}.` : \"\"");
     expect(main).toContain("{!auth.sso && identityState === \"create\" && <div className=\"conflict-banner\" role=\"status\">{ADMIN_PASSWORD_FIRST}");
   });
 

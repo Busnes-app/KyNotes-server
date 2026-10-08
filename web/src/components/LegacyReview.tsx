@@ -4,26 +4,26 @@ import { confirmReopenLegacy, type ReopenConfirmation } from "../keyring";
 import { approveMigration, attachmentsLeftBehind, itemLabel, reviewText, type LegacyReview as Review, type MigrationApproval, type Migrated, type MigrationItem } from "../migration";
 
 const items = (n: number) => `${n} item${n === 1 ? "" : "s"}`;
-export const legacyMine = (n: number) => `${items(n)} you wrote before this notebook was shared ${n === 1 ? "is" : "are"} not end-to-end verified yet. Review and share them with members, or stop opening them here.`;
-export const legacyOthers = (n: number) => `${items(n)} written before this notebook was shared can be opened only by ${n === 1 ? "its author" : "their authors"}.`;
-export const legacyRefused = (n: number) => `${items(n)} written before this notebook was shared ${n === 1 ? "was" : "were"} refused: sealed with your key but naming another author, which only a server that altered ${n === 1 ? "it" : "them"} does.`;
-export const legacyLeave = (n: number) => `${items(n)} you did not tick will stay on the server, and this browser will stop opening them. Share the ticked items and stop opening the rest?`;
-export const LEGACY_CHECKING = "Checking the items written before this notebook was shared…";
-export const LEGACY_INCOMPLETE = "This browser could not check every item written before this notebook was shared.";
-export const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook was shared.";
-export const LEGACY_INTRO = "Read each item in full and tick only what you recognise as your own. Each item shows every piece of text it holds, link targets and attachment names included; save a copy of an attachment to check it. Ticked items are sealed with this notebook's key exactly as shown here, so every member can read them. Unticked items stay on the server, and this browser stops opening them.";
-export const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook was shared; they are not end-to-end verified.";
-export const LEGACY_LEFT_BEHIND = "These ticked pages use attachments you did not tick. Members could not open them, so nothing is shared until you tick them too or untick the page:";
+export const legacyMine = (n: number) => `${items(n)} you wrote before this notebook had its own key ${n === 1 ? "is" : "are"} not end-to-end verified yet. Review them and seal them with this notebook's key, or stop opening them here.`;
+export const legacyOthers = (n: number) => `${items(n)} written before this notebook had its own key can be opened only by ${n === 1 ? "its author" : "their authors"}.`;
+export const legacyRefused = (n: number) => `${items(n)} written before this notebook had its own key ${n === 1 ? "was" : "were"} refused: sealed with your key but naming another author, which only a server that altered ${n === 1 ? "it" : "them"} does.`;
+export const legacyLeave = (n: number) => `${items(n)} you did not tick will stay on the server, and this browser will stop opening them. Seal the ticked items and stop opening the rest?`;
+export const LEGACY_CHECKING = "Checking the items written before this notebook had its own key…";
+export const LEGACY_INCOMPLETE = "This browser could not check every item written before this notebook had its own key.";
+export const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook had its own key.";
+export const LEGACY_INTRO = "Read each item in full and tick only what you recognise as your own. Each item shows every piece of text it holds, link targets and attachment names included; save a copy of an attachment to check it. Ticked items are sealed with this notebook's key exactly as shown here; in a team notebook every member can then read them. Unticked items stay on the server, and this browser stops opening them.";
+export const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook had its own key; they are not end-to-end verified.";
+export const LEGACY_LEFT_BEHIND = "These ticked pages use attachments you did not tick. Readers could not open them, so nothing is sealed until you tick them too or untick the page:";
 export const SAVE_COPY = "Save a copy to check";
-export const LEGACY_CLOSED = "This browser no longer opens items written before this notebook was shared.";
-export const STOP_LEGACY = "Stop opening items written before this notebook was shared? This browser will no longer open any of them, including your own that you have not shared. They stay on the server.";
-export const LEGACY_LABEL = "Written before sharing; not end-to-end verified";
+export const LEGACY_CLOSED = "This browser no longer opens items written before this notebook had its own key.";
+export const STOP_LEGACY = "Stop opening items written before this notebook had its own key? This browser will no longer open any of them, including your own that you have not sealed. They stay on the server.";
+export const LEGACY_LABEL = "Written before this notebook had its own key; not end-to-end verified";
 export const LEGACY_SHARE_INCOMPLETE = "Some items couldn't be checked; the notebook stays open.";
-export const LEGACY_BLOCKED = "These pages use attachments you're sharing; tick them too, or keep the notebook open:";
-export const REOPEN_LEGACY = "Show pre-sharing items again";
-export const REOPEN_CONFIRM = "Show items written before this notebook was shared again? They are not end-to-end verified: the server could have written or changed any of them. This browser opens them with your login key until you stop again.";
-export const STOP_BUTTON = "Stop opening pre-sharing items";
-export const SHARE_BUTTON = "Share ticked items";
+export const LEGACY_BLOCKED = "These pages use attachments you're sealing; tick them too, or keep the notebook open:";
+export const REOPEN_LEGACY = "Show older items again";
+export const REOPEN_CONFIRM = "Show items written before this notebook had its own key again? They are not end-to-end verified: the server could have written or changed any of them. This browser opens them with your login key until you stop again.";
+export const STOP_BUTTON = "Stop opening older items";
+export const SHARE_BUTTON = "Seal ticked items";
 export const TICK_THESE = "Tick these too";
 export const TICK_IT = "Tick it too";
 export const REVIEW_BLOCKED = "Review these pages";
@@ -38,10 +38,10 @@ export function checkFailure(error: unknown): string {
 /** What the workspace reports after a share run (migration.ts migrateLegacy). */
 export function shareOutcomeText(result: Migrated): string {
   const n = result.shared.length;
-  if (result.failed.length) return `${result.failed.length} of the ticked items could not be shared (${result.failed[0].reason}). This browser still opens items written before this notebook was shared; try again.`;
-  if (result.closed) return `Shared ${items(n)}. ${LEGACY_CLOSED}`;
-  if (result.incomplete) return `Shared ${items(n)}. ${LEGACY_SHARE_INCOMPLETE}`;
-  return `Shared ${items(n)}. This browser still opens the rest; it checks again after a reload.`;
+  if (result.failed.length) return `${result.failed.length} of the ticked items could not be sealed (${result.failed[0].reason}). This browser still opens items written before this notebook had its own key; try again.`;
+  if (result.closed) return `Sealed ${items(n)}. ${LEGACY_CLOSED}`;
+  if (result.incomplete) return `Sealed ${items(n)}. ${LEGACY_SHARE_INCOMPLETE}`;
+  return `Sealed ${items(n)}. This browser still opens the rest; it checks again after a reload.`;
 }
 
 /** The review items "Tick these too" offers: blocked pages and the attachments they use, if the review still offers them. */
@@ -64,7 +64,7 @@ export async function submitShare(input: { userID: string; containerID: string; 
   return true;
 }
 
-/** "Show pre-sharing items again": the only place a ReopenConfirmation is minted, and only after the user's confirm. */
+/** "Show older items again": the only place a ReopenConfirmation is minted, and only after the user's confirm. */
 export async function submitReopen(userID: string, containerID: string, ask: (text: string) => boolean, onReopen: (confirmation: ReopenConfirmation) => Promise<void>): Promise<boolean> {
   if (!ask(REOPEN_CONFIRM)) return false;
   await onReopen(confirmReopenLegacy(userID, containerID));
@@ -126,9 +126,9 @@ export function LegacyItems({ review, picked, highlight, busy, onToggle, onTick,
 }
 
 /**
- * One notebook's pre-sharing items (migration.ts reviewLegacy). checking: the review is still running,
+ * One notebook's older items (migration.ts reviewLegacy). checking: the review is still running,
  * and Stop shows anyway. failure: why the check did not finish (never shown as an empty list).
- * closed: this device stopped opening them; only counts and "Show pre-sharing items again" show.
+ * closed: this device stopped opening them; only counts and "Show older items again" show.
  * reopened: the user reopened this notebook here (the stored mark), and labelled: rows on screen
  * were read with the login key; either keeps Stop on screen whatever the server lists.
  * outcome: the last share run, for what blocked closing. The dialog lists the review it opened with.
@@ -166,7 +166,7 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
               {review && <button disabled={busy} onClick={() => openDialog(tickThese(review, blocked))}>{REVIEW_BLOCKED}</button>}
             </div>
           )}
-          {!checking && mine.length > 0 && <button disabled={busy} onClick={() => openDialog(new Set())}>Review and share…</button>}
+          {!checking && mine.length > 0 && <button disabled={busy} onClick={() => openDialog(new Set())}>Review and seal…</button>}
           <button disabled={busy} onClick={() => void run(async () => { if (confirm(STOP_LEGACY)) await onStop(); })}>{STOP_BUTTON}</button>
         </div>
       )}

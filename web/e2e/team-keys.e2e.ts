@@ -712,20 +712,20 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
 }
 
 const LEGACY_TEAM = "Legacy Team E2E";
-const LEGACY_CLOSED = "This browser no longer opens items written before this notebook was shared.";
-const LEGACY_CHECKING = "Checking the items written before this notebook was shared…";
-const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook was shared.";
-const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook was shared; they are not end-to-end verified.";
-const LEGACY_LABEL = "Written before sharing; not end-to-end verified";
-const LEGACY_BLOCKED = "These pages use attachments you're sharing; tick them too, or keep the notebook open:";
-const LEAVE_ONE = "1 item you did not tick will stay on the server, and this browser will stop opening them. Share the ticked items and stop opening the rest?";
-const STOP_LEGACY = "Stop opening items written before this notebook was shared? This browser will no longer open any of them, including your own that you have not shared. They stay on the server.";
-const REOPEN_CONFIRM = "Show items written before this notebook was shared again? They are not end-to-end verified: the server could have written or changed any of them. This browser opens them with your login key until you stop again.";
-const STOP = "Stop opening pre-sharing items";
-const REOPEN = "Show pre-sharing items again";
+const LEGACY_CLOSED = "This browser no longer opens items written before this notebook had its own key.";
+const LEGACY_CHECKING = "Checking the items written before this notebook had its own key…";
+const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook had its own key.";
+const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook had its own key; they are not end-to-end verified.";
+const LEGACY_LABEL = "Written before this notebook had its own key; not end-to-end verified";
+const LEGACY_BLOCKED = "These pages use attachments you're sealing; tick them too, or keep the notebook open:";
+const LEAVE_ONE = "1 item you did not tick will stay on the server, and this browser will stop opening them. Seal the ticked items and stop opening the rest?";
+const STOP_LEGACY = "Stop opening items written before this notebook had its own key? This browser will no longer open any of them, including your own that you have not sealed. They stay on the server.";
+const REOPEN_CONFIRM = "Show items written before this notebook had its own key again? They are not end-to-end verified: the server could have written or changed any of them. This browser opens them with your login key until you stop again.";
+const STOP = "Stop opening older items";
+const REOPEN = "Show older items again";
 const FORGED = `obj_${"f".repeat(26)}`;
 // Long, so the dialog's wrapping is exercised too.
-const FORGED_TITLE = "Forged page the server wrote with your login key to look like one of your own notes from before this notebook was shared";
+const FORGED_TITLE = "Forged page the server wrote with your login key to look like one of your own notes from before this notebook had its own key";
 
 /** This browser's legacy closure for cid (0: still open), read from its vault's key memory. */
 const closedIn = (page: Page, cid: string) => page.evaluate((id) => new Promise<number>((resolve) => {
@@ -818,9 +818,9 @@ async function p4(owner: Person, editor: Person, second: Person, senders: Map<st
   // 2. The owner opens it: the first key is minted. Nothing listed is the owner's, so its browser
   // stops opening pre-sharing rows by itself, and counts the editor's.
   await openTeam(owner.page, LEGACY_TEAM, lid);
-  await expect(owner.page.getByText(/^3 items written before this notebook was shared can be opened only by their authors\./)).toBeVisible({ timeout: 30_000 });
+  await expect(owner.page.getByText(/^3 items written before this notebook had its own key can be opened only by their authors\./)).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => closedIn(owner.page, lid)).toBeGreaterThan(0);
-  await expect(owner.page.getByRole("button", { name: "Review and share…" })).toHaveCount(0);
+  await expect(owner.page.getByRole("button", { name: "Review and seal…" })).toHaveCount(0);
   await expect(owner.page.getByRole("button", { name: REOPEN })).toBeVisible();
   await shoot(owner.page, "others", owner.page.getByText(/can be opened only by their authors/));
 
@@ -829,21 +829,21 @@ async function p4(owner: Person, editor: Person, second: Person, senders: Map<st
   await openTeam(editor.page, LEGACY_TEAM, lid);
   await expect(pageRow(editor.page, "Pre-sharing page")).toContainText("Not verified");
   await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified");
-  await expect(editor.page.getByText(/^4 items you wrote before this notebook was shared are not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
+  await expect(editor.page.getByText(/^4 items you wrote before this notebook had its own key are not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
   await expect(editor.page.getByRole("button", { name: STOP })).toBeVisible();
   expect(await closedIn(editor.page, lid)).toBe(0);
   await shoot(editor.page, "banner", editor.page.locator(".legacy-banner"));
 
   // 4. Review: every item is labelled, nothing is ticked and Share is off until something is. The editor
   // ticks only its own three; sharing asks before the unticked forged page is hidden.
-  await editor.page.getByRole("button", { name: "Review and share…" }).click();
+  await editor.page.getByRole("button", { name: "Review and seal…" }).click();
   const dialog = editor.page.locator("dialog.legacy-review");
   const items = ["Page: Pre-sharing page", `Page: ${FORGED_TITLE}`, "Comment: pre-sharing comment", /Attachment: legacy\.txt \(1 KB\)/];
   for (const label of items) {
     await expect(dialog.getByLabel(label)).not.toBeChecked();
     await expect(dialog.locator("li", { has: editor.page.getByLabel(label) })).toContainText(LEGACY_LABEL);
   }
-  const share = dialog.getByRole("button", { name: "Share ticked items" });
+  const share = dialog.getByRole("button", { name: "Seal ticked items" });
   await expect(share).toBeDisabled();
   await shoot(editor.page, "dialog", dialog.getByRole("heading"));
   for (const label of [items[0], items[2], items[3]]) await dialog.getByLabel(label).check();
@@ -854,7 +854,7 @@ async function p4(owner: Person, editor: Person, second: Person, senders: Map<st
   const swap = (url: URL) => url.pathname === `/api/v1/objects/${reviewed.id}`;
   await editor.page.route(swap, (route) => route.request().method() !== "GET" ? route.continue() : route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "X-Kynotes-Version": String(reviewed.version), "X-Kynotes-Key-Generation": String(reviewed.generation) }, body: Buffer.from(swapped) }));
   await withDialog(editor, { type: "confirm", text: LEAVE_ONE }, () => share.click());
-  await expect(editor.page.getByText(`Shared 3 items. ${LEGACY_CLOSED}`)).toBeVisible({ timeout: 60_000 });
+  await expect(editor.page.getByText(`Sealed 3 items. ${LEGACY_CLOSED}`)).toBeVisible({ timeout: 60_000 });
   await editor.page.unroute(swap);
   expect(await closedIn(editor.page, lid)).toBeGreaterThan(0);
   // The server's claim that the forged page uses the shared attachment blocked nothing: its own text does not.
@@ -867,7 +867,7 @@ async function p4(owner: Person, editor: Person, second: Person, senders: Map<st
   await expect(pageRow(editor.page, FORGED_TITLE)).toHaveCount(0);
   await expect(pageRow(editor.page, "Pre-sharing page")).not.toContainText("Not verified");
   await readPage(editor.page, "Pre-sharing page", ["pre-sharing comment"]);
-  await expect(editor.page.getByRole("button", { name: "Review and share…" })).toHaveCount(0);
+  await expect(editor.page.getByRole("button", { name: "Review and seal…" })).toHaveCount(0);
   await expect(editor.page.getByRole("button", { name: REOPEN })).toBeVisible();
   await shoot(editor.page, "closed", editor.page.getByRole("button", { name: REOPEN }));
 
@@ -898,10 +898,10 @@ async function p4(owner: Person, editor: Person, second: Person, senders: Map<st
   await openTeam(editor.page, LEGACY_TEAM, lid);
   expect(writes).toEqual([]);
 
-  // 9. "Show pre-sharing items again" warns first; then the forged page is back, labelled.
+  // 9. "Show older items again" warns first; then the forged page is back, labelled.
   await withDialog(editor, { type: "confirm", text: REOPEN_CONFIRM }, () => editor.page.getByRole("button", { name: REOPEN }).click());
   await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified", { timeout: 30_000 });
-  await expect(editor.page.getByText(/^1 item you wrote before this notebook was shared is not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
+  await expect(editor.page.getByText(/^1 item you wrote before this notebook had its own key is not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
   expect(await closedIn(editor.page, lid)).toBe(0);
   // It survives a reload where the server lists nothing of this user's, which alone would close it again.
   forgery.listed = false;
