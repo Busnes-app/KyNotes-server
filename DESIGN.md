@@ -155,7 +155,8 @@ account that signs in through KySignOn, changing a password an administrator set
 also needs a KySignOn confirmation of that request, so the administrator cannot
 clear the flag by changing the password. A local-only account has no second proof:
 until its user changes the password, whoever set it can act as the user. That is
-an accepted residual of administrator-set passwords. Envelopes are
+an accepted residual of administrator-set passwords. The change revokes every
+other session and device credential of the account in the same transaction. Envelopes are
 `0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
 keyed by both an ephemeral and the sender identity's X25519 agreement and bound
 by AAD to container, key generation, recipient and sender (IDs in the AAD are

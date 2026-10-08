@@ -1130,6 +1130,50 @@ func TestAdminKnownPasswordChangeNeedsKySignOn(t *testing.T) {
 	if flag() != 0 {
 		t.Fatal("flag kept after a confirmed change")
 	}
+	// The administrator's session ends with the takeback (final review I1).
+	lnk := mint(t, "lnk")
+	for _, step := range []struct{ method, path, body string }{
+		{"POST", "/api/v1/me/link-requests", `{"commitment":` + quote(b64(commitment)) + `}`},
+		{"POST", linkPath(lnk, "/claim"), `{"approverKey":` + quote(b64(bytes.Repeat([]byte{7}, 32))) + `}`},
+		{"DELETE", linkPath(lnk, ""), ""},
+		{"GET", "/api/v1/me/link-requests", ""},
+	} {
+		if r := do(step.method, step.path, step.body); r.Code != 401 {
+			t.Fatal("the administrator's session outlived the takeback", step.method, step.path, r.Code, r.Body.String())
+		}
+	}
+	if r := ssoDo(f, cookies, "bob", "GET", "/api/v1/me/link-requests", ""); r.Code != 200 {
+		t.Fatal("the changing session was revoked", r.Code, r.Body.String())
+	}
+}
+
+// A user's own password change ends every other session and device credential of the account,
+// and audits how many (final review I1).
+func TestPasswordChangeRevokesOtherSessions(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	admin := p.secondSession(t)
+	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{6}, 32))
+	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)); code != http.StatusNoContent {
+		t.Fatalf("own change: %d %s", code, body)
+	}
+	if code, _ := status(t, admin.do(t, http.MethodGet, "/api/v1/me/link-requests", nil, false, false)); code != http.StatusUnauthorized {
+		t.Fatal("another session outlived the change", code)
+	}
+	if code, body := status(t, p.do(t, http.MethodGet, "/api/v1/me/link-requests", nil, false, false)); code != http.StatusOK {
+		t.Fatalf("the changing session was revoked: %d %s", code, body)
+	}
+	var live int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, pairUser).Scan(&live); err != nil || live != 0 {
+		t.Fatal("a device credential outlived the change", live, err)
+	}
+	var reason string
+	if err := p.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='account.password_change'`).Scan(&reason); err != nil || reason != "sessions_revoked=1,devices_revoked=1" {
+		t.Fatal("audit", reason, err)
+	}
 }
 
 // A session that could never approve cannot take the approver slot (review M1).

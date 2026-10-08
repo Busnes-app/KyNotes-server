@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 var dummyMu sync.Mutex
@@ -366,6 +368,21 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if _, err := tx.Exec(`UPDATE sessions SET stepup_at='' WHERE user_id=?`, s.UserID); err != nil {
 				return err
 			}
+			// Whoever knew the old password keeps nothing: other sessions and device credentials end
+			// here, as on deactivation. The identity is not a credential.
+			sessions, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=? AND id<>? AND revoked_at=''`, now, s.UserID, s.ID)
+			if err != nil {
+				return err
+			}
+			devices, err := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, now, s.UserID)
+			if err != nil {
+				return err
+			}
+			ns, _ := sessions.RowsAffected()
+			nd, _ := devices.RowsAffected()
+			if err := storage.RecordAuditOutcomeTx(tx, s.UserID, "account.password_change", "", "", "success", fmt.Sprintf("sessions_revoked=%d,devices_revoked=%d", ns, nd), RequestID(r)); err != nil {
+				return err
+			}
 			if wrapped == nil {
 				return nil
 			}
@@ -399,7 +416,6 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "account.password_change", "", "", RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	}
 	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, changePassword))

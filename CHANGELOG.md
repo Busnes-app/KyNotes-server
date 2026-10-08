@@ -12,7 +12,8 @@
   on shared computers (plain-HTTP sites store it unencrypted, and Settings says so). "Forget this
   device" keeps unsent edits until they are sent or discarded. A failed local cache write no longer
   blocks sending an edit. On an account that signs in through KySignOn, changing a password an
-  administrator set needs a KySignOn confirmation. Link requests are limited at the device-pairing
+  administrator set needs a KySignOn confirmation. Changing your password signs out your other
+  sessions and revokes your paired device credentials. Link requests are limited at the device-pairing
   rate (`ratelimit.pairing_per_hour`, own bucket), and collect polls by the new
   `ratelimit.link_poll_per_minute` (default 60; `KYNOTES_RATELIMIT_LINK_POLL_PER_MINUTE`). Migration
   `0024` adds `link_requests` and the step-up scope.
