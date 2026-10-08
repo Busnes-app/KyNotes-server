@@ -21,6 +21,9 @@ export type MigrationItem =
  * with a valid generation; shared: the sharing generation this review covered (0: never shared).
  */
 export type LegacyReview = { mine: MigrationItem[]; others: number; refused: number; complete: boolean; shared: number };
+/** Reviews reviewLegacy returned: the only ones approveMigration accepts. */
+const reviews = new WeakSet<LegacyReview>();
+const branded = (review: LegacyReview) => { reviews.add(review); return review; };
 /** The notebook's legacy reads closed on this device (or its floor is not loaded) while a review ran. */
 export class LegacyClosedError extends Error {
   constructor() { super("Pre-sharing items are no longer read on this device."); this.name = "LegacyClosedError"; }
@@ -48,11 +51,11 @@ export async function reviewLegacy(api: ReviewAPI, input: ReviewInput): Promise<
   if (!floor) throw new LegacyClosedError();
   const shared = Math.max(container.sharedGeneration, floor.shared ?? 0);
   const review: LegacyReview = { mine: [], others: 0, refused: 0, complete: true, shared };
-  if (shared === 0) return review;
+  if (shared === 0) return branded(review);
   const rows = await api.legacyRows(container.id);
   review.complete = rows.complete;
   // Closed on this device: nothing opens with the login key, so every listed row is someone else's to share.
-  if (!legacyKeys(floor, legacy).length) return { ...review, others: rows.objects.length + rows.comments.length + rows.attachments.length + rows.conflicts.length };
+  if (!legacyKeys(floor, legacy).length) return branded({ ...review, others: rows.objects.length + rows.comments.length + rows.attachments.length + rows.conflicts.length });
   const opened = async <T>(generation: number | undefined, open: (key: KeyRef) => Promise<T>) => {
     // Another tab may close while rows are fetched: stop rather than open one more with the login key.
     const now = floorNow();
@@ -93,7 +96,7 @@ export async function reviewLegacy(api: ReviewAPI, input: ReviewInput): Promise<
     if (payload?.type === "page") review.mine.push({ kind: "conflict", id: row.id, objectId: row.objectId, payload });
     else review.others += 1;
   }
-  return review;
+  return branded(review);
 }
 
 /**
@@ -116,39 +119,44 @@ export function itemLabel(item: MigrationItem): string {
 }
 
 const approvals = new WeakSet<MigrationApproval>();
-/** Each approval's own copy of the ticked items; nothing outside this module holds it. */
-const approvedItems = new WeakMap<MigrationApproval, readonly MigrationItem[]>();
-let mint: (userID: string, containerID: string, review: LegacyReview, items: MigrationItem[], hideConfirmed: number) => MigrationApproval;
+/**
+ * Each approval's own copy of the ticked items, plus the titles of the reviewed pages left unticked;
+ * nothing outside this module holds it, and migrateLegacy deletes it when it takes it.
+ */
+const approvedItems = new WeakMap<MigrationApproval, { items: readonly MigrationItem[]; untickedTitles: ReadonlyMap<string, string> }>();
+let mint: (userID: string, containerID: string, review: LegacyReview, ticked: ReadonlySet<string>, hideConfirmed: number) => MigrationApproval;
 /**
  * One user's ticked items of one notebook's review, as the dialog showed them, at the sharing
  * generation that review covered. The content is a structuredClone taken at approval: what is sealed
- * is what was shown, whatever the review object or the server hold later. unticked: the reviewed
+ * is what was shown, whatever the review object or the server hold later. It exposes no content; the
+ * dialog reads the review it shows. complete: the review saw the whole list; unticked: the reviewed
  * items left out, which closing hides on this device; hideConfirmed: the count the user confirmed
  * hiding. Only approveMigration makes one; migrateLegacy spends it.
  */
 export class MigrationApproval {
   private declare readonly brand: true; // nominal: look-alike objects do not type-check
   static {
-    mint = (userID, containerID, review, items, hideConfirmed) => {
-      const approval = new MigrationApproval(userID, containerID, review.shared, review.mine.length - items.length, hideConfirmed);
+    mint = (userID, containerID, review, ticked, hideConfirmed) => {
+      const items = review.mine.filter((item) => ticked.has(item.id));
+      const approval = new MigrationApproval(userID, containerID, review.shared, review.complete === true, review.mine.length - items.length, hideConfirmed);
       // Frozen wrapper: a holder cannot re-target it. The items are not frozen (Uint8Array cannot be) but private.
       Object.freeze(approval);
-      approvedItems.set(approval, structuredClone(items));
+      const untickedTitles = new Map(review.mine.flatMap((item) => (item.kind === "object" && !ticked.has(item.id) ? [[item.id, item.payload.title] as const] : [])));
+      approvedItems.set(approval, { items: structuredClone(items), untickedTitles });
       approvals.add(approval);
       return approval;
     };
   }
-  private constructor(readonly userID: string, readonly containerID: string, readonly shared: number, readonly unticked: number, readonly hideConfirmed: number) {}
-  /** A copy of the approved items, for display; changing it changes nothing that is sealed. */
-  get items(): MigrationItem[] { return structuredClone([...approvedItems.get(this) ?? []]); }
+  private constructor(readonly userID: string, readonly containerID: string, readonly shared: number, readonly complete: boolean, readonly unticked: number, readonly hideConfirmed: number) {}
 }
 /**
- * Call only from the review dialog's submit (components/LegacyReview.tsx; migration.test.ts checks):
- * ticked are the IDs the user ticked in review, hideConfirmed the unticked count the user confirmed hiding.
+ * Call only from the review dialog's submit (components/LegacyReview.tsx; migration.test.ts pins the
+ * identifier): review is the one the dialog shows (from reviewLegacy), ticked the IDs the user ticked,
+ * hideConfirmed the unticked count the user confirmed hiding.
  */
 export const approveMigration = (userID: string, containerID: string, review: LegacyReview, ticked: Iterable<string>, hideConfirmed: number): MigrationApproval => {
-  const chosen = new Set(ticked);
-  return mint(userID, containerID, review, review.mine.filter((item) => chosen.has(item.id)), hideConfirmed);
+  if (!reviews.has(review)) throw new Error("Review this notebook's items first.");
+  return mint(userID, containerID, review, new Set(ticked), hideConfirmed);
 };
 export const isMigrationApproval = (value: unknown, userID: string, containerID: string): value is MigrationApproval =>
   typeof value === "object" && value !== null && approvals.has(value as MigrationApproval) &&
@@ -182,8 +190,14 @@ export type MigrationAPI = {
 };
 /** ring: this tab's keys for the container (pages that only point at a replaced attachment). */
 export type MigrationInput = ReviewInput & { write: WriteKey; ring: Keyring; approval: MigrationApproval };
-/** shared: approved rows now sealed with the container key; failed: approved rows (or pages pointing at them) that were not; closed: close() ran and kept. */
-export type Migrated = { shared: string[]; failed: Array<{ id: string; reason: string }>; closed: boolean };
+/**
+ * shared: approved rows now sealed with the container key; failed: approved rows (or pages pointing
+ * at them) that were not; closed: close() ran and kept. Why it did not close, for the dialog:
+ * incomplete: the review did not see the whole list, so nothing closes (Stop is the explicit path);
+ * blockedBy: pages left unticked that still use an attachment that was shared (tick them too, or keep
+ * the notebook open); title is undefined for a page the review did not show as this user's.
+ */
+export type Migrated = { shared: string[]; failed: Array<{ id: string; reason: string }>; closed: boolean; incomplete: boolean; blockedBy: Array<{ id: string; title?: string; attachment: string }> };
 
 /**
  * Re-seals the approved pre-sharing items under the current container key, exactly as the review
@@ -201,9 +215,11 @@ export type Migrated = { shared: string[]; failed: Array<{ id: string; reason: s
 export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, close: () => Promise<boolean>): Promise<Migrated> {
   const { container, floorNow, legacy, userId, write, ring, approval } = input;
   if (!isMigrationApproval(approval, userId, container.id) || !approvals.delete(approval)) throw new Error("Choose the items to share in the review first.");
+  // Taken once and released: the plaintext lives no longer than this run.
+  const { items, untickedTitles } = approvedItems.get(approval)!;
+  approvedItems.delete(approval);
   const sameSharing = () => approval.shared > 0 && floorNow()?.shared === approval.shared;
   if (!sameSharing()) throw new Error("This notebook's sharing changed since the review. Review its items again.");
-  const items = approvedItems.get(approval)!;
   const sealed: Sealed = { container, generation: write.generation };
   const shared: string[] = [];
   const failed: Migrated["failed"] = [];
@@ -230,6 +246,7 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
   const approvedObjects = new Map(items.flatMap((item) => (item.kind === "object" ? [[item.id, item] as const] : [])));
   const pointing = new Set(replaced.flatMap((entry) => entry.objectIds));
   const notRewritten = new Set<string>();
+  const blockedBy: Migrated["blockedBy"] = [];
   for (const objectID of new Set([...approvedObjects.keys(), ...pointing])) {
     const approved = approvedObjects.get(objectID);
     const ok = await attempt(objectID, async () => {
@@ -240,7 +257,10 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
         // Not ticked: only a row this browser already reads with a container key may be rewritten.
         const current = await api.readObject(objectID);
         const floor = floorNow();
-        if (!floor || legacyRow(container, current.keyGeneration, floor)) throw new Error("written before sharing and not ticked");
+        if (!floor || legacyRow(container, current.keyGeneration, floor)) {
+          for (const entry of replaced) if (entry.objectIds.includes(objectID)) blockedBy.push({ id: objectID, title: untickedTitles.get(objectID), attachment: entry.old });
+          throw new Error("written before sharing and not ticked");
+        }
         payload = await openFirst(readKeys(container, ring, legacy, current.keyGeneration, floor), (key) => decryptObject(key, container.id, current.bytes));
         version = current.version;
       }
@@ -270,8 +290,9 @@ export async function migrateLegacy(api: MigrationAPI, input: MigrationInput, cl
       await api.resolve(item.id);
     });
   }
-  // Closing hides every unticked row on this device: only after everything ticked was shared, at the
-  // reviewed sharing generation, and with the user's confirmation of exactly that many hidden items.
-  const closed = failed.length === 0 && approval.hideConfirmed === approval.unticked && sameSharing() && (await close().catch(() => false));
-  return { shared, failed, closed };
+  // Closing hides every unticked row on this device: only after everything ticked was shared, from a
+  // review that saw the whole list, at the reviewed sharing generation, and with the user's
+  // confirmation of exactly that many hidden items.
+  const closed = failed.length === 0 && approval.complete && approval.hideConfirmed === approval.unticked && sameSharing() && (await close().catch(() => false));
+  return { shared, failed, closed, incomplete: !approval.complete, blockedBy };
 }

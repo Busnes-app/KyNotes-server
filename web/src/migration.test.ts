@@ -238,7 +238,7 @@ describe("migrateLegacy", () => {
     const { live } = await seeded();
     const close = vi.fn(async () => true);
     const good = await prepared(live, [id("obj", "a")]);
-    const lookalike = { ...good, approval: { userID: me, containerID: cnt, shared: 2, items: good.approval.items } as unknown as MigrationApproval };
+    const lookalike = { ...good, approval: { userID: me, containerID: cnt, shared: 2, complete: true, unticked: 0, hideConfirmed: 0 } as unknown as MigrationApproval };
     expect(isMigrationApproval(lookalike.approval, me, cnt)).toBe(false);
     expect(isMigrationApproval(Object.create(good.approval), me, cnt)).toBe(false);
     expect(isMigrationApproval(good.approval, me, cnt)).toBe(true);
@@ -253,8 +253,9 @@ describe("migrateLegacy", () => {
     const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
     const approval = approveMigration(me, cnt, review, [id("obj", "a"), image], unticked(review, [id("obj", "a"), image]));
     const input: MigrationInput = { container, floorNow: () => floor, legacy: mine, userId: me, write, ring: new Map([[2, ck]]), approval };
-    // The review and the approval's exposed items change after approval: neither reaches the seal.
-    for (const item of [...review.mine, ...approval.items]) {
+    // The approval exposes no content; the review the dialog showed changes after approval and that does not reach the seal.
+    expect("items" in approval).toBe(false);
+    for (const item of review.mine) {
       if (item.kind === "object" && item.payload.type === "page") item.payload.title = "Edited later";
       if (item.kind === "attachment") item.plaintext.fill(1);
     }
@@ -267,7 +268,7 @@ describe("migrateLegacy", () => {
     expect(await decryptAttachment(ck, cnt, live.attachments.get(id("att", "g"))!.bytes)).toEqual(new Uint8Array([7, 7]));
     // A spent approval sends nothing.
     live.sends.length = 0;
-    await expect(migrateLegacy(live.api, input, vi.fn(async () => true))).rejects.toThrow();
+    await expect(migrateLegacy(live.api, input, vi.fn(async () => true))).rejects.toThrow("Choose the items to share in the review first.");
     expect(live.sends).toEqual([]);
   });
 
@@ -391,8 +392,9 @@ describe("migrateLegacy", () => {
     // Reconnected: the review no longer offers the page, so only the comment is sent, and the run closes.
     live.api.sendCommentRewrite = working;
     live.sends.length = 0;
+    const offered = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
+    expect(offered.mine.map((item) => item.id)).not.toContain(id("obj", "a"));
     const second = await prepared(live, both);
-    expect(second.approval.items.map((item) => item.id)).not.toContain(id("obj", "a"));
     await migrateLegacy(live.api, second, close);
     expect(live.sends).toEqual([`comment:${id("cmt", "a")}`]);
     expect(close).toHaveBeenCalledOnce();
@@ -412,12 +414,55 @@ describe("migrateLegacy", () => {
     expect(rewriteRefs(payload, { "att_bad": next, [old]: "att_x\"}" })).toBe(payload); // malformed IDs are ignored
   });
 
+  it("shares the ticked rows of an incomplete review but never closes (I1)", async () => {
+    const { live } = await seeded();
+    // The fetch of one listed page fails during the review: the user never saw it, so its row cannot be counted.
+    const read = live.api.readObject;
+    live.api.readObject = async (oid) => { if (oid === id("obj", "f")) throw new Error("500"); return read(oid); };
+    const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
+    expect(review.complete).toBe(false);
+    live.api.readObject = read;
+    const all = review.mine.map((item) => item.id);
+    const close = vi.fn(async () => true);
+    const result = await migrateLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me, write, ring: new Map([[2, ck]]), approval: approveMigration(me, cnt, review, all, 0) }, close);
+    expect(result).toMatchObject({ failed: [], closed: false, incomplete: true });
+    expect([...result.shared].sort()).toEqual([...all].sort());
+    expect(close).not.toHaveBeenCalled();
+    expect(live.objects.get(id("obj", "f"))!.keyGeneration).toBe(1);
+  });
+
+  it("approves only a review that reviewLegacy produced (M3)", async () => {
+    const { live } = await seeded();
+    const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
+    for (const fake of [{ ...review }, { mine: review.mine, others: 0, refused: 0, complete: true, shared: 2 }, Object.create(review)])
+      expect(() => approveMigration(me, cnt, fake as LegacyReview, [id("obj", "a")], 0)).toThrow();
+    expect(() => approveMigration(me, cnt, review, [id("obj", "a")], 0)).not.toThrow();
+  });
+
+  it("names the unticked pages that keep a shared attachment and block closing (M4)", async () => {
+    const { live, image } = await seeded();
+    const untickedPage = id("obj", "b");
+    live.objects.set(untickedPage, { bytes: await encryptNote(mine, cnt, page("Leftover", `attachment://${image}`)), version: 1, keyGeneration: 1 });
+    live.attachments.get(image)!.objectIds.push(untickedPage);
+    const close = vi.fn(async () => true);
+    const result = await migrateLegacy(live.api, await prepared(live, [id("obj", "a"), image]), close);
+    expect(result.closed).toBe(false);
+    expect(result.blockedBy).toEqual([{ id: untickedPage, title: "Leftover", attachment: image }]);
+    expect(close).not.toHaveBeenCalled();
+  });
+
   it("only LegacyReview.tsx mints approvals", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./migration.ts"]));
-    // migration.ts defines it (`approveMigration = (`) and never calls it.
-    const minting = Object.entries(sources).filter(([, text]) => /\bapproveMigration\(/.test(text)).map(([name]) => name);
-    expect(minting.filter((name) => name !== "./components/LegacyReview.tsx")).toEqual([]);
+    // The identifier itself, so an aliased import, a re-export or a namespace access is caught too.
+    const naming = (all: Record<string, string>) => Object.entries(all).filter(([name, text]) => /\bapproveMigration\b/.test(text) && (!["./migration.ts", "./components/LegacyReview.tsx"].includes(name) || /\bapproveMigration\s+as\b/.test(text))).map(([name]) => name);
+    expect(naming(sources)).toEqual([]);
+    expect(naming({
+      "./main.tsx": 'import { approveMigration as approve } from "./migration";\napprove(u, c, r, t, 0);',
+      "./other.ts": 'import * as m from "./migration"; m.approveMigration(u, c, r, t, 0);',
+      "./reexport.ts": 'export { approveMigration as a } from "./migration";',
+      "./components/LegacyReview.tsx": 'import { approveMigration as ok } from "../migration";',
+    })).toEqual(["./main.tsx", "./other.ts", "./reexport.ts", "./components/LegacyReview.tsx"]);
   });
 });
 

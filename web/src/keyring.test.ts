@@ -525,7 +525,9 @@ describe("reopening legacy reads", () => {
   it("mints a reopen confirmation only from the user's \"Show pre-sharing items again\" confirm", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./keyring.ts"]));
-    const minting = Object.entries(sources).filter(([name, text]) => name !== "./keyring.ts" && /confirmReopenLegacy\s*\(/.test(text)).map(([name]) => name);
-    expect(minting.filter((name) => name !== "./components/LegacyReview.tsx")).toEqual([]);
+    // The identifier itself, so an aliased import, a re-export or a namespace access is caught too.
+    const naming = (all: Record<string, string>) => Object.entries(all).filter(([name, text]) => /\bconfirmReopenLegacy\b/.test(text) && (!["./keyring.ts", "./components/LegacyReview.tsx"].includes(name) || /\bconfirmReopenLegacy\s+as\b/.test(text))).map(([name]) => name);
+    expect(naming(sources)).toEqual([]);
+    expect(naming({ "./x.ts": 'import { confirmReopenLegacy as yes } from "./keyring"; yes(u, c);', "./components/LegacyReview.tsx": 'import { confirmReopenLegacy as ok } from "../keyring";' })).toEqual(["./x.ts", "./components/LegacyReview.tsx"]);
   });
 });
