@@ -24,22 +24,23 @@ describe("device link protocol", () => {
     }
   });
 
-  it("refuses every Go reject vector by the check it names", () => {
+  it("refuses every Go reject vector for the reason it names", () => {
+    const lowOrder = ["zero", "one", "order8-a", "order8-b", "p-minus-1", "p", "p-plus-1"].map((n) => `low-order-approver-key-${n}`);
     expect(vectors.rejects.map((r) => r.case)).toEqual([
-      "tampered-ciphertext", "tampered-tag", "tampered-nonce", "wrong-version", "truncated", "swapped-keys",
-      "wrong-approver-key", "low-order-approver-key", "wrong-request", "wrong-user", "wrong-identity-device", "commitment-mismatch",
+      "tampered-ciphertext", "tampered-tag", "tampered-nonce", "wrong-version", "truncated", "swapped-keys", "keys-reversed-in-binding",
+      "wrong-approver-key", ...lowOrder, "wrong-request", "wrong-user", "wrong-identity-device", "commitment-mismatch",
     ]);
     for (const r of vectors.rejects) {
       const newcomer = { privateKey: h(r.newcomerPrivateKey), publicKey: x25519.getPublicKey(h(r.newcomerPrivateKey)) };
       const context: LinkContext = { userID: r.userId, requestID: r.requestId, identityDeviceID: r.identityDeviceId, approverKey: h(r.approverPublicKey), newcomerKey: h(r.newcomerPublicKey) };
       const committed = sameBytes(linkCommitment(context.newcomerKey), h(r.commitment));
-      if (r.refused === "commitment") {
+      if (r.reason === "commitment") {
         expect(committed, r.case).toBe(false);
         // The relay's key opens its own bundle: the commitment is the only defence here.
         expect(() => openLinkBundle(h(r.bundle), newcomer, context), r.case).not.toThrow();
       } else {
-        expect(r.refused, r.case).toBe("bundle");
-        expect(() => openLinkBundle(h(r.bundle), newcomer, context), r.case).toThrow();
+        expect(committed, r.case).toBe(r.case === "swapped-keys" ? false : true);
+        expect(() => openLinkBundle(h(r.bundle), newcomer, context), r.case).toThrow(`link bundle refused: ${r.reason}`);
       }
     }
   });
@@ -65,10 +66,12 @@ describe("device link protocol", () => {
     const v = vectors.links[0];
     const { approver, newcomer } = keysOf(v);
     const context = contextOf(v);
-    // u = 0 and u = 1 are low-order; the agreement with either is all zeros.
-    for (const bad of [new Uint8Array(32), Uint8Array.of(1, ...new Uint8Array(31))]) {
+    // u = 0, 1, both order-8 points, p-1, p and p+1: every agreement with them is all zeros.
+    const lowOrder = vectors.rejects.filter((r) => r.reason === "low-order").map((r) => h(r.approverPublicKey));
+    expect(lowOrder).toHaveLength(7);
+    for (const bad of lowOrder) {
       expect(() => sealLinkBundle(h(v.identityPrivateKey), approver, { ...context, newcomerKey: bad }, h(v.nonce))).toThrow();
-      expect(() => openLinkBundle(h(v.bundle), newcomer, { ...context, approverKey: bad })).toThrow();
+      expect(() => openLinkBundle(h(v.bundle), newcomer, { ...context, approverKey: bad })).toThrow("link bundle refused: low-order");
     }
     expect(() => linkCommitment(new Uint8Array(31))).toThrow();
     expect(() => checkCode(v.userId, v.requestId, new Uint8Array(33), newcomer.publicKey)).toThrow();
@@ -83,6 +86,14 @@ describe("device link protocol", () => {
     expect(checkCode(v.userId, v.requestId, newLinkKey().publicKey, newcomer.publicKey)).not.toBe(code);
     expect(checkCode(v.userId, v.requestId, approver.publicKey, newLinkKey().publicKey)).not.toBe(code);
     expect(checkCode(v.userId, v.requestId, newcomer.publicKey, approver.publicKey)).not.toBe(code);
+    expect(checkCode(vectors.links[1].userId, v.requestId, approver.publicKey, newcomer.publicKey)).not.toBe(code);
+    expect(checkCode(v.userId, vectors.links[1].requestId, approver.publicKey, newcomer.publicKey)).not.toBe(code);
+  });
+
+  it("zero-pads the check code exactly as Go does", () => {
+    const padded = vectors.links.filter((v) => v.checkCode.startsWith("0"));
+    expect(padded.length).toBeGreaterThan(0);
+    for (const v of padded) expect(checkCode(v.userId, v.requestId, h(v.approverPublicKey), h(v.newcomerPublicKey))).toBe(v.checkCode);
   });
 
   it("accepts only a confirmCheckCode result, for its own request", () => {

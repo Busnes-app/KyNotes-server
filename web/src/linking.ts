@@ -44,11 +44,21 @@ export function sealLinkBundle(identityPrivateKey: Uint8Array, approver: Identit
   return concat(Uint8Array.of(LINK_VERSION), nonce, chacha20poly1305(key, nonce, aad(context)).encrypt(identityPrivateKey));
 }
 
-/** Newcomer: the identity private key, or a throw for any other bytes, binding or key. */
+/** Refusal reasons match the Go reference (`openLink`) and `link_vectors.json` rejects. */
+export type LinkRefusal = "format" | "newcomer-key" | "low-order" | "aead";
+const refused = (reason: LinkRefusal) => new Error(`link bundle refused: ${reason}`);
+function as<T>(reason: LinkRefusal, run: () => T): T {
+  try { return run(); } catch { throw refused(reason); }
+}
+
+/** Newcomer: the identity private key, or a throw naming the check that refused the bytes, binding or key. */
 export function openLinkBundle(bundle: Uint8Array, newcomer: Identity, context: LinkContext): Uint8Array {
-  if (bundle.length !== LINK_BUNDLE_BYTES || bundle[0] !== LINK_VERSION || !sameBytes(newcomer.publicKey, context.newcomerKey)) throw new Error("unsupported link bundle");
-  const key = bundleKey(x25519.getSharedSecret(newcomer.privateKey, key32(context.approverKey)), context);
-  return chacha20poly1305(key, bundle.subarray(1, 13), aad(context)).decrypt(bundle.subarray(13));
+  if (bundle.length !== LINK_BUNDLE_BYTES || bundle[0] !== LINK_VERSION) throw refused("format");
+  if (!sameBytes(newcomer.publicKey, context.newcomerKey)) throw refused("newcomer-key");
+  const ad = aad(context);
+  const shared = as("low-order", () => x25519.getSharedSecret(newcomer.privateKey, context.approverKey));
+  const key = bundleKey(shared, context);
+  return as("aead", () => chacha20poly1305(key, bundle.subarray(1, 13), ad).decrypt(bundle.subarray(13)));
 }
 
 const confirmations = new WeakSet<CheckCodeConfirmation>();
