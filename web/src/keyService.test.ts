@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { base64 } from "./crypto";
+import "fake-indexeddb/auto";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
-import { newContainerKey, sealFor, type Envelope, type KeyState, type Member } from "./keyring";
+import { newContainerKey, readKeys, sealFor, writeKey, type Envelope, type KeyState, type Member } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type PinStore } from "./keyService";
 import { isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
+import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const user = (name: string, c: string, role: string, withIdentity = true) => {
@@ -51,7 +53,13 @@ const memoryStore = (initial: Pins = {}, known: KeyState = { mark: 0, digests: {
   let state = known;
   return {
     load: async () => pins,
-    addFresh: vi.fn(async (next: Pins) => { if (keeps) pins = { ...next, ...pins }; return keeps; }),
+    addFresh: vi.fn(async (next: Pins): Promise<PinsStored> => {
+      if (!keeps) return { ok: false, conflicts: [] };
+      const conflicts = Object.keys(next).filter((member) => pins[member] !== undefined && pins[member] !== next[member]);
+      if (conflicts.length) return { ok: false, conflicts };
+      pins = { ...next, ...pins };
+      return { ok: true };
+    }),
     confirm: vi.fn(async (confirmation: PinConfirmation) => { if (!isPinConfirmation(confirmation)) return false; pins = { ...pins, [confirmation.userId]: confirmation.key }; return true; }),
     loadKeyState: async () => state,
     saveKeyState: vi.fn(async (_cid: string, next: KeyState) => { state = next; return true; }),
@@ -261,5 +269,110 @@ describe("syncContainerKeys", () => {
     expect(Object.keys(store.known().digests)).toEqual(["2"]);
     const unkept = { ...memoryStore(), saveKeyState: async () => false };
     expect((await syncContainerKeys(api, cnt, as(editor), unkept, never)).keyStateSaved).toBe(false);
+  });
+});
+
+vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
+
+/** The browser's real store (IndexedDB vault record), as main.tsx wires it. */
+const vault = (u: User): PinStore => ({
+  load: () => getPins("me", u.member.userId),
+  addFresh: (pins) => storePins("me", u.member.userId, pins),
+  confirm: (confirmation) => storeConfirmedPin("me", u.member.userId, confirmation),
+  loadKeyState: (id) => getKeyState("me", u.member.userId, id),
+  saveKeyState: (id, state) => storeKeyState("me", u.member.userId, id, state),
+});
+const login = legacyKeyRef("a".repeat(64));
+
+describe("sharing-state rollback", () => {
+  beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+
+  it("never writes with the login key once this device has seen the notebook shared, even after a reload", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { state, api } = server([owner, editor]);
+    const ownerStore = memoryStore();
+    await syncContainerKeys(api, cnt, as(owner), ownerStore, never);
+    const seen = await syncContainerKeys(api, cnt, as(editor), vault(editor), never);
+    expect(writeKey(seen.container, seen.ring, login, seen.known)).toEqual({ key: seen.ring.get(2), generation: 2 });
+    // The server now reports the notebook as never shared (legacy metadata).
+    state.shared = 0;
+    for (const who of [editor, owner]) {
+      const store = who === editor ? vault(editor) : ownerStore;
+      const after = await syncContainerKeys(api, cnt, as(who), store, never);
+      expect(after.plan).toEqual({ kind: "rollback" });
+      expect(writeKey(after.container, after.ring, login, after.known)).toBeUndefined();
+      expect(readKeys(after.container, after.ring, login, 2, after.known)).not.toContain(login);
+    }
+    // A steward is not tricked into minting a "first" key or uploading anything.
+    expect(api.rotate).toHaveBeenCalledOnce();
+    expect(api.putEnvelopes).not.toHaveBeenCalled();
+    // Reload: only what storage kept.
+    const known = await getKeyState("me", editor.member.userId, cnt);
+    expect(known).toMatchObject({ shared: 2, generation: 2 });
+    expect(writeKey({ id: cnt, keyGeneration: 2, sharedGeneration: 0 }, seen.ring, login, known)).toBeUndefined();
+  });
+
+  it("refuses a lowered key generation, persisted across a reload", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { state, api } = server([owner, editor]);
+    await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
+    state.generation = 3; // a removal: this device sees generation 3
+    await syncContainerKeys(api, cnt, as(editor), vault(editor), never);
+    state.generation = 2; // a colluding server rolls back to a generation a removed member holds
+    const after = await syncContainerKeys(api, cnt, as(editor), vault(editor), never);
+    expect(after.plan).toEqual({ kind: "rollback" });
+    expect(after.ring.get(2)).toBeDefined();
+    expect(writeKey(after.container, after.ring, login, after.known)).toBeUndefined();
+    expect(writeKey(after.container, after.ring, login, await getKeyState("me", editor.member.userId, cnt))).toBeUndefined();
+  });
+});
+
+describe("conflicting first pins", () => {
+  beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+
+  it("lets only one of two overlapping passes pin a recipient; the other uploads nothing", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor"), substitute = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    // Both passes read the (empty) pins before either stores, then see different keys for the editor.
+    let arrived = 0;
+    let release!: () => void;
+    const together = new Promise<void>((resolve) => { release = resolve; });
+    const passApi = (identity: PublicIdentity): KeyAPI => ({
+      ...api,
+      userIdentity: async (id) => (id === editor.member.userId ? identity : api.userIdentity(id)),
+      members: async (id) => { arrived += 1; if (arrived === 2) release(); await together; return api.members(id); },
+    });
+    const results = await Promise.all([editor.public!, substitute.public!].map((identity) => syncContainerKeys(passApi(identity), cnt, as(owner), vault(owner), never)));
+    const losers = results.filter((result) => !result.minted);
+    expect(results.filter((result) => result.minted)).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+    expect(losers[0].plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(api.rotate).toHaveBeenCalledOnce();
+    expect(api.putEnvelopes).not.toHaveBeenCalled();
+    // What was uploaded is sealed for the pin that won.
+    const pinned = (await getPins("me", owner.member.userId))[editor.member.userId];
+    const sent = vi.mocked(api.rotate).mock.calls[0][2];
+    expect(sent.map((row) => row.deviceId)).toContain(editor.public!.deviceId);
+    expect([editor.public!.publicKey, substitute.public!.publicKey]).toContain(pinned);
+  });
+
+  it("aborts before upload when storage already holds a different pin than the one just sealed for", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    const other = base64(new Uint8Array(32).fill(5));
+    const store: PinStore = {
+      ...vault(owner),
+      // Another pass stores its pin between this pass's read and its sealFor.
+      load: async () => { const pins = await getPins("me", owner.member.userId); await storePins("me", owner.member.userId, { [editor.member.userId]: other }); return pins; },
+    };
+    const result = await syncContainerKeys(api, cnt, as(owner), store, never);
+    expect(result.plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(api.stepUp).not.toHaveBeenCalled();
+    expect(api.rotate).not.toHaveBeenCalled();
+    expect((await getPins("me", owner.member.userId))[editor.member.userId]).toBe(other);
+    // The next pass re-reads the pins and goes through the changed-key confirmation.
+    const confirm = vi.fn(() => false);
+    expect((await syncContainerKeys(api, cnt, as(owner), vault(owner), confirm)).plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(confirm).toHaveBeenCalledOnce();
   });
 });

@@ -66,7 +66,7 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { copyableConflicts, legacyRow, localKey, movesLabelledSubpage, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { copyableConflicts, guardContainer, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
@@ -168,6 +168,7 @@ type PlainComment = {
 };
 type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number };
 type QueueEntry = { note: Note; container: Container };
+const ROLLBACK = "The server reported an older key state for this notebook than this device has seen; writes are paused.";
 const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
 const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
 const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
@@ -634,20 +635,38 @@ function Workspace({
   const [rings, setRings] = useState(ringsRef.current);
   const putRing = (containerID: string, ring: Keyring) => { ringsRef.current = { ...ringsRef.current, [containerID]: ring }; setRings(ringsRef.current); };
   const noKeys: Keyring = new Map();
+  // The sharing state this device has seen per team container (KeyState floor, persisted by the key
+  // pass). Every key choice below goes through it, so a server cannot roll a shared notebook back to
+  // the login key or an older generation. A team container whose floor is not loaded gets no key.
+  const floorsRef = useRef<Record<string, KeyFloor>>({});
+  const [, setFloors] = useState(floorsRef.current);
+  const putFloor = (containerID: string, floor: KeyFloor) => { floorsRef.current = { ...floorsRef.current, [containerID]: floor }; setFloors(floorsRef.current); };
+  const floorFor = (container: Pick<Container, "id" | "kind" | "teamId">): KeyFloor | undefined => (container.kind !== "team" && !container.teamId ? NO_FLOOR : floorsRef.current[container.id]);
   /** Keys a row may be read with: always the row's own generation, never a default. */
-  const readKeysFor = (container: Pick<Container, "id" | "sharedGeneration">, generation: number | undefined) => readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation);
-  const writeKeyFor = (container: Container) => writeKey(container, ringsRef.current[container.id] ?? noKeys, legacy);
+  const readKeysFor = (container: Container, generation: number | undefined) => {
+    const floor = floorFor(container);
+    return floor ? readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
+  };
+  const legacyRowFor = (container: Container, generation: number | undefined) => legacyRow(container, generation, floorFor(container) ?? NO_FLOOR);
+  const writeKeyFor = (container: Container) => {
+    const floor = floorFor(container);
+    return floor && writeKey(container, ringsRef.current[container.id] ?? noKeys, legacy, floor);
+  };
   /** Local copies: the write key, or the waiting seal that only this device can send later. */
-  const localKeyFor = (container: Container) => localKey(container, ringsRef.current[container.id] ?? noKeys, legacy);
+  const localKeyFor = (container: Container) => writeKeyFor(container) ?? { key: legacy, generation: WAITING_GENERATION };
+  /** The server reported an older sharing state than this device has seen: writes are paused. */
+  const rolledBack = (container: Container) => { const floor = floorFor(container); return Boolean(floor && guardContainer(container, floor).rollback); };
   /** Takes a container's new generations into the open notebook without dropping its other fields. */
   const adoptGenerations = (next: Container) => setSelected((value) => (value?.id === next.id ? { ...value, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : value));
   // Read-only until a team owner shares this generation's key.
-  const keyWait = Boolean(selected && !writeKey(selected, rings[selected.id] ?? noKeys, legacy));
+  // putRing and putFloor set state with their refs, so this is recomputed when either changes.
+  const keyWait = Boolean(selected && !writeKeyFor(selected));
+  const rollback = Boolean(selected && rolledBack(selected));
   /** keyWait at run time, for handlers: true (and says why) when nothing may change in the open notebook. */
   const readOnlyForKeys = () => {
     const open = selectedRef.current;
     if (!open || writeKeyFor(open)) return false;
-    setError("This notebook is read-only until a team owner shares its keys.");
+    setError(rolledBack(open) ? ROLLBACK : "This notebook is read-only until a team owner shares its keys.");
     return true;
   };
   // Rows read with the login-derived key in a shared container (legacyRow): labelled, and re-sealed
@@ -716,6 +735,7 @@ function Workspace({
     const plan = result.plan;
     if (plan.kind === "blocked") notices.push(`This notebook is not end-to-end shared yet: ${plan.waitingFor.join(", ")} must first sign in with a password to get an encryption key. Accounts that sign in only through single sign-on cannot hold one yet.`);
     else if (plan.kind === "untrusted") notices.push(asked ? `No keys were exchanged with ${plan.members.join(", ")}: you did not confirm their new encryption key.` : `The encryption key of ${plan.members.join(", ")} changed. Reopen this notebook to compare fingerprints.`);
+    else if (plan.kind === "rollback") notices.push(ROLLBACK);
     else if (plan.kind === "pins-unsaved") notices.push("No keys were exchanged: this browser could not save the colleague keys it checked. Allow site storage and reopen the notebook.");
     if (result.conflicts.length) notices.push("A different key was offered for this notebook than the one this device already accepted; it was refused.");
     if (fresh.length) notices.push(`Now sharing with: ${(await Promise.all(fresh.map(async (member) => `${member.username} (fingerprint ${await fingerprintOf(member.identity!.publicKey)})`))).join(", ")}.`);
@@ -741,6 +761,7 @@ function Workspace({
       const confirmChanged = background ? () => false : confirmChangedKeys(container.id);
       const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id]);
       putRing(container.id, result.ring);
+      putFloor(container.id, result.known);
       let next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
       setItems((value) => value.map((entry) => (entry.id === next.id ? { ...entry, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : entry)));
       let renamed = "";
@@ -1092,15 +1113,19 @@ function Workspace({
       for (const item of loaded) {
         try {
           let keyed: Container = item;
+          // Team containers: this device's sharing floor first, so a server reporting "never shared" still gets the shared rules.
+          const floor = item.kind === "team" || item.teamId ? await pinStore.loadKeyState(item.id) : NO_FLOOR;
+          if (floor !== NO_FLOOR) putFloor(item.id, floor);
           // Shared names need their keys. This pass only reads: it never steps up, wraps, rotates
           // or asks about a changed key. A steward's sharing waits until the notebook is opened.
           // ponytail: a full key pass per shared notebook on every list load (members, one identity
           // fetch per member, all envelopes). Upgrade: a batch route returning this user's envelopes
           // and member identities for every container in one call.
-          if (item.sharedGeneration > 0) {
+          if (item.sharedGeneration > 0 || (floor.shared ?? 0) > 0) {
             const result = await serialized(item.id, async () => {
               const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id]);
               putRing(item.id, pass.ring);
+              putFloor(item.id, pass.known);
               return pass;
             });
             if (result.plan.kind !== "pins-unsaved" && result.fresh.length) unannounced.current[item.id] = [...(unannounced.current[item.id] ?? []), ...result.fresh];
@@ -1131,7 +1156,7 @@ function Workspace({
     const legacyRead: string[] = [];
     const add = (id: string, payload: ObjectPayload | undefined, version: number, updatedAt: string, generation: number | undefined) => {
       if (!payload) return;
-      if (legacyRow(container, generation)) legacyRead.push(id);
+      if (legacyRowFor(container, generation)) legacyRead.push(id);
       if (payload.type === "section") found.push({ ...payload, id, version });
       else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
@@ -1285,7 +1310,7 @@ function Workspace({
             body: decrypted.body,
             section: decrypted.section,
             createdAt: item.createdAt,
-            unverified: Boolean(container && legacyRow(container, item.keyGeneration)),
+            unverified: Boolean(container && legacyRowFor(container, item.keyGeneration)),
           });
         } catch {
           /* Ignore comments encrypted for another key. */
@@ -1879,7 +1904,7 @@ function Workspace({
       const server = await readObject(open.id);
       const payload = await openFirst(readKeysFor(container, server.keyGeneration), (key) => decryptObject(key, containerID, server.bytes));
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
-      markLegacy([open.id], legacyRow(container, server.keyGeneration));
+      markLegacy([open.id], legacyRowFor(container, server.keyGeneration));
       const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
       if (selectedNoteRef.current?.id === open.id) {
@@ -1894,7 +1919,7 @@ function Workspace({
       let unreadable = 0;
       const rejected: Array<{ id: string; createdAt: string; payload: PagePayload }> = [];
       // Copying a legacy-key version would re-seal it under the container key for every member, unseen.
-      const { copy: copyable, kept: unverifiedKept } = copyableConflicts(container, (await objectConflicts(open.id)).filter((item) => !item.resolved));
+      const { copy: copyable, kept: unverifiedKept } = copyableConflicts(container, (await objectConflicts(open.id)).filter((item) => !item.resolved), floorFor(container) ?? NO_FLOOR);
       for (const conflict of copyable) {
         try {
           const bytes = await conflictCiphertext(conflict.id);
@@ -2339,7 +2364,7 @@ function Workspace({
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {!queueMode && keyWait && <div className="workspace-kind" role="status">Waiting for a team owner to share this notebook's keys. It is read-only until then.</div>}
+                {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : "Waiting for a team owner to share this notebook's keys. It is read-only until then."}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
                 {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
               </div>
@@ -2601,7 +2626,7 @@ function Workspace({
                   {attachmentsForNote.map((attachment) => (
                     <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
                       <strong>{attachment.name}</strong>
-                      <span>{Math.ceil(attachment.size / 1024)} KB{selected && legacyRow(selected, attachment.keyGeneration) ? " · not verified" : ""}</span>
+                      <span>{Math.ceil(attachment.size / 1024)} KB{selected && legacyRowFor(selected, attachment.keyGeneration) ? " · not verified" : ""}</span>
                     </button>
                   ))}
                   <label className="attachment-picker">

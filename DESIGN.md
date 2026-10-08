@@ -209,6 +209,13 @@ wins, its SHA-256 is stored add-only on the device, and a different key for
 that generation is a refused conflict. Pins are trust-on-first-use and
 add-only: replacing one needs an explicit confirmation showing both
 fingerprints, and a decline is remembered for the session, per member and key.
+A pin write that conflicts with a pin another pass stored meanwhile writes
+nothing and stops that pass before any envelope is uploaded. Each device also
+keeps, add-only per container, the highest `sharedGeneration` and
+`keyGeneration` the server ever reported; key choices use the higher shared
+generation, and a lower report pauses writes ("The server reported an older key
+state for this notebook than this device has seen"), so a server cannot roll a
+shared notebook back to the login key or an older generation.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks

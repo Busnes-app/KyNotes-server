@@ -413,6 +413,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   by an explicit edit or move of that row (`placePage`/`updateStructure` `explicit`, which report a
   skip); block moves carrying a labelled subpage are refused (`movesLabelledSubpage`); legacy conflict
   versions are never copied (`copyableConflicts`). The first mint re-seals the shown name and says so.
+  Rollback rule: `KeyState` also keeps the highest `shared`/`generation` the server reported (add-only,
+  persisted by `syncContainerKeys` before use); `writeKey`/`readKeys`/`legacyRow` require that floor and
+  `guardContainer` applies it, `main.tsx` passes it only through `floorFor` (a team container without a
+  loaded floor gets no key), and a lower report is plan `rollback`: writes paused, never the login key.
+  `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
+  pass then stops before upload (plan `untrusted`).
   Server: containers report `sharedGeneration`; shared containers refuse writes without
   `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
   and `baseVersion` in its transaction; conflict

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { copyableConflicts, legacyRow, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { copyableConflicts, guardContainer, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -180,53 +180,53 @@ describe("keyring", () => {
   it("writes legacy containers with the login key and shared ones only with the current key", () => {
     const k3 = newContainerKey();
     const ring = new Map([[3, k3]]);
-    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 0 }, ring, legacy)).toEqual({ key: legacy, generation: 4 });
-    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, ring, legacy)).toEqual({ key: k3, generation: 3 });
+    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 0 }, ring, legacy, NO_FLOOR)).toEqual({ key: legacy, generation: 4 });
+    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, ring, legacy, NO_FLOOR)).toEqual({ key: k3, generation: 3 });
     // Waiting for keys: never fall back to the legacy key in a shared container.
-    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 2 }, ring, legacy)).toBeUndefined();
+    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 2 }, ring, legacy, NO_FLOOR)).toBeUndefined();
   });
 
   it("reads a shared generation only with its own key, and legacy rows only with the legacy key", async () => {
     const [k2, k3, k4] = [newContainerKey(), newContainerKey(), newContainerKey()];
     const ring = new Map([[2, k2], [4, k4], [3, k3]]);
     const shared = { sharedGeneration: 2 };
-    expect(readKeys(shared, ring, legacy, 3)).toEqual([k3]);
-    expect(readKeys(shared, ring, legacy, 1)).toEqual([legacy]);
-    expect(readKeys({ sharedGeneration: 0 }, ring, legacy, 5)).toEqual([legacy]);
-    expect(readKeys(shared, ring, legacy, undefined)).toEqual([]);
-    expect(readKeys(shared, ring, legacy, 5)).toEqual([]);
+    expect(readKeys(shared, ring, legacy, 3, NO_FLOOR)).toEqual([k3]);
+    expect(readKeys(shared, ring, legacy, 1, NO_FLOOR)).toEqual([legacy]);
+    expect(readKeys({ sharedGeneration: 0 }, ring, legacy, 5, NO_FLOOR)).toEqual([legacy]);
+    expect(readKeys(shared, ring, legacy, undefined, NO_FLOOR)).toEqual([]);
+    expect(readKeys(shared, ring, legacy, 5, NO_FLOOR)).toEqual([]);
     const note = { title: "L", body: "" };
     // Legacy rows below sharedGeneration still decrypt.
     const old = await encryptNote(legacy, cnt, note);
-    await expect(openFirst(readKeys(shared, ring, legacy, 1), (key) => decryptNote(key, cnt, old))).resolves.toEqual(note);
+    await expect(openFirst(readKeys(shared, ring, legacy, 1, NO_FLOOR), (key) => decryptNote(key, cnt, old))).resolves.toEqual(note);
     // A server relabelling legacy-key ciphertext as shared cannot downgrade the read.
-    await expect(openFirst(readKeys(shared, ring, legacy, 3), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
+    await expect(openFirst(readKeys(shared, ring, legacy, 3, NO_FLOOR), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
   });
 
   it("reads a personal container with the legacy key even without a row generation", () => {
     // Old cache entries carry no keyGeneration; a never-shared container has only the legacy key.
-    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, undefined)).toEqual([legacy]);
-    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, Number.NaN)).toEqual([legacy]);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, undefined, NO_FLOOR)).toEqual([legacy]);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, Number.NaN, NO_FLOOR)).toEqual([legacy]);
   });
 
   it("seals an edit made while keys are missing for this device only, and reads it back", async () => {
     const shared = { id: cnt, keyGeneration: 3, sharedGeneration: 2 };
-    const waiting = localKey(shared, new Map(), legacy);
+    const waiting = localKey(shared, new Map(), legacy, NO_FLOOR);
     expect(waiting).toEqual({ key: legacy, generation: WAITING_GENERATION });
     // Never a generation the server would accept, and never the current key's slot.
     expect(WAITING_GENERATION).toBeLessThan(1);
     const sealed = await encryptNote(waiting.key, cnt, { title: "W", body: "" });
-    await expect(openFirst(readKeys(shared, new Map(), legacy, WAITING_GENERATION), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
+    await expect(openFirst(readKeys(shared, new Map(), legacy, WAITING_GENERATION, NO_FLOOR), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
     const k3 = newContainerKey();
-    expect(localKey(shared, new Map([[3, k3]]), legacy)).toEqual({ key: k3, generation: 3 });
+    expect(localKey(shared, new Map([[3, k3]]), legacy, NO_FLOOR)).toEqual({ key: k3, generation: 3 });
   });
 
   it("never opens a newer row with a removed member's older key", async () => {
     const k2 = newContainerKey();
     const removed = new Map([[2, k2]]); // keys a member held before removal re-keyed to generation 3
     const forged = await encryptNote(k2, cnt, { title: "F", body: "" });
-    expect(readKeys({ sharedGeneration: 2 }, removed, legacy, 3)).toEqual([]);
-    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, legacy, 3), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
+    expect(readKeys({ sharedGeneration: 2 }, removed, legacy, 3, NO_FLOOR)).toEqual([]);
+    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, legacy, 3, NO_FLOOR), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
   });
 });
 
@@ -317,25 +317,25 @@ describe("legacyRow", () => {
   it("labels exactly the rows readKeys opens with the legacy key", () => {
     for (const shared of [{ sharedGeneration: 0 }, { sharedGeneration: 3 }]) {
       for (const generation of [undefined, Number.NaN, 1.5, -1, 0, 1, 2, 3, 4]) {
-        const legacyRead = readKeys(shared, new Map([[3, ck]]), legacy, generation)[0] === legacy;
-        expect(legacyRow(shared, generation)).toBe(shared.sharedGeneration > 0 && legacyRead);
+        const legacyRead = readKeys(shared, new Map([[3, ck]]), legacy, generation, NO_FLOOR)[0] === legacy;
+        expect(legacyRow(shared, generation, NO_FLOOR)).toBe(shared.sharedGeneration > 0 && legacyRead);
       }
     }
   });
 
   it("labels generation 0 in a shared container, never in a personal one", () => {
-    expect(legacyRow({ sharedGeneration: 3 }, WAITING_GENERATION)).toBe(true);
-    expect(legacyRow({ sharedGeneration: 3 }, 2)).toBe(true);
-    expect(legacyRow({ sharedGeneration: 3 }, 3)).toBe(false);
-    expect(legacyRow({ sharedGeneration: 3 }, undefined)).toBe(false); // no key at all
-    expect(legacyRow({ sharedGeneration: 0 }, 0)).toBe(false);
-    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 0)).toEqual([legacy]); // personal reads unchanged
+    expect(legacyRow({ sharedGeneration: 3 }, WAITING_GENERATION, NO_FLOOR)).toBe(true);
+    expect(legacyRow({ sharedGeneration: 3 }, 2, NO_FLOOR)).toBe(true);
+    expect(legacyRow({ sharedGeneration: 3 }, 3, NO_FLOOR)).toBe(false);
+    expect(legacyRow({ sharedGeneration: 3 }, undefined, NO_FLOOR)).toBe(false); // no key at all
+    expect(legacyRow({ sharedGeneration: 0 }, 0, NO_FLOOR)).toBe(false);
+    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 0, NO_FLOOR)).toEqual([legacy]); // personal reads unchanged
   });
 
   it("never copies a labelled conflict version, generation 0 included", () => {
     const conflicts = [{ id: "a", keyGeneration: 0 }, { id: "b", keyGeneration: 2 }, { id: "c", keyGeneration: 3 }, { id: "d", keyGeneration: undefined }];
-    expect(copyableConflicts({ sharedGeneration: 3 }, conflicts)).toEqual({ copy: [conflicts[2], conflicts[3]], kept: 2 });
-    expect(copyableConflicts({ sharedGeneration: 0 }, conflicts)).toEqual({ copy: conflicts, kept: 0 });
+    expect(copyableConflicts({ sharedGeneration: 3 }, conflicts, NO_FLOOR)).toEqual({ copy: [conflicts[2], conflicts[3]], kept: 2 });
+    expect(copyableConflicts({ sharedGeneration: 0 }, conflicts, NO_FLOOR)).toEqual({ copy: conflicts, kept: 0 });
   });
 
   it("refuses a block move that would re-seal a labelled subpage, not one of the head", () => {
@@ -343,5 +343,38 @@ describe("legacyRow", () => {
     expect(movesLabelledSubpage(block, "head", new Set(["sub"]))).toBe(true);
     expect(movesLabelledSubpage(block, "head", new Set(["head"]))).toBe(false);
     expect(movesLabelledSubpage(block, "head", new Set())).toBe(false);
+  });
+});
+
+describe("sharing-state rollback", () => {
+  const legacy = legacyKeyRef("a".repeat(64));
+  const k3 = newContainerKey();
+  const ring = new Map([[3, k3]]);
+  const seen = raiseFloor({}, { id: cnt, keyGeneration: 3, sharedGeneration: 2 });
+
+  it("remembers the highest generations reported, and never lowers them", () => {
+    expect(seen).toEqual({ shared: 2, generation: 3 });
+    expect(raiseFloor(seen, { id: cnt, keyGeneration: 1, sharedGeneration: 0 })).toEqual(seen);
+    expect(raiseFloor(seen, { id: cnt, keyGeneration: 5, sharedGeneration: 2 })).toEqual({ shared: 2, generation: 5 });
+  });
+
+  it("refuses every write when the server reports a seen-shared notebook as legacy", () => {
+    const legacyReport = { id: cnt, keyGeneration: 3, sharedGeneration: 0 };
+    expect(guardContainer(legacyReport, seen).rollback).toBe(true);
+    expect(writeKey(legacyReport, ring, legacy, seen)).toBeUndefined();
+    // The local waiting seal never leaves the device; it is never a server write key.
+    expect(localKey(legacyReport, ring, legacy, seen).generation).toBe(WAITING_GENERATION);
+    // Reads keep the shared rule: the current generation opens only with its container key.
+    expect(readKeys(legacyReport, ring, legacy, 3, seen)).toEqual([k3]);
+    expect(legacyRow(legacyReport, 3, seen)).toBe(false);
+    expect(legacyRow(legacyReport, 1, seen)).toBe(true);
+  });
+
+  it("refuses a lowered key generation, so nothing is sealed under an older key", () => {
+    const lowered = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
+    const withOld = new Map([[2, newContainerKey()], [3, k3]]);
+    expect(guardContainer(lowered, seen).rollback).toBe(true);
+    expect(writeKey(lowered, withOld, legacy, seen)).toBeUndefined();
+    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, withOld, legacy, seen)).toEqual({ key: k3, generation: 3 });
   });
 });

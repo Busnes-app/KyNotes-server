@@ -27,9 +27,34 @@ export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; cha
 /**
  * What this device remembers per container: the highest generation it accepted from
  * itself or a current steward, and the SHA-256 (hex) of every key it accepted, so a
- * different key for a known generation is refused even after a reload.
+ * different key for a known generation is refused even after a reload. shared and
+ * generation are the highest sharedGeneration and keyGeneration the server ever reported
+ * (KeyFloor); all of it only rises.
  */
-export type KeyState = { mark: number; digests: Record<number, string> };
+export type KeyState = KeyFloor & { mark: number; digests: Record<number, string> };
+/** The highest sharedGeneration and keyGeneration this device has seen for a container; absent is 0. */
+export type KeyFloor = { shared?: number; generation?: number };
+/** For containers this device never tracks (personal notebooks until P5). */
+export const NO_FLOOR: KeyFloor = {};
+
+/** floor raised by what the server reports now: the value to persist before using the container. */
+export const raiseFloor = <T extends KeyFloor>(floor: T, container: KeyedContainer): T =>
+  ({ ...floor, shared: Math.max(floor.shared ?? 0, container.sharedGeneration), generation: Math.max(floor.generation ?? 0, container.keyGeneration) });
+
+/**
+ * The one choke point for a server-reported container: sharing state never goes backwards on
+ * this device. rollback is true when the server reports a lower sharedGeneration or
+ * keyGeneration than this device has seen; nothing may be written then (writeKey), and reads
+ * use the higher sharedGeneration, so a shared container never falls back to the login key.
+ */
+export function guardContainer<C extends KeyedContainer>(container: C, floor: KeyFloor): { container: C; rollback: boolean } {
+  const shared = floor.shared ?? 0, generation = floor.generation ?? 0;
+  return {
+    container: { ...container, sharedGeneration: Math.max(container.sharedGeneration, shared), keyGeneration: Math.max(container.keyGeneration, generation) },
+    rollback: container.sharedGeneration < shared || container.keyGeneration < generation,
+  };
+}
+const sharedFloor = (container: Pick<KeyedContainer, "sharedGeneration">, floor: KeyFloor) => Math.max(container.sharedGeneration, floor.shared ?? 0);
 export type OpenKeyringInput = {
   containerID: string; envelopes: Envelope[]; me: Me | undefined; members: MemberKey[]; pins: Pins;
   /** This device's key memory for the container (getKeyState); never taken from the server. */
@@ -52,7 +77,7 @@ const isSteward = (role: string) => role === "owner" || role === "admin";
 export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   const { containerID, envelopes, me, members, pins } = input;
   const ring = new Map<number, Uint8Array>();
-  const known = { mark: Math.max(0, input.known.mark), digests: { ...input.known.digests } };
+  const known = { ...input.known, mark: Math.max(0, input.known.mark), digests: { ...input.known.digests } };
   const out = { ring, pins: { ...pins }, fresh: [] as MemberKey[], changed: [] as PinChange[], conflicts: [] as number[], known };
   const pinnedKeys = Object.values(pins).flatMap((key) => { try { return [publicKeyBytes(key)]; } catch { return []; } });
   /** First key per generation wins, across reloads through the stored digest. */
@@ -114,7 +139,9 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
  * login-derived key. A shared container needs the container key at its current
  * generation; undefined means "waiting for keys" and nothing may be written.
  */
-export function writeKey(container: KeyedContainer, ring: Keyring, legacy: KeyRef): WriteKey | undefined {
+export function writeKey(reported: KeyedContainer, ring: Keyring, legacy: KeyRef, floor: KeyFloor): WriteKey | undefined {
+  const { container, rollback } = guardContainer(reported, floor);
+  if (rollback) return undefined;
   if (container.sharedGeneration === 0) return { key: legacy, generation: container.keyGeneration };
   const key = ring.get(container.keyGeneration);
   return key && { key, generation: container.keyGeneration };
@@ -128,8 +155,8 @@ export function writeKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
 export const WAITING_GENERATION = 0;
 
 /** The key a local copy is sealed with: writeKey, or the waiting seal while that is missing. */
-export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRef): WriteKey {
-  return writeKey(container, ring, legacy) ?? { key: legacy, generation: WAITING_GENERATION };
+export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRef, floor: KeyFloor): WriteKey {
+  return writeKey(container, ring, legacy, floor) ?? { key: legacy, generation: WAITING_GENERATION };
 }
 
 /**
@@ -141,11 +168,11 @@ export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
  * and never re-seal them without an explicit edit. Upgrade: P4 migrates legacy rows
  * to the container key, then refuses legacy reads in shared containers.
  */
-export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined): KeyRef[] {
+export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor): KeyRef[] {
   // A never-shared container has only the legacy key, so a row without a generation (old cache) still reads.
-  if (container.sharedGeneration === 0) return [legacy];
+  if (sharedFloor(container, floor) === 0) return [legacy];
   // The same decision labels the row, so a row read with the legacy key is always labelled.
-  if (legacyRow(container, generation)) return [legacy];
+  if (legacyRow(container, generation, floor)) return [legacy];
   if (generation === undefined || !Number.isInteger(generation)) return [];
   const key = ring.get(generation);
   return key ? [key] : [];
@@ -156,8 +183,9 @@ export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ri
  * reader's own pre-sharing content or waiting edit, or a server forgery. Callers label it as
  * not end-to-end verified and re-seal it only on an explicit edit or move of that row.
  */
-export function legacyRow(container: Pick<KeyedContainer, "sharedGeneration">, generation: number | undefined): boolean {
-  return container.sharedGeneration > 0 && Number.isInteger(generation) && generation! < container.sharedGeneration;
+export function legacyRow(container: Pick<KeyedContainer, "sharedGeneration">, generation: number | undefined, floor: KeyFloor): boolean {
+  const shared = sharedFloor(container, floor);
+  return shared > 0 && Number.isInteger(generation) && generation! < shared;
 }
 
 /** A block move would re-seal a labelled row the user did not pick: any member but the head. */
@@ -165,8 +193,8 @@ export const movesLabelledSubpage = (block: ReadonlyArray<{ id: string }>, head:
   block.some((page) => page.id !== head && labelled.has(page.id));
 
 /** Conflict versions that may become copies: never a legacy-key one, which copying would re-seal unseen. */
-export function copyableConflicts<T extends { keyGeneration?: number }>(container: Pick<KeyedContainer, "sharedGeneration">, conflicts: T[]): { copy: T[]; kept: number } {
-  const copy = conflicts.filter((conflict) => !legacyRow(container, conflict.keyGeneration));
+export function copyableConflicts<T extends { keyGeneration?: number }>(container: Pick<KeyedContainer, "sharedGeneration">, conflicts: T[], floor: KeyFloor): { copy: T[]; kept: number } {
+  const copy = conflicts.filter((conflict) => !legacyRow(container, conflict.keyGeneration, floor));
   return { copy, kept: conflicts.length - copy.length };
 }
 

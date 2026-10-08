@@ -1,6 +1,6 @@
 import type { HeldIdentity } from "./identity";
 import type { KeyState } from "./keyring";
-import { isPinConfirmation, type PinConfirmation, type Pins } from "./pins";
+import { isPinConfirmation, sameKey, type PinConfirmation, type Pins } from "./pins";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
@@ -242,9 +242,39 @@ export async function getPins(username: string, userID: string): Promise<Pins> {
   return record ? pinsOf(record, userID) : {};
 }
 
-/** Adds first-contact pins; an existing pin is never overwritten here. False means pins are not kept; tell the user. */
-export async function storePins(username: string, userID: string, keys: Pins): Promise<boolean> {
-  return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...keys, ...pinsOf(record, userID) } } }));
+/**
+ * ok: every proposed pin is now stored (a proposal equal to the stored pin is fine). Otherwise
+ * nothing was written: conflicts names members already pinned here to a different key (another
+ * pass won; the caller must not wrap for them), and is empty when pins are not kept at all.
+ */
+export type PinsStored = { ok: true } | { ok: false; conflicts: string[] };
+
+/** Adds first-contact pins, compared with the stored pins in the same transaction; never overwrites. */
+export async function storePins(username: string, userID: string, keys: Pins): Promise<PinsStored> {
+  try {
+    const db = await openDatabase();
+    const result = await new Promise<PinsStored>((resolve, reject) => {
+      const transaction = db.transaction("keys", "readwrite");
+      const store = transaction.objectStore("keys");
+      let outcome: PinsStored = { ok: false, conflicts: [] };
+      const read = store.get(username);
+      read.onsuccess = () => {
+        const record = read.result as VaultRecord | undefined;
+        if (!record) return;
+        const stored = pinsOf(record, userID);
+        const conflicts = Object.keys(keys).filter((member) => stored[member] !== undefined && stored[member] !== keys[member] && !sameKey(stored[member], keys[member]));
+        if (conflicts.length) { outcome = { ok: false, conflicts }; return; }
+        store.put({ ...record, pins: { userID, keys: { ...keys, ...stored } } });
+        outcome = { ok: true };
+      };
+      transaction.oncomplete = () => resolve(outcome);
+      transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+    return result;
+  } catch {
+    return { ok: false, conflicts: [] };
+  }
 }
 
 /** Replaces one pin; only a confirmFingerprintChange result is accepted. */
@@ -265,8 +295,14 @@ export async function getKeyState(username: string, userID: string, containerID:
 export async function storeKeyState(username: string, userID: string, containerID: string, state: KeyState): Promise<boolean> {
   return updateRecord(username, (record) => {
     const byContainer = statesOf(record, userID);
-    const prior = byContainer[containerID] ?? { mark: 0, digests: {} };
-    const next = { mark: Math.max(prior.mark, state.mark), digests: { ...state.digests, ...prior.digests } };
+    const prior: KeyState = byContainer[containerID] ?? { mark: 0, digests: {} };
+    const next: KeyState = {
+      mark: Math.max(prior.mark, state.mark),
+      digests: { ...state.digests, ...prior.digests },
+      // The sharing state this device has seen (KeyFloor) never goes backwards either.
+      shared: Math.max(prior.shared ?? 0, state.shared ?? 0),
+      generation: Math.max(prior.generation ?? 0, state.generation ?? 0),
+    };
     return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } };
   });
 }

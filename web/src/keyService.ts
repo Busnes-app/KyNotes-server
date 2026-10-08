@@ -1,7 +1,8 @@
 import { base64 } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { newContainerKey, openKeyring, planSweep, sealFor, type Envelope, type KeyedContainer, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type SweepPlan } from "./keyring";
+import { guardContainer, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type KeyedContainer, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type SweepPlan } from "./keyring";
 import { comparePins, confirmFingerprintChange, type PinChange, type PinConfirmation, type Pins } from "./pins";
+import type { PinsStored } from "./storage";
 
 export type KeyAPI = {
   /** The container's current generations; read at the start of every pass, never trusted from a tab's memory. */
@@ -17,8 +18,8 @@ export type KeyAPI = {
 /** This device's pins and per-container key memory. Writes return false when nothing was kept. */
 export type PinStore = {
   load: () => Promise<Pins>;
-  /** Add-only: an existing pin is never overwritten. */
-  addFresh: (pins: Pins) => Promise<boolean>;
+  /** Add-only and atomic: a member already pinned to a different key is a conflict, and nothing is written. */
+  addFresh: (pins: Pins) => Promise<PinsStored>;
   /** Replaces one pin; only a confirmFingerprintChange result. */
   confirm: (confirmation: PinConfirmation) => Promise<boolean>;
   loadKeyState: (containerID: string) => Promise<KeyState>;
@@ -26,15 +27,16 @@ export type PinStore = {
 };
 export type Caller = { userId: string; identity?: HeldIdentity; canWrap: boolean };
 /**
- * plan: "untrusted" the user declined a changed colleague key; "pins-unsaved" this device
- * could not keep a pin. Neither shared anything. fresh: pinned by this call; changed: the
+ * plan: "untrusted" the user declined a changed colleague key, or another pass pinned a
+ * different key first; "pins-unsaved" this device could not keep a pin; "rollback" the server
+ * reported an older sharing state than this device has seen. None of them shared anything. fresh: pinned by this call; changed: the
  * changed keys asked about; conflicts: generations whose envelope disagreed with an
  * accepted key (reported, never used or wrapped); known: the key memory written, and
  * keyStateSaved whether this device kept it.
  */
 export type KeySync = {
   container: KeyedContainer; ring: Keyring; minted: boolean; known: KeyState; keyStateSaved: boolean;
-  plan: SweepPlan | { kind: "untrusted"; members: string[] } | { kind: "pins-unsaved" };
+  plan: SweepPlan | { kind: "untrusted"; members: string[] } | { kind: "pins-unsaved" } | { kind: "rollback" };
   fresh: MemberKey[]; changed: PinChange[]; conflicts: number[];
 };
 type Pass = Omit<KeySync, "keyStateSaved">;
@@ -61,13 +63,23 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
   /** latest receives the key memory of the newest keyring this attempt opened. */
   const pass = async (attempt: number, latest: Latest): Promise<Pass | "retry"> => {
     let container = await api.container(containerID);
+    // Sharing state never goes backwards on this device: persist what was seen before any use.
+    const prior = await store.loadKeyState(container.id);
+    const { rollback } = guardContainer(container, prior);
+    const known = raiseFloor(prior, container);
+    if (known.shared !== prior.shared || known.generation !== prior.generation) await store.saveKeyState(container.id, known).catch(() => false);
     const envelopes = await api.envelopes(container.id);
     const members: MemberKey[] = await Promise.all((await api.members(container.id)).map(async (member) => ({ ...member, identity: member.userId === caller.userId && own ? own : await api.userIdentity(member.userId) })));
-    const known = await store.loadKeyState(container.id);
     const open = (pins: Pins, rows: Envelope[], ring?: Keyring): OpenedKeyring => {
       const opened = openKeyring({ containerID: container.id, envelopes: rows, me, members, pins, known, held: ring ?? held });
-      latest.saved = { containerID: container.id, known: opened.known };
+      latest.saved = { containerID: container.id, known: raiseFloor(opened.known, container) };
       return opened;
+    };
+    /** A conflict means another pass pinned a different key first: stop; the next pass asks about it. */
+    const pinFailure = (stored: PinsStored): KeySync["plan"] | undefined => {
+      if (stored.ok) return undefined;
+      if (!stored.conflicts.length) return { kind: "pins-unsaved" };
+      return { kind: "untrusted", members: members.filter((member) => stored.conflicts.includes(member.userId)).map((member) => member.username) };
     };
     // planSweep itself is idle for a caller who is not a steward with an identity.
     const plan = (opened: OpenedKeyring): SweepPlan => {
@@ -81,6 +93,8 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
 
     let pins = await store.load();
     let opened = open(pins, envelopes);
+    // Reads only: nothing is pinned, wrapped or minted against a rolled-back server.
+    if (rollback) return { container, changed: [], conflicts: opened.conflicts, known: latest.saved!.known, fresh: [], ring: opened.ring, plan: { kind: "rollback" }, minted: false };
     let sweep = plan(opened);
     const changed: PinChange[] = [];
     const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh">, fresh: MemberKey[], last = opened): Pass =>
@@ -100,7 +114,8 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       sweep = plan(opened);
     }
     const fresh = [...opened.fresh];
-    if (opened.fresh.length && !(await store.addFresh(opened.pins))) return result({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false }, fresh);
+    const firstContact = opened.fresh.length ? pinFailure(await store.addFresh(opened.pins)) : undefined;
+    if (firstContact) return result({ ring: opened.ring, plan: firstContact, minted: false }, []);
     if (sweep.kind === "idle" || sweep.kind === "blocked") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
@@ -118,7 +133,9 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     } else {
       rows = sweep.grants.map((grant) => seal(grant.member, grant.generation, opened.ring.get(grant.generation)!));
     }
-    if (fresh.length > opened.fresh.length && !(await store.addFresh(pins))) return result({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false }, fresh);
+    // A pin another pass stored meanwhile wins: the sealed rows are discarded, never uploaded.
+    const sealedFor = fresh.length > opened.fresh.length ? pinFailure(await store.addFresh(pins)) : undefined;
+    if (sealedFor) return result({ ring: opened.ring, plan: sealedFor, minted: false }, opened.fresh);
     try {
       await api.stepUp();
       if (sweep.kind === "mint") {
