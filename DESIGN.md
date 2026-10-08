@@ -187,7 +187,9 @@ the code. It hands the copy only to a session of the same account behind a
 user-action step-up (for an SSO browser holding nothing, a KySignOn confirmation
 of that request), audits each fetch and rate-limits it, and answers the same 404
 whether the account has no identity or no copy. A new code replaces the copy by
-compare-and-swap, so the old code opens nothing on the live database.
+compare-and-swap, so the old code opens nothing on the live database. The code
+is 128 random bits written as 28 Crockford base32 symbols with a 10-bit
+checksum; `testdata/protocol/recovery_vectors.json` pins the format.
 
 An owner or admin mints a container's content key for each key generation
 through `POST /containers/{id}/key-rotations`. In one transaction it advances

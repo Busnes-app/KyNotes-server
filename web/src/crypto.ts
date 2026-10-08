@@ -70,17 +70,30 @@ export async function digestSha256Hex(data: Uint8Array): Promise<string> {
 
 export type LoginKeys = { authSecret: string; userKEK: Uint8Array };
 
-async function stretchPassword(password: string, salt: string, iterations: number): Promise<Uint8Array> {
-  const rawSalt = fromBase64(salt);
+/** PBKDF2-HMAC-SHA256 to 32 bytes: WebCrypto where it exists, the pure fallback on plain-HTTP origins. */
+async function pbkdf2Bits(input: Uint8Array, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
   if (hasNativeSubtle()) {
     try {
-      const passwordKey = await crypto.subtle.importKey("raw", buffer(encoder.encode(password)), "PBKDF2", false, ["deriveBits"]);
-      return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: buffer(rawSalt), iterations, hash: "SHA-256" }, passwordKey, 256));
+      const key = await crypto.subtle.importKey("raw", buffer(input), "PBKDF2", false, ["deriveBits"]);
+      return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: buffer(salt), iterations, hash: "SHA-256" }, key, 256));
     } catch {
       // Fall through to fallback
     }
   }
-  return pbkdf2Sha256(encoder.encode(password), rawSalt, iterations, 32);
+  return pbkdf2Sha256(input, salt, iterations, 32);
+}
+
+const stretchPassword = (password: string, salt: string, iterations: number) => pbkdf2Bits(encoder.encode(password), fromBase64(salt), iterations);
+
+/** Fixed, never read from the server: a copy labelled with fewer iterations is refused, not opened. */
+export const RECOVERY_ITERATIONS = 600_000;
+const RECOVERY_KEK_LABEL = encoder.encode("kynotes/recovery-kek/v1");
+/** The recovery code's KEK: PBKDF2 over the code's 16 random bytes (recovery.ts), salt = label ‖ salt(16). */
+export function deriveRecoveryKEK(secret: Uint8Array, salt: Uint8Array): Promise<Uint8Array> {
+  const labelled = new Uint8Array(RECOVERY_KEK_LABEL.length + salt.length);
+  labelled.set(RECOVERY_KEK_LABEL);
+  labelled.set(salt, RECOVERY_KEK_LABEL.length);
+  return pbkdf2Bits(secret, labelled, RECOVERY_ITERATIONS);
 }
 
 /** One PBKDF2 pass, two HKDF labels: the server sees authSecret, never userKEK. */
