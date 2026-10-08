@@ -404,18 +404,27 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   only that generation's key, below it and personal the legacy key, malformed generation no key.
   `main.tsx` reaches the login key only through
   `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
-  keys missing it is read-only and edits queue at generation 0, resealed on arrival, never uploaded at 0.
+  keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty
+  objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0; queue
+  replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
+  (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
+  P4: they are labelled "not end-to-end verified" and re-sealed only by an explicit edit or move of that
+  row (`placePage`/`updateStructure` `explicit`); legacy conflict versions are never copied.
   Server: containers report `sharedGeneration`; shared containers refuse writes without
-  `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration`; conflict
+  `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
+  and `baseVersion` in its transaction; conflict
   listings report `keyGeneration`; envelope `PUT` backfills existing shared generations and never mints
   (`putGenerationTx`). Verify `TestSharedContainerRefusesStaleClientWrites`,
   `TestStewardBackfillsSharedHistoryOnly`, `TestSharedGenerationIsMintedOnlyByRotation`,
   `TestContainersReportSharedGeneration`, `TestSharedNameNeedsCurrentGeneration`,
-  `TestConflictListingReportsKeyGeneration` and `npm test` (keyring, keyService, pins, crypto, storage).
+  `TestConflictListingReportsKeyGeneration`, `TestConcurrentRenamesFromOneBaseOneWins`,
+  `TestMetaPatchRechecksInsideTheTransaction` and `npm test` (keyring, keyService, pins, crypto, storage,
+  passwordChange).
   `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
   Chromium contexts against `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, serves the
   embedded bundle: build and sync `internal/web/dist` first). It checks server bytes: shared rows open
-  with the container key and not the writer's login key, a newcomer gets history, removal re-mints, and a
+  with the container key and not the writer's login key, a newcomer gets history, removal re-mints at once
+  (generation N+2 holds envelopes for the remaining members only, before anyone writes), and a
   write without the key-scheme header gets 409. Every browser dialog must be expected by the test.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only

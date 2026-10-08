@@ -147,9 +147,11 @@ the browser then creates the identity under the new password. Envelopes are
 keyed by both an ephemeral and the sender identity's X25519 agreement and bound
 by AAD to container, key generation, recipient and sender (IDs in the AAD are
 fixed-length); `testdata/protocol/envelope_vectors.json` pins the bytes. A
-browser accepts an envelope only from its own identity or from a current owner
-or admin whose identity key matches its local trust-on-first-use pin, and reads
-rows at or above `shared_generation` only with that generation's key. A password change
+browser accepts an envelope from its own identity, from a current owner or
+admin whose identity key matches its local trust-on-first-use pin, or, for
+history below the device's high-water mark, from an identity already pinned
+(see below), and reads rows at or above `shared_generation` only with that
+generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
 password resets delete it and write an audit row. SSO-only users have no
 password, hence no `userKEK` and no identity yet (open question).
@@ -174,16 +176,28 @@ The web client seals a team container's content with its container key once
 the container is shared. A row at or above `sharedGeneration` opens only with
 its own generation's key; rows below it, and personal containers, use the
 legacy login-derived key; a missing or malformed generation gets no key, so it
-fails closed. The client never writes legacy ciphertext into a shared
-container; a member without the current key reads only, and edits made
-meanwhile wait in the encrypted local queue at generation 0, are never
-uploaded at that generation, and are resealed under the current key when keys
-arrive. Shared containers refuse content writes that lack the
+fails closed. Rows below `sharedGeneration` are a known residual until P4: the
+server sees `authSecret`, so it can derive the legacy key and forge a row
+labelled below `sharedGeneration`. The client labels such rows "not end-to-end
+verified" and re-seals one under the container key only when the user edits or
+moves that row, never as a side effect of opening, autosave, another move or a
+conflict copy (legacy conflict versions are not copied). P4 migrates legacy rows
+and then refuses legacy reads in shared containers. The client never writes
+legacy ciphertext into a shared container. A member without the current key
+cannot change anything there: pages, sections, groups, moves, deletes, comments,
+attachments and conflict copies are disabled and their handlers refuse, so no
+empty object is created. Edits already in progress when the key went missing
+wait in the encrypted local queue at generation 0, are never uploaded at that
+generation, and are resealed under the current key when keys arrive; a
+password change in the same browser re-seals them for the new login key. Shared containers refuse content writes that lack the
 `X-Kynotes-Key-Scheme: shared-v1` header, so a page loaded before shared keys
 cannot write. A container meta `PATCH` on a shared container must carry
 `keyGeneration` equal to the current generation; a missing, zero, old or future
 value is refused inside the transaction with `409 already_exists`, so a stale
-tab cannot seal a name under a retired key. Conflict listings report each
+tab cannot seal a name under a retired key. The same transaction checks the
+caller's live writer role and updates only at the request's `baseVersion`; a
+stale base is `409 version_conflict`, so concurrent renames never overwrite
+each other. Conflict listings report each
 copy's `keyGeneration`. Owners and admins mint keys only through rotation;
 envelope `PUT` may add a member to any shared generation that already has
 envelopes (history for newcomers) and never mints one. The first mint waits

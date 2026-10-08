@@ -1227,7 +1227,7 @@ deliberately every phase).
 |---|---|---|---|
 | GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration` |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":"<b64>"}` → creates container + `owner` membership + `change_seq` 1 |
-| PATCH | `/api/v1/containers/{id}` | either | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`, checked in the transaction) |
+| PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n}` → §1.11 rules on `meta_version`; on a shared container also `"keyGeneration":n`, which must equal the current generation (missing, zero, old or future: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
 | GET | `/api/v1/devices` | session | id, fingerprint, platform, created/last-seen, revoked; never the secret |
 | POST | `/api/v1/devices/pairing-token` | session + CSRF + fresh | → `{"token":"...","expiresAt":"...","deepLink":"kynotes://pair?..."}` |
@@ -1644,6 +1644,11 @@ Rules:
   as admin and then cannot remove them; invitation expiry is not rechecked
   inside the accept transaction; envelopes of expired, never-accepted
   invitations persist until the invitation row is deleted.
+* **Known limit** (P3a): the server sees `authSecret`, so it can derive a
+  member's legacy content key and forge a row in a shared container labelled
+  below `shared_generation`. The web client labels such rows as not end-to-end
+  verified and re-seals one only on an explicit edit or move; P4 migrates legacy
+  rows and then refuses legacy reads in shared containers.
 * Presence is in-memory only, never persisted, TTL 60 seconds, and contains only
   `{userId, containerId, since}`. On restart it is empty. That is correct.
 

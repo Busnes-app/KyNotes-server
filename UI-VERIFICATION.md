@@ -185,7 +185,8 @@ Overflow was measured in the page (`documentElement.scrollWidth` against the vie
 
 ### Open items
 
-- In the key-wait state the empty editor still offers "Create a note"; only the list's New page button is disabled. Not exercised.
+- Key-wait now disables "Create a note" and every other change in the notebook (sections, groups, page moves and deletes, comments, attachments, conflict copies). The e2e checks New page and New section or group are disabled; the rest were not re-captured.
+- The "not verified" labels on rows written before a notebook was shared (page list, page banner, section and group tabs, comments, attachments) were not captured: no scripted fixture produces such a row.
 - The newcomer's waiting notebook shows the fallback label `Notebook <id>` until keys arrive, as designed: the name is sealed with the container key.
 
 ### Screenshots
