@@ -3,6 +3,7 @@ import { ConfirmPassword } from "./components/ConfirmPassword";
 import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  acceptInvitation,
   addAdminTeamMember,
   adminAudit,
   adminSSO,
@@ -56,10 +57,13 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
-import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
+import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
+import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
+import { clearStashedInvite, inviteLink, keyRequestText, stashInviteLink, stashedInvite } from "./invitations";
+import { PinnedKeys } from "./components/PinnedKeys";
+import { UnsentEdits } from "./components/UnsentEdits";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -166,6 +170,17 @@ const ROLLBACK = "The server reported an older key state for this notebook than 
 const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
 const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
 const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
+const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
+const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
+  "cannot-wrap": "The invitation carries no keys: this browser cannot share keys (sign in with your password).",
+  rollback: "The invitation carries no keys: the server reports an older sharing state for this team than this browser has seen.",
+  "no-keys": "The invitation carries no keys: this browser holds none for this team yet. A team owner's browser shares them after the person joins.",
+  "no-identity": "The invitation carries no keys: you cannot see this person's encryption key yet. A team owner's browser shares them after they join.",
+  "invalid-identity": "The invitation carries no keys: this person's encryption key could not be used. A team owner's browser shares them after they join.",
+  untrusted: "The invitation carries no keys: you did not confirm this person's new encryption key.",
+  "pins-unsaved": "The invitation carries no keys: this browser could not save this person's key. Allow site storage.",
+  moved: "The invitation carries no keys: this team's key changed meanwhile. A team owner's browser shares the new one after the person joins.",
+};
 
 function App() {
   const [auth, setAuth] = useState<AuthState | null>(null);
@@ -692,6 +707,11 @@ function Workspace({
     setUnverified(next);
   };
   const [keyNotice, setKeyNotice] = useState("");
+  // The open notebook's members as its last key pass saw them, and what each holds (informational only).
+  const [keyMembers, setKeyMembers] = useState<{ containerID: string; members: MemberKey[]; status: Record<string, MemberKeyStatus> } | undefined>(undefined);
+  // Usernames seen in key passes this session, for Settings' colleague keys.
+  const colleagueNames = useRef<Record<string, string>>({});
+  const [invitation, setInvitation] = useState(() => { try { return stashedInvite(sessionStorage); } catch { return undefined; } });
   const namesRef = useRef(names);
   namesRef.current = names;
   // Changed colleague keys declined this session, by member and exact key: not asked again.
@@ -775,6 +795,7 @@ function Workspace({
       const confirmChanged = background ? () => false : (changes: PinChange[]) => !superseded() && confirmChangedKeys(container.id)(changes);
       const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
       putRing(container.id, result.ring);
+      for (const member of result.members) colleagueNames.current[member.userId] = member.username;
       raiseFloorIn(container.id, result.known);
       let next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
       setItems((value) => value.map((entry) => (entry.id === next.id ? { ...entry, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : entry)));
@@ -784,6 +805,8 @@ function Workspace({
       const fresh = [...(unannounced.current[container.id] ?? []), ...(result.plan.kind === "pins-unsaved" ? [] : result.fresh)];
       if (!superseded() && (loadingContainerID.current ?? selectedRef.current?.id) === container.id) {
         delete unannounced.current[container.id];
+        // A rolled-back server's generations would mislabel every member; the rollback notice explains the pause.
+        setKeyMembers({ containerID: container.id, members: result.members, status: result.plan.kind === "rollback" ? {} : memberKeyStatus(result.container, result.members, result.envelopes) });
         setKeyNotice([await keyNoticeFor(result, fresh, !background), renamed].filter(Boolean).join(" "));
       } else {
         unannounced.current[container.id] = fresh;
@@ -1141,6 +1164,7 @@ function Workspace({
             const result = await serialized(item.id, async () => {
               const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id], raiseFloorIn);
               putRing(item.id, pass.ring);
+              for (const member of pass.members) colleagueNames.current[member.userId] = member.username;
               raiseFloorIn(item.id, pass.known);
               return pass;
             });
@@ -1571,7 +1595,9 @@ function Workspace({
         let item = queuedItem;
         try {
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
-          // first or stays queued (waiting for keys).
+          // first or stays queued (waiting for keys). An edit for a notebook this user lost waits here
+          // until Settings → Unsent edits exports or discards it. ponytail: one sealed under a password
+          // changed in another browser never opens (N3); P5 moves to identity-keyed storage.
           const ready = await sendable(item, synced).catch(() => undefined);
           if (!ready) {
             remaining = true;
@@ -2175,17 +2201,54 @@ function Workspace({
     }
   }
   async function invite() {
-    if (!selected) return;
-    const userID = prompt("User ID to invite");
+    const team = selected;
+    if (!team) return;
+    const userID = prompt("User ID to invite (Settings shows each person's user ID)")?.trim();
     if (!userID) return;
     try {
-      const result = await inviteMember(selected.id, userID, "editor");
-      setError(`Invitation created. Share token: ${result.token}`);
+      // Only the notebook the user chose: kind and teamId never pick which keys leave this browser.
+      const target = { container: team, ring: ringsRef.current[team.id] ?? noKeys, floor: floorFor(team) };
+      const invitee = { userId: userID, username: colleagueNames.current[userID] ?? "", role: "editor" };
+      const caller = { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso };
+      const { invitation: made, keys, recipient } = await inviteWithKeys({ userIdentity, stepUp: keyAPI.stepUp, invite: inviteMember }, target, invitee, caller, pinStore, confirmChangedKeys(team.id));
+      const carried = keys === "sealed" && recipient?.identity
+        ? `The invitation carries this team's keys, sealed for the key with fingerprint ${await fingerprintOf(recipient.identity.publicKey)}; compare it with ${displayName(invitee.username, userID)} (their Settings shows it).`
+        : INVITE_WITHOUT_KEYS[keys as Exclude<InviteKeys, "sealed">];
+      prompt(`${carried} Send this link to the person you invited. It works once, only for their account, until ${new Date(made.expiresAt).toLocaleString()}.`, inviteLink(location.origin, made));
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Unable to invite member",
-      );
+      setError(error instanceof Error ? error.message : "Unable to invite member");
     }
+  }
+  function dropInvitation() {
+    setInvitation(undefined);
+    try { clearStashedInvite(sessionStorage); } catch { /* nothing kept */ }
+  }
+  async function joinTeam() {
+    const link = invitation;
+    if (!link) return;
+    // Hidden now so a second click cannot accept twice; the stash is cleared once accept settles.
+    setInvitation(undefined);
+    try {
+      await acceptInvitation(link.id, link.token);
+      setError("You joined the team.");
+    } catch (error) {
+      const code = error instanceof APIRequestError ? error.code : undefined;
+      setError(code === "not_found"
+        ? "This invitation is no longer valid: it expired, was already used, is for another account, or its sender can no longer invite."
+        : code === "already_exists" ? "You are already a member of this team." : error instanceof Error ? error.message : "Unable to join the team");
+    } finally {
+      dropInvitation();
+    }
+    await loadContainers();
+  }
+  async function askForKeys() {
+    const open = selectedRef.current;
+    if (!open) return;
+    const known = keyMembers?.containerID === open.id ? keyMembers.members : [];
+    const stewards = known.filter((member) => (member.role === "owner" || member.role === "admin") && member.userId !== auth.user.id).map((member) => displayName(member.username, member.userId));
+    const identity = await heldIdentity();
+    const text = keyRequestText({ notebook: nameOf(open), stewards, fingerprint: identity ? await fingerprintOf(base64(identity.publicKey)) : "", link: `${location.origin}/${formatRoute({ container: open.id })}` });
+    prompt(`Send this to ${stewards.join(" or ") || "a team owner"}. Their browser shares this notebook's key when they open it.`, text);
   }
   async function removeTeamMember(userID: string) {
     if (!selected || !confirm("Remove this person from the team?")) return;
@@ -2342,7 +2405,8 @@ function Workspace({
                 {membersForTeam.map((member) => (
                   <div className="member-row" key={member.userId}>
                     <span>
-                      {member.username} · {member.role}
+                      {displayName(member.username, member.userId)} · {member.role}
+                      {keyMembers?.containerID === selected.id && keyMembers.status[member.userId] && ` · ${KEY_STATUS[keyMembers.status[member.userId]]}`}
                     </span>
                     {member.userId !== auth.user.id && (
                       <button
@@ -2398,8 +2462,15 @@ function Workspace({
                 </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : "Waiting for a team owner to share this notebook's keys. It is read-only until then."}</div>}
+                {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : <>Waiting for a team owner to share this notebook's keys. It is read-only until then. <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
+                {invitation && (
+                  <div className="conflict-banner" role="status">
+                    You were invited to a team notebook.{" "}
+                    <button onClick={() => void joinTeam()}>Join team</button>{" "}
+                    <button className="quiet" onClick={dropInvitation}>Not now</button>
+                  </div>
+                )}
                 {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
@@ -2691,6 +2762,9 @@ function Workspace({
             authSecret={auth.authSecret}
             username={auth.username}
             userID={auth.user.id}
+            legacyKey={legacy}
+            colleagueNames={colleagueNames.current}
+            teamKeys={(item) => { const container = items.find((entry) => entry.id === item.containerID); return container ? readKeysFor(container, item.keyGeneration) : []; }}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
@@ -3190,12 +3264,21 @@ function SettingsView({
   userID,
   onForgetDevice,
   onAuthSecret,
+  legacyKey,
+  colleagueNames,
+  teamKeys,
 }: {
   admin: boolean;
   authSecret: string;
   onBack: () => void;
   username: string;
   userID: string;
+  /** The login-derived key, for exporting edits stranded on this device. */
+  legacyKey: KeyRef;
+  /** Usernames seen in key passes this session, for the colleague keys card. */
+  colleagueNames: Record<string, string>;
+  /** Keys this browser holds for a queued edit's notebook and generation. */
+  teamKeys: (item: PendingSave) => KeyRef[];
   onForgetDevice?: () => void;
   onAuthSecret: (authSecret: string) => void;
 }) {
@@ -3248,6 +3331,7 @@ function SettingsView({
             <a href="#appearance">Appearance</a>
             <a href="#password">Password</a>
             <a href="#device">Trusted Device</a>
+            <a href="#colleague-keys">Colleague keys</a>
           </nav>
         )}
       </aside>
@@ -3301,6 +3385,7 @@ function SettingsView({
               <p className="config-muted">
                 This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password.
               </p>
+              <p className="config-muted">Your user ID: <code>{userID}</code>. Team owners need it to invite you.</p>
               <p className="config-muted">
                 {ownFingerprint
                   ? <>Your encryption key fingerprint: <code>{ownFingerprint}</code>. Team owners see it when your key changes; compare it with them in person.</>
@@ -3316,6 +3401,8 @@ function SettingsView({
                 </button>
               )}
             </section>
+            <PinnedKeys username={username} userID={userID} names={colleagueNames} />
+            <UnsentEdits legacyKey={legacyKey} userID={userID} teamKeys={teamKeys} />
           </>
         )}
         {admin && (
@@ -3389,6 +3476,8 @@ function SettingsView({
   );
 }
 
+// An invitation link opens the app at #/invite/…: keep it in this tab for after sign-in, out of the address bar.
+try { stashInviteLink(location, history, sessionStorage); } catch { /* session storage disabled: the link cannot be kept */ }
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
