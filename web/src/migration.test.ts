@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { legacyRows, type LegacyRows } from "./api";
-import { base64, encryptAttachment, encryptAttachmentMetadata, encryptComment, encryptNote, legacyKeyRef } from "./crypto";
-import type { KeyFloor, ReportedContainer } from "./keyring";
-import { autoCloses, itemLabel, LegacyClosedError, reviewLegacy, type ReviewAPI } from "./migration";
+import { base64, decryptAttachment, decryptComment, decryptObject, encryptAttachment, encryptAttachmentMetadata, encryptComment, encryptNote, fromBase64, legacyKeyRef } from "./crypto";
+import { clearFloors, raiseFloorIn } from "./floors";
+import { keysAllowed, newContainerKey, writeKey, type KeyFloor, type ReportedContainer, type WriteKey } from "./keyring";
+import { approveMigration, autoCloses, isMigrationApproval, itemLabel, LegacyClosedError, migrateLegacy, reviewLegacy, rewriteRefs, type LegacyReview, type MigrationAPI, type MigrationApproval, type MigrationInput, type ReviewAPI } from "./migration";
+import { KeysWaitingError, sendObject, setWriteKeySource } from "./outbound";
 import type { ObjectPayload } from "./pages";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -163,5 +165,280 @@ describe("destructive migration calls (M2)", () => {
     const callers = (name: string) => Object.entries(sources).filter(([, text]) => new RegExp(`\\b${name}\\b`).test(text)).map(([file]) => file);
     expect(callers("detachAttachment").filter((file) => file !== "./migration.ts")).toEqual([]);
     expect(callers("resolveConflict").filter((file) => file !== "./migration.ts" && file !== "./main.tsx")).toEqual([]);
+  });
+});
+
+const ck = newContainerKey();
+const write: WriteKey = { key: ck, generation: 2 };
+type Attached = { objectIds: string[]; bytes: Uint8Array; meta: string; keyGeneration: number };
+/** A server that applies what it is sent and lists rows below generation 2, as GET /containers/{id}/legacy does. */
+function liveServer() {
+  const objects = new Map<string, Stored>();
+  const comments = new Map<string, { objectId: string; authorUserId: string; body: string; keyGeneration: number }>();
+  const attachments = new Map<string, Attached>();
+  const conflicts = new Map<string, { objectId: string; bytes: Uint8Array; keyGeneration: number }>();
+  const sends: string[] = [];
+  const fresh = ["g", "h", "j", "k", "m"];
+  const failing = new Set<string>();
+  const api: MigrationAPI & ReviewAPI = {
+    legacyRows: async () => ({
+      complete: true,
+      objects: [...objects].filter(([, row]) => row.keyGeneration < 2).map(([oid, row]) => ({ id: oid, version: row.version, keyGeneration: row.keyGeneration })),
+      comments: [...comments].filter(([, row]) => row.keyGeneration < 2).map(([cid, row]) => ({ id: cid, objectId: row.objectId, authorUserId: row.authorUserId, bodyCiphertext: row.body, keyGeneration: row.keyGeneration })),
+      attachments: [...attachments].filter(([, row]) => row.keyGeneration < 2 && row.objectIds.length).map(([aid, row]) => ({ id: aid, objectIds: [...row.objectIds], bytes: row.bytes.byteLength, metadataCiphertext: row.meta, keyGeneration: row.keyGeneration })),
+      conflicts: [...conflicts].filter(([, row]) => row.keyGeneration < 2).map(([fid, row]) => ({ id: fid, objectId: row.objectId, keyGeneration: row.keyGeneration, createdAt: "t" })),
+    }),
+    readObject: async (oid) => ({ ...objects.get(oid)! }),
+    conflictBytes: async (fid) => conflicts.get(fid)!.bytes,
+    sendObject: async (sealed, oid, bytes, base) => {
+      sends.push(`object:${oid}`);
+      const row = objects.get(oid)!;
+      if (failing.has(oid) || row.version !== base) throw Object.assign(new Error("version_conflict"), { code: "version_conflict" });
+      objects.set(oid, { bytes, version: base + 1, keyGeneration: sealed.generation });
+      return { version: base + 1 };
+    },
+    sendCommentRewrite: async (sealed, cid, body) => { sends.push(`comment:${cid}`); comments.set(cid, { ...comments.get(cid)!, body, keyGeneration: sealed.generation }); },
+    downloadAttachment: async (aid) => attachments.get(aid)!.bytes,
+    uploadAttachment: async (oid, _version, plaintext, file) => {
+      const aid = id("att", fresh.shift()!);
+      sends.push(`upload:${aid}`);
+      attachments.set(aid, { objectIds: [oid], bytes: await encryptAttachment(ck, cnt, plaintext), meta: base64(await encryptAttachmentMetadata(ck, cnt, file)), keyGeneration: 2 });
+      return aid;
+    },
+    attach: async (oid, aid) => { attachments.get(aid)!.objectIds.push(oid); },
+    detach: async (oid, aid) => { sends.push(`detach:${aid}:${oid}`); const row = attachments.get(aid)!; row.objectIds = row.objectIds.filter((entry) => entry !== oid); },
+    copyConflict: async (_oid, fid) => { sends.push(`copy:${fid}`); return true; },
+    resolve: async (fid) => { sends.push(`resolve:${fid}`); conflicts.delete(fid); },
+  };
+  const state = () => JSON.stringify({ objects: [...objects].map(([k, v]) => [k, v.version, v.keyGeneration, [...v.bytes]]), comments: [...comments], attachments: [...attachments].map(([k, v]) => [k, v.objectIds, v.keyGeneration]), conflicts: [...conflicts.keys()] });
+  return { api, objects, comments, attachments, conflicts, sends, failing, state };
+}
+/** A notebook with one pre-sharing page by "me" holding an inline image, its comment and a conflict, plus a shared page using the same image. */
+async function seeded() {
+  const live = liveServer();
+  const image = id("att", "a");
+  live.attachments.set(image, { objectIds: [id("obj", "a"), id("obj", "s")], bytes: await encryptAttachment(mine, cnt, new Uint8Array([7, 7])), meta: base64(await encryptAttachmentMetadata(mine, cnt, { name: "i.png", type: "image/png", size: 2 })), keyGeneration: 1 });
+  live.objects.set(id("obj", "a"), { bytes: await encryptNote(mine, cnt, page("Mine", `![](attachment://${image})`)), version: 3, keyGeneration: 1 });
+  live.objects.set(id("obj", "s"), { bytes: await encryptNote(ck, cnt, page("Shared", `see attachment://${image}`)), version: 1, keyGeneration: 2 });
+  live.objects.set(id("obj", "f"), { bytes: await encryptNote(mine, cnt, page("Forged")), version: 1, keyGeneration: 1 });
+  live.comments.set(id("cmt", "a"), { objectId: id("obj", "a"), authorUserId: me, body: base64(await encryptComment(mine, cnt, "my note")), keyGeneration: 1 });
+  live.conflicts.set(id("cfl", "a"), { objectId: id("obj", "a"), bytes: await encryptNote(mine, cnt, page("Older mine")), keyGeneration: 1 });
+  return { live, image };
+}
+const unticked = (review: LegacyReview, ids: string[]) => review.mine.filter((item) => !ids.includes(item.id)).length;
+/** A fresh review as the dialog shows it, approved for the reviewed items with these IDs; the user confirmed hiding the rest. */
+const prepared = async (live: ReturnType<typeof liveServer>, ids: string[], options: { containerID?: string; userID?: string; hide?: number } = {}): Promise<MigrationInput> => {
+  const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
+  const approval = approveMigration(options.userID ?? me, options.containerID ?? cnt, review, ids, options.hide ?? unticked(review, ids));
+  return { container, floorNow: () => floor, legacy: mine, userId: me, write, ring: new Map([[2, ck]]), approval };
+};
+
+describe("migrateLegacy", () => {
+  it("sends nothing without an approval for this user and notebook", async () => {
+    const { live } = await seeded();
+    const close = vi.fn(async () => true);
+    const good = await prepared(live, [id("obj", "a")]);
+    const lookalike = { ...good, approval: { userID: me, containerID: cnt, shared: 2, items: good.approval.items } as unknown as MigrationApproval };
+    expect(isMigrationApproval(lookalike.approval, me, cnt)).toBe(false);
+    expect(isMigrationApproval(Object.create(good.approval), me, cnt)).toBe(false);
+    expect(isMigrationApproval(good.approval, me, cnt)).toBe(true);
+    for (const input of [lookalike, await prepared(live, [id("obj", "a")], { containerID: `cnt_${"b".repeat(26)}` }), await prepared(live, [id("obj", "a")], { userID: other })])
+      await expect(migrateLegacy(live.api, input, close)).rejects.toThrow();
+    expect(live.sends).toEqual([]);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("seals what the review showed, never a later read or a later change to the review, and only once", async () => {
+    const { live, image } = await seeded();
+    const review = await reviewLegacy(live.api, { container, floorNow: () => floor, legacy: mine, userId: me });
+    const approval = approveMigration(me, cnt, review, [id("obj", "a"), image], unticked(review, [id("obj", "a"), image]));
+    const input: MigrationInput = { container, floorNow: () => floor, legacy: mine, userId: me, write, ring: new Map([[2, ck]]), approval };
+    // The review and the approval's exposed items change after approval: neither reaches the seal.
+    for (const item of [...review.mine, ...approval.items]) {
+      if (item.kind === "object" && item.payload.type === "page") item.payload.title = "Edited later";
+      if (item.kind === "attachment") item.plaintext.fill(1);
+    }
+    expect(Object.isFrozen(approval)).toBe(true);
+    // After the review the server swaps the page body and the attachment bytes, keeping the version.
+    live.objects.set(id("obj", "a"), { ...live.objects.get(id("obj", "a"))!, bytes: await encryptNote(mine, cnt, page("Swapped")) });
+    live.attachments.get(image)!.bytes = await encryptAttachment(mine, cnt, new Uint8Array([6]));
+    await migrateLegacy(live.api, input, vi.fn(async () => true));
+    expect((await decryptObject(ck, cnt, live.objects.get(id("obj", "a"))!.bytes))?.title).toBe("Mine");
+    expect(await decryptAttachment(ck, cnt, live.attachments.get(id("att", "g"))!.bytes)).toEqual(new Uint8Array([7, 7]));
+    // A spent approval sends nothing.
+    live.sends.length = 0;
+    await expect(migrateLegacy(live.api, input, vi.fn(async () => true))).rejects.toThrow();
+    expect(live.sends).toEqual([]);
+  });
+
+  it("re-seals only approved rows under the current key, then closes", async () => {
+    const { live } = await seeded();
+    const close = vi.fn(async () => true);
+    const all = [id("obj", "a"), id("cmt", "a"), id("att", "a"), id("cfl", "a")]; // not the forged page
+    const result = await migrateLegacy(live.api, await prepared(live, all), close);
+    expect(result).toMatchObject({ failed: [], closed: true });
+    expect([...result.shared].sort()).toEqual([...all].sort());
+    expect(close).toHaveBeenCalledOnce();
+    const migrated = live.objects.get(id("obj", "a"))!;
+    expect(migrated.keyGeneration).toBe(2);
+    expect((await decryptObject(ck, cnt, migrated.bytes))?.title).toBe("Mine");
+    await expect(decryptObject(mine, cnt, migrated.bytes)).rejects.toThrow();
+    expect(await decryptComment(ck, cnt, fromBase64(live.comments.get(id("cmt", "a"))!.body))).toMatchObject({ body: "my note" });
+    // The unapproved forgery was not touched; the conflict became a copy, then was resolved.
+    expect(live.objects.get(id("obj", "f"))!.keyGeneration).toBe(1);
+    expect(live.sends.indexOf(`copy:${id("cfl", "a")}`)).toBeLessThan(live.sends.indexOf(`resolve:${id("cfl", "a")}`));
+    expect(live.sends).not.toContain(`object:${id("obj", "f")}`);
+  });
+
+  it("resolves a conflict only after its copy was placed", async () => {
+    const { live } = await seeded();
+    live.api.copyConflict = async (_oid, fid) => { live.sends.push(`copy:${fid}`); return false; };
+    const close = vi.fn(async () => true);
+    const result = await migrateLegacy(live.api, await prepared(live, [id("cfl", "a")]), close);
+    expect(live.sends).toEqual([`copy:${id("cfl", "a")}`]);
+    expect(live.conflicts.has(id("cfl", "a"))).toBe(true);
+    expect(result).toMatchObject({ closed: false, failed: [{ id: id("cfl", "a") }] });
+  });
+
+  it("rewrites inline references and detaches the old copy only from pages that point at the new one", async () => {
+    const { live, image } = await seeded();
+    live.failing.add(id("obj", "s")); // the shared page cannot be re-saved this time
+    const close = vi.fn(async () => true);
+    const result = await migrateLegacy(live.api, await prepared(live, [id("obj", "a"), image]), close);
+    const replacement = id("att", "g");
+    const body = (await decryptObject(ck, cnt, live.objects.get(id("obj", "a"))!.bytes)) as { body: string };
+    expect(body.body).toBe(`![](attachment://${replacement})`);
+    expect(await decryptAttachment(ck, cnt, live.attachments.get(replacement)!.bytes)).toEqual(new Uint8Array([7, 7]));
+    expect(live.attachments.get(replacement)!.objectIds.sort()).toEqual([id("obj", "a"), id("obj", "s")].sort());
+    // Detached from the page now pointing at the new copy; still attached to the page that failed.
+    expect(live.attachments.get(image)!.objectIds).toEqual([id("obj", "s")]);
+    expect(result.failed.map((entry) => entry.id)).toEqual([id("obj", "s")]);
+    expect(result.closed).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+    // The detach came after the page re-save.
+    expect(live.sends.indexOf(`object:${id("obj", "a")}`)).toBeLessThan(live.sends.indexOf(`detach:${image}:${id("obj", "a")}`));
+  });
+
+  it("never re-seals an unticked pre-sharing page, even one that points at a ticked attachment", async () => {
+    const { live, image } = await seeded();
+    const untickedPage = id("obj", "b");
+    live.objects.set(untickedPage, { bytes: await encryptNote(mine, cnt, page("Unticked", `attachment://${image}`)), version: 1, keyGeneration: 1 });
+    live.attachments.get(image)!.objectIds.push(untickedPage);
+    const close = vi.fn(async () => true);
+    const result = await migrateLegacy(live.api, await prepared(live, [id("obj", "a"), image]), close);
+    expect(live.sends).not.toContain(`object:${untickedPage}`);
+    expect(live.objects.get(untickedPage)!.keyGeneration).toBe(1);
+    expect(live.attachments.get(image)!.objectIds).toEqual([untickedPage]); // it keeps the old copy it points at
+    expect(result.failed.map((entry) => entry.id)).toEqual([untickedPage]);
+    expect(result.closed).toBe(false);
+  });
+
+  it("a refused or conflicting write keeps legacy reads open and never overwrites the newer version", async () => {
+    const { live } = await seeded();
+    const close = vi.fn(async () => true);
+    const input = await prepared(live, [id("obj", "a"), id("cmt", "a")]);
+    const newer = { ...live.objects.get(id("obj", "a"))!, version: 4 }; // another tab saved meanwhile
+    live.objects.set(id("obj", "a"), newer);
+    live.api.sendCommentRewrite = async () => { throw Object.assign(new Error("insufficient role"), { code: "forbidden" }); };
+    const result = await migrateLegacy(live.api, input, close);
+    expect(result.failed.map((entry) => entry.id).sort()).toEqual([id("cmt", "a"), id("obj", "a")].sort());
+    expect(live.objects.get(id("obj", "a"))).toBe(newer);
+    expect(result.closed).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("closes only when the user confirmed hiding exactly the unticked items", async () => {
+    for (const hide of [0, 2]) {
+      const { live } = await seeded();
+      const close = vi.fn(async () => true);
+      // Ticked: everything but the forged page, so one item stays hidden; the user confirmed a different count.
+      const result = await migrateLegacy(live.api, await prepared(live, [id("obj", "a"), id("cmt", "a"), id("att", "a"), id("cfl", "a")], { hide }), close);
+      expect(result).toMatchObject({ failed: [], closed: false });
+      expect(close).not.toHaveBeenCalled();
+    }
+  });
+
+  it("refuses an approval from before a sharing change, and never closes after one mid-run", async () => {
+    const { live } = await seeded();
+    const close = vi.fn(async () => true);
+    const stale = await prepared(live, [id("obj", "a")]);
+    await expect(migrateLegacy(live.api, { ...stale, floorNow: () => ({ shared: 3, generation: 3 }) }, close)).rejects.toThrow(/review/i);
+    await expect(migrateLegacy(live.api, { ...(await prepared(live, [id("obj", "a")])), floorNow: () => undefined }, close)).rejects.toThrow(/review/i);
+    // A review of a notebook that was not shared yet approves nothing to seal under a container key.
+    const unsharedReview = await reviewLegacy(live.api, { container: { ...container, sharedGeneration: 0 }, floorNow: () => ({}), legacy: mine, userId: me });
+    const unshared = approveMigration(me, cnt, unsharedReview, [], 0);
+    await expect(migrateLegacy(live.api, { ...stale, floorNow: () => ({}), approval: unshared }, close)).rejects.toThrow(/review/i);
+    expect(live.sends).toEqual([]);
+    // The floor rises while the run is sending: the writes stand, but nothing closes.
+    let now: KeyFloor = floor;
+    const input = await prepared(live, [id("obj", "a"), id("cmt", "a"), id("att", "a"), id("cfl", "a")]);
+    const send = live.api.sendCommentRewrite;
+    live.api.sendCommentRewrite = async (...args) => { now = { shared: 3, generation: 3 }; return send(...args); };
+    const result = await migrateLegacy(live.api, { ...input, floorNow: () => now }, close);
+    expect(result).toMatchObject({ failed: [], closed: false });
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("a second run shares only what the first left, and running it again changes nothing", async () => {
+    const { live } = await seeded();
+    const close = vi.fn(async () => true);
+    const both = [id("obj", "a"), id("cmt", "a")];
+    const working = live.api.sendCommentRewrite;
+    live.api.sendCommentRewrite = async () => { throw new Error("offline"); }; // the first run dies at the comment
+    await migrateLegacy(live.api, await prepared(live, both), close);
+    expect(live.objects.get(id("obj", "a"))!.keyGeneration).toBe(2);
+    expect(close).not.toHaveBeenCalled();
+    // Reconnected: the review no longer offers the page, so only the comment is sent, and the run closes.
+    live.api.sendCommentRewrite = working;
+    live.sends.length = 0;
+    const second = await prepared(live, both);
+    expect(second.approval.items.map((item) => item.id)).not.toContain(id("obj", "a"));
+    await migrateLegacy(live.api, second, close);
+    expect(live.sends).toEqual([`comment:${id("cmt", "a")}`]);
+    expect(close).toHaveBeenCalledOnce();
+    // Only unticked rows are left: a third run sends nothing and leaves the server as it was.
+    live.sends.length = 0;
+    const before = live.state();
+    await migrateLegacy(live.api, await prepared(live, both), close);
+    expect(live.sends).toEqual([]);
+    expect(live.state()).toBe(before);
+  });
+
+  it("rewriteRefs replaces only whole attachment IDs and returns the same object when nothing changed", () => {
+    const old = id("att", "a"), next = id("att", "b");
+    const payload = page("p", `attachment://${old} attachment://${id("att", "c")}`);
+    expect(rewriteRefs(payload, { [old]: next })).toEqual(page("p", `attachment://${next} attachment://${id("att", "c")}`));
+    expect(rewriteRefs(payload, {})).toBe(payload);
+    expect(rewriteRefs(payload, { "att_bad": next, [old]: "att_x\"}" })).toBe(payload); // malformed IDs are ignored
+  });
+
+  it("only LegacyReview.tsx mints approvals", () => {
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./migration.ts"]));
+    // migration.ts defines it (`approveMigration = (`) and never calls it.
+    const minting = Object.entries(sources).filter(([, text]) => /\bapproveMigration\(/.test(text)).map(([name]) => name);
+    expect(minting.filter((name) => name !== "./components/LegacyReview.tsx")).toEqual([]);
+  });
+});
+
+describe("migrateLegacy through the outbound gate", () => {
+  const fetches = vi.fn(async () => new Response(JSON.stringify({ version: 4 }), { status: 200, headers: { "X-Kynotes-Version": "4" } }));
+  afterEach(() => { vi.unstubAllGlobals(); clearFloors(); fetches.mockClear(); });
+
+  it("sends nothing sealed for a key that is no longer the current one", async () => {
+    vi.stubGlobal("fetch", fetches);
+    vi.stubGlobal("document", { cookie: "" });
+    const { live } = await seeded();
+    const input = await prepared(live, [id("obj", "a")]);
+    // This tab has moved on to generation 3 (a rotation): the run's generation-2 write key is stale.
+    clearFloors();
+    raiseFloorIn(cnt, { shared: 2, generation: 3 });
+    const rotated: ReportedContainer = { ...container, keyGeneration: 3 };
+    const unregister = setWriteKeySource((reported) => keysAllowed(reported, floor) ? writeKey(rotated, new Map([[3, newContainerKey()]]), mine, { shared: 2, generation: 3 }) : undefined);
+    try {
+      const result = await migrateLegacy({ ...live.api, sendObject }, input, vi.fn(async () => true));
+      expect(result).toMatchObject({ closed: false, failed: [{ id: id("obj", "a"), reason: new KeysWaitingError().message }] });
+      expect(fetches).not.toHaveBeenCalled();
+    } finally { unregister(); }
   });
 });
