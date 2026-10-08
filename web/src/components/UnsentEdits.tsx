@@ -1,29 +1,32 @@
 import { useEffect, useState } from "react";
 import { containers } from "../api";
 import { decryptObject, type KeyRef } from "../crypto";
+import { openFirst } from "../keyring";
 import { deleteNote, pendingSaves, replaceQueuedSave, type PendingSave } from "../storage";
-import { exportUnsent, unsentEdits } from "../stuckEdits";
+import { exportUnsent, unsentEdits, type Unsent } from "../stuckEdits";
 
-type Unsent = { owned: PendingSave[]; unowned: PendingSave[] };
-const NONE: Unsent = { owned: [], unowned: [] };
+const NONE: Unsent = { owned: [], unowned: [], unknown: [], sealed: 0 };
 
 /**
- * Edits queued on this device for notebooks this account can no longer open. They can never be
- * sent, and nothing here sends them. Only this account's edits are listed: its own (export and
- * discard) and unstamped older ones its login-derived key opens (export only). Export decrypts in
- * this browser, only on a click; discard asks first. Nothing shows while the notebook list is unavailable.
+ * Edits queued on this device that will not be sent (unsentEdits), and nothing here sends them:
+ * this account's for notebooks it can no longer open (export; discard its own), and older edits
+ * whose owner is unknown (export only, never discarded). Export decrypts in this browser, only on
+ * a click; discard asks first. teamKeys: the keys this browser holds for an edit's notebook and
+ * generation (readKeys), tried after the login-derived key.
  */
-export function UnsentEdits({ legacyKey, userID }: { legacyKey: KeyRef; userID: string }) {
+export function UnsentEdits({ legacyKey, userID, teamKeys }: { legacyKey: KeyRef; userID: string; teamKeys: (item: PendingSave) => KeyRef[] }) {
   const [unsent, setUnsent] = useState<Unsent>(NONE);
-  const open = (item: PendingSave) => decryptObject(legacyKey, item.containerID, item.payload);
+  const decrypt = (keys: KeyRef[]) => (item: PendingSave) => openFirst(keys, (key) => decryptObject(key, item.containerID, item.payload));
+  const open = (item: PendingSave) => decrypt([legacyKey, ...teamKeys(item)])(item);
+  const opens = (read: (item: PendingSave) => Promise<unknown>) => (item: PendingSave) => read(item).then((content) => content !== undefined);
   async function find(): Promise<Unsent> {
     const live = await containers().then((list) => new Set(list.map((entry) => entry.id)), () => undefined);
-    return unsentEdits(await pendingSaves().catch(() => []), live, userID, (item) => open(item).then((content) => content !== undefined));
+    return unsentEdits(await pendingSaves().catch(() => []), live, userID, opens(decrypt([legacyKey])), opens(open));
   }
   const load = async () => setUnsent(await find());
   useEffect(() => { void load(); }, [userID]);
-  const all = [...unsent.owned, ...unsent.unowned];
-  if (!all.length) return null;
+  const all = [...unsent.owned, ...unsent.unowned, ...unsent.unknown];
+  if (!all.length && !unsent.sealed) return null;
   async function exportAll() {
     const file = await exportUnsent(all, open);
     if (file.unreadable === all.length) {
@@ -53,9 +56,11 @@ export function UnsentEdits({ legacyKey, userID }: { legacyKey: KeyRef; userID: 
     <section id="unsent-edits" className="config-card">
       <h2>Unsent edits</h2>
       {unsent.owned.length > 0 && <p className="config-muted">{unsent.owned.length} edit(s) on this device belong to notebooks you can no longer open, so they can never be saved.</p>}
+      {unsent.unknown.length > 0 && <p className="config-muted">Unsent edit, owner unknown: {unsent.unknown.length} edit(s) on this device were saved before edits were tied to an account and are sealed with a notebook key, so they are never sent or deleted here. You can export them.</p>}
+      {unsent.sealed > 0 && <p className="config-muted">{unsent.sealed} more unsent edit(s), owner unknown, cannot be opened in this browser. They stay on this device.</p>}
       {unsent.unowned.length > 0 && <p className="config-muted">{unsent.unowned.length} older edit(s) on this device open with your key but were saved before edits were tied to an account. You can export them; they are not deleted here.</p>}
       <p className="config-muted">The export is decrypted in this browser and saved as an unencrypted file. Store it somewhere safe and delete it when done.</p>
-      <button type="button" onClick={() => void exportAll()}>Export unsent edits</button>
+      {all.length > 0 && <button type="button" onClick={() => void exportAll()}>Export unsent edits</button>}
       {unsent.owned.length > 0 && <button type="button" className="secondary danger" onClick={() => void discard()}>Discard unsent edits</button>}
     </section>
   );

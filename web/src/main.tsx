@@ -1558,7 +1558,9 @@ function Workspace({
     draining.current = true;
     try {
       // Only this account's edits: another account's entry could be sent, misattributed, to a notebook both share.
-      const queued = await drainable(await pendingSaves(), auth.user.id, (item) => decryptObject(legacy, item.containerID, item.payload).then(() => true));
+      const { drain: queued, stamp } = await drainable(await pendingSaves(), auth.user.id, (item) => decryptObject(legacy, item.containerID, item.payload).then(() => true));
+      // This account's legacy key opened them: record the owner before any re-key removes that proof.
+      for (const item of stamp) await replaceQueuedSave(item, { ...item, owner: auth.user.id }).catch(() => false);
       if (!queued.length) return;
       setSyncStatus("syncing");
       let remaining = false;
@@ -1622,9 +1624,11 @@ function Workspace({
     const container = await synced.get(item.containerID)!;
     adoptGenerations(container);
     const ready = await readyToSend(item, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, legacy);
-    // A re-sealed copy replaces the entry only while it is still the one read: a newer save stays.
     if (!ready) return undefined;
-    if (ready === item || (await replaceQueuedSave(item, ready))) return { item: ready, container };
+    // Only drained (owned) entries reach here; a re-sealed copy carries the owner. It replaces the
+    // entry only while it is still the one read: a newer save stays.
+    const sealed = ready === item ? item : { ...ready, owner: auth.user.id };
+    if (sealed === item || (await replaceQueuedSave(item, sealed))) return { item: sealed, container };
     return undefined;
   }
   async function remove(note: Note) {

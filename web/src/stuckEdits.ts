@@ -9,29 +9,48 @@ export function stuckSaves(queued: PendingSave[], live: ReadonlySet<string> | un
   return live ? queued.filter((item) => !live.has(item.containerID)) : [];
 }
 
+/** Edits the card shows; see unsentEdits. sealed counts owner-unknown edits nothing here opens. */
+export type Unsent = { owned: PendingSave[]; unowned: PendingSave[]; unknown: PendingSave[]; sealed: number };
+
 /**
- * The signed-in account's unsendable edits. owned: stamped with owner, so export and discard.
- * unowned: queued before stamping, offered for export only when opens() proves this account's key
- * reads them; never discarded. Another account's entries are never offered.
+ * The signed-in account's edits that will not be sent, so none is silently lost:
+ * - owned: stamped with owner, notebook no longer listed: export and discard.
+ * - unowned: unstamped, opensLegacy (this account's login-derived key) opens it, notebook no longer
+ *   listed: export only. The drain stamps these (drainable).
+ * - unknown: unstamped and not opened by opensLegacy, so nothing proves whose it is. Never sent or
+ *   discarded, wherever its notebook is; listed for export when opens (any key this browser holds)
+ *   reads it, otherwise counted in sealed.
+ * Another account's stamped entries are never offered.
  */
-export async function unsentEdits(queued: PendingSave[], live: ReadonlySet<string> | undefined, owner: string, opens: (item: PendingSave) => Promise<boolean>): Promise<{ owned: PendingSave[]; unowned: PendingSave[] }> {
-  const stuck = stuckSaves(queued, live);
-  const unowned: PendingSave[] = [];
-  for (const item of stuck) if (item.owner === undefined && await opens(item).catch(() => false)) unowned.push(item);
-  return { owned: stuck.filter((item) => item.owner === owner), unowned };
+export async function unsentEdits(queued: PendingSave[], live: ReadonlySet<string> | undefined, owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>, opens: (item: PendingSave) => Promise<boolean>): Promise<Unsent> {
+  const out: Unsent = { owned: [], unowned: [], unknown: [], sealed: 0 };
+  const lost = new Set(stuckSaves(queued, live));
+  for (const item of queued) {
+    if (item.owner !== undefined) { if (item.owner === owner && lost.has(item)) out.owned.push(item); continue; }
+    if (await opensLegacy(item).catch(() => false)) { if (lost.has(item)) out.unowned.push(item); continue; }
+    if (await opens(item).catch(() => false)) out.unknown.push(item);
+    else out.sealed += 1;
+  }
+  return out;
 }
 
 /**
  * The queued edits this session may upload: stamped with owner, or unstamped and opened by
- * opensLegacy (this account's login-derived key). Another account may share the notebook, so the
- * server would accept its edit under this session, misattributed; those wait for their owner.
+ * opensLegacy. That key is this account's alone, so opening proves ownership: such entries come back
+ * in stamp (persist the owner on them) and in drain already stamped, so a re-key keeps the claim.
+ * Another account may share the notebook, so the server would accept its edit under this session,
+ * misattributed; those wait for their owner. Unstamped entries nothing proves are left alone.
  */
-export async function drainable(queued: PendingSave[], owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>): Promise<PendingSave[]> {
-  const out: PendingSave[] = [];
+export async function drainable(queued: PendingSave[], owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>): Promise<{ drain: PendingSave[]; stamp: PendingSave[] }> {
+  const drain: PendingSave[] = [], stamp: PendingSave[] = [];
   for (const item of queued) {
-    if (item.owner === owner || (item.owner === undefined && await opensLegacy(item).catch(() => false))) out.push(item);
+    if (item.owner === owner) drain.push(item);
+    else if (item.owner === undefined && await opensLegacy(item).catch(() => false)) {
+      stamp.push(item);
+      drain.push({ ...item, owner });
+    }
   }
-  return out;
+  return { drain, stamp };
 }
 
 /** A JSON export of the edits open() reads; the rest are counted, never guessed at. */
