@@ -636,7 +636,7 @@ function Workspace({
   const [keyNotice, setKeyNotice] = useState("");
   const namesRef = useRef(names);
   namesRef.current = names;
-  // Changed colleague keys declined this session, by container and member: not asked again.
+  // Changed colleague keys declined this session, by member and exact key: not asked again.
   const declinedKeys = useRef(new Set<string>());
   // Colleagues first pinned while the notebook was not open; announced when it opens.
   const unannounced = useRef<Record<string, MemberKey[]>>({});
@@ -669,15 +669,15 @@ function Workspace({
     saveKeyState: (containerID, state) => storeKeyState(auth.username, auth.user.id, containerID, state),
   };
   const fingerprintOf = (publicKey: string) => fingerprint(publicKey).catch(() => "unreadable key");
-  // A declined key is remembered for this container and that exact key; a different new key asks again.
-  const declineID = (containerID: string, change: PinChange) => `${containerID}:${change.member.userId}:${change.member.identity?.publicKey ?? ""}`;
+  // Pins are per user, so a decline covers every notebook; a different new key asks again.
+  const declineID = (change: PinChange) => `${change.member.userId}:${change.member.identity?.publicKey ?? ""}`;
   /** The only path to a pin replacement: an explicit yes in a dialog that shows the fingerprints. */
   function confirmChangedKeys(containerID: string) {
     return async (changes: PinChange[]) => {
-      if (changes.some((change) => declinedKeys.current.has(declineID(containerID, change)))) return false;
+      if (changes.some((change) => declinedKeys.current.has(declineID(change)))) return false;
       const lines = await Promise.all(changes.map(async (change) => `${change.member.username}: ${await fingerprintOf(change.member.identity!.publicKey)} (was ${await fingerprintOf(change.pinned)})`));
       const accepted = confirm(`The encryption key of ${changes.map((change) => change.member.username).join(", ")} changed since this browser last saw it. A password reset or account recovery does this; so would a server substituting its own key. Compare these fingerprints with the person (Settings shows theirs) before continuing:\n\n${lines.join("\n")}\n\nTrust the new key and exchange this notebook's keys with it?`);
-      if (!accepted) for (const change of changes) declinedKeys.current.add(declineID(containerID, change));
+      if (!accepted) for (const change of changes) declinedKeys.current.add(declineID(change));
       return accepted;
     };
   }
