@@ -193,6 +193,20 @@ describe("saving a recovery code", () => {
     expect(api.putRecovery).toHaveBeenCalledTimes(1);
   }, 30_000);
 
+  it("a save whose response was lost is re-sent, and the server's 200 for the same copy counts as saved", async () => {
+    const me = held();
+    const prepared = await prepareRecovery(me, user);
+    confirmRecoverySaved(prepared, asked(prepared));
+    const sent: string[] = [];
+    const api = {
+      putRecovery: vi.fn(async (input: { wrappedKey: string }) => { sent.push(input.wrappedKey); if (sent.length === 1) throw new TypeError("Failed to fetch"); return { recoveryId: "rcv_1" }; }),
+      myIdentity: vi.fn(async () => undefined),
+    };
+    await expect(saveRecovery(api, prepared, me, "")).rejects.toThrow(TypeError);
+    expect(await saveRecovery(api, prepared, me, "")).toBe("rcv_1");
+    expect(sent).toEqual([prepared.wrappedKey, prepared.wrappedKey]); // byte-identical: the server's replay check
+  }, 30_000);
+
   it("a lost compare-and-swap re-reads the server, says so, and spends the code instead of retrying", async () => {
     const me = held();
     const prepared = await prepareRecovery(me, user);
@@ -249,14 +263,44 @@ describe("restoring with a recovery code", () => {
     const me = held();
     const { code, api } = await copyOf(me);
     const store = memoryStore(held());
-    await expect(restoreIdentity(api, store, user, code, stepUp())).rejects.toThrow(OTHER_COPY);
+    const up = stepUp();
+    await expect(restoreIdentity(api, store, user, code, up)).rejects.toThrow(OTHER_COPY);
     expect(OTHER_COPY).toMatch(/Use Forget this device first/);
     expect(store.save).not.toHaveBeenCalled();
+    // Refused before the step-up, the audited fetch and the KDF.
+    expect(up).not.toHaveBeenCalled();
+    expect(api.fetchRecovery).not.toHaveBeenCalled();
     const raced = memoryStore();
     const other = held();
     raced.save.mockImplementationOnce(async () => { raced.set(other); return false; });
     await expect(restoreIdentity(api, raced, user, code, stepUp())).rejects.toThrow(OTHER_COPY);
     expect(raced.held()).toBe(other);
+  }, 30_000);
+
+  it("a browser already holding the listed key needs no restore: no step-up, no fetch", async () => {
+    const me = held();
+    const { code, api } = await copyOf(me);
+    const up = stepUp();
+    expect(await restoreIdentity(api, memoryStore(me), user, code, up)).toBe(me);
+    expect(up).not.toHaveBeenCalled();
+    expect(api.fetchRecovery).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("zeroes the opened key on every path that does not keep it", async () => {
+    const me = held();
+    const { code, api } = await copyOf(me);
+    const raced = memoryStore();
+    let opened: HeldIdentity | undefined;
+    // Another tab kept the same key meanwhile: its copy is returned and ours is wiped.
+    raced.save.mockImplementationOnce(async (identity: HeldIdentity) => { opened = identity; raced.set({ ...me, privateKey: me.privateKey.slice() }); return false; });
+    const got = await restoreIdentity(api, raced, user, code, stepUp());
+    expect(got).toBe(raced.held());
+    expect(isZero(opened!.privateKey)).toBe(true);
+    expect(isZero(got.privateKey)).toBe(false);
+    const blocked = memoryStore();
+    blocked.save.mockImplementationOnce(async (identity: HeldIdentity) => { opened = identity; return false; });
+    await expect(restoreIdentity(api, blocked, user, code, stepUp())).rejects.toThrow(/cannot keep an encryption key/);
+    expect(isZero(opened!.privateKey)).toBe(true);
   }, 30_000);
 
   it("catches a typo before the step-up and any request", async () => {
@@ -270,11 +314,18 @@ describe("restoring with a recovery code", () => {
   it("refuses a copy that is not for the identity GET /me/identity lists, before the KDF", async () => {
     const me = held();
     const { code, api } = await copyOf(me);
-    for (const live of [undefined, listed(held()), listed(me, { deviceId: `dev_${"f".repeat(26)}` }), listed(me, { publicKey: "AAAA" })]) {
+    for (const live of [listed(held()), listed(me, { deviceId: `dev_${"f".repeat(26)}` })]) {
       api.myIdentity.mockResolvedValueOnce(live);
       kdf.mockClear();
       await expect(restoreIdentity(api, memoryStore(), user, code, stepUp())).rejects.toThrow(RECOVERY_STALE);
       expect(kdf).not.toHaveBeenCalled();
+    }
+    // No identity listed (or a malformed one): nothing to restore, so no step-up either.
+    for (const live of [undefined, listed(me, { publicKey: "AAAA" })]) {
+      api.myIdentity.mockResolvedValueOnce(live);
+      const up = stepUp();
+      await expect(restoreIdentity(api, memoryStore(), user, code, up)).rejects.toThrow(RECOVERY_NONE);
+      expect(up).not.toHaveBeenCalled();
     }
   }, 30_000);
 
@@ -307,11 +358,19 @@ describe("resetting the identity", () => {
     expect(api.replaceIdentity).not.toHaveBeenCalled();
   }, 30_000);
 
-  it("a password session sends a password copy beside the recovery copy; otherwise device-only", async () => {
-    const userKEK = new Uint8Array(32).fill(9);
+  it("a password session steps up with the same keys that wrap its password copy; otherwise device-only", async () => {
+    const keys = { authSecret: "a".repeat(64), userKEK: new Uint8Array(32).fill(9) };
+    const userKEK = keys.userKEK;
     const { fresh, p } = await prepared();
     const api = { replaceIdentity: vi.fn(async (_input: ReplaceInput) => ({ deviceId: dev })), myIdentity: vi.fn(async () => undefined) };
-    await resetIdentity(api, memoryStore(), p, was, "RESET", userKEK);
+    // A wrong password fails the step-up: nothing is sent, so no unusable password copy is planted.
+    const refused = vi.fn(async () => { throw apiError("unauthenticated", 401); });
+    await expect(resetIdentity(api, memoryStore(), p, was, "RESET", { keys, stepUp: refused })).rejects.toMatchObject({ code: "unauthenticated" });
+    expect(api.replaceIdentity).not.toHaveBeenCalled();
+    const up = vi.fn(async (_authSecret: string) => undefined);
+    await resetIdentity(api, memoryStore(), p, was, "RESET", { keys, stepUp: up });
+    expect(up).toHaveBeenCalledWith(keys.authSecret);
+    expect(up.mock.invocationCallOrder[0]).toBeLessThan(api.replaceIdentity.mock.invocationCallOrder[0]);
     const [body] = api.replaceIdentity.mock.calls[0];
     expect(body).toMatchObject({ publicKey: base64(fresh.publicKey), wrapAlg: "aes-256-gcm", expectedDeviceId: was, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: p.wrappedKey } });
     expect(unwrapIdentity(userKEK, cryptoModule.fromBase64(body.wrappedPrivateKey!), user).privateKey).toEqual(fresh.privateKey);
@@ -357,6 +416,14 @@ describe("refusals", () => {
     expect(message("password_change_required", 409)).toMatch(/Change your password before you restore your key/);
     expect(message("rate_limited", 429)).toBe(RECOVERY_RATE_LIMITED);
     expect(message("already_exists", 409)).toMatch(/another tab or browser/);
+    expect(message("identity_exists", 409)).toBe("Start the reset again: a new key is needed.");
+    expect(message("unauthenticated", 401)).toMatch(/Sign in again/);
+    // Anything else from the server is generic copy, never its raw message.
+    for (const [code, status] of [["invalid_request", 400], ["csrf_failed", 403], ["internal", 500], ["", 502]] as const) {
+      const shown = message(code, status);
+      expect(shown, code).toBe("Could not restore your key. Try again.");
+    }
+    expect(recoveryRefusal(new TypeError("Failed to fetch"), "reset your encryption key").message).toMatch(/Could not reach KyNotes/);
     expect(recoveryRefusal(new RecoveryMovedError(undefined), "save a recovery code").message).toBe(RECOVERY_MOVED);
     expect(recoveryRefusal("boom", "restore your key").message).toBe("Could not restore your key.");
   });

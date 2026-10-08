@@ -57,20 +57,25 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
  * Undefined when no identity exists. SSO step-ups withhold the wrapped key, so the vault copy is
  * used only when it matches the server's current identity.
  */
-export async function rewrapIdentity(api: Pick<IdentityAPI, "myIdentity" | "stepUp">, userID: string, current: LoginKeys, newKEK: Uint8Array, cached: HeldIdentity | undefined): Promise<{ identity: HeldIdentity; identityDeviceId: string; wrappedIdentityKey: string } | undefined> {
+export async function rewrapIdentity(api: Pick<IdentityAPI, "myIdentity" | "stepUp">, userID: string, current: LoginKeys, next: LoginKeys, cached: HeldIdentity | undefined): Promise<{ identity: HeldIdentity; identityDeviceId: string; wrappedIdentityKey: string } | undefined> {
   const live = await api.myIdentity();
   if (!live) return undefined;
+  const holdsLive = (held: HeldIdentity | undefined): held is HeldIdentity => held?.deviceId === live.deviceId && sameBytes(held.publicKey, fromBase64(live.publicKey));
+  let identity: HeldIdentity | undefined;
   if (live.wrapAlg === DEVICE_ONLY_WRAP) {
     // A reset stripped the password copy: re-add it from the copy this browser holds (the server binds it to live.deviceId).
-    const holds = live.passwordCopy === "addable" && cached?.deviceId === live.deviceId && sameBytes(cached.publicKey, fromBase64(live.publicKey));
-    return holds ? { identity: cached, identityDeviceId: cached.deviceId, wrappedIdentityKey: base64(wrapIdentity(newKEK, cached.privateKey, userID)) } : undefined;
+    if (live.passwordCopy !== "addable" || !holdsLive(cached)) return undefined;
+    identity = cached;
+  } else {
+    const record = await api.stepUp(current.authSecret);
+    identity = record ? openIdentity(record, current.userKEK, userID) : holdsLive(cached) ? cached : undefined;
+    if (!identity) throw new Error("Sign in with your password on this device before changing it");
   }
-  const record = await api.stepUp(current.authSecret);
-  const identity = record ? openIdentity(record, current.userKEK, userID)
-    : cached && cached.deviceId === live.deviceId && sameBytes(cached.publicKey, fromBase64(live.publicKey)) ? cached
-    : undefined;
-  if (!identity) throw new Error("Sign in with your password on this device before changing it");
-  return { identity, identityDeviceId: identity.deviceId, wrappedIdentityKey: base64(wrapIdentity(newKEK, identity.privateKey, userID)) };
+  // next.userKEK and next.authSecret (the verifier the change sets) come from one derivation of the new
+  // password; the copy must open under it to the listed key, or nothing is sent.
+  const wrapped = wrapIdentity(next.userKEK, identity.privateKey, userID);
+  if (!sameBytes(unwrapIdentity(next.userKEK, wrapped, userID).publicKey, fromBase64(live.publicKey))) throw new Error("This browser's copy of your key is damaged. Use Forget this device, then sign in again.");
+  return { identity, identityDeviceId: identity.deviceId, wrappedIdentityKey: base64(wrapped) };
 }
 
 export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string }> };

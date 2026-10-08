@@ -736,3 +736,29 @@ func TestPasswordChangeReaddsAStrippedPasswordCopy(t *testing.T) {
 		})
 	}
 }
+
+// After an administrator reset the user's first own change runs while password_admin_known is set; it
+// must re-add the copy and clear the flag in one commit (refusing would strand the password unlock).
+func TestPasswordChangeReaddsUnderAdminKnownPassword(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, live := status(t, p.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)); !strings.Contains(live, `"passwordCopy":"addable"`) {
+		t.Fatal("not addable under the flag:", live)
+	}
+	wrapped := bytes.Repeat([]byte{7}, wrappedIdentityBytes)
+	body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(id) + `}`
+	if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false)); code != http.StatusNoContent {
+		t.Fatalf("re-add under the flag: %d %s", code, out)
+	}
+	var flag int
+	var alg string
+	if err := p.db.QueryRow(`SELECT u.password_admin_known,i.wrap_alg FROM users u JOIN user_identities i ON i.user_id=u.id WHERE u.id=?`, pairUser).Scan(&flag, &alg); err != nil || flag != 0 || alg != identityWrapAlg {
+		t.Fatalf("flag=%d alg=%q %v", flag, alg, err)
+	}
+}

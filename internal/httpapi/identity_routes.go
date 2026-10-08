@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -299,12 +300,18 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 				return err
 			}
 			var device, current string
-			err := tx.QueryRow(`SELECT device_id,recovery_id FROM user_identities WHERE user_id=?`, s.UserID).Scan(&device, &current)
+			var stored []byte
+			err := tx.QueryRow(`SELECT device_id,recovery_id,recovery_wrapped_key FROM user_identities WHERE user_id=?`, s.UserID).Scan(&device, &current, &stored)
 			if errors.Is(err, sql.ErrNoRows) {
 				return errIdentityMissing
 			}
 			if err != nil {
 				return err
+			}
+			// A re-send after a lost response: every seal has a fresh salt and nonce, so identical bytes are this upload.
+			if device == in.DeviceID && current != "" && bytes.Equal(stored, wrapped) {
+				next = current
+				return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.recovery.set", "", device, "success", "replayed", RequestID(r))
 			}
 			// Compare-and-swap: only the copy this browser last saw, of the identity it holds, is replaced.
 			if device != in.DeviceID || current != in.ExpectedRecoveryID {

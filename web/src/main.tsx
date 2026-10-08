@@ -3029,7 +3029,7 @@ function PasswordSettings({ username, userID, onAuthSecret }: { username: string
       const newLoginSalt = randomLoginSalt();
       const newKeys = await deriveLoginKeys(next, newLoginSalt, 600000);
       const cached = await getIdentityKey(name, userID).catch(() => undefined);
-      const rewrapped = await rewrapIdentity(identityAPI, userID, currentKeys, newKeys.userKEK, cached);
+      const rewrapped = await rewrapIdentity(identityAPI, userID, currentKeys, newKeys, cached);
       await rememberAfter(() => changePassword({
         currentAuthSecret: currentKeys.authSecret,
         newAuthSecret: newKeys.authSecret,

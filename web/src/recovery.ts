@@ -2,7 +2,7 @@ import { gcm } from "@noble/ciphers/aes.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import { APIRequestError } from "./api";
-import { base64, deriveRecoveryKEK, fromBase64 } from "./crypto";
+import { base64, deriveRecoveryKEK, fromBase64, type LoginKeys } from "./crypto";
 import { sha256 } from "./fallbackCrypto";
 import { DEVICE_ONLY_WRAP, type HeldIdentity, type IdentityStore, type PublicIdentity } from "./identity";
 import { linkRefusal, LinkStorageError, OTHER_COPY } from "./linkFlow";
@@ -219,26 +219,35 @@ export async function saveRecovery(api: Pick<RecoveryAPI, "putRecovery" | "myIde
 export async function restoreIdentity(api: Pick<RecoveryAPI, "fetchRecovery" | "myIdentity">, store: IdentityStore, userID: string, input: string, stepUp: () => Promise<void>): Promise<HeldIdentity> {
   const secret = parseRecoveryCode(input);
   try {
+    // Settled before the step-up, the audited fetch and the KDF: a browser holding another key stops here.
     const before = await store.load();
+    const live = await api.myIdentity();
+    const listed = live && keyOrUndefined(live.publicKey);
+    if (!live || !listed) throw new Error(RECOVERY_NONE);
+    if (before && !sameBytes(before.publicKey, listed)) throw new Error(OTHER_COPY);
+    if (before?.deviceId === live.deviceId) return before;
     await stepUp();
     const copy = await api.fetchRecovery();
     if (!copy) throw new Error(RECOVERY_NONE);
     if (copy.wrapAlg !== RECOVERY_ALG) throw new Error(RECOVERY_NEWER);
-    const live = await api.myIdentity();
-    const listed = live && keyOrUndefined(live.publicKey);
-    if (!live || !listed || live.deviceId !== copy.deviceId || !sameBytes(listed, keyOrUndefined(copy.publicKey) ?? new Uint8Array())) throw new RecoveryCodeError(RECOVERY_STALE);
-    if (before && !sameBytes(before.publicKey, listed)) throw new Error(OTHER_COPY);
+    if (live.deviceId !== copy.deviceId || !sameBytes(listed, keyOrUndefined(copy.publicKey) ?? new Uint8Array())) throw new RecoveryCodeError(RECOVERY_STALE);
     let wrapped: Uint8Array;
     try { wrapped = fromBase64(copy.wrappedKey); } catch { throw new RecoveryCodeError(RECOVERY_WRONG); }
     const identity = await openRecovery(secret, wrapped, userID, { deviceId: live.deviceId, publicKey: live.publicKey, wrapAlg: copy.wrapAlg });
-    if (before?.deviceId === identity.deviceId) return before;
-    if (await store.save(identity, before ?? null)) return identity;
-    // Another tab changed the vault meanwhile: its copy of this key is as good; any other key wins.
-    const now = await store.load();
-    if (now && sameBytes(now.publicKey, identity.publicKey)) return now;
-    identity.privateKey.fill(0);
-    if (now) throw new Error(OTHER_COPY);
-    throw new LinkStorageError();
+    let saved = false;
+    try {
+      if (await store.save(identity, before ?? null)) {
+        saved = true;
+        return identity;
+      }
+      // Another tab changed the vault meanwhile: its copy of this key is as good; any other key wins.
+      const now = await store.load();
+      if (now && sameBytes(now.publicKey, identity.publicKey)) return now;
+      if (now) throw new Error(OTHER_COPY);
+      throw new LinkStorageError();
+    } finally {
+      if (!saved) identity.privateKey.fill(0);
+    }
   } finally {
     secret.fill(0);
   }
@@ -247,18 +256,22 @@ export async function restoreIdentity(api: Pick<RecoveryAPI, "fetchRecovery" | "
 /**
  * The self-service reset (spec §8 item 5): a new identity and its recovery copy replace the one the browser
  * saw listed (expectedDeviceId, "" for none; the server refuses any other, 409) in one request. typed must
- * be RESET_PHRASE, answered to RESET_CONFIRM. userKEK (password sessions) adds the password copy; without
- * it the identity is device-only. A lost response is finished only when the server lists this new key.
+ * be RESET_PHRASE, answered to RESET_CONFIRM. A password session passes password: keys from one
+ * deriveLoginKeys of the typed password; its authSecret is the step-up here, so the password copy is
+ * wrapped under the userKEK of the password the server just verified. Without it the identity is
+ * device-only (the caller steps up). A lost response is finished only when the server lists this new key.
  * The reset replaces whatever this browser held: no compare-and-swap.
  * ponytail: personal notebooks are lost even when this browser still holds the old key. Upgrade: an
  * identity rotation that re-wraps held container keys to the new identity before the swap.
  */
-export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "myIdentity">, store: IdentityStore, prepared: PreparedRecovery, expectedDeviceId: string, typed: string, userKEK?: Uint8Array): Promise<{ identity: HeldIdentity; kept: boolean }> {
+export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "myIdentity">, store: IdentityStore, prepared: PreparedRecovery, expectedDeviceId: string, typed: string, password?: { keys: LoginKeys; stepUp: (authSecret: string) => Promise<unknown> }): Promise<{ identity: HeldIdentity; kept: boolean }> {
   if (!resetConfirmed(typed)) throw new Error(RESET_UNCONFIRMED);
   if (!kept.has(prepared)) throw new Error(CONFIRM_FIRST);
-  const wrap = userKEK
-    ? { wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(userKEK, prepared.identity.privateKey, prepared.userID)) }
-    : { wrapAlg: DEVICE_ONLY_WRAP };
+  let wrap: { wrapAlg: string; wrappedPrivateKey?: string } = { wrapAlg: DEVICE_ONLY_WRAP };
+  if (password) {
+    await password.stepUp(password.keys.authSecret);
+    wrap = { wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(password.keys.userKEK, prepared.identity.privateKey, prepared.userID)) };
+  }
   let deviceId: string;
   try {
     ({ deviceId } = await api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...wrap, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } }));
@@ -273,14 +286,22 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
   return { identity, kept: await store.save(identity) };
 }
 
-/** What the UI shows for a refused recovery step; action names it ("restore your key"…). cancel closes an open KySignOn confirmation. */
+/**
+ * What the UI shows for a refused recovery step; action names it ("restore your key"…). cancel closes an
+ * open KySignOn confirmation. A server refusal is always mapped: its raw message is never shown.
+ */
 export function recoveryRefusal(error: unknown, action: string): { message: string; cancel?: () => Promise<void> } {
   if (error instanceof APIRequestError) {
     if (error.status === 429 || error.code === "rate_limited") return { message: RECOVERY_RATE_LIMITED };
     if (error.code === "sso_step_up_required") return { message: `Confirm with KySignOn to ${action}. The confirmation window did not finish; allow pop-ups for this site and try again.` };
     if (error.code === "step_up_required") return { message: `Confirm your password to ${action}.` };
     if (error.code === "already_exists") return { message: "Your encryption key changed in another tab or browser. Reload and check before trying again." };
+    if (error.code === "identity_exists") return { message: "Start the reset again: a new key is needed." };
+    if (error.code === "unauthenticated") return { message: "Your session ended or the password was wrong. Sign in again." };
+    if (error.code === "step_up_pending" || error.code === "sso_sign_in_required" || error.code === "password_change_required") return linkRefusal(error, action);
+    return { message: `Could not ${action}. Try again.` };
   }
+  if (error instanceof TypeError) return { message: `Could not reach KyNotes to ${action}. Check the connection and try again.` };
   if (!(error instanceof Error)) return { message: `Could not ${action}.` };
-  return linkRefusal(error, action);
+  return { message: error.message };
 }

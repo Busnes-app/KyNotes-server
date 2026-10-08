@@ -471,3 +471,39 @@ func TestIdentityResetIsRateLimitedPerAccount(t *testing.T) {
 		t.Fatal("21st identity write in an hour", code)
 	}
 }
+
+// A save whose response was lost is re-sent with the old expectation. The byte-identical copy is that
+// request's own upload (every seal has a fresh salt and nonce), so it answers 200 with the live ID and
+// changes nothing; other bytes are still a lost race.
+func TestIdentityRecoveryReplayOfTheStoredCopyIsIdempotent(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	code, first := p.setRecovery(t, id, "", recoveryCopy)
+	if code != http.StatusOK {
+		t.Fatal("first set", code)
+	}
+	var at string
+	if err := p.db.QueryRow(`SELECT recovery_updated_at FROM user_identities WHERE user_id=?`, pairUser).Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	if code, again := p.setRecovery(t, id, "", recoveryCopy); code != http.StatusOK || again != first {
+		t.Fatalf("replay=%d %q, want 200 %q", code, again, first)
+	}
+	if code, _ := p.setRecovery(t, mint(t, "dev"), "", recoveryCopy); code != http.StatusConflict {
+		t.Fatal("replay for another identity", code)
+	}
+	if code, _ := p.setRecovery(t, id, "", recoveryCopy2); code != http.StatusConflict {
+		t.Fatal("other bytes", code)
+	}
+	var now string
+	if err := p.db.QueryRow(`SELECT recovery_updated_at FROM user_identities WHERE user_id=?`, pairUser).Scan(&now); err != nil {
+		t.Fatal(err)
+	}
+	if got, wrapped := storedRecovery(t, p); got != first || !bytes.Equal(wrapped, recoveryCopy) || now != at {
+		t.Fatal("a replay rewrote the copy")
+	}
+	var replayed int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.recovery.set' AND reason_code='replayed' AND object_id=?`, id).Scan(&replayed); err != nil || replayed != 1 {
+		t.Fatalf("replay audit=%d %v", replayed, err)
+	}
+}
