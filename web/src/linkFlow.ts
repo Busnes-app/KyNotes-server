@@ -59,6 +59,19 @@ type Pin = { approverKey: Uint8Array; code: string };
  */
 const pins = new WeakMap<Uint8Array, Pin>();
 
+export const OTHER_COPY = "This browser holds another copy of your key. Use Forget this device first.";
+/**
+ * True when this browser holds a key other than the one the server lists for the account (or the
+ * account lists none). Checked before starting, so the user is not sent through the ceremony only
+ * for finishNewcomerLink to refuse after collect deleted the bundle.
+ */
+export async function otherCopyHeld(api: Pick<NewcomerAPI, "myIdentity">, store: Pick<IdentityStore, "load">): Promise<boolean> {
+  const local = await store.load();
+  if (!local) return false;
+  const listed = await api.myIdentity();
+  return !listed || !sameBytes(local.publicKey, publicKeyBytes(listed.publicKey));
+}
+
 /** Starts a link; refuses before any request when this browser could not keep the identity. */
 export async function startNewcomerLink(api: Pick<NewcomerAPI, "create">, canKeep: () => Promise<boolean>, userID: string): Promise<NewcomerLink> {
   if (!(await canKeep())) throw new LinkStorageError();
@@ -114,7 +127,7 @@ export async function finishNewcomerLink(link: NewcomerLink, bundle: Uint8Array,
     if (!sameBytes(publicKey, publicKeyBytes(listed.publicKey))) throw new Error("The key sent is not your account's encryption key. Nothing was linked.");
     const identity = { deviceId: listed.deviceId, publicKey, privateKey };
     const current = await store.load();
-    if (current && !sameBytes(current.publicKey, publicKey)) throw new Error("This browser holds another copy of your key. Use Forget this device first.");
+    if (current && !sameBytes(current.publicKey, publicKey)) throw new Error(OTHER_COPY);
     if (current?.deviceId === identity.deviceId) return current;
     if (!(await store.save(identity, current ?? null))) throw new LinkStorageError();
     return identity;
@@ -169,7 +182,7 @@ export function linkRefusal(error: unknown): { message: string; cancel?: () => P
     const challenge = (error as APIRequestError).challenge;
     return { message: "A KySignOn confirmation is still open for this account. Finish it in its window, or cancel it and try again.", cancel: challenge ? () => cancelSSOStepUp(challenge) : undefined };
   }
-  if (code === "sso_sign_in_required") return { message: "Sign in with KySignOn to link browsers. This session signed in with a password an administrator set." };
+  if (code === "sso_sign_in_required") return { message: "Sign in with KySignOn to continue. This session signed in with a password an administrator set, so it cannot link browsers." };
   if (code === "password_change_required") return { message: "An administrator set this account's password. Change your password before linking a browser." };
   return { message: error instanceof Error ? error.message : "Linking failed." };
 }

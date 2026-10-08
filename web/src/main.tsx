@@ -55,8 +55,12 @@ import {
   type Session,
   type SSOSettings,
   identityAPI,
+  myIdentity,
+  putDeviceOnlyIdentity,
 } from "./api";
-import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
+import { currentCopy, ensureIdentity, identityStatus, rewrapIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore } from "./identity";
+import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
+import { linkRefusal } from "./linkFlow";
 import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
@@ -105,6 +109,9 @@ import {
   getNote,
   getKeyState,
   getPins,
+  identityStorage,
+  loadIdentityRecord,
+  vaultReady,
   clearUpload,
   pendingSaves,
   pendingUploads,
@@ -123,11 +130,12 @@ import {
   type PendingUpload,
 } from "./storage";
 
-/** Loads or creates the identity after a password sign-in. P1 has no consumer, so failures stay silent. */
-function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord) {
-  void ensureIdentity(identityAPI, userID, keys, fromLogin)
-    .then((identity) => identity && storeIdentityKey(username, userID, identity))
-    .catch(() => undefined);
+/** Opens or creates the identity after a password sign-in and keeps it on this browser; failures stay silent (the workspace offers linking). */
+async function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<void> {
+  try {
+    const identity = await ensureIdentity(identityAPI, userID, keys, fromLogin);
+    if (identity) await storeIdentityKey(username, userID, identity);
+  } catch { /* the workspace shows what this browser can do instead */ }
 }
 import {
   applyStoredTheme,
@@ -172,9 +180,10 @@ const UNVERIFIED = "Written before this notebook was shared; not end-to-end veri
 const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
 const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
+const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. If no other browser holds a key you created with single sign-on, that key is lost. Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
 const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
-  "cannot-wrap": "The invitation carries no keys: this browser cannot share keys (sign in with your password).",
+  "cannot-wrap": "The invitation carries no keys: this browser cannot share keys at invitation time (it holds no encryption key, or you signed in with single sign-on). A team owner's browser shares them after the person joins.",
   rollback: "The invitation carries no keys: the server reports an older sharing state for this team than this browser has seen.",
   "no-keys": "The invitation carries no keys: this browser holds none for this team yet. A team owner's browser shares them after the person joins.",
   "no-identity": "The invitation carries no keys: you cannot see this person's encryption key yet. A team owner's browser shares them after they join.",
@@ -356,8 +365,8 @@ function Login({
       // The password stays in the browser; the server only ever sees authSecret.
       const result = await rememberAfter(() => setupInit(name, undefined, authSecret, salt, iterations), name, authSecret);
       sessionStorage.setItem("kynotes-last-username", name);
+      await settleIdentity(name, result.user.id, keys);
       onLogin({ username: name, authSecret, user: result.user });
-      settleIdentity(name, result.user.id, keys);
       setPassword("");
       setConfirmPassword("");
     } catch (error) {
@@ -381,8 +390,8 @@ function Login({
         try {
           const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
           sessionStorage.setItem("kynotes-last-username", activeName);
+          await settleIdentity(activeName, result.user.id, keys, result.identity);
           onLogin({ username: activeName, authSecret, user: result.user });
-          settleIdentity(activeName, result.user.id, keys, result.identity);
         } catch {
           // If login endpoint failed but SSO session is valid, allow user entry with their derived key
           await storeDeviceKey(activeName, authSecret).catch(() => undefined);
@@ -392,8 +401,8 @@ function Login({
       } else {
         const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
         sessionStorage.setItem("kynotes-last-username", activeName);
+        await settleIdentity(activeName, result.user.id, keys, result.identity);
         onLogin({ username: activeName, authSecret, user: result.user });
-        settleIdentity(activeName, result.user.id, keys, result.identity);
       }
       setPassword("");
     } catch (error) {
@@ -711,6 +720,8 @@ function Workspace({
     setUnverified(next);
   };
   const [keyNotice, setKeyNotice] = useState("");
+  // The open notebook's members wait for keys this SSO steward did not share on its own (KySync.deferred).
+  const [keyDeferred, setKeyDeferred] = useState(false);
   // The open notebook's members as its last key pass saw them, and what each holds (informational only).
   const [keyMembers, setKeyMembers] = useState<{ containerID: string; members: MemberKey[]; status: Record<string, MemberKeyStatus> } | undefined>(undefined);
   // Usernames seen in key passes this session, for Settings' colleague keys.
@@ -723,10 +734,37 @@ function Workspace({
   // Colleagues first pinned while the notebook was not open; announced when it opens.
   const unannounced = useRef<Record<string, MemberKey[]>>({});
   const identityRef = useRef<HeldIdentity | undefined>(undefined);
+  /** The vault copy, used only while the server lists it as this account's identity (or cannot be reached). */
   async function heldIdentity() {
-    // Created after the first password sign-in, possibly after this workspace mounted.
-    if (!identityRef.current) identityRef.current = await getIdentityKey(auth.username, auth.user.id).catch(() => undefined);
+    if (!identityRef.current) {
+      const local = await getIdentityKey(auth.username, auth.user.id).catch(() => undefined);
+      const live = local ? await myIdentity().catch(() => "unreachable" as const) : undefined;
+      identityRef.current = currentCopy(local, live);
+    }
     return identityRef.current;
+  }
+  // What this browser can do about the account's identity; "unknown" until checked.
+  const [identityState, setIdentityState] = useState<IdentityStatus | "unknown">("unknown");
+  async function refreshIdentity() {
+    identityRef.current = undefined;
+    const [local, live] = await Promise.all([loadIdentityRecord(auth.username, auth.user.id).catch(() => undefined), myIdentity()]);
+    setIdentityState(identityStatus(local, live));
+  }
+  useEffect(() => { void refreshIdentity().catch(() => undefined); }, []);
+  // A refused SSO key set-up (an open KySignOn confirmation can be cancelled from it).
+  const [identityRefusal, setIdentityRefusal] = useState<LinkRefusal>();
+  const identityStore: IdentityStore = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity, expected) => storeIdentityKey(auth.username, auth.user.id, identity, expected) };
+  /** A single sign-on account's key: created (or an orphan replaced) only on the user's click, confirmed with KySignOn. */
+  async function setUpSSOIdentity(replace: boolean) {
+    if (replace && !confirm("Replace this browser's encryption key with a new one? Team owners must share their notebooks' keys with you again, and colleagues are asked to trust your new key.")) return;
+    setIdentityRefusal(undefined);
+    try {
+      const settled = await settleSSOIdentity({ myIdentity, putDeviceOnlyIdentity }, identityStore, replace);
+      if (settled.kind === "unsaved") setIdentityRefusal({ message: "This browser cannot keep an encryption key (site storage is blocked or unavailable), so none was created." });
+      await refreshIdentity();
+    } catch (err) {
+      setIdentityRefusal(linkRefusal(err));
+    }
   }
   async function currentContainer(id: string): Promise<Container> {
     const found = (await listContainers(floorSink)).find((entry) => entry.id === id);
@@ -738,7 +776,8 @@ function Workspace({
     envelopes: containerEnvelopes,
     members,
     userIdentity,
-    stepUp: async () => { await stepUp(auth.authSecret); },
+    // SSO sessions confirm each protected request with KySignOn (actionFetch); there is no session-wide step-up.
+    stepUp: auth.sso ? async () => {} : async () => { await stepUp(auth.authSecret); },
     putEnvelopes,
     rotate: rotateKeys,
   };
@@ -790,14 +829,14 @@ function Workspace({
    * colleague key is only reported until the user opens the notebook. A superseded load's pass
    * (the user moved on) is treated as background from then on.
    */
-  async function syncKeys(container: Container, background = false, superseded: () => boolean = () => false): Promise<Container> {
+  async function syncKeys(container: Container, background = false, superseded: () => boolean = () => false, share = false): Promise<Container> {
     // Every container's floor is loaded first. Personal notebooks keep the login key until P5,
     // unless the server or this device says shared.
     await ensureFloor(container);
     if (!needsKeyPass(container)) return container;
     return serialized(container.id, async () => {
       const confirmChanged = background ? () => false : (changes: PinChange[]) => !superseded() && confirmChangedKeys(container.id)(changes);
-      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
+      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso || share }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
       putRing(container.id, result.ring);
       for (const member of result.members) colleagueNames.current[member.userId] = member.username;
       raiseFloorIn(container.id, result.known);
@@ -811,12 +850,19 @@ function Workspace({
         delete unannounced.current[container.id];
         // A rolled-back server's generations would mislabel every member; the rollback notice explains the pause.
         setKeyMembers({ containerID: container.id, members: result.members, status: result.plan.kind === "rollback" ? {} : memberKeyStatus(result.container, result.members, result.envelopes) });
+        setKeyDeferred(result.deferred);
         setKeyNotice([await keyNoticeFor(result, fresh, !background), renamed].filter(Boolean).join(" "));
       } else {
         unannounced.current[container.id] = fresh;
       }
       return next;
     });
+  }
+  /** An SSO steward's explicit "share keys": the same pass, allowed to write (each write asks KySignOn). */
+  async function shareKeysNow() {
+    const open = selectedRef.current;
+    if (!open) return;
+    try { adoptGenerations(await syncKeys(open, false, () => false, true)); } catch (err) { setError(err instanceof Error ? err.message : "Unable to share keys"); }
   }
   /**
    * After a mint, the name this browser already shows is sealed again with the new key, so
@@ -2485,6 +2531,11 @@ function Workspace({
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {!queueMode && keyWait && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : <>Waiting for a team owner to share this notebook's keys. It is read-only until then. <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
+                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">Members are waiting for this notebook's keys. <button className="quiet" onClick={() => void shareKeysNow()}>Share keys (confirm with KySignOn)</button></div>}
+                {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so team notebooks stay locked here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
+                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so team owners can share notebooks with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (an administrator reset removes it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+                <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
                 {invitation && (
                   <div className="conflict-banner" role="status">
                     You were invited to a team notebook.{" "}
@@ -2789,6 +2840,11 @@ function Workspace({
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
+            identityState={identityState}
+            heldIdentity={heldIdentity}
+            identityStore={identityStore}
+            stepUp={keyAPI.stepUp}
+            onLinked={() => void refreshIdentity().catch(() => undefined)}
           />
         )}
       </>
@@ -2843,7 +2899,7 @@ function PasswordSettings({ username, userID, onAuthSecret }: { username: string
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
       }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
       // No identity yet (e.g. an administrator set the old password): create it under the new one.
-      if (!rewrapped) settleIdentity(name, userID, newKeys);
+      if (!rewrapped) void settleIdentity(name, userID, newKeys);
       onAuthSecret(newKeys.authSecret);
       const stranded = await resealWaitingEdits(currentKeys.authSecret, newKeys.authSecret).catch(() => -1);
       setCurrent("");
@@ -3288,6 +3344,11 @@ function SettingsView({
   legacyKey,
   colleagueNames,
   teamKeys,
+  identityState,
+  heldIdentity,
+  identityStore,
+  stepUp,
+  onLinked,
 }: {
   admin: boolean;
   authSecret: string;
@@ -3302,6 +3363,11 @@ function SettingsView({
   teamKeys: (item: PendingSave) => KeyRef[];
   onForgetDevice?: () => void;
   onAuthSecret: (authSecret: string) => void;
+  identityState: IdentityStatus | "unknown";
+  heldIdentity: () => Promise<HeldIdentity | undefined>;
+  identityStore: IdentityStore;
+  stepUp: () => Promise<void>;
+  onLinked: (identity: HeldIdentity) => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
   const [status, setStatus] = useState<{
@@ -3311,12 +3377,13 @@ function SettingsView({
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
   const [ownFingerprint, setOwnFingerprint] = useState("");
+  const [justLinked, setJustLinked] = useState(false);
   useEffect(() => {
     // From this browser's own copy of the key, so the server cannot show a different one.
     void getIdentityKey(username, userID)
       .then((identity) => (identity ? fingerprint(base64(identity.publicKey)) : ""))
       .then(setOwnFingerprint, () => setOwnFingerprint(""));
-  }, [username, userID]);
+  }, [username, userID, identityState]);
   useEffect(() => {
     if (admin) {
       void Promise.all([adminUsers(), adminAudit(), serviceStatus()])
@@ -3352,6 +3419,7 @@ function SettingsView({
             <a href="#appearance">Appearance</a>
             <a href="#password">Password</a>
             <a href="#device">Trusted Device</a>
+            <a href="#link-devices">Link a browser</a>
             <a href="#colleague-keys">Colleague keys</a>
           </nav>
         )}
@@ -3410,18 +3478,24 @@ function SettingsView({
               <p className="config-muted">
                 {ownFingerprint
                   ? <>Your encryption key fingerprint: <code>{ownFingerprint}</code>. Team owners see it when your key changes; compare it with them in person.</>
-                  : "This browser holds no encryption key for team notebooks. Sign in with your password to create or unlock it."}
+                  : "This browser holds no encryption key for team notebooks. Link it from a browser that does (below)."}
               </p>
+              {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped"
+                ? "This browser keeps it wrapped under a browser key that pages cannot export. That is not protection at rest: anyone who can read this browser's profile on disk can still recover it. Use \"Forget this device\" on shared computers."
+                : "This site is not served over HTTPS, so this browser stores your key unwrapped in its site storage. Anyone who can read this browser's profile can copy it. Use \"Forget this device\" on shared computers."}</p>}
+              {justLinked && <p role="status">Linked. This browser now holds your encryption key.</p>}
               {onForgetDevice && (
                 <button
                   type="button"
                   className="secondary danger"
-                  onClick={onForgetDevice}
+                  onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice(); }}
                 >
                   Forget this device & sign out
                 </button>
               )}
             </section>
+            {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={(identity) => { setJustLinked(true); onLinked(identity); }} />}
+            {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
             <PinnedKeys username={username} userID={userID} names={colleagueNames} />
             <UnsentEdits legacyKey={legacyKey} username={username} userID={userID} teamKeys={teamKeys} />
           </>

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bytesToHex, hexToBytes as h } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import vectors from "../../testdata/protocol/link_vectors.json";
-import { checkCode, confirmCheckCode, isCheckCodeConfirmation, LINK_BUNDLE_BYTES, linkCommitment, newLinkKey, openLinkBundle, sealLinkBundle, type LinkContext } from "./linking";
+import { checkCode, confirmCheckCode, confirmTypedCheckCode, isCheckCodeConfirmation, LINK_BUNDLE_BYTES, linkCommitment, newLinkKey, openLinkBundle, sealLinkBundle, type LinkContext } from "./linking";
 import { sameBytes } from "./teamKeys";
 
 const keysOf = (v: (typeof vectors.links)[number]) => ({
@@ -103,6 +103,19 @@ describe("device link protocol", () => {
     expect(isCheckCodeConfirmation(confirmed, vectors.links[1].requestId)).toBe(false);
     expect(isCheckCodeConfirmation({ requestID: id }, id)).toBe(false);
     expect(isCheckCodeConfirmation(Object.create(Object.getPrototypeOf(confirmed)), id)).toBe(false);
+  });
+
+  it("freezes confirmations so they cannot be re-targeted at another request or code", () => {
+    const id = vectors.links[0].requestId;
+    const other = vectors.links[1].requestId;
+    for (const confirmed of [confirmCheckCode(id, "123 456"), confirmTypedCheckCode(id, "123 456", "123456")]) {
+      expect(Object.isFrozen(confirmed)).toBe(true);
+      const writable = confirmed as unknown as { requestID: string; code: string };
+      expect(() => { writable.requestID = other; }).toThrow(TypeError);
+      expect(() => { writable.code = "000 000"; }).toThrow(TypeError);
+      expect(isCheckCodeConfirmation(confirmed, other)).toBe(false);
+      expect(confirmed.code).toBe("123 456");
+    }
   });
 });
 

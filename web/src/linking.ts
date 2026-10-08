@@ -79,7 +79,9 @@ export class CheckCodeConfirmation {
   private declare readonly brand: true; // nominal: look-alike objects do not type-check
   static {
     mint = (requestID, code) => {
+      // Frozen: a holder cannot re-target it at another request or code.
       const confirmation = new CheckCodeConfirmation(requestID, code);
+      Object.freeze(confirmation);
       confirmations.add(confirmation);
       return confirmation;
     };

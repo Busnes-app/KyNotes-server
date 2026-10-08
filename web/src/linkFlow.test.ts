@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { base64, fromBase64 } from "./crypto";
 import { APIRequestError, type LinkRequestRow, type LinkState } from "./api";
 import type { HeldIdentity } from "./identity";
-import { approveLink, claimLink, confirmTypedCode, endLink, finishNewcomerLink, LinkEndedError, linkRefusal, LinkStorageError, LinkTamperedError, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
+import { approveLink, claimLink, confirmTypedCode, endLink, finishNewcomerLink, LinkEndedError, linkRefusal, LinkStorageError, LinkTamperedError, OTHER_COPY, otherCopyHeld, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
 import { confirmCheckCode, isLiveLinkKey, linkCommitment, newLinkKey, sealLinkBundle, type CheckCodeConfirmation } from "./linking";
 import { generateIdentity, type Identity } from "./teamKeys";
 
@@ -213,6 +213,21 @@ describe("device linking", () => {
     expect(store.held()).toBe(other);
   });
 
+  it("checks before starting: another copy this browser holds refuses up front, before any request", async () => {
+    const r = relay();
+    const create = vi.spyOn(r.newcomer, "create");
+    for (const local of [{ ...generateIdentity(), deviceId: "" }, { ...generateIdentity(), deviceId: `dev_${"e".repeat(26)}` }]) {
+      expect(await otherCopyHeld(r.newcomer, vault(local))).toBe(true);
+    }
+    // No server identity to link to: a local copy is "another" copy too.
+    expect(await otherCopyHeld({ myIdentity: async () => undefined }, vault(identity))).toBe(true);
+    // Nothing held, or the account's own key (same public key): linking may start.
+    expect(await otherCopyHeld(r.newcomer, vault())).toBe(false);
+    expect(await otherCopyHeld(r.newcomer, vault({ ...identity, deviceId: "" }))).toBe(false);
+    expect(create).not.toHaveBeenCalled();
+    expect(OTHER_COPY).toBe("This browser holds another copy of your key. Use Forget this device first.");
+  });
+
   it("reports a browser that could not keep the linked key", async () => {
     const { r, link, approver } = await shown();
     const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
@@ -285,7 +300,7 @@ describe("link refusals", () => {
   });
 
   it("names the way out of a session that cannot link", () => {
-    expect(linkRefusal(refused("sso_sign_in_required")).message).toMatch(/^Sign in with KySignOn/);
+    expect(linkRefusal(refused("sso_sign_in_required")).message).toMatch(/^Sign in with KySignOn to continue\./);
     expect(linkRefusal(refused("password_change_required")).message).toMatch(/administrator set.*change your password/i);
     expect(linkRefusal(refused("password_change_required")).cancel).toBeUndefined();
     expect(linkRefusal(new Error("offline")).message).toBe("offline");
