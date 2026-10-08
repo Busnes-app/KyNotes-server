@@ -44,12 +44,12 @@ The web client gets pure modules, each tested on its own:
 | Check code | `SHA-256("kynotes/link-check/v1" ‖ userID(30) ‖ requestID(30) ‖ approverKey(32) ‖ newcomerKey(32))`; first 4 bytes big-endian `mod 1_000_000`, zero-padded to 6 digits, shown as `"123 456"` |
 | Bundle | `0x01 ‖ nonce(12) ‖ ChaCha20-Poly1305(key, nonce, identityPrivateKey(32), aad)` = 61 bytes. `key = HKDF-SHA256(ikm = X25519(approverPriv, newcomerPub), salt = approverKey ‖ newcomerKey, info = "kynotes/link/v1", L = 32)`. `aad = "kynotes/link/v1" ‖ userID(30) ‖ requestID(30) ‖ identityDeviceID(30) ‖ approverKey(32) ‖ newcomerKey(32)`. IDs are validated fixed-length ASCII (`teamKeys.ts` `idBytes`). `testdata/protocol/link_vectors.json` pins every byte |
 | Sender rule | A link bundle is self-to-self: it carries the account's own identity private key. The newcomer accepts it only after **its own** user confirmed the check code, only when it opens under the approver key that code was computed from, and only when `x25519(privateKey)` equals the `publicKey` of `GET /me/identity`, and stores it under that identity's `deviceId` |
-| Release gate | The bundle leaves only through `outbound.ts` `sendLinkBundle(confirmation, requestID, bundle)`, which refuses anything but a `confirmCheckCode(requestID)` result for that request |
+| Release gate | The bundle leaves only through `outbound.ts` `sendLinkBundle(confirmation, requestID, bundle)`, which refuses anything but a typed confirmation (`confirmTypedCheckCode`) for that request |
 | Device-only identity | `PUT /me/identity` from an SSO session: `{"publicKey","wrapAlg":"none"}` (no `wrappedPrivateKey`), stored with `wrap_alg='none'` and an empty blob; `users.password_admin_known` does not block it. Local sessions keep `aes-256-gcm` only; each kind of session gets `400` for the other kind. `GET /me/identity` also returns `wrapAlg`. A password change carries a re-wrap exactly when the identity is `aes-256-gcm` |
 | Step-up | `auth.RequireUserActionStepUp`: local session, `stepup_at` within `StepUpWindow`; SSO session, a `user`-scope KySignOn grant bound to method, URI, Content-Type and body (no `kynotes.admin`). `RequireStepUp` keeps `admin` scope. The three `/api/v1/auth/oidc/step-up` routes need a session, not an admin. Invitation envelopes keep the local password step-up (SSO invitations go out keyless) |
 | Vault | Secure contexts (`isSecureContext` and `crypto.subtle`): the private key sealed with AES-256-GCM under a `generateKey(…, false, ["encrypt","decrypt"])` key stored in the **same** vault record, AAD `kynotes/device-identity/v1|<userID>|<deviceId>`. Plain-HTTP origins keep the raw key, as today (spec §7 P3c), and Settings says so. Raw P1–P3b copies are re-sealed on first read in a secure context. Every identity write that could race another tab is a compare-and-swap (`storeIdentityKey(…, expected)`). "Forget this device" deletes the record: sealed key and device key together. The device key only keeps the raw private key out of the record's plain values. It is **not** at-rest protection (Chromium writes the device key's bytes into the same profile) and not XSS protection (page script can call `decrypt`) |
 | No storage | A browser without a usable vault (no IndexedDB, no record) creates no link request and no SSO identity, and holds no identity (fail closed) |
-| Rate limit | `POST /api/v1/me/link-requests` uses `ratelimit.pairing_per_hour` (default 20/hour per account) in its own bucket (label `link`), not the pairing-token bucket. No new config key |
+| Rate limit | `POST /api/v1/me/link-requests` uses `ratelimit.pairing_per_hour` (default 20/hour per account) in its own bucket (label `link`), not the pairing-token bucket. Claim, reveal, approve and cancel share a `link-step` bucket at `login_per_minute`; collect has its own `link-poll` bucket at the new `ratelimit.link_poll_per_minute` (default 60) |
 | Error codes | No new codes. `400 invalid_request`, `401 unauthenticated`, `403 csrf_failed`/`step_up_required`/`sso_step_up_required`, `404 not_found`, `409 already_exists`, `429 rate_limited` |
 | Audit events | `identity.link.request`, `.claim`, `.reveal`, `.refuse` (outcome `denied`), `.approve`, `.collect`, `.cancel`; object ID = request ID. Never key material |
 | Key decisions | No key decision reads `kind` or `teamId`. Every container read still goes through `observe.ts`, every ciphertext upload through `outbound.ts` |
@@ -1838,13 +1838,13 @@ func TestSSOAccountLinksASecondBrowser(t *testing.T) {
 
   Add `database/sql` to the test imports.
 
-- [ ] **Step 2: Run the tests to verify they fail.** Run `go test ./internal/httpapi -run 'TestLinkApproval|TestLinkRequestsDieWithTheIdentity|TestSSOAccountLinksASecondBrowser' -count=1`. Expected: FAIL (`/approve` and `GET …/{id}` are not registered; the request survives the identity).
+- [ ] **Step 2: Run the tests to verify they fail.** Run `go test ./internal/httpapi -run 'TestLinkApproval|TestLinkRequestsDieWithTheIdentity|TestSSOAccountLinksASecondBrowser' -count=1`. Expected: FAIL (`/approve` and `POST …/{id}/collect` are not registered; the request survives the identity).
 
 - [ ] **Step 3: Implement.** In `LinkRoutes` add:
 
 ```go
 	mux.Handle("POST /api/v1/me/link-requests/{id}/approve", auth.RequireUserActionStepUp(db, approveLink(db)))
-	mux.Handle("GET /api/v1/me/link-requests/{id}", session(collectLink(db)))
+	mux.Handle("POST /api/v1/me/link-requests/{id}/collect", session(collectLink(db)))
 ```
 
 and add the handlers:

@@ -365,7 +365,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
   (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
-  ("Forget this device" clears it). SSO sessions create device-only identities (server side; browser side is P3c).
+  ("Forget this device" clears it). SSO sessions create device-only identities (P3c).
   `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
   `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
@@ -523,3 +523,39 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestInvitationCreationIsRateLimitedPerCaller`, `TestRetryAfterFollowsRefillInterval`,
   `TestGCDeletesEnvelopesOfExpiredInvitations`, `npm test` (keyring, keyService, pins, invitations,
   stuckEdits, loadGate) and `npm run e2e --prefix web`.
+- Team keys P3c: device linking and SSO identities. Server: `auth.RequireUserActionStepUp` (local password
+  step-up, or a `user`-scope KySignOn grant bound to action and body, single use, fresh `auth_time`;
+  `sso_stepup.scope`, migration `0024_device_linking.sql`) gates `PUT /me/identity` (SSO sessions create
+  device-only `wrap_alg='none'` identities; a password never unlocks or re-wraps them), envelope `PUT` and
+  key rotations. Step-up start, poll and cancel need a session, not an admin; challenge creation has a
+  per-account `challenge` bucket; the 409 codes are `step_up_pending` (with the challenge ID),
+  `sso_step_up_required`, `sso_sign_in_required` and `password_change_required`; the action body is capped at 64 KiB
+  (413). `password_admin_known` refuses every local action step-up and link step; on an SSO-linked account
+  `POST /auth/password` then needs a fresh KySignOn confirmation. `internal/httpapi/link_routes.go` relays
+  `/api/v1/me/link-requests` (seven routes: create with a commitment, list, claim, reveal, approve after
+  step-up, collect, cancel). Collect is `POST …/collect` with CSRF and `no-store`, once; the relay holds
+  ciphertext only; per user, 10-minute TTL checked in the transaction, 3 live, both sessions live,
+  session-only, audited `identity.link.*` (collect misses are not audited), GC'd, deleted with the identity.
+  Rate limits: own `link` bucket at `pairing_per_hour`, `link-step` at `login_per_minute`, collect at
+  `ratelimit.link_poll_per_minute` (default 60).
+  Web: `linking.ts` (commitment, six-digit check code, 61-byte bundle, frozen branded confirmations;
+  `testdata/protocol/link_vectors.json` from `internal/teamkeys`), `linkFlow.ts` (newcomer pins the approver
+  key before revealing, a failed reveal ends the attempt, no auto-retry; the approver types the newcomer's code,
+  NFKC with spaces ignored, there is no "Codes match" on the approver; the newcomer opens a bundle only after its
+  own confirmation and only for the listed identity), `outbound.ts` `sendLinkBundle` and `collectLinkBundle`
+  (only with a typed confirmation, only while the attempt's one-time key is live), `api.ts` `cancelSSOStepUp`
+  (cancels an open confirmation, also after `step_up_pending`), `storage.ts` (identity under a non-extractable
+  device key in the vault record, labels "wrapped"/"plain"; not at-rest protection; plain HTTP unwrapped with a
+  Settings warning; no IndexedDB, no identity; compare-and-swap writes), `identity.ts` (`settleSSOIdentity`
+  keeps a pending key before the PUT and never overwrites a held identity without "Replace"; `currentCopy` uses
+  the vault copy only while the server lists it), `keyService.ts` `KySync.deferred` (SSO stewards share on a
+  "Share keys" click), `components/DeviceLink.tsx`, the Forget-this-device confirmation (the encrypted save
+  queue stays), the SSO set-up banners, and N1: a failed local cache write still sends the edit, with copy that
+  says the browser could not keep its copy. The P3a limit "SSO users block sharing" is gone. Verify `TestSSOUserStepUp*`,
+  `TestSSOStepUpScopeIsBoundToTheGrant`, `TestSSOSessionCreatesDeviceOnlyIdentity`,
+  `TestDeviceOnlyIdentityIsNeverWrappedByAPassword`, `TestSSOStewardSharesKeysAfterActionStepUp`,
+  `TestSSOGrantIsRecheckedInTheWriteTransaction`, `TestAdminKnownPasswordChangeNeedsKySignOn`,
+  `TestBackgroundChallengeLeavesAStartedConfirmationAlone`, `TestSSOChallengeCreationIsRateLimitedPerAccount`,
+  `TestLink*`, `TestSSOAccountLinksASecondBrowser`, `TestGCDeletesExpiredLinkRequests`,
+  `TestLinkPollLimitEnvAndValidation`, `go test ./internal/teamkeys`, `npm test` (linking, linkFlow, storage,
+  identity, keyService, outbound, DeviceLink) and `npm run e2e --prefix web`.

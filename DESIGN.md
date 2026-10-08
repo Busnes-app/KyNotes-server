@@ -136,7 +136,12 @@ wrapped key and never sees `userKEK`. The wrapped key is returned only in the
 bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
-clears it, and logout keeps it. Identity rows never authenticate as a device,
+clears it, and logout keeps it. In secure contexts the vault stores the private key
+encrypted under a non-extractable WebCrypto key kept in the same record; that is not
+at-rest protection (browsers write the key's bytes into the same profile and page script
+can call `decrypt`), it only keeps the raw key out of the record's plain values. On
+plain-HTTP origins the key is stored unwrapped and Settings says so; without IndexedDB
+the browser holds no identity. "Forget this device" keeps the encrypted save queue. Identity rows never authenticate as a device,
 are not listed, revoked or selected through device routes or directory
 deactivation and role changes, and are excluded from the device-envelope save
 gate. No password-wrapped identity is created while someone other than the
@@ -263,11 +268,15 @@ for it. The server relays only public keys and one sealed bundle (`/api/v1/me/li
 migration `0024_device_linking.sql`). The newcomer first posts a commitment to its one-time
 X25519 key; the trusted browser claims the request with its own one-time key; the newcomer then
 reveals its key, which must match the commitment. Both screens show a six-digit check code over the
-account, the request and both keys, and the user confirms it on both. The commitment means a relay
+account, the request and both keys. The newcomer confirms its code; the approver types the
+code shown on the newcomer's screen, so a click cannot replace the comparison. The newcomer pins
+the approver's key before it reveals its own, and a failed reveal ends the attempt. The commitment means a relay
 cannot pick a key to fit the code after seeing the other one. Only then is the identity private key
 sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
-step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer polls). Requests are per user, single use, expire after ten minutes, need a
-live session of that user on both sides, are rate-limited with device pairing and are audited.
+step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer polls). Requests are per user, single use, expire after ten minutes (checked in the step's transaction), need a
+live session of that user on both sides, are rate-limited (creation with device pairing, collect polls
+by `ratelimit.link_poll_per_minute`) and are audited, except collect misses. Relay success
+without the user's help is about 10^-6 per visible attempt.
 Deleting the identity (recovery or an administrator reset) deletes the account's open link requests
 in the same transaction.
 
@@ -590,7 +599,10 @@ Keep an unlinked local administrator available for recovery; see [SSO roles](doc
 ## Action-bound OIDC step-up
 
 Backup/recovery step-up routes, local user creation and password reset require a one-use OIDC proof for SSO
-sessions. Migration 0019 binds the exact request digest to the original session;
+sessions. A `user`-scope challenge (`sso_stepup.scope`, migration 0024) proves only the session's own
+account, bound to the action and body (64 KiB at most), with a fresh `auth_time`; it covers identity creation,
+envelope writes, rotations and changing an administrator-set password on an SSO-linked account. A grant opens
+only its own scope, and challenge creation is rate-limited per account. Migration 0019 binds the exact request digest to the original session;
 fresh signed auth_time and ordinary assurance, identity and app-admin permission
 are required. Issuance time is never substituted for authentication time. Creation,
 verification, cancellation and consumption are audited atomically. Admission
