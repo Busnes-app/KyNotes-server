@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 )
 
 // liveCookies keeps the cookies a login response set (not the ones it cleared).
@@ -63,9 +64,13 @@ func TestSSOUserStepUpNeedsNoAdminRole(t *testing.T) {
 func TestSSOStepUpScopeIsBoundToTheGrant(t *testing.T) {
 	f, cookies := reauthFixture(t)
 	// An admin challenge answered without kynotes.admin is rejected at the callback.
-	_, callback := reauthStartAt(f, cookies, "alice", "/action", `{"target":1}`, nil)
+	rejected, callback := reauthStartAt(f, cookies, "alice", "/action", `{"target":1}`, nil)
 	if res := f.send(callback); res.Code != 403 {
 		t.Fatal("admin challenge verified without the admin role", res.Code)
+	}
+	// The browser cancels an unverified challenge (web/src/reauth.ts) before the next action.
+	if res := f.send(withCookies(httptest.NewRequest("DELETE", "/api/v1/auth/oidc/step-up/"+rejected, nil), cookies)); res.Code != 204 {
+		t.Fatal("cancel", res.Code)
 	}
 	// A verified admin grant relabelled as a user grant no longer opens the admin route.
 	id, callback := reauthStart(f, cookies)
@@ -185,7 +190,7 @@ func ssoDo(f *logoutFixture, cookies []*http.Cookie, subject, method, path, body
 func TestSSOSessionCreatesDeviceOnlyIdentity(t *testing.T) {
 	f := newLogoutFixture(t)
 	cookies, bob := ssoPerson(f, "bob", "bob-1")
-	// Someone else knows bob's unused password; it wraps nothing here, so it blocks nothing.
+	// An administrator-known password refuses only password proofs; a KySignOn confirmation still creates.
 	if _, err := f.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, bob); err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +215,11 @@ func TestSSOSessionCreatesDeviceOnlyIdentity(t *testing.T) {
 	if err := f.db.QueryRow(`SELECT wrap_alg,wrapped_private_key FROM user_identities WHERE user_id=?`, bob).Scan(&alg, &wrapped); err != nil || alg != "none" || len(wrapped) != 0 {
 		t.Fatalf("stored %q %d bytes: %v", alg, len(wrapped), err)
 	}
+	// The audit names the wrap and the KySignOn grant that created it (decision 4's trace).
+	var reason string
+	if err := f.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='identity.create' AND user_id=?`, bob).Scan(&reason); err != nil || !strings.HasPrefix(reason, "wrap=none,proof=sso:rea_") {
+		t.Fatalf("identity.create reason %q: %v", reason, err)
+	}
 	get := f.send(withCookies(httptest.NewRequest("GET", "/api/v1/me/identity", nil), cookies))
 	if !strings.Contains(get.Body.String(), `"wrapAlg":"none"`) || strings.Contains(get.Body.String(), "wrappedPrivateKey") {
 		t.Fatal("GET /me/identity", get.Body.String())
@@ -223,6 +233,10 @@ func TestDeviceOnlyIdentityIsNeverWrappedByAPassword(t *testing.T) {
 		t.Fatal("a password session created a device-only identity", code)
 	}
 	id := p.createIdentity(t)
+	var reason string
+	if err := p.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='identity.create'`).Scan(&reason); err != nil || reason != "wrap=aes-256-gcm,proof=password" {
+		t.Fatalf("identity.create reason %q: %v", reason, err)
+	}
 	// As if created from a single sign-on session: no server copy.
 	if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
 		t.Fatal(err)
@@ -299,5 +313,89 @@ func TestSSOGrantIsRecheckedInTheWriteTransaction(t *testing.T) {
 	var generation int
 	if err := f.db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation); err != nil || generation != 1 {
 		t.Fatal(generation, err)
+	}
+}
+
+// After an administrator reset, the SSO user's device-only identity must not be driven by the
+// password the administrator knows: every local action step-up answers 409 until the user's own change.
+func TestAdminKnownPasswordCannotActForDeviceOnlyIdentity(t *testing.T) {
+	f, _, bob, device, cid := ssoTeam(t)
+	secret := strings.Repeat("a", 64)
+	hash, err := auth.HashAuthSecret(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`UPDATE users SET auth_secret_hash=?,password_admin_known=1 WHERE id=?`, hash, bob); err != nil {
+		t.Fatal(err)
+	}
+	login := f.send(httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(`{"username":"bob","authSecret":"`+secret+`"}`)))
+	if login.Code != 200 {
+		t.Fatal("local login", login.Code, login.Body.String())
+	}
+	local := liveCookies(login)
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := withCookies(httptest.NewRequest(method, path, strings.NewReader(body)), local)
+		req.Header.Set("Content-Type", "application/json")
+		return f.send(req)
+	}
+	if r := do("POST", "/api/v1/auth/step-up", `{"authSecret":"`+secret+`"}`); r.Code != 200 && r.Code != 204 {
+		t.Fatal("step-up", r.Code, r.Body.String())
+	}
+	invitee := mint(t, "usr")
+	if _, err := f.db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES(?,'carol','x','x',1,'now','now')`, invitee); err != nil {
+		t.Fatal(err)
+	}
+	for name, r := range map[string]*httptest.ResponseRecorder{
+		"rotation":   do("POST", "/api/v1/containers/"+cid+"/key-rotations", string(rotationBody(1, envJSON(device, 2, 1)))),
+		"envelopes":  do("PUT", "/api/v1/containers/"+cid+"/envelopes", string(envelopesBody(envJSON(device, 1, 3)))),
+		"invitation": do("POST", "/api/v1/containers/"+cid+"/invitations", `{"inviteeId":`+quote(invitee)+`,"role":"editor","envelopes":[{"containerId":`+quote(cid)+`,"deviceId":`+quote(device)+`,"keyGeneration":1,"alg":"x25519-hkdf-sha256-chacha20poly1305","envelope":"AA=="}]}`),
+	} {
+		if r.Code != 409 || !strings.Contains(r.Body.String(), "password_change_required") {
+			t.Errorf("%s with an administrator-known password: %d %s", name, r.Code, r.Body.String())
+		}
+	}
+	var generation int
+	if err := f.db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation); err != nil || generation != 1 {
+		t.Fatal(generation, err)
+	}
+}
+
+func TestSSOChallengeCreationIsRateLimitedPerAccount(t *testing.T) {
+	f, cookies := userReauthFixture(t)
+	cfg := config.Defaults()
+	f.router = rateLimitMiddleware(cfg, f.db, f.router)
+	for i := 0; i < cfg.RateLimit.LoginPerMinute; i++ {
+		if r := reauthAction(f, cookies, "", "/user-action", `{"x":1}`); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+			t.Fatal(i, r.Code, r.Body.String())
+		}
+	}
+	r := reauthAction(f, cookies, "", "/user-action", `{"x":1}`)
+	if r.Code != 429 || r.Header().Get("Retry-After") == "" {
+		t.Fatal("challenge minted past the account's bucket", r.Code, r.Body.String())
+	}
+	var audits int
+	if err := f.db.QueryRow(`SELECT count(*) FROM audit_events WHERE event='auth.sso_step_up.start'`).Scan(&audits); err != nil || audits != cfg.RateLimit.LoginPerMinute {
+		t.Fatal("start audits", audits, err)
+	}
+}
+
+func TestBackgroundChallengeLeavesAStartedConfirmationAlone(t *testing.T) {
+	f, cookies := userReauthFixture(t)
+	id, callback := reauthStartAt(f, cookies, "bob", "/user-action", `{"x":1}`, nil)
+	// A background write while the user is in KySignOn: refused, the confirmation untouched.
+	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 409 || !strings.Contains(r.Body.String(), "step_up_pending") {
+		t.Fatal("background challenge during a confirmation", r.Code, r.Body.String())
+	}
+	if res := f.send(callback); res.Code != 200 {
+		t.Fatal("confirmation lost to a background write", res.Code, res.Body.String())
+	}
+	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 409 {
+		t.Fatal("a verified grant was replaced before use", r.Code)
+	}
+	if r := reauthAction(f, cookies, id, "/user-action", `{"x":1}`); r.Code != 204 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+		t.Fatal("no new challenge after the grant was used", r.Code, r.Body.String())
 	}
 }

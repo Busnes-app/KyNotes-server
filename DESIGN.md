@@ -139,10 +139,13 @@ in the IndexedDB vault with the other device secrets; "Forget this device"
 clears it, and logout keeps it. Identity rows never authenticate as a device,
 are not listed, revoked or selected through device routes or directory
 deactivation and role changes, and are excluded from the device-envelope save
-gate. No identity is created while someone other than the user knows the
-password (`users.password_admin_known`: admin create and reset, bootstrap,
-`user add`); the user's own password change or recovery clears the flag, and
-the browser then creates the identity under the new password. Envelopes are
+gate. No password-wrapped identity is created while someone other than the
+user knows the password (`users.password_admin_known`: admin create and reset,
+bootstrap, `user add`), and no local password step-up admits an identity action
+(identity creation, envelope writes, rotations, invitation keys; `409
+password_change_required`), so that password never acts for an SSO user's
+device-only identity. The user's own password change or recovery clears the
+flag, and the browser then creates the identity under the new password. Envelopes are
 `0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
 keyed by both an ephemeral and the sender identity's X25519 agreement and bound
 by AAD to container, key generation, recipient and sender (IDs in the AAD are
@@ -153,7 +156,9 @@ history below the device's high-water mark, from an identity already pinned
 (see below), and reads rows at or above `shared_generation` only with that
 generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
-password resets delete it and write an audit row. An SSO session creates a
+password resets delete it and write an audit row. Device-only identities are
+deleted too: until P5's recovery code that is how an SSO user who has lost every
+browser starts over, with a new identity that stewards re-share keys to. An SSO session creates a
 device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
 request; no copy exists on the server until P5's recovery code, and other
 browsers receive it by device linking. A password never unlocks or re-wraps it.

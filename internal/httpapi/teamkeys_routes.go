@@ -65,6 +65,8 @@ func teamKeyError(err error) (status int, code, message string) {
 		return 401, "unauthenticated", "authentication required"
 	case errors.Is(err, auth.ErrStepUpInvalid):
 		return 403, "step_up_required", "re-enter your password to continue"
+	case errors.Is(err, auth.ErrPasswordAdminKnown):
+		return 409, "password_change_required", "change the password an administrator set first"
 	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
 		return 404, "not_found", "not found"
 	case errors.Is(err, errInsufficientRole):

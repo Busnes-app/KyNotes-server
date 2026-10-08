@@ -105,7 +105,15 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			WriteError(w, r, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return
 		}
-		next.ServeHTTP(w, r)
+		// SSO step-up challenges are minted by whatever route asked for one: their own bucket at the login rate.
+		challenge := float64(cfg.RateLimit.LoginPerMinute) / 60
+		next.ServeHTTP(w, r.WithContext(auth.WithChallengeLimit(r.Context(), func(userID string) bool {
+			if l.allow("challenge\x00"+userID, challenge, cfg.RateLimit.LoginPerMinute, time.Now().UTC()) {
+				return true
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/challenge))))
+			return false
+		})))
 	})
 }
 

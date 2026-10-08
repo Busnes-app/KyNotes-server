@@ -23,6 +23,14 @@ const (
 	stepUpUser  = "user"  // RequireUserActionStepUp: the session's own account
 )
 
+type challengeLimitKey struct{}
+
+// WithChallengeLimit lets the HTTP rate limiter bound how fast one account mints step-up
+// challenges (each writes a row and an audit event). allow reports whether userID may mint one.
+func WithChallengeLimit(ctx context.Context, allow func(userID string) bool) context.Context {
+	return context.WithValue(ctx, challengeLimitKey{}, allow)
+}
+
 // The digest binds the exact attempted operation without storing its potentially secret body.
 func stepUpAction(w http.ResponseWriter, r *http.Request) (string, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
@@ -60,6 +68,10 @@ func requireSSOStepUp(db *sql.DB, s Session, scope string, next http.Handler, w 
 		next.ServeHTTP(w, r)
 		return
 	}
+	if allow, ok := r.Context().Value(challengeLimitKey{}).(func(string) bool); ok && !allow(s.UserID) {
+		WriteAuthError(w, "rate_limited", "rate limit exceeded")
+		return
+	}
 	id, err := ids.Mint("rea")
 	if err != nil {
 		http.Error(w, "reauthentication unavailable", 500)
@@ -72,7 +84,17 @@ func requireSSOStepUp(db *sql.DB, s Session, scope string, next http.Handler, w 
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	_, err = tx.Exec(`DELETE FROM sso_stepup WHERE session_id=? OR expires_at<=?`, s.ID, now.Unix())
+	// A confirmation the user has opened in KySignOn (started or verified) is never replaced: a
+	// background write must not cancel it. Only unstarted challenges give way to a newer action.
+	var pending int
+	err = tx.QueryRow(`SELECT count(*) FROM sso_stepup WHERE session_id=? AND started=1 AND expires_at>?`, s.ID, now.Unix()).Scan(&pending)
+	if err == nil && pending > 0 {
+		WriteAuthError(w, "step_up_pending", "finish or cancel the open KySignOn confirmation first")
+		return
+	}
+	if err == nil {
+		_, err = tx.Exec(`DELETE FROM sso_stepup WHERE session_id=? OR expires_at<=?`, s.ID, now.Unix())
+	}
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO sso_stepup(id,session_id,action,scope,created_at,expires_at) VALUES(?,?,?,?,?,?)`, id, s.ID, action, scope, now.Unix(), now.Add(SSOLoginLifetime).Unix())
 	}

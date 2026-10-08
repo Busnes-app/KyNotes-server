@@ -343,13 +343,14 @@ user data.
 | `csrf_failed` | 403 | missing or mismatched CSRF token |
 | `step_up_required` | 403 | the route needs a local password step-up within `StepUpWindow` (or refuses an SSO session) |
 | `sso_step_up_required` | 403 | an SSO session must confirm this action with a fresh OIDC proof; carries `challenge` (`docs/SSO.md`) |
+| `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
 | `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a shared container written without `X-Kynotes-Key-Scheme: shared-v1` (`this notebook uses shared keys: reload the page`) |
 | `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
-| `password_change_required` | 409 | an administrator knows the password; the user must change it before creating an identity |
+| `password_change_required` | 409 | an administrator knows the password; the user must change it before a local step-up can create an identity, write envelopes, rotate keys or send invitation keys |
 | `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
 | `pairing_token_used` | 409 | pairing nonce already redeemed |
 | `gone` | 410 | upload session expired or object hard-deleted |
@@ -1260,10 +1261,10 @@ deliberately every phase).
 * A device credential may never write envelopes, mint pairing tokens, list other
   devices, or read another device's envelope. Each of those is a named test.
 * Identity rows (`platform = 'identity'`) are excluded from device auth, device listing, revocation (per-device, directory deactivation and SSO role change), selection and re-pairing.
-* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is.
+* `users.password_admin_known` (migration 0021) is `1` after admin create, admin reset, `BOOTSTRAP_ADMIN_*` and `user add`; the user's own password change and recovery set it to `0`. No password-wrapped identity is created while it is `1`; a device-only one is. While it is `1`, every local password step-up for an identity action (identity create, envelope `PUT`, rotation, invitation envelopes) answers `409 password_change_required`, checked in the write transaction.
 * A successful password change clears `stepup_at` on every session of the user.
 * `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
-* Recovery and admin password reset delete the identity row in the same transaction and write an audit row.
+* Recovery and admin password reset delete the identity row (device-only included) in the same transaction and write an audit row. `identity.create` audits `wrap=<alg>,proof=password|sso:<challenge ID>`.
 * Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
 * `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
 
@@ -1296,6 +1297,9 @@ deliberately every phase).
 - `TestDeviceOnlyIdentityIsNeverWrappedByAPassword`
 - `TestSSOStewardSharesKeysAfterActionStepUp`
 - `TestSSOGrantIsRecheckedInTheWriteTransaction`
+- `TestAdminKnownPasswordCannotActForDeviceOnlyIdentity`
+- `TestSSOChallengeCreationIsRateLimitedPerAccount`
+- `TestBackgroundChallengeLeavesAStartedConfirmationAlone`
 - `TestIdentityGetNeverReturnsWrappedKey`
 - `TestWrappedIdentityOnlyInPasswordProofs`
 - `TestLoginIdentityErrorMintsNoSession`

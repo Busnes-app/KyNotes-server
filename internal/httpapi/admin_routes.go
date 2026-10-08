@@ -281,7 +281,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		// An admin cannot re-wrap the user's identity, so the reset deletes it in the same commit.
+		// An admin cannot re-wrap the user's identity, so the reset deletes it in the same commit; a device-only
+		// one goes too (the planned loss path until P5's recovery code).
 		if err = dbTx(db, func(tx *sql.Tx) error {
 			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=1,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
 				return err

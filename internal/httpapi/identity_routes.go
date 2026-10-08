@@ -29,8 +29,6 @@ var (
 	errIdentityExists  = errors.New("identity exists")
 	errIdentityRewrap  = errors.New("identity rewrap mismatch")
 	errPasswordChanged = errors.New("password changed concurrently")
-	// errPasswordChangeRequired: someone other than the user knows the password.
-	errPasswordChangeRequired = errors.New("password change required")
 )
 
 func decodeWrappedIdentity(value string) ([]byte, bool) {
@@ -126,15 +124,12 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
 				return err
 			}
-			var taken, adminKnown int
-			if err := tx.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)),(SELECT password_admin_known FROM users WHERE id=?)`, s.UserID, fingerprint, s.UserID).Scan(&taken, &adminKnown); err != nil {
+			var taken int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)`, s.UserID, fingerprint).Scan(&taken); err != nil {
 				return err
 			}
 			if taken > 0 {
 				return errIdentityExists
-			}
-			if adminKnown != 0 && !sso { // only a password wrap is readable by whoever knows the password
-				return errPasswordChangeRequired
 			}
 			// secret_hash never carries the "sha256:" prefix device auth compares against.
 			if _, err := tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES(?,?,?,?,?,'identity',?)`, deviceID, s.UserID, base64.StdEncoding.EncodeToString(pub), fingerprint, "identity:"+hex.EncodeToString(unusable), now); err != nil {
@@ -143,7 +138,12 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, in.WrapAlg, now, now); err != nil {
 				return err
 			}
-			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "", RequestID(r))
+			// Which proof created it: the password, or the KySignOn grant (decision 4's trace). No key material.
+			proof := "proof=password"
+			if sso {
+				proof = "proof=sso:" + r.Header.Get("X-Kynotes-Step-Up")
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "wrap="+in.WrapAlg+","+proof, RequestID(r))
 		})
 		if errors.Is(err, auth.ErrSessionInvalid) {
 			auth.WriteAuthError(w, "unauthenticated", "authentication required")
@@ -153,7 +153,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
 			return
 		}
-		if errors.Is(err, errPasswordChangeRequired) {
+		if errors.Is(err, auth.ErrPasswordAdminKnown) {
 			WriteError(w, r, 409, "password_change_required", "change the password an administrator set before creating an identity")
 			return
 		}

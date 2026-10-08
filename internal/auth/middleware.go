@@ -173,8 +173,13 @@ func unauthenticated(w http.ResponseWriter) {
 func WriteAuthError(w http.ResponseWriter, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	status := http.StatusUnauthorized
-	if code == "forbidden" || code == "step_up_required" {
+	switch code {
+	case "forbidden", "step_up_required":
 		status = http.StatusForbidden
+	case "step_up_pending":
+		status = http.StatusConflict
+	case "rate_limited":
+		status = http.StatusTooManyRequests
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message, "requestId": w.Header().Get("X-Request-Id")}})
@@ -256,6 +261,8 @@ func CheckCSRF(r *http.Request) error {
 var (
 	ErrSessionInvalid = errors.New("session no longer valid")
 	ErrStepUpInvalid  = errors.New("step-up no longer valid")
+	// ErrPasswordAdminKnown: an administrator set the password, so proving it proves nothing about the user.
+	ErrPasswordAdminKnown = errors.New("password known to an administrator")
 )
 
 // RecheckSessionTx repeats the session check inside the writing transaction: a
@@ -268,7 +275,7 @@ func RecheckSessionTx(tx *sql.Tx, s Session, now time.Time) (passwordHash string
 
 // RecheckUserStepUpTx re-proves, inside the writing transaction, what
 // RequireUserStepUp authorized: the session is live, its step-up is the one the
-// middleware read and still in window, and the password it proved is current.
+// middleware read and still in window, the password it proved is current, and nobody else knows it.
 func RecheckUserStepUpTx(tx *sql.Tx, s Session, now time.Time) error {
 	stepUp, passwordHash, err := liveSessionTx(tx, s, now)
 	if err != nil {
@@ -276,6 +283,13 @@ func RecheckUserStepUpTx(tx *sql.Tx, s Session, now time.Time) error {
 	}
 	if s.passwordHash == "" || passwordHash != s.passwordHash || stepUp != s.stepUpRaw || s.StepUpAt.IsZero() || now.Sub(s.StepUpAt) > StepUpWindow {
 		return ErrStepUpInvalid
+	}
+	var adminKnown int
+	if err := tx.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, s.UserID).Scan(&adminKnown); err != nil {
+		return err
+	}
+	if adminKnown != 0 {
+		return ErrPasswordAdminKnown
 	}
 	return nil
 }

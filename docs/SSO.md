@@ -262,13 +262,19 @@ schedule changes, deposit, export, mirror and restore drill) and the local
 credential routes (user creation and password reset) require a fresh,
 one-use OIDC proof for SSO sessions. Local-password sessions retain the existing
 ten-minute password step-up. Other administrator routes retain their current
-admin/CSRF requirements; this extension does not add step-up to every mutation. SSO sessions create device-only identities, write key envelopes and rotate keys after a user-scope confirmation; invitations they send carry no envelopes.
+admin/CSRF requirements; this extension does not add step-up to every mutation. SSO sessions create device-only identities, write key envelopes and rotate keys after a user-scope confirmation; invitations they send carry no envelopes. The `identity.create` audit records `wrap=none,proof=sso:<challenge ID>` (local: `wrap=aes-256-gcm,proof=password`). While an administrator knows the account's password (`password_admin_known`), local password step-ups for these actions answer `409 password_change_required`. Recovery and an administrator password reset delete a device-only identity as well; until P5's recovery code that is the loss path for an SSO user with no trusted browser left.
 
 A blocked action returns `403 sso_step_up_required` and a challenge ID. The server
 binds that challenge to the original local session and a SHA-256 digest of the
 method, exact request URI, Content-Type and body (at most 64 KiB), storing no body.
-Only one challenge may exist per session; starting another action cancels the old
-one. Pending challenges expire in five minutes. The browser keeps the attempted
+Only one challenge may exist per session. Starting another action replaces an
+unstarted one; once the user has opened a challenge in KySignOn (started or
+verified, unexpired), a new action answers `409 step_up_pending` and leaves it
+alone, so a background write cannot cancel a confirmation in progress. An
+abandoned started challenge blocks new ones until the browser cancels it or it
+expires. Pending challenges expire in five minutes. Minting a challenge uses a
+per-account `challenge` bucket at `ratelimit.login_per_minute` (`429
+rate_limited` with `Retry-After`), which bounds the audit rows one account can write. The browser keeps the attempted
 request only in memory and opens a native confirmation dialog. Continue opens
 KySignOn in a separate window with its opener detached; cancellation burns the challenge, including a
 callback that races cancellation. Reloading abandons the in-memory request.

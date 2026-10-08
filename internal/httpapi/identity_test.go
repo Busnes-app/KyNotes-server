@@ -302,11 +302,18 @@ func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	}
 }
 
+// Device-only identities go too: the planned P3c loss path until P5's recovery code.
 func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
-	for _, path := range []string{"recover", "admin"} {
-		t.Run(path, func(t *testing.T) {
+	for _, tc := range []struct{ path, wrap string }{{"recover", identityWrapAlg}, {"admin", identityWrapAlg}, {"recover", deviceOnlyWrapAlg}, {"admin", deviceOnlyWrapAlg}} {
+		path := tc.path
+		t.Run(path+"/"+tc.wrap, func(t *testing.T) {
 			p := newPairClient(t, strings.Repeat("p", 32))
 			id := p.createIdentity(t)
+			if tc.wrap == deviceOnlyWrapAlg {
+				if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
+					t.Fatal(err)
+				}
+			}
 			now := time.Now().UTC().Format(time.RFC3339)
 			if _, err := p.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_00000000000000000000000000','workbook',?,?,?)`, pairUser, now, now); err != nil {
 				t.Fatal(err)

@@ -256,7 +256,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
   with fresh signed auth_time and ordinary assurance through the existing PKCE callback.
-  Migration 0019 stores one expiring challenge per session; creation, verification,
+  Migration 0019 stores one expiring challenge per session; a started one is never replaced (`409 step_up_pending`),
+  and minting uses a per-account `challenge` bucket at the login rate; creation, verification,
   cancellation and consumption are audited atomically. Challenges are `admin` or `user` scope
   (`sso_stepup.scope`, 0024); a grant opens only its own scope. Cancellation requires the owning session and CSRF,
   validates the rea ID before SQL, and audits only an owned row actually deleted;
@@ -356,7 +357,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   wrapped identity in one transaction bound to the hash they verified; a change in between gets
   401, no cookie, no step-up and no wrapped key (`Test*RejectsConcurrentPasswordChange`).
   `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
-  recovery) makes `PUT` answer `409 password_change_required`; the browser then creates the identity
+  recovery) makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
+  invitation keys) answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
   set the flag. `/setup` accepts only `authSecret`. Until shared keys land, the password form warns
   that existing notes become unreadable and needs an acknowledgement (`web/src/passwordChange.ts`).
