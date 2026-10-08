@@ -118,6 +118,7 @@ import {
   storeConfirmedPin,
   storeKeyState,
   storePins,
+  type CachedNote,
   type PendingSave,
   type PendingUpload,
 } from "./storage";
@@ -642,6 +643,8 @@ function Workspace({
   // Team keys. Content in a shared container is sealed with its container key at the
   // current generation; personal notebooks and every legacy row use the login-derived key.
   const legacy = useMemo(() => legacyKeyRef(auth.authSecret), [auth.authSecret]);
+  // A page cached before owners were recorded is this account's only if its login-derived key opens it.
+  const ownsCached = (note: CachedNote) => decryptObject(legacy, note.containerID, note.payload).then(() => true, () => false);
   const ringsRef = useRef<Record<string, Keyring>>({});
   const [rings, setRings] = useState(ringsRef.current);
   const putRing = (containerID: string, ring: Keyring) => { ringsRef.current = { ...ringsRef.current, [containerID]: ring }; setRings(ringsRef.current); };
@@ -1210,13 +1213,13 @@ function Workspace({
       for (const change of result.changes.filter((entry) => entry.kind === "object" && !entry.deleted)) {
         try {
           const object = await readObject(change.id);
-          const cached = await getNote(change.id);
+          const cached = await getNote(auth.user.id, change.id, ownsCached);
           // A cache entry without its generation cannot be read in a shared container: use the server copy.
           const useCache = Boolean(cached && cached.version >= object.version && (container.sharedGeneration === 0 || cached.keyGeneration !== undefined));
           const payload = await openFirst(readKeysFor(container, useCache ? cached!.keyGeneration : object.keyGeneration), (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString(), useCache ? cached!.keyGeneration : object.keyGeneration);
         } catch {
-          const cached = await getNote(change.id);
+          const cached = await getNote(auth.user.id, change.id, ownsCached);
           if (cached) {
             try {
               add(change.id, await openFirst(readKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
@@ -1503,7 +1506,7 @@ function Workspace({
       const encrypted = await encryptNote(write.key, selected.id, notePayload(note));
       const savedAt = new Date().toISOString();
       const containerID = selected.id;
-      await cacheWrite(() => putNote({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
+      await cacheWrite(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
         await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id });
@@ -1513,7 +1516,7 @@ function Workspace({
       }
       try {
         const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version);
-        await clearQueuedSave(note.id);
+        await clearQueuedSave(auth.user.id, note.id);
         markLegacy([note.id], false);
         setCommitToastAt(Date.now());
         setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
@@ -1585,9 +1588,13 @@ function Workspace({
     draining.current = true;
     try {
       // Only this account's edits: another account's entry could be sent, misattributed, to a notebook both share.
-      const { drain: queued, stamp } = await drainable(await pendingSaves(), auth.user.id, (item) => decryptObject(legacy, item.containerID, item.payload).then(() => true));
+      const { drain, stamp, superseded } = await drainable(await pendingSaves(), auth.user.id, (item) => decryptObject(legacy, item.containerID, item.payload).then(() => true));
       // This account's legacy key opened them: record the owner before any re-key removes that proof.
-      for (const item of stamp) await replaceQueuedSave(item, { ...item, owner: auth.user.id }).catch(() => false);
+      // An entry not claimed (a newer save of the page took its key meanwhile) waits for the next drain.
+      const unclaimed = new Set<string>();
+      for (const item of stamp) if (!(await replaceQueuedSave(item, { ...item, owner: auth.user.id }).catch(() => false))) unclaimed.add(item.id);
+      for (const item of superseded) await replaceQueuedSave(item).catch(() => false);
+      const queued = drain.filter((item) => !unclaimed.has(item.id));
       if (!queued.length) return;
       setSyncStatus("syncing");
       let remaining = false;
@@ -1664,7 +1671,7 @@ function Workspace({
     if (readOnlyForKeys() || !confirm("Delete this page?")) return;
     try {
       await deleteObject(note.id);
-      await deleteCachedNote(note.id);
+      await deleteCachedNote(auth.user.id, note.id);
       patchNotes((value) => value.filter((entry) => entry.id !== note.id));
       setSelectedNote(null);
     } catch (error) {
@@ -1677,7 +1684,7 @@ function Workspace({
     if (!selected) return;
     const containerID = selected.id;
     const write = localKeyFor(selected);
-    void cacheWrite(async () => putNote({
+    void cacheWrite(async () => putNote(auth.user.id, {
       id: note.id,
       containerID,
       version: note.version,
@@ -1693,7 +1700,7 @@ function Workspace({
     const encrypted = await encryptNote(write.key, selected.id, payload);
     const updatedAt = new Date().toISOString();
     const containerID = selected.id;
-    await cacheWrite(() => putNote({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
+    await cacheWrite(() => putNote(auth.user.id, { id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
     if (write.generation === WAITING_GENERATION) {
       await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id });
       setSyncStatus("local");
@@ -1702,7 +1709,7 @@ function Workspace({
     }
     try {
       const result = await sendObject({ container: selected, generation: write.generation }, id, encrypted, version);
-      await clearQueuedSave(id);
+      await clearQueuedSave(auth.user.id, id);
       markLegacy([id], false);
       carryDuringLoad(id, { version: result.version, updatedAt });
       return result.version;
@@ -1748,7 +1755,7 @@ function Workspace({
   /** The shared cache's copy of a page; another tab may have written it. */
   async function otherTabDraft(id: string) {
     if (!selected) return undefined;
-    const cached = await getNote(id).catch(() => undefined);
+    const cached = await getNote(auth.user.id, id, ownsCached).catch(() => undefined);
     if (!cached) return undefined;
     const containerID = selected.id;
     const payload = await openFirst(readKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
@@ -1828,7 +1835,7 @@ function Workspace({
     if (!confirm(`Delete section "${section.title}"? Its ${count} page${count === 1 ? "" : "s"} will move to Quick Notes.`)) return;
     try {
       await deleteObject(section.id);
-      await deleteCachedNote(section.id);
+      await deleteCachedNote(auth.user.id, section.id);
       patchSections((value) => value.filter((entry) => entry.id !== section.id));
       showSection(QUICK_NOTES);
     } catch (error) {
@@ -1850,7 +1857,7 @@ function Workspace({
         }
       }
       await deleteObject(group.id);
-      await deleteCachedNote(group.id);
+      await deleteCachedNote(auth.user.id, group.id);
       patchGroups((value) => value.filter((entry) => entry.id !== group.id));
       setGroupID((value) => (value === group.id ? parent : value));
     } catch (error) {

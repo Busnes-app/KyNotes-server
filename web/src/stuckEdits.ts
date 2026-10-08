@@ -42,17 +42,20 @@ export async function unsentEdits(queued: PendingSave[], live: ReadonlySet<strin
  * in stamp (persist the owner on them) and in drain already stamped, so a re-key keeps the claim.
  * Another account may share the notebook, so the server would accept its edit under this session,
  * misattributed; those wait for their owner. Unstamped entries nothing proves are left alone.
+ * superseded: proven entries for a page this account has queued since; that save replaces them.
  */
-export async function drainable(queued: PendingSave[], owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>): Promise<{ drain: PendingSave[]; stamp: PendingSave[] }> {
-  const drain: PendingSave[] = [], stamp: PendingSave[] = [];
+export async function drainable(queued: PendingSave[], owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>): Promise<{ drain: PendingSave[]; stamp: PendingSave[]; superseded: PendingSave[] }> {
+  const drain: PendingSave[] = [], stamp: PendingSave[] = [], superseded: PendingSave[] = [];
+  const owned = new Set(queued.filter((item) => item.owner === owner).map((item) => item.id));
   for (const item of queued) {
     if (item.owner === owner) drain.push(item);
     else if (item.owner === undefined && await opensLegacy(item).catch(() => false)) {
+      if (owned.has(item.id)) { superseded.push(item); continue; }
       stamp.push(item);
       drain.push({ ...item, owner });
     }
   }
-  return { drain, stamp };
+  return { drain, stamp, superseded };
 }
 
 /** A JSON export of the edits open() reads; the rest are counted, never guessed at. */

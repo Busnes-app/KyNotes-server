@@ -501,7 +501,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `memberKeyStatus` labels member rows (informational). Settings colleague keys (`components/PinnedKeys.tsx`,
   names via `displayName`, re-trust re-fetches the key and stores it compare-and-swap against the "Was" pin,
   only via `confirmFingerprintChange` → `storeConfirmedPin`) and unsent edits (`components/UnsentEdits.tsx`,
-  `stuckEdits.ts`): edits are bound to the account, an unstamped edit is stamped once the user's own legacy
+  `stuckEdits.ts`): edits are bound to the account; the note cache and save queue are keyed by
+  `[owner, id]` (IndexedDB v5 re-keys older rows to owner-unknown `""`), so no save, replace, clear or
+  read touches another account's entry, and an owner-unknown cached page is read only once the user's own
+  legacy key opens it (then claimed); an unstamped edit is stamped once the user's own legacy
   key proves it, team-key-only owner-unknown edits are export-only and never drained or discarded, export is
   plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
   newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,

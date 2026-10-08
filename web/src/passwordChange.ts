@@ -35,9 +35,11 @@ export async function resealWaitingEdits(oldAuthSecret: string, newAuthSecret: s
     if (!next) { unreadable += 1; continue; }
     // A save that replaced the entry meanwhile was sealed by a tab that may already hold the new key.
     await replaceQueuedSave(item, next);
-    const cached = await getNote(item.id).catch(() => undefined);
+    // The draft beside it, under the same owner (or owner-unknown) key.
+    const owner = item.owner ?? "";
+    const cached = await getNote(owner, item.id).catch(() => undefined);
     const draft = cached && waiting(cached) ? await reseal(cached) : undefined;
-    if (draft) await putNote(draft);
+    if (draft) await putNote(owner, draft);
   }
   return unreadable;
 }

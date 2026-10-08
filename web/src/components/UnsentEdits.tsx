@@ -48,7 +48,7 @@ export function UnsentEdits({ legacyKey, userID, teamKeys }: { legacyKey: KeyRef
     const still = new Set((await find()).owned.map((item) => item.id));
     for (const item of owned) {
       // Only the entry the user saw: a newer save of the same page stays queued.
-      if (still.has(item.id) && await replaceQueuedSave(item)) await deleteNote(item.id);
+      if (still.has(item.id) && await replaceQueuedSave(item)) await deleteNote(userID, item.id);
     }
     await load();
   }

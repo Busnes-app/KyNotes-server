@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import "fake-indexeddb/auto";
+import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import type { PendingSave } from "./storage";
+import { deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, type PendingSave } from "./storage";
 import { drainable, exportUnsent, stuckSaves, unsentEdits } from "./stuckEdits";
 
 const lost = `cnt_${"a".repeat(26)}`, kept = `cnt_${"b".repeat(26)}`;
@@ -65,7 +66,42 @@ describe("drainable", () => {
     expect(drain).toEqual([{ ...oldMine, owner: alice }]);
     // Once re-keyed to a team key the legacy key no longer opens it, but the stamp still claims it.
     const rekeyed = { ...drain[0], payload: (await save(oldMine.id, kept, "old mine", team)).payload, keyGeneration: 2 };
-    expect(await drainable([rekeyed], alice, opener(legacy))).toEqual({ drain: [rekeyed], stamp: [] });
+    expect(await drainable([rekeyed], alice, opener(legacy))).toEqual({ drain: [rekeyed], stamp: [], superseded: [] });
+  });
+
+  it("supersedes a proven unstamped edit when this account queued the same page since", async () => {
+    const oldMine = await save(`obj_${"e".repeat(26)}`, kept, "old mine");
+    const newer = { ...(await save(oldMine.id, kept, "newer", legacy, alice)), version: 2 };
+    expect(await drainable([oldMine, newer], alice, opener(legacy))).toEqual({ drain: [newer], stamp: [], superseded: [oldMine] });
+  });
+});
+
+describe("two accounts, one page, one browser", () => {
+  vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
+  const page = `obj_${"p".repeat(26)}`;
+  const theirs = (entries: PendingSave[]) => entries.filter((entry) => entry.owner === alice);
+
+  it("Bob's drain and discard never touch Alice's queued edit or cached draft", async () => {
+    const hers = await save(page, lost, "alice's", legacy, alice);
+    await queueSave({ ...hers, owner: alice });
+    await putNote(alice, hers);
+    const his = { ...(await save(page, lost, "bob's", legacyKeyRef("6b".repeat(32)), bob)), updatedAt: "2026-10-07T00:09:00Z" };
+    await queueSave({ ...his, owner: bob });
+    await putNote(bob, his);
+    expect(theirs(await pendingSaves())).toEqual([hers]);
+    // Bob's drain: only his entry, and its post-send clear removes only his.
+    const { drain } = await drainable(await pendingSaves(), bob, never);
+    expect(drain).toEqual([his]);
+    expect(await replaceQueuedSave(drain[0])).toBe(true);
+    expect(theirs(await pendingSaves())).toEqual([hers]);
+    // Bob's discard (Settings, notebook lost): only his own, and only his cached draft.
+    await queueSave({ ...his, owner: bob });
+    const unsent = await unsentEdits(await pendingSaves(), new Set([kept]), bob, never, never);
+    expect(unsent.owned).toEqual([his]);
+    for (const item of unsent.owned) if (await replaceQueuedSave(item)) await deleteNote(bob, item.id);
+    expect(await pendingSaves()).toEqual([hers]);
+    expect((await getNote(alice, page))?.payload).toEqual(hers.payload);
+    expect(await getNote(bob, page)).toBeUndefined();
   });
 });
 

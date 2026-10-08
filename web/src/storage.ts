@@ -9,14 +9,42 @@ export type CachedNote = { id: string; containerID: string; version: number; pay
 export type PendingSave = CachedNote & { owner?: string };
 export type PendingUpload = { uploadId: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
+/**
+ * The note cache and the save queue are keyed by [owner, id], so one account's entry for a page is
+ * never read, replaced or deleted by another account's. UNKNOWN is the owner of entries written
+ * before owners were recorded: nothing proves whose they are.
+ */
+const UNKNOWN = "";
+const OWNED = ["owner", "id"];
+const keyOf = (entry: { id: string; owner?: string }) => [entry.owner ?? UNKNOWN, entry.id];
+const toRow = <T extends { owner?: string }>(entry: T) => ({ ...entry, owner: entry.owner ?? UNKNOWN });
+function fromRow<T extends { owner?: string }>(row: T): T {
+  if (row.owner !== UNKNOWN) return row;
+  const { owner: _unknown, ...rest } = row;
+  return rest as T;
+}
+
+/** Version 5 re-keys the note cache and the save queue by [owner, id]; existing rows keep their owner or get UNKNOWN. */
+function ownerKeyed(db: IDBDatabase, upgrade: IDBTransaction, name: string) {
+  if (!db.objectStoreNames.contains(name)) { db.createObjectStore(name, { keyPath: OWNED }); return; }
+  if (Array.isArray(upgrade.objectStore(name).keyPath)) return;
+  const read = upgrade.objectStore(name).getAll();
+  read.onsuccess = () => {
+    db.deleteObjectStore(name);
+    const store = db.createObjectStore(name, { keyPath: OWNED });
+    for (const row of read.result as Array<{ owner?: string }>) store.put(toRow(row));
+  };
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 4);
+    const request = indexedDB.open(databaseName, 5);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(storeName)) request.result.createObjectStore(storeName, { keyPath: "id" });
-      if (!request.result.objectStoreNames.contains("pending")) request.result.createObjectStore("pending", { keyPath: "id" });
-      if (!request.result.objectStoreNames.contains("uploads")) request.result.createObjectStore("uploads", { keyPath: "uploadId" });
-      if (!request.result.objectStoreNames.contains("keys")) request.result.createObjectStore("keys", { keyPath: "username" });
+      const db = request.result;
+      ownerKeyed(db, request.transaction!, storeName);
+      ownerKeyed(db, request.transaction!, "pending");
+      if (!db.objectStoreNames.contains("uploads")) db.createObjectStore("uploads", { keyPath: "uploadId" });
+      if (!db.objectStoreNames.contains("keys")) db.createObjectStore("keys", { keyPath: "username" });
     };
     request.onsuccess = () => {
       const db = request.result;
@@ -27,7 +55,7 @@ function openDatabase(): Promise<IDBDatabase> {
         const transaction = db.transaction("pending", "readwrite");
         const store = transaction.objectStore("pending");
         for (const note of Object.values(queue)) {
-          store.put({ ...note, payload: Uint8Array.from(atob(note.payload), (char) => char.charCodeAt(0)) });
+          store.put(toRow({ ...note, payload: Uint8Array.from(atob(note.payload), (char) => char.charCodeAt(0)) }));
         }
         transaction.oncomplete = () => { localStorage.removeItem("kynotes-pending-saves"); resolve(db); };
         transaction.onerror = () => resolve(db);
@@ -37,34 +65,63 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function putNote(note: CachedNote): Promise<void> {
+export async function putNote(owner: string, note: CachedNote): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const request = db.transaction(storeName, "readwrite").objectStore(storeName).put(note);
+    const request = db.transaction(storeName, "readwrite").objectStore(storeName).put({ ...note, owner });
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
   });
   db.close();
 }
 
-export async function getNote(id: string): Promise<CachedNote | undefined> {
+async function getRow(key: string[]): Promise<CachedNote | undefined> {
   const db = await openDatabase();
-  const result = await new Promise<CachedNote | undefined>((resolve, reject) => {
-    const request = db.transaction(storeName).objectStore(storeName).get(id);
-    request.onsuccess = () => resolve(request.result as CachedNote | undefined); request.onerror = () => reject(request.error);
+  const row = await new Promise<(CachedNote & { owner: string }) | undefined>((resolve, reject) => {
+    const request = db.transaction(storeName).objectStore(storeName).get(key);
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
   });
-  db.close(); return result;
+  db.close();
+  if (!row) return undefined;
+  const { owner: _owner, ...note } = row;
+  return note;
 }
 
-export async function deleteNote(id: string): Promise<void> {
+/**
+ * owner's cached copy of id. Without one, a copy cached before owners were recorded is returned
+ * only when opensLegacy (this account's login-derived key) opens it, and is then claimed for owner;
+ * otherwise it is never read here.
+ */
+export async function getNote(owner: string, id: string, opensLegacy?: (note: CachedNote) => Promise<boolean>): Promise<CachedNote | undefined> {
+  const own = await getRow([owner, id]);
+  if (own || !opensLegacy || owner === UNKNOWN) return own;
+  const legacy = await getRow([UNKNOWN, id]);
+  if (!legacy || !(await opensLegacy(legacy).catch(() => false))) return undefined;
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const request = db.transaction(storeName, "readwrite").objectStore(storeName).delete(id);
+    const transaction = db.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const read = store.get([owner, id]);
+    read.onsuccess = () => {
+      if (!read.result) store.put({ ...legacy, owner });
+      store.delete([UNKNOWN, id]);
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
+  return legacy;
+}
+
+export async function deleteNote(owner: string, id: string): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction(storeName, "readwrite").objectStore(storeName).delete([owner, id]);
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
   });
   db.close();
 }
 
-export async function queueSave(note: PendingSave): Promise<void> {
+export async function queueSave(note: PendingSave & { owner: string }): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const request = db.transaction("pending", "readwrite").objectStore("pending").put(note);
@@ -73,43 +130,54 @@ export async function queueSave(note: PendingSave): Promise<void> {
   db.close();
 }
 
+/** Every account's queued saves; owner is absent on entries queued before owners were recorded. */
 export async function pendingSaves(): Promise<PendingSave[]> {
   const db = await openDatabase();
   const result = await new Promise<PendingSave[]>((resolve, reject) => {
     const request = db.transaction("pending").objectStore("pending").getAll();
-    request.onsuccess = () => resolve(request.result as PendingSave[]);
+    request.onsuccess = () => resolve((request.result as PendingSave[]).map(fromRow));
     request.onerror = () => reject(request.error);
   });
   db.close();
   return result;
 }
 
-export async function clearQueuedSave(id: string): Promise<void> {
+export async function clearQueuedSave(owner: string, id: string): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const request = db.transaction("pending", "readwrite").objectStore("pending").delete(id);
+    const request = db.transaction("pending", "readwrite").objectStore("pending").delete([owner, id]);
     request.onsuccess = () => resolve(); request.onerror = () => reject(request.error);
   });
   db.close();
 }
 
 /**
- * Replaces (or, with next undefined, deletes) the queued save for expected.id only while it is
- * still the entry the caller read: a save that replaced it meanwhile is never overwritten.
+ * Replaces (or, with next undefined, deletes) the queued save expected (its owner and id) only while
+ * it is still the entry the caller read: a save that replaced it meanwhile is never overwritten.
+ * A next with an owner claims an owner-unknown entry: it moves to that owner's key, unless the owner
+ * queued a save of the same page meanwhile, which then stays and the claim is refused.
  */
 export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
   const db = await openDatabase();
   const replaced = await new Promise<boolean>((resolve, reject) => {
     const transaction = db.transaction("pending", "readwrite");
     const store = transaction.objectStore("pending");
+    const from = keyOf(expected);
     let same = false;
-    const read = store.get(expected.id);
+    const read = store.get(from);
     read.onsuccess = () => {
       const current = read.result as PendingSave | undefined;
       same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration);
       if (!same) return;
-      if (next) store.put(next);
-      else store.delete(expected.id);
+      if (!next) { store.delete(from); return; }
+      const to = keyOf(next);
+      if (indexedDB.cmp(from, to) === 0) { store.put(toRow(next)); return; }
+      const taken = store.get(to);
+      taken.onsuccess = () => {
+        if (taken.result) { same = false; return; }
+        store.put(toRow(next));
+        store.delete(from);
+      };
     };
     transaction.oncomplete = () => resolve(same);
     transaction.onerror = () => reject(transaction.error);
