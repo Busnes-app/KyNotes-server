@@ -269,10 +269,11 @@ binds that challenge to the original local session and a SHA-256 digest of the
 method, exact request URI, Content-Type and body (at most 64 KiB), storing no body.
 Only one challenge may exist per session. Starting another action replaces an
 unstarted one; once the user has opened a challenge in KySignOn (started or
-verified, unexpired), a new action answers `409 step_up_pending` and leaves it
-alone, so a background write cannot cancel a confirmation in progress. An
+verified, unexpired), a new action answers `409 step_up_pending` carrying that `challenge` ID (another
+tab of the session may cancel it) and leaves it alone, so a background write cannot cancel a confirmation in progress. An
 abandoned started challenge blocks new ones until the browser cancels it or it
-expires. Pending challenges expire in five minutes. Minting a challenge uses a
+expires. Pending challenges expire in five minutes. Minting a challenge (checked after
+the pending refusal, which spends nothing) uses a
 per-account `challenge` bucket at `ratelimit.login_per_minute` (`429
 rate_limited` with `Retry-After`), which bounds the audit rows one account can write. The browser keeps the attempted
 request only in memory and opens a native confirmation dialog. Continue opens

@@ -68,15 +68,6 @@ func requireSSOStepUp(db *sql.DB, s Session, scope string, next http.Handler, w 
 		next.ServeHTTP(w, r)
 		return
 	}
-	if allow, ok := r.Context().Value(challengeLimitKey{}).(func(string) bool); ok && !allow(s.UserID) {
-		WriteAuthError(w, "rate_limited", "rate limit exceeded")
-		return
-	}
-	id, err := ids.Mint("rea")
-	if err != nil {
-		http.Error(w, "reauthentication unavailable", 500)
-		return
-	}
 	tx, err := db.BeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "reauthentication unavailable", 500)
@@ -85,13 +76,25 @@ func requireSSOStepUp(db *sql.DB, s Session, scope string, next http.Handler, w 
 	defer tx.Rollback()
 	now := time.Now().UTC()
 	// A confirmation the user has opened in KySignOn (started or verified) is never replaced: a
-	// background write must not cancel it. Only unstarted challenges give way to a newer action.
-	var pending int
-	err = tx.QueryRow(`SELECT count(*) FROM sso_stepup WHERE session_id=? AND started=1 AND expires_at>?`, s.ID, now.Unix()).Scan(&pending)
-	if err == nil && pending > 0 {
-		WriteAuthError(w, "step_up_pending", "finish or cancel the open KySignOn confirmation first")
+	// background write must not cancel it. The refusal names it so another tab can cancel it, and is
+	// checked before the rate limit so refused background writes spend none of the account's budget.
+	var pending string
+	err = tx.QueryRow(`SELECT id FROM sso_stepup WHERE session_id=? AND started=1 AND expires_at>?`, s.ID, now.Unix()).Scan(&pending)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(409)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "step_up_pending", "message": "finish or cancel the open KySignOn confirmation first", "challenge": pending}})
 		return
 	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "reauthentication unavailable", 500)
+		return
+	}
+	if allow, ok := r.Context().Value(challengeLimitKey{}).(func(string) bool); ok && !allow(s.UserID) {
+		WriteAuthError(w, "rate_limited", "rate limit exceeded")
+		return
+	}
+	id, err := ids.Mint("rea")
 	if err == nil {
 		_, err = tx.Exec(`DELETE FROM sso_stepup WHERE session_id=? OR expires_at<=?`, s.ID, now.Unix())
 	}

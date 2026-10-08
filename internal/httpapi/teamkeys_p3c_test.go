@@ -383,8 +383,12 @@ func TestBackgroundChallengeLeavesAStartedConfirmationAlone(t *testing.T) {
 	f, cookies := userReauthFixture(t)
 	id, callback := reauthStartAt(f, cookies, "bob", "/user-action", `{"x":1}`, nil)
 	// A background write while the user is in KySignOn: refused, the confirmation untouched.
-	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 409 || !strings.Contains(r.Body.String(), "step_up_pending") {
-		t.Fatal("background challenge during a confirmation", r.Code, r.Body.String())
+	r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`)
+	var pending struct {
+		Error struct{ Code, Challenge string }
+	}
+	if r.Code != 409 || json.Unmarshal(r.Body.Bytes(), &pending) != nil || pending.Error.Code != "step_up_pending" || pending.Error.Challenge != id {
+		t.Fatal("background challenge during a confirmation must name the pending one", r.Code, r.Body.String())
 	}
 	if res := f.send(callback); res.Code != 200 {
 		t.Fatal("confirmation lost to a background write", res.Code, res.Body.String())
@@ -397,5 +401,28 @@ func TestBackgroundChallengeLeavesAStartedConfirmationAlone(t *testing.T) {
 	}
 	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
 		t.Fatal("no new challenge after the grant was used", r.Code, r.Body.String())
+	}
+}
+
+func TestPendingRefusalSpendsNoChallengeBudget(t *testing.T) {
+	f, cookies := userReauthFixture(t)
+	cfg := config.Defaults()
+	cfg.RateLimit.LoginPerMinute = 2
+	f.router = rateLimitMiddleware(cfg, f.db, f.router)
+	id, callback := reauthStartAt(f, cookies, "bob", "/user-action", `{"x":1}`, nil) // one token
+	for i := 0; i < 5; i++ {
+		if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 409 {
+			t.Fatal("refused background write", i, r.Code, r.Body.String())
+		}
+	}
+	if res := f.send(callback); res.Code != 200 {
+		t.Fatal(res.Code, res.Body.String())
+	}
+	if r := reauthAction(f, cookies, id, "/user-action", `{"x":1}`); r.Code != 204 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	// The second token is still there: the refusals did not drain it.
+	if r := reauthAction(f, cookies, "", "/user-action", `{"x":2}`); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+		t.Fatal("pending refusals spent the challenge budget", r.Code, r.Body.String())
 	}
 }

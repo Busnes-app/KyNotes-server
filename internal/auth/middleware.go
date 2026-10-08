@@ -176,8 +176,6 @@ func WriteAuthError(w http.ResponseWriter, code, message string) {
 	switch code {
 	case "forbidden", "step_up_required":
 		status = http.StatusForbidden
-	case "step_up_pending":
-		status = http.StatusConflict
 	case "rate_limited":
 		status = http.StatusTooManyRequests
 	}

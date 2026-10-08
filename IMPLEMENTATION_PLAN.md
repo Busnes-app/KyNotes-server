@@ -343,7 +343,7 @@ user data.
 | `csrf_failed` | 403 | missing or mismatched CSRF token |
 | `step_up_required` | 403 | the route needs a local password step-up within `StepUpWindow` (or refuses an SSO session) |
 | `sso_step_up_required` | 403 | an SSO session must confirm this action with a fresh OIDC proof; carries `challenge` (`docs/SSO.md`) |
-| `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; a new challenge is not minted until it is used, cancelled or expires |
+| `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; carries its `challenge` ID; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
@@ -1300,6 +1300,7 @@ deliberately every phase).
 - `TestAdminKnownPasswordCannotActForDeviceOnlyIdentity`
 - `TestSSOChallengeCreationIsRateLimitedPerAccount`
 - `TestBackgroundChallengeLeavesAStartedConfirmationAlone`
+- `TestPendingRefusalSpendsNoChallengeBudget`
 - `TestIdentityGetNeverReturnsWrappedKey`
 - `TestWrappedIdentityOnlyInPasswordProofs`
 - `TestLoginIdentityErrorMintsNoSession`
