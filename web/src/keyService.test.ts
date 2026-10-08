@@ -128,6 +128,46 @@ describe("syncContainerKeys", () => {
     expect([...theirs.ring.keys()].sort()).toEqual([2, 4]);
   });
 
+  it("after a member's reset, one steward pass mints the retired generation and wraps the history", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { state, api } = server([owner, editor]);
+    const store = memoryStore();
+    await syncContainerKeys(api, cnt, as(owner), store, never);
+    // The editor resets: the server drops the old identity's envelopes and retires generation 2.
+    const id = generateIdentity();
+    const device = `dev_${"e".repeat(26)}`;
+    const reset: User = { member: editor.member, held: { ...id, deviceId: device }, public: { deviceId: device, publicKey: base64(id.publicKey), fingerprint: "" } as PublicIdentity };
+    state.members = [owner, reset];
+    state.envelopes = state.envelopes.filter((row) => row.deviceId !== editor.held!.deviceId);
+    state.generation += 1;
+    const pass = await syncContainerKeys(api, cnt, as(owner), store, () => true);
+    expect(pass.minted).toBe(true);
+    expect(api.rotate).toHaveBeenCalledTimes(2);
+    expect(api.putEnvelopes).toHaveBeenCalledTimes(1);
+    expect(state.envelopes.filter((row) => row.deviceId === device).map((row) => row.keyGeneration).sort()).toEqual([2, 4]);
+    expect(memberKeyStatus(pass.container, pass.members, pass.envelopes)[editor.member.userId]).toBe("has-key");
+    const theirs = await syncContainerKeys(api, cnt, as(reset), memoryStore(), never);
+    expect([...theirs.ring.keys()].sort()).toEqual([2, 4]);
+    expect(theirs.ring.get(2)).toEqual(pass.ring.get(2));
+  });
+
+  it("a mint's follow-up wrap is one write at most and never blocks the mint", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor"), newcomer = user("new", "d", "editor");
+    const { state, api } = server([owner, editor]);
+    const store = memoryStore();
+    await syncContainerKeys(api, cnt, as(owner), store, never);
+    state.members.push(newcomer);
+    state.generation += 1; // a removal and a newcomer at once
+    vi.mocked(api.putEnvelopes).mockRejectedValueOnce(new Error("offline"));
+    const pass = await syncContainerKeys(api, cnt, as(owner), store, never);
+    expect(pass.minted).toBe(true);
+    expect(api.putEnvelopes).toHaveBeenCalledTimes(1);
+    expect(state.envelopes.filter((row) => row.deviceId === newcomer.held!.deviceId).map((row) => row.keyGeneration)).toEqual([4]);
+    // The next pass wraps what is still missing.
+    await syncContainerKeys(api, cnt, as(owner), store, never);
+    expect(state.envelopes.filter((row) => row.deviceId === newcomer.held!.deviceId).map((row) => row.keyGeneration).sort()).toEqual([2, 4]);
+  });
+
   it("stops at a changed colleague key unless the user confirms it", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
     const { api } = server([owner, editor]);

@@ -643,8 +643,7 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   // No fingerprint dialog may appear now (unexpected dialogs fail the run): the sweep wraps for the new key.
   await openTeam(owner.page, TEAM, cid);
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
-  // That pass minted the generation the reset retired; the next one wraps the team's history for the new key.
-  await openTeam(owner.page, TEAM, cid);
+  // That one pass minted the generation the reset retired and wrapped the team's history for the new key.
   await openTeam(newcomer.page, TEAM, cid);
   await readPage(newcomer.page, "Owner page", ["owner comment"]);
   // The steward re-shared for the new key only: the old key is gone from the server and opens none of it.

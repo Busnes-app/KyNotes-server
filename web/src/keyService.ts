@@ -110,9 +110,9 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     };
     let deferred = false;
     // planSweep itself is idle for a caller who is not a steward with an identity.
-    const plan = (opened: OpenedKeyring): SweepPlan => {
+    const plan = (opened: OpenedKeyring, rows: Envelope[] = envelopes): SweepPlan => {
       if (!me) return { kind: "idle" };
-      const next = planSweep({ container, me: caller.userId, members, envelopes, ring: opened.ring, recoverable: caller.recoverable });
+      const next = planSweep({ container, me: caller.userId, members, envelopes: rows, ring: opened.ring, recoverable: caller.recoverable });
       const grants = next.kind === "wrap" ? next.grants.filter((grant) => !opened.conflicts.includes(grant.generation)) : [];
       const work: SweepPlan = next.kind !== "wrap" ? next : grants.length ? { kind: "wrap", grants } : { kind: "idle" };
       // A caller that may not wrap only reports the work; a refused first key writes nothing, so it is still explained.
@@ -198,6 +198,25 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     seen = [...envelopes, ...rows];
     if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
     const after = trusted(open(pins, seen, opened.ring));
+    // One more plan in the same pass, never more: a steward who mints also wraps the older
+    // generations members are missing (a reset member's team history). Its recipients were all
+    // sealed for by the mint, so it asks nothing new; a changed or unstored pin, or a failed
+    // write, leaves the wrap to the next pass. The mint stands either way.
+    const history = plan(after, seen);
+    if (history.kind === "wrap" && !comparePins(pins, targets(history)).changed.length) {
+      const before = fresh.length;
+      const wrapped = history.grants.map((grant) => seal(grant.member, grant.generation, after.ring.get(grant.generation)!));
+      const unstored = fresh.length > before ? pinFailure(await store.addFresh(pins)) : undefined;
+      if (!unstored) {
+        try {
+          await api.stepUp();
+          await api.putEnvelopes(container.id, wrapped);
+          seen = [...seen, ...wrapped];
+        } catch {
+          // The next pass re-reads the server and wraps what is still missing.
+        }
+      }
+    }
     return result({ ring: after.ring, plan: sweep, minted: true }, fresh, after);
   };
 
