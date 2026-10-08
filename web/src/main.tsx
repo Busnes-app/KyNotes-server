@@ -62,9 +62,10 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { copyableConflicts, keysAllowed, legacyRow, mergeFloor, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
-import { listAdminTeams, listContainers, newAdminTeam, newContainer, nextFloor, type FloorSink } from "./observe";
+import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
+import { listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
 import {
@@ -205,6 +206,7 @@ function App() {
       onAuthSecret={(authSecret) => setAuth((value) => value && { ...value, authSecret })}
       onLogout={() => {
         void logout().finally(() => {
+          clearFloors();
           setAuth(null);
           setSessionUser(null);
         });
@@ -212,6 +214,7 @@ function App() {
       onForgetDevice={() => {
         void clearDeviceKey(auth.username).then(() => {
           void logout().finally(() => {
+            clearFloors();
             setAuth(null);
             setSessionUser(null);
           });
@@ -635,18 +638,17 @@ function Workspace({
   // The sharing state this device has seen per team container (KeyState floor, persisted by the key
   // pass). Every key choice below goes through it, so a server cannot roll a shared notebook back to
   // the login key or an older generation. A team container whose floor is not loaded gets no key.
-  const floorsRef = useRef<Record<string, KeyFloor>>({});
-  const [, setFloors] = useState(floorsRef.current);
+  // The tab-wide store (floors.ts): subscribed for re-rendering, read by floorFor at decision time.
+  useFloors();
   // Add-only: a pass that raised the floor and then failed never leaves memory below storage.
-  const putFloor = (containerID: string, floor: KeyFloor) => { floorsRef.current = { ...floorsRef.current, [containerID]: mergeFloor(floorsRef.current[containerID], floor) }; setFloors(floorsRef.current); };
   // A thin lookup for every container, personal ones included: kind and teamId are server claims.
-  const floorFor = (container: Pick<Container, "id">): KeyFloor | undefined => floorsRef.current[container.id];
+  const floorFor = (container: Pick<Container, "id">): KeyFloor | undefined => floorOf(container.id);
   /** Loads this device's floor for a container before its first use (normally empty for a new one). */
   async function ensureFloor(container: Pick<Container, "id">): Promise<KeyFloor> {
     const known = floorFor(container);
     if (known) return known;
     const loaded = await pinStore.loadKeyState(container.id);
-    putFloor(container.id, loaded);
+    raiseFloorIn(container.id, loaded);
     return loaded;
   }
   /** A key pass is needed when the server or this device says shared; kind may only add a pass, never skip one. */
@@ -668,7 +670,7 @@ function Workspace({
   /** Takes a container's new generations into the open notebook without dropping its other fields. */
   const adoptGenerations = (next: Container) => setSelected((value) => (value?.id === next.id ? { ...value, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : value));
   // Read-only until a team owner shares this generation's key.
-  // putRing and putFloor set state with their refs, so this is recomputed when either changes.
+  // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
   const rollback = Boolean(selected && rolledBack(selected));
   /** keyWait at run time, for handlers: true (and says why) when nothing may change in the open notebook. */
@@ -726,12 +728,8 @@ function Workspace({
     loadKeyState: (containerID) => getKeyState(auth.username, auth.user.id, containerID),
     saveKeyState: (containerID, state) => storeKeyState(auth.username, auth.user.id, containerID, state),
   };
-  // Every server container read passes the observer (observe.ts), which raises these floors.
-  const floorSink: FloorSink = {
-    load: pinStore.loadKeyState,
-    save: pinStore.saveKeyState,
-    publish: (containerID, floor, loaded) => { const next = nextFloor(floorsRef.current[containerID], floor, loaded); if (next) putFloor(containerID, next); },
-  };
+  // Every server container read passes the observer (observe.ts), which raises the tab-wide floors.
+  const floorSink: FloorSink = { load: pinStore.loadKeyState, save: pinStore.saveKeyState };
   const fingerprintOf = (publicKey: string) => fingerprint(publicKey).catch(() => "unreadable key");
   // Pins are per user, so a decline covers every notebook; a different new key asks again.
   const declineID = (change: PinChange) => `${change.member.userId}:${change.member.identity?.publicKey ?? ""}`;
@@ -776,9 +774,9 @@ function Workspace({
     if (!needsKeyPass(container)) return container;
     return serialized(container.id, async () => {
       const confirmChanged = background ? () => false : confirmChangedKeys(container.id);
-      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id], putFloor);
+      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
       putRing(container.id, result.ring);
-      putFloor(container.id, result.known);
+      raiseFloorIn(container.id, result.known);
       let next = { ...container, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
       setItems((value) => value.map((entry) => (entry.id === next.id ? { ...entry, keyGeneration: next.keyGeneration, sharedGeneration: next.sharedGeneration } : entry)));
       let renamed = "";
@@ -1133,7 +1131,7 @@ function Workspace({
           let keyed: Container = item;
           // Team containers: this device's sharing floor first, so a server reporting "never shared" still gets the shared rules.
           const floor = await pinStore.loadKeyState(item.id);
-          putFloor(item.id, floor);
+          raiseFloorIn(item.id, floor);
           // Shared names need their keys. This pass only reads: it never steps up, wraps, rotates
           // or asks about a changed key. A steward's sharing waits until the notebook is opened.
           // ponytail: a full key pass per shared notebook on every list load (members, one identity
@@ -1141,9 +1139,9 @@ function Workspace({
           // and member identities for every container in one call.
           if (item.sharedGeneration > 0 || (floor.shared ?? 0) > 0) {
             const result = await serialized(item.id, async () => {
-              const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id], putFloor);
+              const pass = await syncContainerKeys(listed, item.id, { userId: auth.user.id, identity, canWrap: false }, pinStore, () => false, ringsRef.current[item.id], raiseFloorIn);
               putRing(item.id, pass.ring);
-              putFloor(item.id, pass.known);
+              raiseFloorIn(item.id, pass.known);
               return pass;
             });
             if (result.plan.kind !== "pins-unsaved" && result.fresh.length) unannounced.current[item.id] = [...(unannounced.current[item.id] ?? []), ...result.fresh];
@@ -2887,12 +2885,10 @@ function AdminUserActions({
 function AdminTeams({ users, authSecret, username, userID }: { users: AdminUser[]; authSecret: string; username: string; userID: string }) {
   // Admin pages hold no team keys: only names still under this account's legacy key are readable here.
   const legacy = legacyKeyRef(authSecret);
-  // This device's sharing floors for the listed teams (observe.ts); unknown means not named here.
-  const floors = useRef<Record<string, KeyFloor>>({});
+  // Observed team floors go to the tab-wide store (floors.ts) the workspace reads; unknown means not named here.
   const floorSink: FloorSink = {
     load: (containerID) => getKeyState(username, userID, containerID),
     save: (containerID, state) => storeKeyState(username, userID, containerID, state),
-    publish: (containerID, floor, loaded) => { const next = nextFloor(floors.current[containerID], floor, loaded); if (next) floors.current[containerID] = next; },
   };
   const [teams, setTeams] = useState<AdminTeam[]>([]);
   const [teamNames, setTeamNames] = useState<Record<string, string>>({});
@@ -2927,8 +2923,9 @@ function AdminTeams({ users, authSecret, username, userID }: { users: AdminUser[
    * login key. The generation sent lets the server refuse it if the team was shared meanwhile.
    */
   async function nameUnsharedTeam(entry: AdminTeam, name: string) {
-    if (!floors.current[entry.id]) throw new Error("This browser could not check whether this team is shared. Try again.");
-    if (entry.sharedGeneration || floors.current[entry.id].shared || entry.keyGeneration === undefined) throw new Error("Shared teams are renamed from the team notebook.");
+    const floor = floorOf(entry.id);
+    if (!floor) throw new Error("This browser could not check whether this team is shared. Try again.");
+    if (entry.sharedGeneration || floor.shared || entry.keyGeneration === undefined) throw new Error("Shared teams are renamed from the team notebook.");
     const encoded = base64(await encryptContainerMeta(legacy, entry.id, name));
     await updateContainer(entry.id, encoded, entry.metaVersion ?? 0, entry.keyGeneration);
   }
