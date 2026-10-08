@@ -61,6 +61,13 @@ jobs:
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
+      - name: Team keys in three real browsers
+        run: |
+          cd web
+          # The lockfile-pinned binary from npm ci, so no npm resolution at run time; it downloads
+          # the Chromium build pinned by @playwright/test from the Playwright CDN over TLS.
+          ./node_modules/.bin/playwright install --with-deps chromium
+          npm run e2e
       - run: go test -fuzz=FuzzParsePairingToken -fuzztime=150000x ./internal/auth
       - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=100000x ./internal/auth
       - run: go test -fuzz=FuzzParseID -fuzztime=6000000x ./internal/ids

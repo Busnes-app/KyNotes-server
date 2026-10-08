@@ -5,7 +5,7 @@ import { x25519 } from "@noble/curves/ed25519.js";
 import vectors from "../../testdata/protocol/envelope_vectors.json";
 import authVectors from "../../testdata/protocol/auth_vectors.json";
 import { deriveLoginKeys } from "./crypto";
-import { ENVELOPE_BYTES, envelopeAAD, generateIdentity, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
+import { ENVELOPE_BYTES, envelopeAAD, envelopeSender, generateIdentity, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
 
 const h = hexToBytes;
 
@@ -75,18 +75,20 @@ describe("Go cross-implementation vectors", () => {
 
   it("seals and opens envelopes exactly like Go", () => {
     for (const v of vectors.envelopes) {
-      const sealed = wrapEnvelopeForVector(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.ephemeralPrivateKey), h(v.nonce));
+      const sender = { deviceId: v.senderDeviceId, privateKey: h(v.senderPrivateKey) };
+      const sealed = wrapEnvelopeForVector(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, sender, h(v.ephemeralPrivateKey), h(v.nonce));
       expect(bytesToHex(sealed)).toBe(v.envelope);
       expect(sealed.length).toBe(ENVELOPE_BYTES);
-      expect(bytesToHex(unwrapEnvelope(h(v.envelope), h(v.recipientPrivateKey), v.containerId, v.keyGeneration, v.recipientDeviceId))).toBe(v.contentKey);
+      expect(envelopeSender(h(v.envelope))).toBe(v.senderDeviceId);
+      expect(bytesToHex(unwrapEnvelope(h(v.envelope), h(v.recipientPrivateKey), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.senderPublicKey)))).toBe(v.contentKey);
     }
   });
 });
 
 describe("binding", () => {
   const v = vectors.envelopes[0];
-  const open = (envelope: Uint8Array, container = v.containerId, generation = v.keyGeneration, device = v.recipientDeviceId) =>
-    unwrapEnvelope(envelope, h(v.recipientPrivateKey), container, generation, device);
+  const open = (envelope: Uint8Array, container = v.containerId, generation = v.keyGeneration, device = v.recipientDeviceId, sender: Uint8Array = h(v.senderPublicKey)) =>
+    unwrapEnvelope(envelope, h(v.recipientPrivateKey), container, generation, device, sender);
 
   it("refuses an envelope replayed into another container, generation or recipient", () => {
     expect(() => open(h(v.envelope), "cnt_00000000000000000000000001")).toThrow();
@@ -94,13 +96,37 @@ describe("binding", () => {
     expect(() => open(h(v.envelope), v.containerId, v.keyGeneration, "dev_00000000000000000000000001")).toThrow();
   });
 
-  it("refuses tampered, truncated or unknown-version envelopes", () => {
-    for (const at of [0, 1, 33, 45, 92]) {
+  it("authenticates the sender: another identity key, a relabelled sender or a zero shared secret fail", () => {
+    expect(() => open(h(v.envelope), v.containerId, v.keyGeneration, v.recipientDeviceId, generateIdentity().publicKey)).toThrow();
+    expect(() => open(h(v.envelope), v.containerId, v.keyGeneration, v.recipientDeviceId, new Uint8Array(32))).toThrow();
+    const relabelled = h(v.envelope);
+    relabelled.set(new TextEncoder().encode("dev_00000000000000000000000009"), 1);
+    expect(envelopeSender(relabelled)).toBe("dev_00000000000000000000000009");
+    expect(() => open(relabelled)).toThrow();
+  });
+
+  it("refuses an envelope sealed by anyone but the claimed sender, even for the right recipient", () => {
+    // Someone holding only the recipient's public key (a server) cannot impersonate the sender.
+    const forger = generateIdentity();
+    const forged = wrapEnvelope(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, { deviceId: v.senderDeviceId, privateKey: forger.privateKey });
+    expect(envelopeSender(forged)).toBe(v.senderDeviceId);
+    expect(() => open(forged)).toThrow();
+  });
+
+  it("refuses tampered, truncated, v1 or malformed-sender envelopes", () => {
+    for (const at of [0, 1, 30, 31, 62, 63, 75, ENVELOPE_BYTES - 1]) {
       const bad = h(v.envelope);
       bad[at] ^= 1;
       expect(() => open(bad)).toThrow();
     }
-    expect(() => open(h(v.envelope).subarray(0, 92))).toThrow();
+    expect(() => open(h(v.envelope).subarray(0, ENVELOPE_BYTES - 1))).toThrow();
+    const v1 = h(v.envelope);
+    v1[0] = 0x01;
+    expect(() => envelopeSender(v1)).toThrow();
+    const badSender = h(v.envelope);
+    badSender.set(new TextEncoder().encode("usr_"), 1);
+    expect(() => envelopeSender(badSender)).toThrow();
+    expect(() => open(badSender)).toThrow();
   });
 
   it("refuses an identity bound to another user or KEK", () => {
@@ -110,10 +136,12 @@ describe("binding", () => {
   });
 
   it("rejects malformed IDs and generations before building AAD", () => {
-    expect(() => envelopeAAD("cnt_x", 1, v.recipientDeviceId)).toThrow();
-    expect(() => envelopeAAD(v.containerId, 1, "usr_00000000000000000000000000")).toThrow();
-    expect(() => envelopeAAD(v.containerId, 0, v.recipientDeviceId)).toThrow();
-    expect(() => envelopeAAD(v.containerId, 2 ** 32, v.recipientDeviceId)).toThrow();
+    const s = v.senderDeviceId;
+    expect(() => envelopeAAD("cnt_x", 1, v.recipientDeviceId, s)).toThrow();
+    expect(() => envelopeAAD(v.containerId, 1, "usr_00000000000000000000000000", s)).toThrow();
+    expect(() => envelopeAAD(v.containerId, 1, v.recipientDeviceId, "dev_short")).toThrow();
+    expect(() => envelopeAAD(v.containerId, 0, v.recipientDeviceId, s)).toThrow();
+    expect(() => envelopeAAD(v.containerId, 2 ** 32, v.recipientDeviceId, s)).toThrow();
   });
 
   it("generates distinct random identities and envelopes", () => {
@@ -121,10 +149,11 @@ describe("binding", () => {
     const b = generateIdentity();
     expect(bytesToHex(a.privateKey)).not.toBe(bytesToHex(b.privateKey));
     const ck = new Uint8Array(32).fill(7);
-    const one = wrapEnvelope(ck, a.publicKey, v.containerId, 1, v.recipientDeviceId);
-    const two = wrapEnvelope(ck, a.publicKey, v.containerId, 1, v.recipientDeviceId);
+    const sender = { deviceId: v.senderDeviceId, privateKey: b.privateKey };
+    const one = wrapEnvelope(ck, a.publicKey, v.containerId, 1, v.recipientDeviceId, sender);
+    const two = wrapEnvelope(ck, a.publicKey, v.containerId, 1, v.recipientDeviceId, sender);
     expect(bytesToHex(one)).not.toBe(bytesToHex(two));
-    expect(bytesToHex(unwrapEnvelope(one, a.privateKey, v.containerId, 1, v.recipientDeviceId))).toBe(bytesToHex(ck));
+    expect(bytesToHex(unwrapEnvelope(one, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey))).toBe(bytesToHex(ck));
   });
 });
 

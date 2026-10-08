@@ -245,7 +245,7 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, int64(in.KeyGeneration))) {
+		if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, int64(in.KeyGeneration), r.Header.Get(keySchemeHeader))) {
 			return
 		}
 		body, e := base64.StdEncoding.DecodeString(in.BodyCiphertext)
@@ -256,7 +256,7 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 		id, _ := ids.Mint("cmt")
 		now := time.Now().UTC().Format(time.RFC3339)
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if e := checkWriteGate(tx, cid, s.UserID, int64(in.KeyGeneration)); e != nil {
+			if e := checkWriteGate(tx, cid, s.UserID, int64(in.KeyGeneration), r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
 			var seq int64

@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the three-browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -84,7 +84,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.
 - `web/` is the browser client; keep plaintext in browser memory only, send
-  CSRF headers on mutations, and run its `npm test` plus `npm run build` checks.
+  CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
+  shared container keys (`keyring.ts`).
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
   `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,
@@ -396,3 +397,79 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
   `TestInvitation*`, `TestCommentRewriteIsAuthorOnly`, `TestUserIdentityVisibility`,
   `TestOpenEnvelopeAgreesWithVectors` and the probe.
+- Team keys P3a (web): `web/src/keyring.ts` (pure: envelopes → generation keys, write key, exact-generation
+  read key, steward sweep plan), `web/src/keyService.ts` (one sweep against an injected API: mint via
+  rotation, backfill wraps, one retry on 409) and `web/src/pins.ts` (add-only TOFU pins in the vault
+  record, local fingerprints; trust rules in the next bullet). Trust prompts and key notices name people
+  only through `displayName(username, userId)`: one sanitized line, `<userId> · <name>`, ID first so a name
+  cannot pose as it, name capped at 64 characters. Reads: at or above `sharedGeneration`
+  only that generation's key, below it and personal the legacy key, malformed generation no key.
+  `main.tsx` reaches the login key only through
+  `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
+  keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty
+  objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0. The
+  drain uploads an entry only through `readyToSend` (`web/src/drain.ts`): as is only when sealed for the
+  current `writeKeyFor` generation and not a `legacyRow` under the floor, otherwise re-sealed from its own
+  generation's key first, or kept queued while no write key exists. Every container-key or login-key
+  ciphertext upload (object saves, attachment start/chunks/finalize, comments, container names) goes
+  through the `web/src/outbound.ts` gate, which re-checks the sealing generation against `floorOf` and
+  the workspace's `writeKeyFor` right before the request; pending attachments pass `attachmentStep`
+  (wait or reseal payload and metadata) before the first chunk, and `outbound.test.ts` fails if any other
+  module calls those API functions; queue
+  replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
+  (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
+  P4: `readKeys` and the label share that one decision (generation 0 included), and `api.ts`
+  `serverGeneration` turns malformed server generations into `undefined`. Labelled rows are re-sealed only
+  by an explicit edit or move of that row (`placePage`/`updateStructure` `explicit`, which report a
+  skip); block moves carrying a labelled subpage are refused (`movesLabelledSubpage`); legacy conflict
+  versions are never copied (`copyableConflicts`). The first mint re-seals the shown name and says so.
+  Rollback rule: `KeyState` also keeps the highest `shared`/`generation` the server reported (add-only,
+  persisted by `syncContainerKeys` before use); `writeKey`/`readKeys`/`legacyRow` require that floor and
+  `guardContainer` applies it, `main.tsx` passes it only through `floorFor`, a thin lookup for every
+  container (no loaded floor, no key; `ensureFloor` before first use; every server container read
+  passes the observer (`web/src/observe.ts`: list, current, create, admin team list/create), which
+  raises the stored and in-memory floor before the row is used, and `observe.test.ts` fails if
+  `main.tsx` imports a raw container fetcher; the in-memory floor is one tab-wide store
+  (`web/src/floors.ts`, add-only, cleared on sign-out) that every component and key decision reads at
+  decision time, with no per-component floor map; each raise is broadcast on the `kynotes-floors`
+  BroadcastChannel (`{containerID, shared, generation}`, numbers only) and other tabs merge it add-only
+  into a floor they already hold after validating the ID pattern and non-negative safe integers, and `syncContainerKeys` raises it through `onFloor` before any
+  envelope fetch and again the moment `rotate` succeeds; the post-mint ring opens from the accepted
+  rows, never a re-fetch, so a pass that later throws still pauses writes), and a lower report is plan
+  `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
+  `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
+  (`needsKeyPass`) but never skip one.
+  `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
+  pass then stops before upload (plan `untrusted`). A pass that stops on a pin it could not keep
+  (declined, unsaved or conflicting) re-opens against the stored pins (`persistedOnly`) and returns, and
+  saves key memory from, only that; if a first-contact pin is still unstored it returns only held keys
+  matching the stored digests and re-saves the prior key memory with the raised floor, so a refused
+  sender's key is never adopted or remembered and `keyStateSaved` reports that save.
+  Server: containers report `sharedGeneration`; shared containers refuse writes without
+  `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
+  and `baseVersion` in its transaction; conflict
+  listings report `keyGeneration`; envelope `PUT` backfills existing shared generations and never mints
+  (`putGenerationTx`). Verify `TestSharedContainerRefusesStaleClientWrites`,
+  `TestStewardBackfillsSharedHistoryOnly`, `TestSharedGenerationIsMintedOnlyByRotation`,
+  `TestContainersReportSharedGeneration`, `TestSharedNameNeedsCurrentGeneration`,
+  `TestConflictListingReportsKeyGeneration`, `TestConcurrentRenamesFromOneBaseOneWins`,
+  `TestMetaPatchRechecksInsideTheTransaction` and `npm test` (keyring, keyService, pins, crypto, storage,
+  passwordChange).
+  `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
+  Chromium contexts against `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, serves the
+  embedded bundle: build and sync `internal/web/dist` first). It checks server bytes: shared rows open
+  with the container key and not the writer's login key, a newcomer gets history, removal re-mints at once
+  (generation N+2 holds envelopes for the remaining members only, before anyone writes), and a
+  write without the key-scheme header gets 409. Every browser dialog must be expected by the test.
+  `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
+- Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
+  (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
+  owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,
+  below this device's vault high-water mark (`getKeyState`/`storeKeyState`, never from the server), an
+  identity already pinned here; the first key per generation wins, across reloads via stored key
+  digests (`conflicts`); pins are only added (`storePins` merges) or replaced with a
+  `PinConfirmation` (`storeConfirmedPin`);
+  `sealFor` pins first-seen recipients and throws `FingerprintChangedError` until
+  `confirmFingerprintChange`; `readKeys` opens rows at or above `sharedGeneration` only with their own
+  generation's CK. Callers persist returned pins with `storePins` and tell the user when it returns
+  false. Verify `npm test` (`keyring`, `pins`, `teamKeys` suites) and `go test ./internal/teamkeys`.

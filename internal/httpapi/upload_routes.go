@@ -267,7 +267,7 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return
 			}
-			if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, in.KeyGeneration)) {
+			if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader))) {
 				return
 			}
 			meta, decodeErr := base64.StdEncoding.DecodeString(in.MetadataCiphertext)
@@ -325,7 +325,7 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			_ = db.QueryRow(`SELECT finalized_digest FROM upload_sessions WHERE id=? AND user_id=? AND container_id=? AND kind='preview' AND status='finalized'`, in.PreviewUploadID, s.UserID, cid).Scan(&previewDigest)
 		}
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration); e != nil {
+			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now); e != nil {

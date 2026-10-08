@@ -64,10 +64,10 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		recordAudit(db, s.UserID, "admin.team.create", teamID, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": in.MetaCiphertext, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1})
+		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": in.MetaCiphertext, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
 	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
+		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation,shared_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -77,12 +77,12 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		for rows.Next() {
 			var id, kind, owner string
 			var meta []byte
-			var metaVersion, changeSeq, keyGeneration int64
-			if rows.Scan(&id, &kind, &owner, &meta, &metaVersion, &changeSeq, &keyGeneration) != nil {
+			var metaVersion, changeSeq, keyGeneration, sharedGeneration int64
+			if rows.Scan(&id, &kind, &owner, &meta, &metaVersion, &changeSeq, &keyGeneration, &sharedGeneration) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			out = append(out, map[string]any{"id": id, "kind": kind, "ownerUserId": owner, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": metaVersion, "changeSeq": changeSeq, "keyGeneration": keyGeneration})
+			out = append(out, map[string]any{"id": id, "kind": kind, "ownerUserId": owner, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": metaVersion, "changeSeq": changeSeq, "keyGeneration": keyGeneration, "sharedGeneration": sharedGeneration})
 		}
 		writeJSON(w, out)
 	})))

@@ -143,9 +143,15 @@ gate. No identity is created while someone other than the user knows the
 password (`users.password_admin_known`: admin create and reset, bootstrap,
 `user add`); the user's own password change or recovery clears the flag, and
 the browser then creates the identity under the new password. Envelopes are
-`0x01 | ephPub | nonce | ChaCha20-Poly1305(CK)` (93 bytes), bound by AAD to
-container, key generation and recipient (IDs in the AAD are fixed-length);
-`testdata/protocol/envelope_vectors.json` pins the bytes. A password change
+`0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
+keyed by both an ephemeral and the sender identity's X25519 agreement and bound
+by AAD to container, key generation, recipient and sender (IDs in the AAD are
+fixed-length); `testdata/protocol/envelope_vectors.json` pins the bytes. A
+browser accepts an envelope from its own identity, from a current owner or
+admin whose identity key matches its local trust-on-first-use pin, or, for
+history below the device's high-water mark, from an identity already pinned
+(see below), and reads rows at or above `shared_generation` only with that
+generation's key. A password change
 re-wraps the identity in the same transaction; recovery and administrator
 password resets delete it and write an audit row. SSO-only users have no
 password, hence no `userKEK` and no identity yet (open question).
@@ -165,6 +171,53 @@ device needs an envelope at the current generation, as before. Afterwards, the
 writer's own identity needs one. Both gates also need a live membership, and
 the write transaction checks them again. Object saves also recheck the writer's
 role there; comment and attachment writes recheck only the gate.
+
+The web client seals a team container's content with its container key once
+the container is shared. A row at or above `sharedGeneration` opens only with
+its own generation's key; rows below it, and personal containers, use the
+legacy login-derived key; a missing or malformed generation gets no key, so it
+fails closed. Rows below `sharedGeneration` are a known residual until P4: the
+server sees `authSecret`, so it can derive the legacy key and forge a row
+labelled below `sharedGeneration`. The client labels such rows "not end-to-end
+verified" and re-seals one under the container key only when the user edits or
+moves that row, never as a side effect of opening, autosave, another move or a
+conflict copy (legacy conflict versions are not copied). P4 migrates legacy rows
+and then refuses legacy reads in shared containers. The client never writes
+legacy ciphertext into a shared container. A member without the current key
+cannot change anything there: pages, sections, groups, moves, deletes, comments,
+attachments and conflict copies are disabled and their handlers refuse, so no
+empty object is created. Edits already in progress when the key went missing
+wait in the encrypted local queue at generation 0, are never uploaded at that
+generation, and are resealed under the current key when keys arrive; a
+password change in the same browser re-seals them for the new login key. Shared containers refuse content writes that lack the
+`X-Kynotes-Key-Scheme: shared-v1` header, so a page loaded before shared keys
+cannot write. A container meta `PATCH` on a shared container must carry
+`keyGeneration` equal to the current generation; a missing, zero, old or future
+value is refused inside the transaction with `409 already_exists`, so a stale
+tab cannot seal a name under a retired key. The same transaction checks the
+caller's live writer role and updates only at the request's `baseVersion`; a
+stale base is `409 version_conflict`, so concurrent renames never overwrite
+each other. Conflict listings report each
+copy's `keyGeneration`. Owners and admins mint keys only through rotation;
+envelope `PUT` may add a member to any shared generation that already has
+envelopes (history for newcomers) and never mints one. The first mint waits
+until every member has an identity. Envelopes are v2 and sender-authenticated:
+a browser accepts a key only from its own identity, from a current owner or
+admin whose identity matches its pin, or from a pinned identity for a
+generation below the device's high-water mark. The first key per generation
+wins, its SHA-256 is stored add-only on the device, and a different key for
+that generation is a refused conflict. Pins are trust-on-first-use and
+add-only: replacing one needs an explicit confirmation showing both
+fingerprints, and a decline is remembered for the session, per member and key.
+A pin write that conflicts with a pin another pass stored meanwhile writes
+nothing and stops that pass before any envelope is uploaded. Each device also
+keeps, add-only per container, the highest `sharedGeneration` and
+`keyGeneration` the server ever reported; key choices use the higher shared
+generation, and a lower report pauses writes ("The server reported an older key
+state for this notebook than this device has seen"), so a server cannot roll a
+shared notebook back to the login key or an older generation. This applies to
+every container: a server relabelling a seen-shared notebook as personal gets
+the same pause, because `kind` and `teamId` never decide keys.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks

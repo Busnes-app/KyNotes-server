@@ -142,79 +142,84 @@ async function decryptWithKey(keyBytes: Uint8Array, bytes: Uint8Array): Promise<
   return aes256GcmDecrypt(keyBytes, iv, ciphertextAndTag);
 }
 
-function deriveObjectKeyBytes(authSecret: string, containerID: string, info: string): Uint8Array {
-  const ikm = hexBytes(authSecret);
-  const salt = encoder.encode(containerID);
-  return hkdfSha256(ikm, 32, salt, encoder.encode(info));
+/** HKDF input for content subkeys: a container key (CK) or, for legacy rows, the login secret's bytes. */
+export type KeyRef = Uint8Array;
+
+/** The pre-team-keys content key input. Only legacy reads and personal notebooks use it. */
+export const legacyKeyRef = (authSecret: string): KeyRef => hexBytes(authSecret);
+
+function deriveObjectKeyBytes(key: KeyRef, containerID: string, info: string): Uint8Array {
+  if (key.length !== 32) throw new Error("invalid content key");
+  return hkdfSha256(key, 32, encoder.encode(containerID), encoder.encode(info));
 }
 
-export async function encryptContainerMeta(authSecret: string, containerID: string, name: string): Promise<Uint8Array> {
-  const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/container-meta/v1");
-  return encryptWithKey(key, encoder.encode(JSON.stringify({ name })));
+export async function encryptContainerMeta(key: KeyRef, containerID: string, name: string): Promise<Uint8Array> {
+  const subkey = deriveObjectKeyBytes(key, containerID, "kynotes/container-meta/v1");
+  return encryptWithKey(subkey, encoder.encode(JSON.stringify({ name })));
 }
 
-export async function decryptContainerMeta(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ name: string }> {
+export async function decryptContainerMeta(key: KeyRef, containerID: string, bytes: Uint8Array): Promise<{ name: string }> {
   if (bytes.byteLength < 13) throw new Error("Encrypted workspace metadata is too short");
-  const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/container-meta/v1");
-  const plaintext = await decryptWithKey(key, bytes);
+  const subkey = deriveObjectKeyBytes(key, containerID, "kynotes/container-meta/v1");
+  const plaintext = await decryptWithKey(subkey, bytes);
   const result = JSON.parse(decoder.decode(plaintext)) as { name?: unknown };
   if (typeof result.name !== "string") throw new Error("Invalid workspace metadata");
   return { name: result.name };
 }
 
-export const encryptComment = (authSecret: string, containerID: string, body: string, section = "") =>
-  encryptWithInfo(authSecret, containerID, "kynotes/comment/v1", { body, section });
+export const encryptComment = (key: KeyRef, containerID: string, body: string, section = "") =>
+  encryptWithInfo(key, containerID, "kynotes/comment/v1", { body, section });
 
-export async function decryptComment(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ body: string; section?: string }> {
-  return decryptWithInfo(authSecret, containerID, "kynotes/comment/v1", bytes) as Promise<{ body: string; section?: string }>;
+export async function decryptComment(key: KeyRef, containerID: string, bytes: Uint8Array): Promise<{ body: string; section?: string }> {
+  return decryptWithInfo(key, containerID, "kynotes/comment/v1", bytes) as Promise<{ body: string; section?: string }>;
 }
 
-export const encryptAttachmentMetadata = (authSecret: string, containerID: string, metadata: { name: string; type: string; size: number }) =>
-  encryptWithInfo(authSecret, containerID, "kynotes/attachment-meta/v1", metadata);
+export const encryptAttachmentMetadata = (key: KeyRef, containerID: string, metadata: { name: string; type: string; size: number }) =>
+  encryptWithInfo(key, containerID, "kynotes/attachment-meta/v1", metadata);
 
-export async function decryptAttachmentMetadata(authSecret: string, containerID: string, bytes: Uint8Array): Promise<{ name: string; type: string; size: number }> {
-  return decryptWithInfo(authSecret, containerID, "kynotes/attachment-meta/v1", bytes) as Promise<{ name: string; type: string; size: number }>;
+export async function decryptAttachmentMetadata(key: KeyRef, containerID: string, bytes: Uint8Array): Promise<{ name: string; type: string; size: number }> {
+  return decryptWithInfo(key, containerID, "kynotes/attachment-meta/v1", bytes) as Promise<{ name: string; type: string; size: number }>;
 }
 
-export async function encryptAttachment(authSecret: string, containerID: string, plaintext: Uint8Array): Promise<Uint8Array> {
-  const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/object/v1");
-  return encryptWithKey(key, plaintext);
+export async function encryptAttachment(key: KeyRef, containerID: string, plaintext: Uint8Array): Promise<Uint8Array> {
+  const subkey = deriveObjectKeyBytes(key, containerID, "kynotes/object/v1");
+  return encryptWithKey(subkey, plaintext);
 }
 
-export async function decryptAttachment(authSecret: string, containerID: string, bytes: Uint8Array): Promise<Uint8Array> {
-  const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/object/v1");
-  return decryptWithKey(key, bytes);
+export async function decryptAttachment(key: KeyRef, containerID: string, bytes: Uint8Array): Promise<Uint8Array> {
+  const subkey = deriveObjectKeyBytes(key, containerID, "kynotes/object/v1");
+  return decryptWithKey(subkey, bytes);
 }
 
-async function encryptWithInfo(authSecret: string, containerID: string, info: string, value: unknown): Promise<Uint8Array> {
-  const key = deriveObjectKeyBytes(authSecret, containerID, info);
-  return encryptWithKey(key, encoder.encode(JSON.stringify(value)));
+async function encryptWithInfo(key: KeyRef, containerID: string, info: string, value: unknown): Promise<Uint8Array> {
+  const subkey = deriveObjectKeyBytes(key, containerID, info);
+  return encryptWithKey(subkey, encoder.encode(JSON.stringify(value)));
 }
 
-async function decryptWithInfo(authSecret: string, containerID: string, info: string, bytes: Uint8Array): Promise<unknown> {
+async function decryptWithInfo(key: KeyRef, containerID: string, info: string, bytes: Uint8Array): Promise<unknown> {
   if (bytes.byteLength < 13) throw new Error("Encrypted data is too short");
-  const key = deriveObjectKeyBytes(authSecret, containerID, info);
-  const plaintext = await decryptWithKey(key, bytes);
+  const subkey = deriveObjectKeyBytes(key, containerID, info);
+  const plaintext = await decryptWithKey(subkey, bytes);
   return JSON.parse(decoder.decode(plaintext));
 }
 
 export type NotePayload = { title: string; body: string };
 
-export async function encryptNote(authSecret: string, containerID: string, note: NotePayload | ObjectPayload): Promise<Uint8Array> {
-  const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/object/v1");
-  return encryptWithKey(key, encoder.encode(JSON.stringify(note)));
+export async function encryptNote(key: KeyRef, containerID: string, note: NotePayload | ObjectPayload): Promise<Uint8Array> {
+  const subkey = deriveObjectKeyBytes(key, containerID, "kynotes/object/v1");
+  return encryptWithKey(subkey, encoder.encode(JSON.stringify(note)));
 }
 
-export async function decryptNote(authSecret: string, containerID: string, bytes: Uint8Array): Promise<NotePayload> {
+export async function decryptNote(key: KeyRef, containerID: string, bytes: Uint8Array): Promise<NotePayload> {
   if (bytes.byteLength < 13) throw new Error("Encrypted note is too short");
-  const key = deriveObjectKeyBytes(authSecret, containerID, "kynotes/object/v1");
-  const plaintext = await decryptWithKey(key, bytes);
+  const subkey = deriveObjectKeyBytes(key, containerID, "kynotes/object/v1");
+  const plaintext = await decryptWithKey(subkey, bytes);
   return JSON.parse(decoder.decode(plaintext)) as NotePayload;
 }
 
 /** Decrypts any object (page or section); undefined when the plaintext is not a valid payload. */
-export async function decryptObject(authSecret: string, containerID: string, bytes: Uint8Array): Promise<ObjectPayload | undefined> {
-  return parseObjectPayload(await decryptWithInfo(authSecret, containerID, "kynotes/object/v1", bytes));
+export async function decryptObject(key: KeyRef, containerID: string, bytes: Uint8Array): Promise<ObjectPayload | undefined> {
+  return parseObjectPayload(await decryptWithInfo(key, containerID, "kynotes/object/v1", bytes));
 }
 
 export async function encryptSharePayload(note: NotePayload): Promise<{ ciphertext: Uint8Array; key: string }> {

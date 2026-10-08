@@ -63,7 +63,9 @@ h2 { font-size: 23px; font-weight: 500; letter-spacing: -.05em; margin: 8px 0 0;
 .empty-glyph { font-size: 42px; color: #c59e59; }
 .empty-editor p { max-width: 300px; line-height: 1.6; }
 .toast { position: fixed; right: 22px; bottom: 22px; padding: 13px 16px; background: #fff4ed; border: 1px solid #e2aa95; color: #a84832; box-shadow: 4px 4px 0 #ead8c9; }
-@media (max-width: 800px) { .workspace { grid-template-columns: 1fr; } .sidebar, .note-list { border-right: 0; border-bottom: 1px solid #e6e0d4; } .sidebar { padding: 17px 18px; } .sidebar-bottom { display: none; } .nav-item { display: inline-flex; width: auto; margin-right: 4px; } .new-workspace { margin: 14px 0 0; } .note-list { padding: 20px 18px; max-height: 280px; overflow: auto; } .editor { min-height: 540px; padding: 28px 22px; } .topbar { padding: 0 18px; } .sync-dot { display: none; } }
+/* Both toasts at once: the error sits above the commit receipt instead of on it. */
+.commit-toast + .toast.error { bottom: 78px; }
+@media (max-width: 800px) { .workspace { grid-template-columns: 1fr; } .sidebar, .note-list { border-right: 0; border-bottom: 1px solid #e6e0d4; } .sidebar { padding: 17px 18px; } .sidebar-bottom { display: none; } .nav-item { display: inline-flex; width: auto; margin-right: 4px; } .new-workspace { margin: 14px 0 0; } .note-list { padding: 20px 18px; max-height: 55vh; overflow: auto; } .toast { left: 18px; right: 18px; } .editor { min-height: 540px; padding: 28px 22px; } .topbar { padding: 0 18px; } .sync-dot { display: none; } }
 
 /* KyPost-inspired tokenized settings surface. Theme values are selected in theme.ts. */
 :root { --bg: #f4efe5; --panel: #fffdf7; --ink: #716e63; --ink-strong: #25251f; --accent: #9a835b; --accent-soft: #eadfc9; --line: #ded8c9; --glow: rgba(154,131,91,.2); --sidebar-start: #f8f3e9; --sidebar-end: #eee5d4; --button-text: #fffdf7; }

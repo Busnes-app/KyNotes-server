@@ -156,7 +156,11 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return err
 			}
 			for _, v := range in.Envelopes {
-				if err := insertEnvelopeTx(tx, cid, generation, s.UserID, role, v, now.Format(time.RFC3339)); err != nil {
+				target, err := putGenerationTx(tx, cid, generation, v.KeyGeneration)
+				if err != nil {
+					return err
+				}
+				if err := insertEnvelopeTx(tx, cid, target, s.UserID, role, v, now.Format(time.RFC3339)); err != nil {
 					return err
 				}
 			}

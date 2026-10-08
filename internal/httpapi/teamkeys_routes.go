@@ -23,7 +23,14 @@ var (
 	errGenerationMoved       = errors.New("key generation changed")
 	errKeyRotationIncomplete = errors.New("key rotation incomplete")
 	errMembershipExists      = errors.New("membership exists")
+	errStaleClient           = errors.New("stale client")
+	errVersionConflict       = errors.New("version conflict")
 )
+
+// keySchemeHeader marks a write from a client that seals shared containers with
+// their container key. A shared container refuses writes without it, so a tab
+// loaded before team keys cannot store login-key ciphertext at a shared generation.
+const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v1"
 
 type envelopeIn struct {
 	DeviceID      string `json:"deviceId"`
@@ -58,6 +65,10 @@ func writeTeamKeyError(w http.ResponseWriter, r *http.Request, err error) bool {
 		WriteError(w, r, 409, "already_exists", "key generation changed")
 	case errors.Is(err, errKeyRotationIncomplete):
 		WriteError(w, r, 409, "already_exists", "key rotation incomplete")
+	case errors.Is(err, errVersionConflict):
+		WriteError(w, r, 409, "version_conflict", "base version is stale")
+	case errors.Is(err, errStaleClient):
+		WriteError(w, r, 409, "already_exists", "this notebook uses shared keys: reload the page")
 	default:
 		WriteError(w, r, 500, "internal", "internal server error")
 	}
@@ -124,6 +135,32 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 		return errEnvelopeExists
 	}
 	return nil
+}
+
+// putGenerationTx is the generation a PUT envelope targets. Legacy containers
+// (shared_generation=0) keep the current generation, as before. A shared
+// container accepts any generation from shared_generation to current that
+// already holds an envelope: stewards backfill history for newcomers, but a key
+// is minted only by key-rotations, never by PUT (no split generations).
+func putGenerationTx(tx *sql.Tx, cid string, current, requested int64) (int64, error) {
+	var shared int64
+	if err := tx.QueryRow(`SELECT shared_generation FROM containers WHERE id=?`, cid).Scan(&shared); err != nil {
+		return 0, err
+	}
+	if shared == 0 {
+		return current, nil
+	}
+	if requested < shared || requested > current {
+		return 0, errGenerationMoved
+	}
+	var held bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM key_envelopes WHERE container_id=? AND key_generation=?)`, cid, requested).Scan(&held); err != nil {
+		return 0, err
+	}
+	if !held {
+		return 0, errKeyRotationIncomplete
+	}
+	return requested, nil
 }
 
 // ownIdentityEnvelopeSQL is the shared save gate: the writer's own identity holds
@@ -237,7 +274,7 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 			if author != s.UserID || role == "viewer" {
 				return errInsufficientRole
 			}
-			if err := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration); err != nil {
+			if err := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); err != nil {
 				return err
 			}
 			now := time.Now().UTC().Format(time.RFC3339)
@@ -290,9 +327,10 @@ type rowQuerier interface {
 
 // checkWriteGate admits a content write by userID into cid at generation
 // requested. Containers that never rotated keep the legacy device rule; once
-// rotated, the writer's own identity needs an envelope at the current generation.
-// Call it before streaming a body and again inside the write transaction.
-func checkWriteGate(q rowQuerier, cid, userID string, requested int64) error {
+// rotated, the writer must send keySchemeShared and its own identity needs an
+// envelope at the current generation. Call it before streaming a body and again
+// inside the write transaction.
+func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
 	var generation, shared int64
 	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -300,6 +338,9 @@ func checkWriteGate(q rowQuerier, cid, userID string, requested int64) error {
 	}
 	if err != nil {
 		return err
+	}
+	if shared != 0 && scheme != keySchemeShared {
+		return errStaleClient
 	}
 	if requested != generation {
 		return errKeyRotationIncomplete

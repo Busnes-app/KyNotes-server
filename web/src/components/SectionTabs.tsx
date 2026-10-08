@@ -11,6 +11,8 @@ type Props = {
   path: Array<{ id: string | undefined; title: string }>; // notebook first, current group last
   current: string;
   busy: boolean;
+  /** Sections and groups written before the notebook was shared; labelled as not verified. */
+  unverified: ReadonlySet<string>;
   canCreateGroup: boolean;
   moveTargets: (kind: Kind, id: string) => Array<{ id: string; label: string }>;
   onSelect: (id: string) => void;
@@ -81,13 +83,14 @@ export function SectionTabs(props: Props) {
         className={`quiet ky-nav-item section-tab ${current === id ? "selected" : ""}`}
         aria-current={current === id ? "page" : undefined}
         style={{ "--tab-color": `var(--section-${color})` } as React.CSSProperties}
-        draggable={Boolean(section)}
+        draggable={Boolean(section) && !busy}
         onDragStart={(event) => event.dataTransfer.setData(SECTION_DRAG, id)}
         onDragOver={(event) => accept(event, [PAGE_DRAG, SECTION_DRAG])}
         onDrop={(event) => drop(event, id, index)}
         onClick={() => onSelect(id)}
       >
         {title || "Untitled section"}
+        {props.unverified.has(id) && <em title="Written before this notebook was shared; not end-to-end verified."> · not verified</em>}
       </button>
       {section && current === id && (
         <>
@@ -111,6 +114,7 @@ export function SectionTabs(props: Props) {
         onClick={() => props.onOpenGroup(group.id)}
       >
         <span aria-hidden="true">📁 </span>{group.title || "Untitled group"}
+        {props.unverified.has(group.id) && <em title="Written before this notebook was shared; not end-to-end verified."> · not verified</em>}
       </button>
       <button className="quiet section-tab-menu" style={{ anchorName: `--group-${group.id}` }} popoverTarget={`group-menu-${group.id}`} aria-label={`Group options for ${group.title || "Untitled group"}`}>⋯</button>
       {menu("group", group, index, groups.length, () => props.onDeleteGroup(group))}
@@ -137,8 +141,8 @@ export function SectionTabs(props: Props) {
       </ul>
       <button className="quiet section-add" disabled={busy} popoverTarget="section-add-menu" aria-label="New section or group">＋</button>
       <div className="section-menu section-add-menu" id="section-add-menu" popover="auto">
-        <button className="quiet" onClick={() => { close("section-add-menu"); props.onCreate("section"); }}>New section</button>
-        <button className="quiet" disabled={!props.canCreateGroup} onClick={() => { close("section-add-menu"); props.onCreate("group"); }}>New section group</button>
+        <button className="quiet" disabled={busy} onClick={() => { close("section-add-menu"); props.onCreate("section"); }}>New section</button>
+        <button className="quiet" disabled={busy || !props.canCreateGroup} onClick={() => { close("section-add-menu"); props.onCreate("group"); }}>New section group</button>
       </div>
     </nav>
   );
