@@ -134,6 +134,7 @@ import {
 import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
+import { drainable } from "./stuckEdits";
 import "./styles.css";
 import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
@@ -1556,7 +1557,8 @@ function Workspace({
     if (draining.current) return;
     draining.current = true;
     try {
-      const queued = await pendingSaves();
+      // Only this account's edits: another account's entry could be sent, misattributed, to a notebook both share.
+      const queued = await drainable(await pendingSaves(), auth.user.id, (item) => decryptObject(legacy, item.containerID, item.payload).then(() => true));
       if (!queued.length) return;
       setSyncStatus("syncing");
       let remaining = false;

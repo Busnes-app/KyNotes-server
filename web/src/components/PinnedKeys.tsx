@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { userIdentity } from "../api";
 import type { PublicIdentity } from "../identity";
 import { loadGate } from "../loadGate";
-import { confirmFingerprintChange, fingerprint, pinLabel, pinRows, retrustMessage, retrustTarget, type PinRow } from "../pins";
+import { confirmFingerprintChange, displayName, fingerprint, pinRows, retrustMessage, retrustTarget, type PinRow } from "../pins";
 import { getPins, storeConfirmedPin } from "../storage";
 
 type Shown = PinRow & { pinnedPrint: string; currentPrint?: string };
@@ -13,12 +13,13 @@ const print = (key: string) => fingerprint(key).catch(() => UNREADABLE);
  * Colleagues this browser pinned, with fingerprints computed here from the keys. A changed key is
  * re-trusted only after the user confirms the exact key shown, through confirmFingerprintChange and
  * storeConfirmedPin: the same path as the wrap prompt (spec §6). Pins are never deleted here.
- * names come from this session's key passes; a colleague not seen yet shows by user ID.
+ * names come from this session's key passes and are shown only through displayName.
  */
 export function PinnedKeys({ username, userID, names }: { username: string; userID: string; names: Record<string, string> }) {
   const [rows, setRows] = useState<Shown[] | undefined>(undefined);
   const [problem, setProblem] = useState("");
-  const nameOf = (row: Shown) => names[row.userId] ?? row.userId;
+  // Empty when no key pass has named this user yet: displayName then shows "(no name)" and the ID.
+  const nameOf = (row: Shown) => names[row.userId] ?? "";
   // The newest load wins: a slower earlier one, or one for the previous account, writes nothing.
   const loads = useMemo(loadGate, []);
   async function load() {
@@ -69,7 +70,7 @@ export function PinnedKeys({ username, userID, names }: { username: string; user
       {rows?.length === 0 && <p className="config-muted">No colleague keys yet. A key is saved the first time you share a team notebook with someone.</p>}
       {rows?.map((row) => (
         <div className="pin-row" key={row.userId}>
-          <strong>{pinLabel(row.userId, nameOf(row))}</strong>
+          <strong>{displayName(nameOf(row), row.userId)}</strong>
           <code>{row.pinnedPrint}</code>
           {row.state === "same" && <span className="config-muted">matches the server</span>}
           {row.state === "unseen" && <span className="config-muted">not visible now (no shared notebook, or no key yet)</span>}

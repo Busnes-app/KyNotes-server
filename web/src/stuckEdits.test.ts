@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
 import type { PendingSave } from "./storage";
-import { exportUnsent, stuckSaves, unsentEdits } from "./stuckEdits";
+import { drainable, exportUnsent, stuckSaves, unsentEdits } from "./stuckEdits";
 
 const lost = `cnt_${"a".repeat(26)}`, kept = `cnt_${"b".repeat(26)}`;
 const legacy = legacyKeyRef("5a".repeat(32));
@@ -35,5 +35,18 @@ describe("stuck edits", () => {
     const file = await exportUnsent(items, (item) => decryptObject(legacy, item.containerID, item.payload));
     expect(file.unreadable).toBe(1);
     expect(JSON.parse(file.json)).toEqual([{ id: items[0].id, notebook: lost, updatedAt: "2026-10-07T00:00:00Z", content: expect.objectContaining({ title: "gone" }) }]);
+  });
+});
+
+describe("drainable", () => {
+  it("sends only this account's edits: another account's never, an unstamped one only if this account's legacy key opens it", async () => {
+    const opens = (item: PendingSave) => decryptObject(legacy, item.containerID, item.payload).then(() => true);
+    // Both accounts may share this team notebook, so the server would accept either upload.
+    const mine = await save(`obj_${"c".repeat(26)}`, kept, "mine", legacy, alice);
+    const theirs = await save(`obj_${"d".repeat(26)}`, kept, "theirs", legacy, bob);
+    const oldMine = await save(`obj_${"e".repeat(26)}`, kept, "old mine");
+    const oldTheirs = await save(`obj_${"f".repeat(26)}`, kept, "old theirs", legacyKeyRef("6b".repeat(32)));
+    expect(await drainable([mine, theirs, oldMine, oldTheirs], alice, opens)).toEqual([mine, oldMine]);
+    expect(await drainable([mine, theirs, oldMine, oldTheirs], bob, () => Promise.resolve(false))).toEqual([theirs]);
   });
 });

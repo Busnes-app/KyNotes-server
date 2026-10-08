@@ -108,11 +108,8 @@ export function retrustTarget(userId: string, shown: string, fresh: PublicIdenti
   return { userId, username: userId, role: "", identity: { deviceId: fresh.deviceId, publicKey: fresh.publicKey } };
 }
 
-/** A user label that never rests on the server's display name alone. */
-export const pinLabel = (userId: string, name: string): string => (name === userId ? userId : `${name} (${userId})`);
-
 /** The confirmation text; both fingerprints are computed locally (fingerprint). */
 export function retrustMessage({ userId, name, newPrint, oldPrint }: { userId: string; name: string; newPrint: string; oldPrint: string }): string {
-  const who = pinLabel(userId, name);
-  return `Trust the new encryption key of ${who}?\n\nNew: ${newPrint}\nWas: ${oldPrint}\n\nA password reset or account recovery changes it; so would a server substituting its own key. The name comes from the server; the user ID and fingerprints are what you are trusting. Compare the new fingerprint with ${name} in person (their Settings shows it) before trusting it.`;
+  const who = displayName(name, userId);
+  return `Trust the new encryption key of ${who}?\n\nNew: ${newPrint}\nWas: ${oldPrint}\n\nA password reset or account recovery changes it; so would a server substituting its own key. The name comes from the server; the user ID and fingerprints are what you are trusting. Compare the new fingerprint with ${who} in person (their Settings shows it) before trusting it.`;
 }

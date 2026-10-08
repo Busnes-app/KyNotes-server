@@ -21,6 +21,19 @@ export async function unsentEdits(queued: PendingSave[], live: ReadonlySet<strin
   return { owned: stuck.filter((item) => item.owner === owner), unowned };
 }
 
+/**
+ * The queued edits this session may upload: stamped with owner, or unstamped and opened by
+ * opensLegacy (this account's login-derived key). Another account may share the notebook, so the
+ * server would accept its edit under this session, misattributed; those wait for their owner.
+ */
+export async function drainable(queued: PendingSave[], owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>): Promise<PendingSave[]> {
+  const out: PendingSave[] = [];
+  for (const item of queued) {
+    if (item.owner === owner || (item.owner === undefined && await opensLegacy(item).catch(() => false))) out.push(item);
+  }
+  return out;
+}
+
 /** A JSON export of the edits open() reads; the rest are counted, never guessed at. */
 export async function exportUnsent(items: PendingSave[], open: (item: PendingSave) => Promise<unknown>): Promise<{ json: string; unreadable: number }> {
   const out: Array<{ id: string; notebook: string; updatedAt: string; content: unknown }> = [];

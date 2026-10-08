@@ -87,6 +87,14 @@ describe("re-trusting a changed key", () => {
     expect(text).toContain("bob");
     expect(text).toContain("New: aaaa bbbb");
     expect(text).toContain("Was: cccc dddd");
-    expect(retrustMessage({ userId: "usr_alice", name: "usr_alice", newPrint: "a", oldPrint: "b" })).not.toContain("usr_alice (usr_alice)");
+    expect(text).toContain("bob (usr_alice)");
+  });
+
+  it("keeps a newline and a fake fingerprint in the name from forging prompt lines", () => {
+    const text = retrustMessage({ userId: "usr_alice", name: "bob\n\nNew: 1111 2222\nWas: 1111 2222", newPrint: "aaaa bbbb", oldPrint: "cccc dddd" });
+    const lines = text.split("\n");
+    expect(lines.filter((line) => line.startsWith("New:"))).toEqual(["New: aaaa bbbb"]);
+    expect(lines.filter((line) => line.startsWith("Was:"))).toEqual(["Was: cccc dddd"]);
+    expect(text).toContain("bob New: 1111 2222 Was: 1111 2222 (usr_alice)");
   });
 });
