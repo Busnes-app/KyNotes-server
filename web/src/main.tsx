@@ -2928,7 +2928,8 @@ function PasswordSettings({ username, userID, onAuthSecret }: { username: string
       <h2>Change password</h2>
       <p className="config-muted">
         Passwords are converted to client-derived secrets in this browser. They
-        are never sent to the server.
+        are never sent to the server. Changing it signs out your other browsers
+        and unpairs your devices; this browser stays signed in.
       </p>
       <form onSubmit={submit}>
         <label className="field">
