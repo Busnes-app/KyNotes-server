@@ -12,7 +12,7 @@
 
 Conventions follow `docs/superpowers/plans/2026-10-08-team-keys-p5.md`.
 
-**Evidence status:** this plan was **not** prototyped. The code blocks were written against `feat/admin-separation` at `c059649` (the P5 head). None was compiled or run, so each task's own test step is the first proof. If a block does not compile, fix the code and keep the test's assertions. These facts were checked by reading the tree:
+**Evidence status:** this plan was **not** prototyped. The code blocks were written against `c059649` and re-read against the final P5 head `93b2565` in the pre-flight (`.superpowers/sdd/2026-10-08-admin-separation/preflight.md`, amendments A1–A13). None was compiled or run, so each task's own test step is the first proof. If a block does not compile, fix the code and keep the test's assertions. These facts were checked by reading the tree:
 - Content routes use `auth.RequireSession`, `RequireEither`, `RequireDevice` or `RequireUserActionStepUp`, which wraps `RequireSession`. Admin routes use `RequireAdmin`/`RequireStepUp`, and `RequireStepUp` wraps `RequireAdmin`. The routes both kinds need also use `RequireSession` today: `GET /auth/session` (`handleSession`), `POST /auth/logout`, `/auth/logout-all`, `/auth/password` and `/auth/step-up` (`auth_routes.go`), and OIDC step-up `POST`, `GET {id}` and `DELETE {id}` (`sso_routes.go:139-151`).
 - `ResolveSession` (`internal/auth/session.go:107`) already joins `users`, so the kind and the change flag cost one more column each.
 - `WriteAuthError` maps codes to statuses in one `switch` (`middleware.go:165`). `forbidden` and `step_up_required` are 403, and the default is 401.
@@ -20,7 +20,12 @@ Conventions follow `docs/superpowers/plans/2026-10-08-team-keys-p5.md`.
 - Production paths that create administrators: `auth_routes.go` `/setup`, `internal/app/bootstrap.go`, `cmd/kynotes-server/main.go` `user add --admin`, `admin_routes.go` `POST /admin/users`, `apply_setup.go` `createSSOAdmin`/`grantAdmin`, `sso_directory.go` create and update.
 - `POST /admin/teams` inserts the caller's `owner` membership, so the Task 1 triggers break it until Task 1 changes it. That is why the owner change lands in Task 1.
 - `planSweep` (`web/src/keyring.ts:217`) wraps for every member with an identity. `MemberKey = Member & {identity?}`, and `Member = {userId, username, role}`.
-- `GET /containers/{id}/members` answers `map[string]string` (`collab_routes.go:28-43`).
+- `GET /containers/{id}/members` answers `map[string]string` (`collab_routes.go:28-50`), and since P5 `93b2565` adds `keyResetAt` to each row for a steward caller. `web/src/api.ts` `members` returns the rows as `Member[]` with no mapping.
+- P5 `763e9cc` `retireKeysTx` (`teamkeys_routes.go`) advances `key_generation` in every keyed container the resetting user is a live member of, at most 3 resets a day (`checkResetLimitTx`).
+- The server admin member add (`admin_routes.go:86`) accepts role `admin`, a steward role: a steward may invite, remove, rotate and wrap.
+- `logging.Logger` drops every attribute whose key is not in its allowlist (`internal/logging/logger.go:9`); a `remedy` attribute never reaches the log.
+- The web `PasswordSettings.submit` calls `rewrapIdentity`, whose first call is `GET /api/v1/me/identity` (`identity.ts:61`); `myIdentity` throws on anything but 200/404.
+- `RequireFresh` has no caller.
 - The e2e server is shared by every `*.e2e.ts` file in one run (`playwright.config.ts`, `workers: 1`, one `webServer`), and `/setup` can run only once per server.
 - Task 1 changes `POST /admin/teams` and the setup insert under the browser, so `npm run e2e` fails from Task 1 until Task 11 adapts it. `go test ./...` and `npm test` pass at the end of every task.
 - The probe signs in an everyday account created by `user add` without `--admin` (`.github/workflows/ci.yml:80`). It already treats a `409 password_change_required` at identity create as "take the password over" (`cmd/kynotes-probe/main.go:157`). Its first content call is `GET /me/identity`, and any non-200 answer falls through to that path.
@@ -31,7 +36,7 @@ Conventions follow `docs/superpowers/plans/2026-10-08-team-keys-p5.md`.
 
 | Item | Exact value |
 |---|---|
-| Migration | `internal/storage/migrations/0026_account_kinds.sql`: `users.account_kind TEXT NOT NULL DEFAULT 'user' CHECK(account_kind IN ('user','admin'))`; `memberships.approved INTEGER NOT NULL DEFAULT 1 CHECK(approved IN (0,1))`; the mixed-account step; triggers `users_account_kind_fixed`, `users_admin_role_insert`, `users_admin_role_update`, `memberships_everyday_only`, `containers_everyday_owner`, `devices_everyday_only` |
+| Migration | `internal/storage/migrations/0026_account_kinds.sql`: `users.account_kind TEXT NOT NULL DEFAULT 'user' CHECK(account_kind IN ('user','admin'))`; `memberships.approved INTEGER NOT NULL DEFAULT 1 CHECK(approved IN (0,1))`; the mixed-account step; triggers `users_account_kind_fixed`, `users_admin_role_insert`, `users_admin_role_update`, `memberships_everyday_only`, `memberships_everyday_only_update`, `containers_everyday_owner`, `containers_everyday_owner_update`, `devices_everyday_only`, `devices_everyday_only_update` (the content triggers fail closed: they raise unless an everyday account with that ID exists) |
 | Trigger messages | `account_kind_fixed`, `admin_role_needs_admin_account`, `admin_account_holds_no_content` |
 | Mixed account | `role='admin'` AND (a `memberships` row for the user, revoked included, OR a `user_identities` row OR a `containers` row with `owner_user_id` = the user) |
 | Audit | `account.kind_upgrade` (migration; reason `kind=admin` or `kind=user,admin_dropped=true`), `container.member_approve`, `auth.sso_admin_refused` (reason `admin_account_not_provisioned`, `admin_role_on_everyday_account` or `admin_role_required`) |
@@ -39,10 +44,11 @@ Conventions follow `docs/superpowers/plans/2026-10-08-team-keys-p5.md`.
 | New error codes | `403 admin_account` ("administrator accounts cannot open notes; sign in with your everyday account"); `403 admin_account_not_provisioned`; `403 admin_role_on_everyday_account`; `403 admin_role_required`; `409 account_kind_mismatch` |
 | Broadened code | `409 password_change_required` now answers every content and admin route for a password session while `password_admin_known=1` |
 | Account routes (`auth.RequireAccount`) | `GET /api/v1/auth/session`, `GET /api/auth/session`, `POST /api/v1/auth/logout`, `POST /api/auth/logout`, `POST /api/v1/auth/logout-all`, `POST /api/v1/auth/password`, `POST /api/v1/auth/step-up`, `POST /api/v1/auth/oidc/step-up`, `GET /api/v1/auth/oidc/step-up/{id}`, `DELETE /api/v1/auth/oidc/step-up/{id}` |
+| Fence-exempt content route (`auth.RequireEveryday`) | `GET /api/v1/me/identity` only: everyday accounts only (`403 admin_account`), but not fenced, because the forced change reads the live identity to re-add a stripped password copy (`rewrapIdentity`). It returns public fields only |
 | Session fields | `auth.Session.AccountKind string`, `auth.Session.PasswordChangeRequired bool` (`password_admin_known=1` and `SSOIssuer==""`) |
 | Response fields | login and `GET /auth/session`: `user.accountKind`, `passwordChangeRequired`; `GET /admin/users` rows: `accountKind`; `GET /containers/{id}/members` rows: `approved` (bool); `GET /admin/teams` rows: `id`, `ownerUserId`, `ownerUsername`, `memberCount`, `keyed`, `named` (no `metaCiphertext`); directory readback: `accountKind` |
-| Changed routes | `POST /api/v1/setup` `{"admin":{"username","authSecret","loginSalt","iterations"},"everyday":{…}}`; `POST /api/v1/admin/users` `{"username","authSecret","loginSalt","iterations","accountKind"}`; `POST /api/v1/admin/teams` `{"ownerUserId"}` + `auth.RequireStepUp`; `POST /api/v1/admin/teams/{id}/members` + `auth.RequireStepUp`, admits with `approved=0` |
-| New route | `POST /api/v1/containers/{id}/members/{userID}/approve`: everyday session, CSRF, caller owner/admin of team `id` → 204; audit `container.member_approve` |
+| Changed routes | `POST /api/v1/setup` `{"admin":{"username","authSecret","loginSalt","iterations"},"everyday":{…}}`; `POST /api/v1/admin/users` `{"username","authSecret","loginSalt","iterations","accountKind"}`; `POST /api/v1/admin/teams` `{"ownerUserId"}` + `auth.RequireStepUp`; `POST /api/v1/admin/teams/{id}/members` + `auth.RequireStepUp`, admits with `approved=0`, role `editor`, `commenter` or `viewer` only (`admin` is `400`: an unapproved steward could approve itself, rotate or wrap); `retireKeysTx` (P5 reset) retires only containers where the user's membership is approved |
+| New route | `POST /api/v1/containers/{id}/members/{userID}/approve`: everyday session, CSRF, caller an approved owner/admin of team `id` → 204; audit `container.member_approve` |
 | Web strings | `ADMIN_ACCOUNT_NOTE = "This is an administrator account. It manages KyNotes and cannot open notes. Sign in with your everyday account to write."`; `CHOOSE_PASSWORD = "An administrator set this account's password. Choose your own before you continue."`; `UNNAMED_TEAM = "An administrator created this team notebook for you. Name it so its members can find it."`; `approvalText(name)`: "<name> was added by an administrator. They get this notebook's keys only after you approve them."; buttons `Name notebook`, `Approve and share keys` |
 | Setup form labels | `Administrator username`, `Administrator password`, `Confirm administrator password`, `Everyday username`, `Everyday password`, `Confirm everyday password`; button `Initialize KyNotes` |
 | Unchanged (checked) | Envelope v2, pins, `openKeyring`, the save gate, rotation rules other than the approved filter, P5 recovery, D-P5-1/D-P5-2, the SSO step-up scopes, `revokeForRoleChange`, the last-active-admin retention (now admin accounts only) |
@@ -94,6 +100,7 @@ The safest option is picked and built for each. Details are in spec §12.
 2. Refusing sign-in for an everyday identity carrying `kynotes.admin` (built), against ignoring the claim.
 3. No administrator-visible team label (built), against a plaintext label.
 4. Mixed accounts drop the grant even when no administrator remains (built), against keeping one mixed administrator.
+5. Not built, raised by the pre-flight: an administrator can still take over an approved member that has no identity yet, by resetting its local password (or, holding the SSO settings, by pointing directory sync at its own HMAC secret and linking the unbound local account), and that account's first identity is pinned on first contact, so the sweep wraps for it. The spec §10 residual claimed "it reaches no existing key"; Task 10 corrects it. Options: accept (the person loses their own sign-in, which is visible), or step-up on `POST /admin/sso` and `/admin/sso/pair` plus a steward confirmation for any member's first identity.
 
 ## Review Focus (likely failure modes and their pinning tests)
 
@@ -102,6 +109,9 @@ The safest option is picked and built for each. Details are in spec §12.
 3. **The first-run person types the same password for both accounts, or the same username.** Setup must refuse it before anything is created. Pinned by `setup.test.ts` "refuses equal passwords and equal usernames" (Task 7) and `TestSetupCreatesBothAccounts` (`same username`, Task 3).
 4. **A temporary-password user reloads the tab mid-change.** The reload must land on the change screen again, not on the workspace. Pinned by the e2e step "a reload keeps the change screen" (Task 11) and `TestPasswordChangeIsForcedAtFirstSignIn` (`GET /auth/session` reports it, Task 2).
 5. **A steward removes and re-adds an approved member through the admin route.** Re-admission must reset approval. Pinned by `TestAdminAddedMembersWaitForApproval` (`readmitted`, Task 5).
+6. **An administrator adds an account it controls as a team `admin`.** An unapproved steward could approve itself, rotate in a key it knows, or wrap for others. The admin add refuses steward roles (`400`). Pinned by `TestAdminTeamAccessNeedsStepUpAndListsNoNames` (`steward role`, Task 4).
+7. **A temporary-password everyday user on the change screen.** The change reads `GET /me/identity` first; a fenced read would strand every administrator-created user on that screen. Pinned by `TestPasswordChangeIsForcedAtFirstSignIn` (`identity read`, Task 2) and e2e step 3.
+8. **An unapproved member resets its own key.** P5's `retireKeysTx` would retire the team's key three times a day for an account an administrator controls. Pinned by `TestAdminAddedMembersWaitForApproval` (`unapproved reset`, Task 5).
 
 ---
 
@@ -118,10 +128,10 @@ The safest option is picked and built for each. Details are in spec §12.
 | Fixture files listed in the evidence | Separate admin accounts (Task 1) |
 | `internal/auth/session.go`, `internal/auth/middleware.go` | Kinds, fence, `RequireAccount` (Task 2) |
 | `internal/auth/kinds_test.go` | New (Task 2) |
-| `internal/httpapi/auth_routes.go`, `sso_routes.go`, `device_routes.go` | Account routes on `RequireAccount`; register refuses admin tokens (Task 2); setup, login, session fields (Task 3) |
+| `internal/httpapi/auth_routes.go`, `sso_routes.go`, `device_routes.go`, `identity_routes.go` | Account routes on `RequireAccount`; `GET /me/identity` on `RequireEveryday`; register refuses admin tokens (Task 2); setup, login, session fields (Task 3) |
 | `internal/httpapi/account_kinds_test.go` | New: inventory, fence, setup (Tasks 2, 3) |
-| `internal/app/bootstrap.go`, `internal/app/*` start-up, `cmd/kynotes-server/main.go`, `cmd/kynotes-probe/main.go` | Kinds, `no_active_admin`, probe check (Task 3) |
-| `internal/httpapi/teamkeys_routes.go`, `collab_routes.go` | `admitMemberTx(approved)`, approve route, filters, `approved` in members (Task 5) |
+| `internal/app/bootstrap.go`, `internal/app/serve.go`, `cmd/kynotes-server/main.go`, `cmd/kynotes-probe/main.go` | Kinds, `no_active_admin`, probe check (Task 3) |
+| `internal/httpapi/teamkeys_routes.go`, `collab_routes.go`, `container_routes.go` | `admitMemberTx(approved)`, approve route, filters, `retireKeysTx` approved scope, `approved` in members, child copies (Task 5) |
 | `internal/httpapi/approval_test.go` | New (Task 5) |
 | `internal/httpapi/sso_routes.go`, `sso_directory.go`, `apply_setup.go`, `internal/applysetup/decide.go` | Kind rules (Task 6) |
 | `internal/httpapi/sso_kinds_test.go`, `internal/applysetup/decide_test.go` | New / extended (Task 6) |
@@ -139,6 +149,7 @@ The safest option is picked and built for each. Details are in spec §12.
 const KindEveryday, KindAdmin = "user", "admin"
 type Session struct { /* existing */ AccountKind string; PasswordChangeRequired bool }
 func RequireAccount(db *sql.DB, next http.Handler) http.Handler   // any live session, any kind, fence not applied
+func RequireEveryday(db *sql.DB, next http.Handler) http.Handler  // everyday kind, fence not applied: GET /me/identity only
 func RequireSession(db *sql.DB, next http.Handler) http.Handler   // everyday + fence
 func RequireEither(db *sql.DB, next http.Handler) http.Handler    // everyday device, or everyday session + fence
 func RequireAdmin(db *sql.DB, next http.Handler) http.Handler     // admin kind + fence + SessionRole=="admin"
@@ -243,6 +254,15 @@ func TestAccountKindsHoldTheirInvariants(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('mem_plain','cnt_plain','usr_plain','owner','now')`); err != nil {
 		t.Fatal("an everyday member must still be admitted", err)
 	}
+	if _, err := db.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES('dev_plain','usr_plain','k','fp','h','unknown','now')`); err != nil {
+		t.Fatal(err)
+	}
+	// A later ownership transfer or re-point must not move content onto an administrator account.
+	mustFail(t, db, "admin_account_holds_no_content", `UPDATE containers SET owner_user_id='usr_admin' WHERE id='cnt_plain'`)
+	mustFail(t, db, "admin_account_holds_no_content", `UPDATE memberships SET user_id='usr_admin' WHERE id='mem_plain'`)
+	mustFail(t, db, "admin_account_holds_no_content", `UPDATE devices SET user_id='usr_admin' WHERE id='dev_plain'`)
+	// Fail closed: an unknown account holds nothing either, even where foreign keys are off (openBefore's raw connection).
+	mustFail(t, db, "admin_account_holds_no_content", `INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_ghost','workbook','usr_ghost','now','now')`)
 	var approved int
 	if err := db.QueryRow(`SELECT approved FROM memberships WHERE id='mem_plain'`).Scan(&approved); err != nil || approved != 1 {
 		t.Fatal("memberships default to approved", approved, err)
@@ -389,15 +409,22 @@ CREATE TRIGGER users_admin_role_insert BEFORE INSERT ON users
  WHEN NEW.role='admin' AND NEW.account_kind<>'admin' BEGIN SELECT RAISE(ABORT,'admin_role_needs_admin_account'); END;
 CREATE TRIGGER users_admin_role_update BEFORE UPDATE OF role ON users
  WHEN NEW.role='admin' AND NEW.account_kind<>'admin' BEGIN SELECT RAISE(ABORT,'admin_role_needs_admin_account'); END;
+-- Content rows belong to an existing everyday account, on insert and on any later re-point.
 CREATE TRIGGER memberships_everyday_only BEFORE INSERT ON memberships
- WHEN (SELECT account_kind FROM users WHERE id=NEW.user_id)<>'user' BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+ WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+CREATE TRIGGER memberships_everyday_only_update BEFORE UPDATE OF user_id ON memberships
+ WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
 CREATE TRIGGER containers_everyday_owner BEFORE INSERT ON containers
- WHEN (SELECT account_kind FROM users WHERE id=NEW.owner_user_id)<>'user' BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+ WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.owner_user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+CREATE TRIGGER containers_everyday_owner_update BEFORE UPDATE OF owner_user_id ON containers
+ WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.owner_user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
 CREATE TRIGGER devices_everyday_only BEFORE INSERT ON devices
- WHEN (SELECT account_kind FROM users WHERE id=NEW.user_id)<>'user' BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+ WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+CREATE TRIGGER devices_everyday_only_update BEFORE UPDATE OF user_id ON devices
+ WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
 ```
 
-  `devices_everyday_only` covers identities too: an identity is a `devices` row with `platform='identity'`. The audit's `object_id` names the account, so the test reads it there.
+  `devices_everyday_only` covers identities too: an identity is a `devices` row with `platform='identity'`, inserted before its `user_identities` row in the same transaction. The audit's `object_id` names the account, so the test reads it there. The `NOT EXISTS` form fails closed: the earlier `(SELECT account_kind …)<>'user'` form is NULL, and silent, for an unknown ID. Before Step 4, `grep -rn "INSERT INTO \(containers\|memberships\|devices\)" internal cmd --include=*_test.go` and give any fixture that inserts for a user ID it never created a real user row.
 
 - [ ] **Step 4: Run the storage tests.** Run: `go test ./internal/storage -v`. Expected: the two new tests PASS. `TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin` FAILS, because `linked` owns `kept` and is now mixed, and its re-grant hits the trigger.
 
@@ -508,6 +535,7 @@ import (
 func TestAdminCreatesATeamForAnEverydayOwner(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	admin := p.addAdmin(t, "server-admin")
+	admin.stepUp(t) // Task 4 puts team creation behind the admin step-up
 	other := p.addAdmin(t, "other-admin")
 	create := func(body string) (int, string) {
 		return status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams", []byte(body), true, false))
@@ -661,13 +689,7 @@ func routeLiterals(t *testing.T) []string {
 
 var pathParam = regexp.MustCompile(`\{[^}]+\}`)
 
-func errorCode(body string) string {
-	var e struct {
-		Error struct{ Code string } `json:"error"`
-	}
-	_ = json.Unmarshal([]byte(body), &e)
-	return e.Error.Code
-}
+// errorCode(t, body) is teamkeys_p5_test.go's helper; a second definition here would not compile.
 
 // kindsServer is the full router, backup routes included (newPairClient mounts none), with an
 // everyday and an administrator account signed in.
@@ -713,7 +735,7 @@ func TestEveryRouteRefusesTheOtherKind(t *testing.T) {
 		}
 		res := caller.do(t, method, path, nil, true, false)
 		code, body := status(t, res)
-		if code != want || (method != http.MethodHead && errorCode(body) != wantCode) {
+		if code != want || (method != http.MethodHead && errorCode(t, body) != wantCode) {
 			t.Errorf("%s: %d %s, want %d %s (classify it in account_kinds_test.go if it is public or an account route)", route, code, body, want, wantCode)
 		}
 	}
@@ -737,6 +759,37 @@ func TestAccountRoutesServeBothKinds(t *testing.T) {
 	}
 }
 
+// Every Handle/HandleFunc whose pattern is not a string literal is invisible to routeLiterals.
+// Only these are allowed: their call sites pass literals, or they are HMAC/socket routes.
+var dynamicRoutes = map[string]bool{
+	"backup_routes.go:path":         true, // mutation("POST /api/v1/admin/backup/…") call sites are literals
+	"sso_directory.go:\"POST \"+path": true, // sync/events aliases: HMAC-authenticated, public by design
+	"apply_setup.go:\"POST /v1/\"+name": true, // admin Unix socket, not on the network router
+}
+
+func TestNoRouteHidesFromTheInventory(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A pattern built by concatenation, or held in a variable (checked with grep -P on 93b2565: exactly the three above).
+	call := regexp.MustCompile(`\.Handle(?:Func)?\(\s*("[^"]*"\s*\+[^,]*|[^"\s][^,]*),`)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range call.FindAllStringSubmatch(string(b), -1) {
+			if !dynamicRoutes[f+":"+strings.TrimSpace(m[1])] {
+				t.Errorf("%s registers %s: use a \"METHOD /path\" literal so TestEveryRouteRefusesTheOtherKind sees it, or list it here with a reason", f, m[1])
+			}
+		}
+	}
+}
+
 func TestPasswordChangeIsForcedAtFirstSignIn(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	admin := p.addAdmin(t, "server-admin")
@@ -749,8 +802,16 @@ func TestPasswordChangeIsForcedAtFirstSignIn(t *testing.T) {
 		c    *pairClient
 		path string
 	}{{p, "/api/v1/containers"}, {admin.pairClient, "/api/v1/admin/users"}} {
-		if code, body := status(t, tc.c.do(t, http.MethodGet, tc.path, nil, false, false)); code != http.StatusConflict || errorCode(body) != "password_change_required" {
+		if code, body := status(t, tc.c.do(t, http.MethodGet, tc.path, nil, false, false)); code != http.StatusConflict || errorCode(t, body) != "password_change_required" {
 			t.Fatalf("%s before the change=%d %s", tc.path, code, body)
+		}
+		// identity read: the change screen reads the live identity first (rewrapIdentity), so it is not fenced.
+		want := http.StatusNotFound
+		if tc.c == admin.pairClient {
+			want = http.StatusForbidden
+		}
+		if code, body := status(t, tc.c.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)); code != want {
+			t.Fatalf("identity read before the change=%d %s", code, body)
 		}
 		code, body := status(t, tc.c.do(t, http.MethodGet, "/api/v1/auth/session", nil, false, false))
 		var s struct {
@@ -772,7 +833,7 @@ func TestPasswordChangeIsForcedAtFirstSignIn(t *testing.T) {
 func TestAdminAccountsCannotPairDevices(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	admin := p.addAdmin(t, "server-admin")
-	if code, body := status(t, admin.do(t, http.MethodPost, "/api/v1/devices/pairing-token", nil, true, false)); code != http.StatusForbidden || errorCode(body) != "admin_account" {
+	if code, body := status(t, admin.do(t, http.MethodPost, "/api/v1/devices/pairing-token", nil, true, false)); code != http.StatusForbidden || errorCode(t, body) != "admin_account" {
 		t.Fatalf("mint=%d %s", code, body)
 	}
 	token, _, err := auth.MintPairingToken(strings.Repeat("p", 32), admin.id, time.Now())
@@ -785,9 +846,9 @@ func TestAdminAccountsCannotPairDevices(t *testing.T) {
 }
 ```
 
-  Imports for that file: `bytes`, `encoding/json`, `io`, `net/http`, `net/http/httptest`, `os`, `path/filepath`, `regexp`, `strings`, `testing`, `time`, and the packages `internal/auth`, `internal/backup`, `internal/blobstore`, `internal/config`, `internal/logging`, `internal/storage`. The dynamic `"POST "+path` registrations (`sync/events` aliases, HMAC-authenticated) do not match the literal pattern. They are public by design and covered by `TestDirectory*`.
+  Imports for that file: `bytes`, `encoding/json`, `io`, `net/http`, `net/http/httptest`, `os`, `path/filepath`, `regexp`, `strings`, `testing`, `time`, and the packages `internal/auth`, `internal/backup`, `internal/blobstore`, `internal/config`, `internal/logging`, `internal/storage`. The dynamic `"POST "+path` registrations (`sync/events` aliases, HMAC-authenticated) do not match the literal pattern. They are public by design and covered by `TestDirectory*`; `TestNoRouteHidesFromTheInventory` fails on any new non-literal registration, so the inventory cannot be bypassed by a variable pattern. `TestEveryRouteRefusesTheOtherKind` sends about 90 requests from one IP: if a route answers `429`, the per-IP bucket is too small for the sweep; raise that bucket in `kindsServer`'s `cfg.RateLimit`, never skip the route.
 
-- [ ] **Step 2: Run them and see them fail.** Run: `go test ./internal/httpapi -run 'TestEveryRoute|TestAccountRoutes|TestPasswordChangeIsForced|TestAdminAccountsCannotPair' -v`. Expected: FAIL. Admin sessions get 200/400/404 on content routes, there is no `passwordChangeRequired`, and the pairing-token mint answers 200.
+- [ ] **Step 2: Run them and see them fail.** Run: `go test ./internal/httpapi -run 'TestEveryRoute|TestNoRouteHides|TestAccountRoutes|TestPasswordChangeIsForced|TestAdminAccountsCannotPair' -v`. Expected: FAIL. Admin sessions get 200/400/404 on content routes, there is no `passwordChangeRequired`, and the pairing-token mint answers 200.
 
 - [ ] **Step 3: The session carries kind and fence.** In `internal/auth/session.go`, add to `Session` after `StepUpAt`:
 
@@ -832,6 +893,17 @@ func RequireAccount(db *sql.DB, next http.Handler) http.Handler {
 func RequireSession(db *sql.DB, next http.Handler) http.Handler {
 	return RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s, _ := SessionFromContext(r); refuseSession(w, s, KindEveryday) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// RequireEveryday admits an everyday session even while its password must change. Only
+// GET /api/v1/me/identity uses it: the change screen reads the live identity before the change.
+func RequireEveryday(db *sql.DB, next http.Handler) http.Handler {
+	return RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s, _ := SessionFromContext(r); refuseSession(w, Session{AccountKind: s.AccountKind}, KindEveryday) {
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -884,7 +956,7 @@ func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
 		}
 ```
 
-  In `resolveDevice`, add `AND u.account_kind='user'` to the `JOIN users u ON u.id=d.user_id` condition (write it as `JOIN users u ON u.id=d.user_id AND u.account_kind='user'`). In `WriteAuthError`, change the 403 case to `case "forbidden", "step_up_required", "admin_account":` and add `case "password_change_required": status = http.StatusConflict`. Delete `RequireFresh` if `grep -rn RequireFresh internal cmd` finds no caller; otherwise leave it, since it wraps `RequireSession` and inherits the rules.
+  In `resolveDevice`, add `AND u.account_kind='user'` to the `JOIN users u ON u.id=d.user_id` condition (write it as `JOIN users u ON u.id=d.user_id AND u.account_kind='user'`). In `WriteAuthError`, change the 403 case to `case "forbidden", "step_up_required", "admin_account":` and add `case "password_change_required": status = http.StatusConflict`. Delete `RequireFresh`: it has no caller (checked on `93b2565`).
 
 - [ ] **Step 5: Unit tests for the auth package.** Create `internal/auth/kinds_test.go`:
 
@@ -921,7 +993,7 @@ func TestRefuseSessionKeepsKindsApart(t *testing.T) {
 
   A session with an empty kind (a code path that forgot to load it) must fail closed. The third case also pins that the kind check runs before the fence.
 
-- [ ] **Step 6: Account routes take `RequireAccount`.** In `internal/httpapi/auth_routes.go`, change `auth.RequireSession` to `auth.RequireAccount` for `handleSession`, `handleLogout`, `POST /api/v1/auth/password`, `POST /api/v1/auth/logout-all` and `POST /api/v1/auth/step-up`. In `handleSession`, add `"accountKind": s.AccountKind` inside the `user` map, and `"passwordChangeRequired": s.PasswordChangeRequired` at the top level. In `internal/httpapi/sso_routes.go`, do the same for the three OIDC step-up routes (lines 139, 140 and 151).
+- [ ] **Step 6: Account routes take `RequireAccount`.** In `internal/httpapi/auth_routes.go`, change `auth.RequireSession` to `auth.RequireAccount` for `handleSession`, `handleLogout`, `POST /api/v1/auth/password`, `POST /api/v1/auth/logout-all` and `POST /api/v1/auth/step-up`. In `handleSession`, add `"accountKind": s.AccountKind` inside the `user` map, and `"passwordChangeRequired": s.PasswordChangeRequired` at the top level. In `internal/httpapi/sso_routes.go`, do the same for the three OIDC step-up routes (lines 139, 140 and 151). In `internal/httpapi/identity_routes.go:126`, change `GET /api/v1/me/identity` from `auth.RequireSession` to `auth.RequireEveryday`: it returns public fields only, and without it `ChoosePassword` (Task 7) fails on every temporary password, because `rewrapIdentity` reads it before the change and `myIdentity` throws on `409`. The identity writes and the recovery-copy routes keep `RequireUserActionStepUp`, so they stay fenced.
 
 - [ ] **Step 7: Registration refuses an admin account's token.** In `device_routes.go`, after `userID = claim.Sub`:
 
@@ -933,9 +1005,9 @@ func TestRefuseSessionKeepsKindsApart(t *testing.T) {
 		}
 ```
 
-- [ ] **Step 8: Run the tests.** Run: `go test ./internal/auth ./internal/httpapi -v -run 'TestRefuseSession|TestEveryRoute|TestAccountRoutes|TestPasswordChangeIsForced|TestAdminAccountsCannotPair'`. Expected: PASS. If `TestEveryRouteRefusesTheOtherKind` names a route, decide its class from spec §2. A public or account route goes in the test's map, and the reason goes in the commit message. A content or admin route gets fixed middleware. Then run `go test -race ./...`. Every older test that signed in a flagged account (`password_admin_known=1`) and then used a content route now gets 409. For each one, either change the password first, the way `TestPasswordChangeIsForcedAtFirstSignIn` does, or, when the test is about the P5 identity fence itself, assert the 409 instead. Keep its intent. Expected after that: PASS.
+- [ ] **Step 8: Run the tests.** Run: `go test ./internal/auth ./internal/httpapi -v -run 'TestRefuseSession|TestEveryRoute|TestNoRouteHides|TestAccountRoutes|TestPasswordChangeIsForced|TestAdminAccountsCannotPair'`. Expected: PASS. If `TestEveryRouteRefusesTheOtherKind` names a route, decide its class from spec §2. A public or account route goes in the test's map, and the reason goes in the commit message. A content or admin route gets fixed middleware. Then run `go test -race ./...`. Every older test that signed in a flagged account (`password_admin_known=1`) and then used a content route now gets 409. For each one, either change the password first, the way `TestPasswordChangeIsForcedAtFirstSignIn` does, or, when the test is about the P5 identity fence itself, assert the 409 instead. Keep its intent. Expected after that: PASS.
 
-- [ ] **Step 9: Frozen contracts.** In `IMPLEMENTATION_PLAN.md` §1.7, add rows: `| admin_account | 403 | an administrator account reached a content route |` and change the `password_change_required` row text to "a password session on a password someone else set reached any route other than session, logout, logout-all, password change or step-up; P5's identity fence still applies inside identity actions". In §1.8, add a row `| Account (session, logout, logout-all, password, step-up, OIDC step-up) | required, either kind | rejected | — |`, and change the Admin row's Session cell to "required, an admin account with role `admin`". Add a sentence under the table: "Content route classes admit everyday accounts only (`403 admin_account`); admin routes admit admin accounts only." In §4.3, add `RequireAccount` and update the `RequireSession`, `RequireEither`, `RequireDevice` and `RequireAdmin` bullets to say the same.
+- [ ] **Step 9: Frozen contracts.** In `IMPLEMENTATION_PLAN.md` §1.7, add rows: `| admin_account | 403 | an administrator account reached a content route |` and change the `password_change_required` row text to "a password session on a password someone else set reached any route other than session, logout, logout-all, password change, step-up or `GET /me/identity`; P5's identity fence still applies inside identity actions". In §1.8, add a row `| Account (session, logout, logout-all, password, step-up, OIDC step-up) | required, either kind | rejected | — |`, and change the Admin row's Session cell to "required, an admin account with role `admin`". Add a sentence under the table: "Content route classes admit everyday accounts only (`403 admin_account`); admin routes admit admin accounts only." In §4.3, add `RequireAccount` and `RequireEveryday` (only `GET /me/identity`), and update the `RequireSession`, `RequireEither`, `RequireDevice` and `RequireAdmin` bullets to say the same.
 
 - [ ] **Step 10: Commit.**
 
@@ -1139,12 +1211,13 @@ func WarnWithoutAdmin(db *sql.DB, log *logging.Logger) bool {
 	if db.QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE account_kind='admin' AND role='admin' AND status='active') FROM users`).Scan(&users, &admins) != nil || users == 0 || admins > 0 {
 		return false
 	}
-	log.Warn("no_active_admin", "remedy", "kynotes-server user add --admin --username <name>")
+	// The remedy is in the message: the logger drops every attribute key outside its allowlist.
+	log.Warn("no_active_admin: no active administrator account; create one with kynotes-server user add --admin --username <name>", "event", "no_active_admin")
 	return true
 }
 ```
 
-  Call it right after `EnsureBootstrapAdmin` wherever the server starts (`grep -n EnsureBootstrapAdmin internal/app cmd`). Check the `logging.Logger` method name with `grep -n 'func (l \*Logger)' internal/logging`, and use its warn-level method. Add `internal/app/bootstrap_test.go` with `TestWarnWithoutAdmin`. It opens a store and inserts one everyday user, expects `true`, then inserts an active admin account (`role='admin', account_kind='admin'`) and expects `false`. A fresh store with no users expects `false`. Use `logging.New(io.Discard, "info", "json")`.
+  Call it in `internal/app/serve.go` right after `EnsureBootstrapAdmin` (line 38); `logging.Logger` embeds `*slog.Logger`, so `log.Warn` exists. The bootstrap-only branch in `cmd/kynotes-server/main.go:101` exits without serving and needs no call. Add `internal/app/bootstrap_test.go` with `TestWarnWithoutAdmin`. It opens a store and inserts one everyday user, expects `true` and a log line (written to a `bytes.Buffer` through `logging.New(&buf, "info", "json")`) that contains `user add --admin`, then inserts an active admin account (`role='admin', account_kind='admin'`) and expects `false`. A fresh store with no users expects `false`.
 
 - [ ] **Step 6: CLI text and probe.** In `cmd/kynotes-server/main.go`, change the `user add` usage to `"usage: user add --username <name> [--password <pass>] [--admin]  (--admin creates an administrator account, which cannot open notes)"`. In `cmd/kynotes-probe/main.go` `login()`, add `AccountKind string \`json:"accountKind"\`` to the decoded `User`. After `p.userID = session.User.ID`, add:
 
@@ -1206,7 +1279,7 @@ func TestAdminUserRoutesKeepKindsApart(t *testing.T) {
 	patch := func(id, role string) (int, string) {
 		return status(t, admin.do(t, http.MethodPatch, "/api/v1/admin/users/"+id, []byte(`{"role":`+quote(role)+`,"status":"active","quotaBytes":0}`), true, false))
 	}
-	if code, out := patch(alice, "admin"); code != http.StatusConflict || errorCode(out) != "account_kind_mismatch" {
+	if code, out := patch(alice, "admin"); code != http.StatusConflict || errorCode(t, out) != "account_kind_mismatch" {
 		t.Fatalf("promote everyday=%d %s", code, out)
 	}
 	code, out := status(t, admin.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false))
@@ -1221,7 +1294,7 @@ func TestAdminTeamAccessNeedsStepUpAndListsNoNames(t *testing.T) {
 	other := p.addAdmin(t, "other-admin")
 	editor := p.addUser(t, "editor")
 	body := []byte(`{"ownerUserId":` + quote(pairUser) + `}`)
-	if code, out := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams", body, true, false)); code != http.StatusForbidden || errorCode(out) != "step_up_required" {
+	if code, out := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams", body, true, false)); code != http.StatusForbidden || errorCode(t, out) != "step_up_required" {
 		t.Fatalf("create without step-up=%d %s", code, out)
 	}
 	admin.stepUp(t)
@@ -1233,11 +1306,17 @@ func TestAdminTeamAccessNeedsStepUpAndListsNoNames(t *testing.T) {
 	add := func(c *pairClient, user string) (int, string) {
 		return status(t, c.do(t, http.MethodPost, "/api/v1/admin/teams/"+team.ID+"/members", []byte(`{"userId":`+quote(user)+`,"role":"editor"}`), true, false))
 	}
-	if code, out := add(other.pairClient, editor.id); code != http.StatusForbidden || errorCode(out) != "step_up_required" {
+	if code, out := add(other.pairClient, editor.id); code != http.StatusForbidden || errorCode(t, out) != "step_up_required" {
 		t.Fatalf("add without step-up=%d %s", code, out)
 	}
 	if code, out := add(admin.pairClient, other.id); code != http.StatusNotFound {
 		t.Fatalf("add an admin account=%d %s", code, out)
+	}
+	// steward role: an unapproved team admin could approve itself, rotate in a key it knows, or wrap.
+	for _, role := range []string{"admin", "owner"} {
+		if code, out := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+team.ID+"/members", []byte(`{"userId":`+quote(editor.id)+`,"role":`+quote(role)+`}`), true, false)); code != http.StatusBadRequest {
+			t.Fatalf("add as %s=%d %s", role, code, out)
+		}
 	}
 	if code, out := add(admin.pairClient, editor.id); code != http.StatusNoContent {
 		t.Fatalf("add=%d %s", code, out)
@@ -1275,7 +1354,7 @@ func TestAdminTeamAccessNeedsStepUpAndListsNoNames(t *testing.T) {
 
   In `GET /admin/users`, select `account_kind` and add `"accountKind": kind` to each row.
 
-- [ ] **Step 4: Teams.** Change `POST /api/v1/admin/teams` and `POST /api/v1/admin/teams/{id}/members` from `auth.RequireAdmin` to `auth.RequireStepUp`. In the member add's existence query, change `AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')` to `AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND account_kind='user')`. Replace `GET /api/v1/admin/teams` with:
+- [ ] **Step 4: Teams.** Change `POST /api/v1/admin/teams` and `POST /api/v1/admin/teams/{id}/members` from `auth.RequireAdmin` to `auth.RequireStepUp`. In the member add's existence query, change `AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')` to `AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND account_kind='user')`. In its input check, drop `in.Role != "admin" &&`: the administrator adds `editor`, `commenter` or `viewer` only. A steward role on an unapproved member would let the account approve itself (Task 5), invite, remove members, or rotate in a key it generated, which every member's next write would use. Only a steward's invitation makes a team admin. Replace `GET /api/v1/admin/teams` with:
 
 ```go
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1310,7 +1389,7 @@ func TestAdminTeamAccessNeedsStepUpAndListsNoNames(t *testing.T) {
 
 - [ ] **Step 5: Run.** Run: `go test -race ./internal/httpapi`. Expected: PASS. Tests that added members through the admin route without a step-up now get `403 step_up_required`; add `admin.stepUp(t)` before them.
 
-- [ ] **Step 6: Frozen contracts.** Update the `IMPLEMENTATION_PLAN.md` rows for `POST /admin/users`, `PATCH /admin/users/{id}`, `GET /admin/users`, `GET /admin/teams`, `POST /admin/teams` (step-up) and `POST /admin/teams/{id}/members` (step-up, everyday target, `approved=0` from Task 5).
+- [ ] **Step 6: Frozen contracts.** Update the `IMPLEMENTATION_PLAN.md` rows for `POST /admin/users`, `PATCH /admin/users/{id}`, `GET /admin/users`, `GET /admin/teams`, `POST /admin/teams` (step-up) and `POST /admin/teams/{id}/members` (step-up, everyday target, role `editor`/`commenter`/`viewer` only, `approved=0` from Task 5).
 
 - [ ] **Step 7: Commit.**
 
@@ -1373,7 +1452,13 @@ func TestAdminAddedMembersWaitForApproval(t *testing.T) {
 		}
 	}
 	add()
-	for _, cid := range []string{tm.id, tm.child} {
+	// A child workspace created after the add copies the team's rows, approval included.
+	code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","teamId":`+quote(tm.id)+`}`), true, false))
+	var later struct{ ID string }
+	if code != http.StatusOK || json.Unmarshal([]byte(out), &later) != nil {
+		t.Fatalf("child=%d %s", code, out)
+	}
+	for _, cid := range []string{tm.id, tm.child, later.ID} {
 		if approved, listed := approvedOf(t, tm.owner, cid, puppet.id); !listed || approved {
 			t.Fatalf("%s: listed=%v approved=%v", cid, listed, approved)
 		}
@@ -1390,7 +1475,7 @@ func TestAdminAddedMembersWaitForApproval(t *testing.T) {
 	if code, out := approve(tm.editor.pairClient, tm.id); code != http.StatusForbidden {
 		t.Fatalf("editor approves=%d %s", code, out)
 	}
-	if code, out := approve(srv.pairClient, tm.id); code != http.StatusForbidden || errorCode(out) != "admin_account" {
+	if code, out := approve(srv.pairClient, tm.id); code != http.StatusForbidden || errorCode(t, out) != "admin_account" {
 		t.Fatalf("server admin approves=%d %s", code, out)
 	}
 	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/members/"+puppet.id+"/approve", nil, false, false)); code != http.StatusForbidden {
@@ -1422,6 +1507,15 @@ func TestAdminAddedMembersWaitForApproval(t *testing.T) {
 	if approved, listed := approvedOf(t, tm.owner, tm.id, puppet.id); !listed || approved {
 		t.Fatal("readmitted member kept its approval")
 	}
+	// unapproved reset: it never held a key, so its reset retires nothing (P5 retireKeysTx).
+	before, _ := generationOf(t, tm.owner, tm.id)
+	puppet.stepUp(t)
+	if code, out := status(t, puppet.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(bytes.Repeat([]byte{7}, 32), expecting(puppetID)+resetRecovery+b64s(recoveryCopy)+`"}`), true, false)); code != http.StatusOK {
+		t.Fatalf("unapproved reset=%d %s", code, out)
+	}
+	if after, _ := generationOf(t, tm.owner, tm.id); after != before {
+		t.Fatalf("an unapproved member's reset retired the team key: %d -> %d", before, after)
+	}
 }
 
 func TestInvitedMembersAreApproved(t *testing.T) {
@@ -1432,8 +1526,11 @@ func TestInvitedMembersAreApproved(t *testing.T) {
 		}
 	}
 	guest := tm.owner.addUser(t, "guest")
-	inv, token := invite(t, tm.owner, tm.id, guest.id)
-	if code := accept(t, guest.pairClient, inv, token); code != http.StatusNoContent && code != http.StatusOK {
+	inv, code := invite(t, tm.owner, tm.id, guest.id)
+	if code != http.StatusOK {
+		t.Fatalf("invite=%d", code)
+	}
+	if code := accept(t, guest.pairClient, inv); code != http.StatusNoContent {
 		t.Fatalf("accept=%d", code)
 	}
 	if approved, _ := approvedOf(t, tm.owner, tm.id, guest.id); !approved {
@@ -1442,7 +1539,7 @@ func TestInvitedMembersAreApproved(t *testing.T) {
 }
 ```
 
-  Check the `invite` and `accept` helpers' signatures with `grep -n 'func invite(\|func accept(' internal/httpapi/*_test.go`, and adapt the two calls to them. P3b tests call `invite(t, tm.owner, tm.id, tm.editor.id)` and `accept(t, tm.editor.pairClient, again)`.
+  `invite(t, p, cid, invitee) ([2]string, int)` and `accept(t, p, inv [2]string) int` are in `teamkeys_test.go:840-853`. `resetBody`, `expecting`, `resetRecovery`, `recoveryCopy`, `b64s` and `generationOf` are the P5 reset helpers in `teamkeys_p5_test.go`; add `"bytes"` to the imports.
 
 - [ ] **Step 2: Run it and see it fail.** Run: `go test ./internal/httpapi -run 'TestAdminAddedMembers|TestInvitedMembers' -v`. Expected: FAIL. The members response has no `approved`, and the approve route answers 405.
 
@@ -1477,11 +1574,11 @@ func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy string, approved boo
 }
 ```
 
-  Update the callers: `collab_routes.go:190` passes `true` (accept), and `admin_routes.go:111` passes `false` (server-admin add). Child workspaces created later copy team memberships. Find that copy with `grep -n 'invited_by' internal/httpapi/container_routes.go`, and copy `approved` the same way it copies `invited_by`.
+  Update the callers: `collab_routes.go:196` passes `true` (accept), and `admin_routes.go:111` passes `false` (server-admin add). Child workspaces created later copy team memberships in two `INSERT … SELECT`s (`container_routes.go:91`, the creating steward's row, and `:94`, everyone else's): add `approved` to both column lists and both `SELECT`s, beside `invited_by`. Without it an unapproved member is approved in every new child workspace.
 
-- [ ] **Step 4: Keys follow approval.** In `insertEnvelopeTx`, change the recipient join to `JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' AND m.approved=1`. In `uncoveredIdentitiesSQL`, add `AND m.approved=1` to its memberships join. An unapproved recipient then gets the existing `errEnvelopeInvalid` (`400 invalid_request`). Invitation envelopes need no change: accept admits with `approved=true`.
+- [ ] **Step 4: Keys follow approval.** In `insertEnvelopeTx`, change the recipient join to `JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' AND m.approved=1`. In `uncoveredIdentitiesSQL`, add `AND m.approved=1` to its memberships join. An unapproved recipient then gets the existing `errEnvelopeInvalid` (`400 invalid_request`). Invitation envelopes need no change: accept admits with `approved=true`, and `moveInvitationEnvelopesTx` runs only after that admission. In P5's `retireKeysTx`, change the scope to `(SELECT container_id FROM memberships WHERE user_id=?1 AND revoked_at='' AND approved=1)`: an unapproved member never held a key, so its self-service reset retires nothing, and an account an administrator controls cannot hold a team's writes in waiting three times a day.
 
-- [ ] **Step 5: Members report approval; the approve route.** In `collab_routes.go` `GET …/members`, select `m.approved` and build `out := []map[string]any{}` with `"approved": approved != 0`. Add after the members `DELETE` route:
+- [ ] **Step 5: Members report approval; the approve route.** In `collab_routes.go` `GET …/members`, add `m.approved` to the `SELECT` after P5's `keyResetAt` subquery, scan it into `approved int`, and change the rows to `out := []map[string]any{}` with `member := map[string]any{"userId": id, "username": username, "role": memberRole, "approved": approved != 0}`. Keep P5's steward-only `if isSteward(role) && resetAt != "" { member["keyResetAt"] = resetAt }` (`TestStewardsSeeWhoResetTheirKey` pins it). Add after the members `DELETE` route:
 
 ```go
 	mux.Handle("POST /api/v1/containers/{id}/members/{userID}/approve", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1497,7 +1594,8 @@ func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy string, approved boo
 		}
 		err := dbTx(db, func(tx *sql.Tx) error {
 			var role string
-			if err := tx.QueryRow(`SELECT m.role FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' AND c.team_id='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role); err != nil {
+			// An unapproved caller is never a steward (the admin add admits no steward role); approved=1 keeps it so.
+			if err := tx.QueryRow(`SELECT m.role FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' AND c.team_id='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND m.approved=1`, cid, s.UserID).Scan(&role); err != nil {
 				return err
 			}
 			if !isSteward(role) {
@@ -1523,7 +1621,7 @@ func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy string, approved boo
 
 - [ ] **Step 6: Run.** Run: `go test -race ./internal/httpapi`. Expected: PASS. P3b tests that re-add through the server-admin route and then expect keys to flow (`TestRemovedMemberIsReadmittedByReactivation`, `TestAcceptAndAdminAddAreAudited`) now need an owner approval before any envelope step. Add `status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/members/"+<id>+"/approve", nil, true, false))` there and keep their assertions.
 
-- [ ] **Step 7: Frozen contracts.** In `IMPLEMENTATION_PLAN.md`, add the approve route to the §5.1 table: `| POST | /api/v1/containers/{id}/members/{userID}/approve | session + CSRF, owner/admin of team id | 204; approves the member on the team and its child workspaces; 404 non-member, 403 non-steward; audit container.member_approve |`. In §9, add: "A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members." Put the same sentence in the `DESIGN.md` membership paragraph, after "Team roles are owner, admin, editor, commenter, and viewer."
+- [ ] **Step 7: Frozen contracts.** In `IMPLEMENTATION_PLAN.md`, add the approve route to the §5.1 table: `| POST | /api/v1/containers/{id}/members/{userID}/approve | session + CSRF, owner/admin of team id | 204; approves the member on the team and its child workspaces; 404 non-member, 403 non-steward; audit container.member_approve |`. In §9, add: "A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members." Put the same sentence in the `DESIGN.md` membership paragraph, after "Team roles are owner, admin, editor, commenter, and viewer." In the `PUT /api/v1/me/identity` row, change "the user is a live member of" to "the user is a live, approved member of". Add `approved` (bool) to the `GET /api/v1/containers/{id}/members` row beside `keyResetAt`.
 
 - [ ] **Step 8: Commit.**
 
@@ -1563,7 +1661,7 @@ func TestSSOKindsFollowTheToken(t *testing.T) {
 	refused := func(name, subject string, roles []string, code string) {
 		t.Helper()
 		res := roleCallback(f, subject, roles, "")
-		if res.Code != 403 || errorCode(res.Body.String()) != code {
+		if res.Code != 403 || errorCode(t, res.Body.String()) != code {
 			t.Fatalf("%s: %d %s", name, res.Code, res.Body.String())
 		}
 	}
@@ -1727,7 +1825,7 @@ const (
   4. `roleCallback(f, "alice", []string{"admin"}, "admin")` now answers `403 admin_role_required`. Assert that code instead of `302`.
   5. After `provision(2, …)`, check only `admin(tokenOnly…) == 401`, since `legacy` has no session.
   6. `user := roleCallback(f, "alice", []string{}, "admin")` now answers `403 admin_role_required`. Assert that, and read the session report from `elevated` instead (`Role == "admin"`, plus `AccountKind == "admin"`).
-  7. Change the local password session's device pairing to expect `403` with `admin_account` from `f.pairing` (`grep -n 'func (f \*logoutFixture) pairing'` shows how it fails; assert the status code it returns).
+  7. The local password session's device pairing now answers `403 admin_account`. `f.pairing` calls `t.Fatalf` on anything but 200 (`sso_logout_test.go:213`), so send the request directly: `res := f.send(withCookies(httptest.NewRequest("POST", "/api/v1/devices/pairing-token", nil), cookies))`, and assert `res.Code == 403` and `errorCode(t, res.Body.String()) == "admin_account"`.
   Keep every later assertion (`fail_role_audit` and on).
 
   Run `go test ./internal/httpapi -run 'TestDirectory|TestSSOAppRoles|TestSSOStepUp' -v`. Some directory tests create a subject without `kynotes.admin` and grant it later. If the test is about the shapes of role data (`TestDirectoryAppRoleShapes`), make the first event for the subject carry `kynotes.admin`: it is an administrator identity. If it is about the everyday account, assert `role_refused=everyday_account`. `TestDirectoryRetainsLastActiveAdminGrant` and `TestDirectoryDeactivationIgnoresRoles` keep their assertions once their subject is created with the role.
@@ -1804,7 +1902,7 @@ describe("setupProblem", () => {
     expect(submit).toContain("if (everyday && !result.passwordChangeRequired) {\n        await rememberAfter(async () => result, activeName, authSecret);");
 ```
 
-  In its first test, change `toHaveLength(4)` to `toHaveLength(3)`, the comment to "the definition, a notebook, a team workspace", and the `creations` filter to `/newContainer\(floorSink/` with `toHaveLength(2)`.
+  In "never tells an owner to wait for a team owner", delete the two assertions on `ADMIN_PASSWORD_FIRST`/`adminSetPassword` and `settlePasswordIdentity(...) === "admin-password"`, because Step 6 deletes that banner, and add `expect(main).not.toMatch(/adminSetPassword|ADMIN_PASSWORD_FIRST/);`. The first test's `createNamed` count stays at 4 here: `createTeam` leaves `main.tsx` only in Task 8, which changes that count.
 
 - [ ] **Step 2: Run them and see them fail.** Run: `cd web && npx vitest run src/setup.test.ts src/api.test.ts src/workspaceWiring.test.ts`. Expected: FAIL (`./setup` missing, and `createAdminTeam` takes no argument).
 
@@ -2004,7 +2102,7 @@ describe("administrator accounts (sub-project A)", () => {
 });
 ```
 
-  Delete the "AdminTeams decrypts nothing" test from `keyring.test.ts`; the console test replaces it. In `observe.test.ts` "is the only path to the raw container fetchers", change `raw` to `/\b(containers|createContainer)\b/`. Administrator team rows carry no key state, so they no longer pass the observer.
+  In `workspaceWiring.test.ts`'s first test, change `toHaveLength(4)` to `toHaveLength(3)`, the comment to "the definition, a notebook, a team workspace", and the `creations` filter to `/newContainer\(floorSink/` with `toHaveLength(2)`; and delete the `{knownNames[entry.id] ?? "Unnamed team"}` assertion in its second test (`AdminTeams` and `knownNames` leave `main.tsx` here). Delete the "AdminTeams decrypts nothing" test from `keyring.test.ts`; the console test replaces it. In `observe.test.ts` "is the only path to the raw container fetchers", change `raw` to `/\b(containers|createContainer)\b/`. Administrator team rows carry no key state, so they no longer pass the observer.
 
 - [ ] **Step 2: Run it and see it fail.** Run: `cd web && npx vitest run src/adminSeparation.test.ts`. Expected: FAIL (the stub has no note, and `main.tsx` still has `AdminTeams`).
 
@@ -2114,7 +2212,6 @@ function AdminTeams({ users, username }: { users: AdminUser[]; username: string 
       <label className="field">
         <span>Role</span>
         <select value={role} onChange={(event) => setRole(event.target.value)}>
-          <option>admin</option>
           <option>editor</option>
           <option>commenter</option>
           <option>viewer</option>
@@ -2126,7 +2223,7 @@ function AdminTeams({ users, username }: { users: AdminUser[]; username: string 
 }
 ```
 
-  The structure test pins `users.filter((entry) => entry.status === "active" && entry.accountKind === "user")`. Keep that exact text: assign it to `everyday` as shown. Update the `AdminUserActions` reset alert so it still matches `workspaceWiring.test.ts` ("Password reset. … keeps its encryption key … recovery code … KySignOn gets no password copy back"). That test reads `main.tsx`, so point it at the console source: in `workspaceWiring.test.ts`, change that assertion's subject from `main` to `import.meta.glob<string>("./components/AdminConsole.tsx", { query: "?raw", import: "default", eager: true })["./components/AdminConsole.tsx"]`.
+  The role list has no `admin`: the server refuses steward roles from an administrator (Task 4), and a team admin comes only from a steward's invitation. The structure test pins `users.filter((entry) => entry.status === "active" && entry.accountKind === "user")`. Keep that exact text: assign it to `everyday` as shown. Update the `AdminUserActions` reset alert so it still matches `workspaceWiring.test.ts` ("Password reset. … keeps its encryption key … recovery code … KySignOn gets no password copy back"). That test reads `main.tsx`, so point it at the console source: in `workspaceWiring.test.ts`, change that assertion's subject from `main` to `import.meta.glob<string>("./components/AdminConsole.tsx", { query: "?raw", import: "default", eager: true })["./components/AdminConsole.tsx"]`.
 
 - [ ] **Step 5: Run.** Run: `cd web && npm test && npm run build`. Expected: PASS. Fix each `tsc` error from the removed props at its call site.
 
@@ -2172,18 +2269,26 @@ git commit -m "web: the administrator console is its own key-free page; teams ar
   });
 ```
 
-  In `api.test.ts`, add a test that `containerMembers` (the existing members fetcher; `grep -n '/members' web/src/api.ts`) maps a row without `approved` to `approved: false`, and a row with `approved: true` to `true`.
+  In `api.test.ts`, add a test that `members` (the fetcher at `api.ts:192`) maps a row without `approved` to `approved: false`, a row with `approved: true` to `true`, and keeps `keyResetAt`.
 
 - [ ] **Step 2: Run them and see them fail.** Run: `cd web && npx vitest run src/keyring.test.ts src/workspaceWiring.test.ts src/api.test.ts`. Expected: FAIL.
 
 - [ ] **Step 3: Implement.** In `keyring.ts`:
 
 ```ts
-/** approved is false only for a member a server administrator added that no steward approved yet; api.ts sets it from the server, failing closed. */
-export type Member = { userId: string; username: string; role: string; approved?: boolean };
+/** keyResetAt: shown to owners and admins only, the member's last own key reset (it retires the notebook's key).
+ * approved is false only for a member a server administrator added that no steward approved yet; api.ts sets it, failing closed. */
+export type Member = { userId: string; username: string; role: string; keyResetAt?: string; approved?: boolean };
 ```
 
-  In `planSweep`, change `const keyed = members.filter((member) => member.identity);` to `const keyed = members.filter((member) => member.identity && member.approved !== false);`. In `memberKeyStatus`, start the `flatMap` callback with `if (member.approved === false) return [[member.userId, "unapproved"]];`, and add `"unapproved"` to `MemberKeyStatus`. Update the doc comment on `planSweep` with one line: "Members an administrator added wait for a steward's approval (spec A §4)." In `api.ts`, map member rows at the boundary with `approved: row.approved === true`.
+  In `api.ts`, replace the `members` fetcher (it returns the rows unmapped since P5):
+
+```ts
+export const members = async (containerID: string): Promise<Member[]> =>
+  (await request<Array<Omit<Member, "approved"> & { approved?: unknown }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`)).map((row) => ({ ...row, approved: row.approved === true }));
+```
+
+  In `planSweep`, change `const keyed = members.filter((member) => member.identity);` to `const keyed = members.filter((member) => member.identity && member.approved !== false);`. In `memberKeyStatus`, start the `flatMap` callback with `if (member.approved === false) return [[member.userId, "unapproved"]];`, and add `"unapproved"` to `MemberKeyStatus`. Update the doc comment on `planSweep` with one line: "Members an administrator added wait for a steward's approval (spec A §4)." Every key path goes through `planSweep` (`keyService.ts` mint, wrap and the mint-then-wrap history pass of `4172c1a`) or `inviteWithKeys` (a steward's own choice), so this one filter covers the browser.
 
   In `main.tsx`, add next to the other copy constants:
 
@@ -2246,15 +2351,17 @@ git commit -m "web: stewards approve members an administrator added before any k
 
 - [ ] **Step 3: Team-keys spec pointers.** In `docs/superpowers/specs/2026-10-07-team-keys-design.md`: in §1 "Admin-created accounts", replace "Forcing that change at first login belongs to sub-project A." with "Sub-project A forces that change at first sign-in for every route (spec `2026-10-08-admin-separation-design.md` §3)." In §3 "Create a team (with sub-project A)", add after step 3: "Built in sub-project A, with steward approval for administrator-added members (§4 there)." In §5, replace "`POST /admin/teams` takes `ownerUserId` (sub-project A)" with "`POST /admin/teams` takes `ownerUserId` (built in sub-project A)". In §7 P4, replace "Admin-owned team naming moved to `createNamed` in P5." with "Administrator-owned teams are gone: sub-project A gives every team an everyday owner, who names it." In "P5 as built" ruling 18, add "(superseded by sub-project A: administrators no longer create keyed teams)". In §6 "Admin separation", add "(built: sub-project A)".
 
+  In the admin-separation spec: §10's "Residual: local-account takeover" ends "It reaches no existing key …"; replace that sentence with "A member that already has an identity reaches no existing key: the reset removes the password copy, and stewards' pins refuse a replaced identity until a person confirms the new fingerprint. A member with no identity yet does: its first identity is pinned on first contact and the sweep wraps for it. The same holds for an unbound local account that an administrator links to an identity it controls by rewriting the SSO settings (`POST /admin/sso`, no step-up) and sending a directory event. The person loses their own sign-in, which is the visible sign." Add it as §12 decision 5 (not built). §4 gains: "The administrator adds `editor`, `commenter` or `viewer` only; a team admin comes from a steward's invitation." §2's table gains `GET /me/identity` as the one content route exempt from the §3 fence (`RequireEveryday`).
+
 - [ ] **Step 4: `AGENTS.md` (DOX).** Add one Child DOX Index bullet:
 
-  "- Sub-project A (administrator separation): `users.account_kind` (`user`/`admin`, fixed; migration `0026_account_kinds.sql` triggers refuse an admin grant on an everyday account and any membership, container or device for an administrator account). `auth.RequireSession`/`RequireEither`/`RequireDevice` admit everyday accounts only (`403 admin_account`); `RequireAdmin`/`RequireStepUp` admit administrator accounts only; `auth.RequireAccount` serves session, logout, logout-all, password, step-up and OIDC step-up. While `password_admin_known` is set, a password session reaches only those routes (`409 password_change_required`). `/setup` creates an administrator and an everyday account. `POST /admin/teams {ownerUserId}` (step-up) gives the team an everyday owner and the administrator no membership. Administrator-added members (`memberships.approved=0`) get no envelope and are not required by rotation until a steward calls `POST /containers/{id}/members/{userID}/approve`. SSO: `kynotes.admin` signs in only to an administrator account and an administrator account only with it; directory sync decides the kind at creation; `apply-setup` never promotes an everyday account. Web: `components/AdminConsole.tsx` (no key, vault or content crypto; `adminSeparation.test.ts`), `ChoosePassword`, `setup.ts`. Spec `docs/superpowers/specs/2026-10-08-admin-separation-design.md`. Verify `TestAccountKindsHoldTheirInvariants`, `TestMixedAdminsKeepTheirNotesAndDropAdmin`, `TestEveryRouteRefusesTheOtherKind`, `TestPasswordChangeIsForcedAtFirstSignIn`, `TestSetupCreatesBothAccounts`, `TestAdminCreatesATeamForAnEverydayOwner`, `TestAdminAddedMembersWaitForApproval`, `TestSSOKindsFollowTheToken`, `TestDirectoryNeverGrantsAdminToEverydayAccounts`, `npm test` (setup, adminSeparation, keyring, workspaceWiring) and `npm run e2e --prefix web`."
+  "- Sub-project A (administrator separation): `users.account_kind` (`user`/`admin`, fixed; migration `0026_account_kinds.sql` triggers refuse an admin grant on an everyday account and any membership, container or device for an administrator account). `auth.RequireSession`/`RequireEither`/`RequireDevice` admit everyday accounts only (`403 admin_account`); `RequireAdmin`/`RequireStepUp` admit administrator accounts only; `auth.RequireAccount` serves session, logout, logout-all, password, step-up and OIDC step-up. While `password_admin_known` is set, a password session reaches only those routes and `GET /me/identity` (`auth.RequireEveryday`, read by the change screen) (`409 password_change_required`). The server administrator adds team members as `editor`, `commenter` or `viewer` only. `/setup` creates an administrator and an everyday account. `POST /admin/teams {ownerUserId}` (step-up) gives the team an everyday owner and the administrator no membership. Administrator-added members (`memberships.approved=0`) get no envelope and are not required by rotation until a steward calls `POST /containers/{id}/members/{userID}/approve`. SSO: `kynotes.admin` signs in only to an administrator account and an administrator account only with it; directory sync decides the kind at creation; `apply-setup` never promotes an everyday account. Web: `components/AdminConsole.tsx` (no key, vault or content crypto; `adminSeparation.test.ts`), `ChoosePassword`, `setup.ts`. Spec `docs/superpowers/specs/2026-10-08-admin-separation-design.md`. Verify `TestAccountKindsHoldTheirInvariants`, `TestMixedAdminsKeepTheirNotesAndDropAdmin`, `TestEveryRouteRefusesTheOtherKind`, `TestPasswordChangeIsForcedAtFirstSignIn`, `TestSetupCreatesBothAccounts`, `TestAdminCreatesATeamForAnEverydayOwner`, `TestAdminAddedMembersWaitForApproval`, `TestSSOKindsFollowTheToken`, `TestDirectoryNeverGrantsAdminToEverydayAccounts`, `npm test` (setup, adminSeparation, keyring, workspaceWiring) and `npm run e2e --prefix web`."
 
   Edit the bullets this change makes stale:
   - The `internal/app` bullet: bootstrap seeds an administrator account (flagged), and `WarnWithoutAdmin` logs `no_active_admin`.
   - The `POST /api/v1/admin/teams` bullet: it now takes `ownerUserId`, the list carries no name ciphertext, and nothing passes `observeContainers`.
   - The P1 bullet: `password_admin_known` now also fences every route (point to the new bullet).
-  - The P5 bullet: drop "also for administrator-created teams" and "The 'set by an administrator' banner…".
+  - The P5 bullet: drop "also for administrator-created teams" and "The 'set by an administrator' banner…"; "every keyed container the user belongs to (`retireKeysTx`" becomes "every keyed container where the user is an approved member (`retireKeysTx`".
   - The OIDC/0018 bullet: "SSO admin needs both that ceiling and local account permission" becomes "…and an administrator account with the grant".
   - The `web/` admin-surface sentence ("the admin surface uses tabbed server, users, teams, and audit sections") becomes "the administrator console (`components/AdminConsole.tsx`) uses tabbed …".
   - The Verification line: `npm run e2e` also runs `web/e2e/admin-separation.e2e.ts`.
@@ -2357,7 +2464,7 @@ export async function approve(owner: Person, username: string) {
 }
 ```
 
-  `ConfirmPassword`'s field and button labels come from `components/ConfirmPassword.tsx`. Read it and match `confirmAdmin`'s locators to them. The sections' `id`s come from the console's Task 8 markup (`users`, `teams`). `createTeamFor` relies on `create()` selecting the new team (`setTeam`).
+  `ConfirmPassword` (`components/ConfirmPassword.tsx`) labels its field "Confirm your password" and its button "Authorize <what, lower-cased>", and renders nothing until its `session()` call answers. So `confirmAdmin` waits for the field instead of counting it: `const field = card.getByLabel("Confirm your password"); await expect(field).toBeVisible(); await field.fill(ADMIN.password); await card.getByRole("button", { name: /^Authorize / }).click(); await expect(card.getByText("Password confirmed for ten minutes.")).toBeVisible();`. Replace the sketch above with that. The sections' `id`s come from the console's Task 8 markup (`users`, `teams`). `createTeamFor` relies on `create()` selecting the new team (`setTeam`).
 
 - [ ] **Step 2: The admin-separation check.** Create `web/e2e/admin-separation.e2e.ts`:
 
@@ -2430,6 +2537,8 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     await choosePassword(alice, TEMPORARY, ALICE_OWN);
     await expect(alice.page.getByRole("button", { name: "Settings" })).toBeVisible();
     expect((await apiStatus(alice, "/api/v1/containers")).status).toBe(200);
+    // The identity is created after the change, in the background: wait for it, or the owner's approval wraps for nobody.
+    await expect.poll(async () => (await apiStatus(alice, "/api/v1/me/identity")).status, { timeout: 30_000 }).toBe(200);
 
     // 4. A team for the everyday owner: the owner names it, and approves the person the administrator added.
     const teamID = await createTeamFor(admin, OWNER.username);
@@ -2586,6 +2695,17 @@ git commit -m "e2e: administrator and everyday accounts stay apart; forced passw
 | `AdminTeams`: offer administrator accounts as owners | `adminSeparation.test.ts` (the filter string); `TestAdminCreatesATeamForAnEverydayOwner` refuses them server-side |
 | Workspace: re-add the "Admin" button | `adminSeparation.test.ts`; e2e step 2 |
 | Approval banner: show to non-stewards | e2e none (the server refuses with 403); `workspaceWiring.test.ts` pins `teamSteward &&`; record |
+| `0026`: content triggers back to `(SELECT account_kind …)<>'user'` | `TestAccountKindsHoldTheirInvariants` (`cnt_ghost`) |
+| `0026`: drop any `_update` content trigger | same (the re-point cases) |
+| Admin member add: accept role `admin` again | `TestAdminTeamAccessNeedsStepUpAndListsNoNames` (`steward role`) |
+| Approve: drop `m.approved=1` on the caller | survivor (no unapproved steward can exist: the admin add refuses steward roles); record |
+| `retireKeysTx`: drop `approved=1` | `TestAdminAddedMembersWaitForApproval` (`unapproved reset`) |
+| Child workspace copy: drop `approved` | `TestAdminAddedMembersWaitForApproval` (the later child) |
+| Members list: drop P5's `keyResetAt` | `TestStewardsSeeWhoResetTheirKey` |
+| `GET /me/identity` back on `RequireSession` | `TestPasswordChangeIsForcedAtFirstSignIn` (`identity read`); e2e step 3 (the change screen fails) |
+| `RequireEveryday`: drop the kind check | `TestEveryRouteRefusesTheOtherKind` (`GET /api/v1/me/identity`); `TestPasswordChangeIsForcedAtFirstSignIn` (admin identity read) |
+| `WarnWithoutAdmin`: remedy as an attribute again | `TestWarnWithoutAdmin` (the line lacks `user add --admin`) |
+| Register a route with a variable pattern | `TestNoRouteHidesFromTheInventory` |
 
   Record every survivor in the PR with its reason (the triggers and `SessionRole` back each other; the setup race needs fault injection).
 
