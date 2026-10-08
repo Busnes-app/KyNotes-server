@@ -24,7 +24,7 @@ const (
 	idLen           = 30
 )
 
-var aadID = regexp.MustCompile(`^(cnt|dev)_[0-9a-hjkmnp-tv-z]{26}$`)
+var aadID = regexp.MustCompile(`^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`)
 
 func validID(prefix, id string) bool { return aadID.MatchString(id) && id[:3] == prefix }
 

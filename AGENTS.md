@@ -75,16 +75,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
-- `cmd/kynotes-probe` is the live 13-step client interoperability acceptance
-  path; it uses the same session, pairing, envelope, sync, upload, and GC
-  contracts as external clients. Its X25519 device key is random, persisted 0600
-  (`-device-key`, default under the user cache dir per server URL and username),
-  never derived from `authSecret`; the device is revoked at the end of every run.
-  An operator-set password (`password_change_required` on an empty envelope PUT,
-  before pairing) is changed to a random one through `POST /api/v1/auth/password`
-  and set back to `-password` after the device is revoked, clearing the admin-known
-  flag so re-runs skip it. The temporary password sits beside the device key
-  (`.takeover`, 0600) until restored; the next run restores it first.
+- `cmd/kynotes-probe` is the live 14-step client interoperability acceptance path: same session,
+  identity, rotation, pairing, envelope, sync, upload and GC contracts as external clients. It
+  unwraps or creates a password-wrapped identity (`teamkeys.UserKEK`/`SealIdentity`/`OpenIdentity`),
+  stops on one without a password copy, and keys its notebook by a first rotation (generation 2).
+  Its X25519 device key is random, persisted 0600 (`-device-key`, default under the user cache dir
+  per server URL and username), never derived from `authSecret`; the device is revoked every run.
+  An operator-set password (`password_change_required` on identity create, before pairing) is
+  changed to a random one through `POST /api/v1/auth/password` and set back to `-password` after
+  the device is revoked, re-wrapping the identity each time; re-runs skip it. The temporary
+  password sits beside the device key (`.takeover`, 0600) until restored; the next run restores it.
 - `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.
