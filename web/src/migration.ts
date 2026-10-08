@@ -171,6 +171,8 @@ export function reviewText(item: MigrationItem, files: ReadonlyMap<string, Attac
       if (key === "type" && value === "text") return;
       show(key, value);
     } else if (Array.isArray(value)) {
+      // Ink holds no text: say how much is sealed unseen instead of listing every stroke.
+      if (key === "strokes") { if (value.length) lines.push(`${value.length} ink stroke${value.length === 1 ? "" : "s"} (handwriting or drawing) not drawn here; sealed as they are`); return; }
       // A table row: its cells on one line.
       if (key === "cells") { lines.push(value.map((cell) => strings(cell).join(" ")).join(" | ")); return; }
       for (const entry of value) walk(key, entry);

@@ -548,3 +548,14 @@ describe("checkLegacyRows (the workspace's check)", () => {
     expect(await checkLegacyRows(empty, () => floor, async () => false)).toMatchObject({ autoClosed: false });
   });
 });
+
+describe("reviewText", () => {
+  it("names how much ink a page seals instead of listing each stroke", async () => {
+    const { reviewText } = await import("./migration");
+    const strokes = Array.from({ length: 3 }, (_, i) => ({ id: `s${i}`, tool: "pen", color: "ink", points: [[0, 0, 0.5]] }));
+    const body = JSON.stringify({ format: "kynotes.canvas.v1", boxes: [], strokes });
+    const text = reviewText({ kind: "object", id: "obj_1", version: 1, payload: { title: "Sketch", body } as unknown as ObjectPayload }, new Map());
+    expect(text).toContain("3 ink strokes (handwriting or drawing) not drawn here; sealed as they are");
+    expect(text).not.toMatch(/\bs0\b/);
+  });
+});
