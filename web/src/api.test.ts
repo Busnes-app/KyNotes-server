@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acceptInvitation, inviteMember, readObject, serverGeneration } from "./api";
+import { acceptInvitation, APIRequestError, claimLinkRequest, collectLinkRequest, createLinkRequest, inviteMember, putDeviceOnlyIdentity, readObject, revealLinkRequest, serverGeneration } from "./api";
 
 const obj = `obj_${"a".repeat(26)}`;
 const serve = (headers: Record<string, string>) => vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { headers })));
@@ -58,5 +58,37 @@ describe("acceptInvitation", () => {
     expect(calls[0][0]).toBe(`/api/v1/invitations/inv_${"a".repeat(26)}/accept`);
     expect(calls[0][0]).not.toContain(token);
     expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ token });
+  });
+});
+
+describe("device-only identities and device links", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sends device-only identities and link calls in the documented shapes", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const fetches = vi.fn(async (_path: string, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetches);
+    await putDeviceOnlyIdentity("cHVi");
+    await createLinkRequest("Y29t");
+    await claimLinkRequest(`lnk_${"a".repeat(26)}`, "YXBw");
+    await revealLinkRequest(`lnk_${"a".repeat(26)}`, "bmV3");
+    await collectLinkRequest(`lnk_${"a".repeat(26)}`);
+    const bodies = fetches.mock.calls.map(([url, init]) => `${init?.method} ${url} ${init?.body}`);
+    expect(bodies).toEqual([
+      `PUT /api/v1/me/identity {"publicKey":"cHVi","wrapAlg":"none"}`,
+      `POST /api/v1/me/link-requests {"commitment":"Y29t"}`,
+      `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/claim {"approverKey":"YXBw"}`,
+      `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/reveal {"newcomerKey":"bmV3"}`,
+      `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/collect undefined`,
+    ]);
+  });
+
+  it("keeps the open challenge of a step_up_pending refusal, so it can be cancelled", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const challenge = `rea_${"a".repeat(26)}`;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "step_up_pending", message: "finish", challenge } }), { status: 409 })));
+    const refusal = await putDeviceOnlyIdentity("cHVi").catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(APIRequestError);
+    expect(refusal).toMatchObject({ code: "step_up_pending", challenge, status: 409 });
   });
 });

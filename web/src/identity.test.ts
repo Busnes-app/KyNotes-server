@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { base64, type LoginKeys } from "./crypto";
-import { ensureIdentity, openIdentity, rewrapIdentity, type IdentityAPI, type IdentityRecord, type IdentityUpload } from "./identity";
+import { currentCopy, DEVICE_ONLY_WRAP, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
+import { generateIdentity } from "./teamKeys";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const deviceId = "dev_00000000000000000000000000";
@@ -135,5 +136,168 @@ describe("password change re-wrap", () => {
     server.api.stepUp.mockResolvedValue(undefined);
     await expect(rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, { ...original, deviceId: "dev_11111111111111111111111111" })).rejects.toThrow();
     await expect(rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, undefined)).rejects.toThrow();
+  });
+});
+
+const dev = `dev_${"d".repeat(26)}`;
+const heldOf = (deviceId = dev): HeldIdentity => ({ ...generateIdentity(), deviceId });
+const publicOf = (held: HeldIdentity, deviceId = held.deviceId) => ({ deviceId, publicKey: base64(held.publicKey), fingerprint: "" });
+/** A vault in memory that records the order of saves; expected makes a save a compare-and-swap, like storage.ts. */
+function vault(initial?: HeldIdentity, keeps = true) {
+  let stored = initial;
+  const saves: HeldIdentity[] = [];
+  const store: IdentityStore = {
+    load: async () => stored,
+    save: async (identity, expected) => {
+      saves.push(identity);
+      if (expected !== undefined && (expected === null ? stored !== undefined : !stored || base64(stored.publicKey) !== base64(expected.publicKey))) return false;
+      if (keeps) stored = identity;
+      return keeps;
+    },
+  };
+  return { store, saves, get: () => stored };
+}
+
+describe("device-only identities", () => {
+  it("are never unlocked or re-wrapped by a password", async () => {
+    const api = { myIdentity: vi.fn(async () => ({ deviceId: dev, publicKey: base64(generateIdentity().publicKey), fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP })), putMyIdentity: vi.fn(), stepUp: vi.fn() };
+    const record = { deviceId: dev, publicKey: "", fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP, wrappedPrivateKey: "" };
+    expect(await ensureIdentity(api, userID, keys(1), record)).toBeUndefined();
+    expect(api.putMyIdentity).not.toHaveBeenCalled();
+    expect(await rewrapIdentity(api, userID, keys(1), new Uint8Array(32), undefined)).toBeUndefined();
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("settleSSOIdentity", () => {
+  it("keeps the new key on this browser before the server learns it", async () => {
+    const v = vault();
+    const order: string[] = [];
+    const api = { myIdentity: async () => undefined, putDeviceOnlyIdentity: vi.fn(async (publicKey: string) => { order.push(`put ${publicKey}`); return { deviceId: dev }; }) };
+    const saving = v.store.save;
+    v.store.save = async (identity) => { order.push(`save ${identity.deviceId || "pending"}`); return saving(identity); };
+    const settled = await settleSSOIdentity(api, v.store);
+    expect(settled.kind).toBe("held");
+    expect(order).toEqual(["save pending", `put ${base64(v.saves[0].publicKey)}`, `save ${dev}`]);
+    expect(v.get()!.deviceId).toBe(dev);
+  });
+
+  it("creates nothing when this browser cannot keep it, or cannot read its vault", async () => {
+    const api = { myIdentity: async () => undefined, putDeviceOnlyIdentity: vi.fn(async () => ({ deviceId: dev })) };
+    expect((await settleSSOIdentity(api, vault(undefined, false).store)).kind).toBe("unsaved");
+    await expect(settleSSOIdentity(api, { load: async () => { throw new Error("blocked"); }, save: async () => true })).rejects.toThrow("blocked");
+    expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
+  });
+
+  it("finishes an identity an interrupted run created", async () => {
+    const pending = heldOf("");
+    const v = vault(pending);
+    const api = { myIdentity: async () => publicOf(pending, dev), putDeviceOnlyIdentity: vi.fn() };
+    expect(await settleSSOIdentity(api, v.store)).toEqual({ kind: "held", identity: { ...pending, deviceId: dev } });
+    expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
+  });
+
+  it("links rather than creates when another browser holds the account's identity", async () => {
+    const api = { myIdentity: async () => publicOf(heldOf()), putDeviceOnlyIdentity: vi.fn() };
+    expect((await settleSSOIdentity(api, vault().store)).kind).toBe("link");
+    expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
+  });
+
+  it("never adopts the server's device ID for a different key this browser holds", async () => {
+    for (const mine of [heldOf(), heldOf("")]) {
+      const v = vault(mine);
+      const api = { myIdentity: async () => publicOf(heldOf()), putDeviceOnlyIdentity: vi.fn() };
+      expect(await settleSSOIdentity(api, v.store)).toEqual({ kind: "link" });
+      expect(v.get()).toBe(mine);
+      expect(v.saves).toEqual([]);
+    }
+  });
+
+  it("never replaces an identity this browser holds unless asked", async () => {
+    const mine = heldOf();
+    const v = vault(mine);
+    const api = { myIdentity: async () => undefined, putDeviceOnlyIdentity: vi.fn(async () => ({ deviceId: `dev_${"e".repeat(26)}` })) };
+    expect((await settleSSOIdentity(api, v.store)).kind).toBe("orphaned");
+    expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
+    const replaced = await settleSSOIdentity(api, v.store, true);
+    expect(replaced.kind).toBe("held");
+    expect(base64(v.get()!.publicKey)).not.toBe(base64(mine.publicKey));
+  });
+
+  it("never overwrites a key another tab kept after this run read the vault", async () => {
+    const theirs = heldOf();
+    const v = vault();
+    let loads = 0;
+    // This run reads an empty vault; the other tab then finishes its identity before this run writes.
+    const store: IdentityStore = { load: async () => (loads++ === 0 ? undefined : v.get()), save: v.store.save };
+    await v.store.save(theirs);
+    const api = { myIdentity: vi.fn(async () => (loads > 1 ? publicOf(theirs) : undefined)), putDeviceOnlyIdentity: vi.fn() };
+    expect(await settleSSOIdentity(api, store)).toEqual({ kind: "held", identity: theirs });
+    expect(v.get()).toBe(theirs);
+    expect(api.putDeviceOnlyIdentity).not.toHaveBeenCalled();
+  });
+
+  it("adopts the identity another tab created meanwhile", async () => {
+    const v = vault();
+    let live: ReturnType<typeof publicOf> | undefined;
+    const api = {
+      myIdentity: async () => live,
+      putDeviceOnlyIdentity: vi.fn(async () => { live = publicOf(v.get()!, dev); throw Object.assign(new Error("exists"), { code: "identity_exists" }); }),
+    };
+    expect((await settleSSOIdentity(api, v.store)).kind).toBe("held");
+  });
+
+  it("leaves exactly one identity when two tabs race to create it, held by the winner", async () => {
+    // One shared vault and server; each tab reads an empty vault before either writes.
+    const v = vault();
+    let live: ReturnType<typeof publicOf> | undefined;
+    let reads = 0;
+    let release!: () => void;
+    const bothRead = new Promise<void>((resolve) => { release = resolve; });
+    const store: IdentityStore = { load: async () => { const seen = v.get(); if (++reads === 2) release(); if (reads <= 2) await bothRead; return seen; }, save: v.store.save };
+    const api = {
+      myIdentity: async () => live,
+      putDeviceOnlyIdentity: vi.fn(async (publicKey: string) => {
+        if (live) throw Object.assign(new Error("exists"), { code: "identity_exists" });
+        live = { deviceId: dev, publicKey, fingerprint: "" };
+        return { deviceId: dev };
+      }),
+    };
+    const [a, b] = await Promise.all([settleSSOIdentity(api, store), settleSSOIdentity(api, store)]);
+    // Every key the server was offered is the one key the vault keeps.
+    expect(new Set(api.putDeviceOnlyIdentity.mock.calls.map(([key]) => key))).toEqual(new Set([live!.publicKey]));
+    expect(a).toEqual({ kind: "held", identity: v.get() });
+    expect(b).toEqual({ kind: "held", identity: v.get() });
+    expect(base64(v.get()!.publicKey)).toBe(live!.publicKey);
+    expect(v.get()!.deviceId).toBe(dev);
+  });
+
+  it.each(["step_up_pending", "sso_sign_in_required", "password_change_required"])("surfaces %s unchanged and keeps the pending key for the next run", async (code) => {
+    const v = vault();
+    const refusal = Object.assign(new Error(code), { code });
+    const api = { myIdentity: async () => undefined, putDeviceOnlyIdentity: vi.fn(async (_publicKey: string): Promise<{ deviceId: string }> => { throw refusal; }) };
+    await expect(settleSSOIdentity(api, v.store)).rejects.toBe(refusal);
+    const pending = v.get()!;
+    expect(pending.deviceId).toBe("");
+    api.putDeviceOnlyIdentity.mockResolvedValueOnce({ deviceId: dev });
+    expect(await settleSSOIdentity(api, v.store)).toEqual({ kind: "held", identity: { ...pending, deviceId: dev } });
+    expect(api.putDeviceOnlyIdentity.mock.calls.map(([key]) => key)).toEqual([base64(pending.publicKey), base64(pending.publicKey)]);
+  });
+});
+
+describe("which identity this browser may use", () => {
+  it("is the vault copy only while the server lists it, or cannot be asked", () => {
+    const mine = heldOf();
+    expect(identityStatus(mine, publicOf(mine))).toBe("held");
+    expect(identityStatus(undefined, publicOf(mine))).toBe("link");
+    expect(identityStatus(heldOf(), publicOf(mine))).toBe("link");
+    expect(identityStatus(undefined, undefined)).toBe("create");
+    expect(identityStatus(heldOf(""), undefined)).toBe("create");
+    expect(identityStatus(mine, undefined)).toBe("orphaned");
+    expect(currentCopy(mine, publicOf(mine))).toBe(mine);
+    expect(currentCopy(mine, "unreachable")).toBe(mine);
+    expect(currentCopy(mine, publicOf(heldOf()))).toBeUndefined();
+    expect(currentCopy(mine, undefined)).toBeUndefined();
+    expect(currentCopy(heldOf(""), "unreachable")).toBeUndefined();
   });
 });

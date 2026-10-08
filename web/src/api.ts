@@ -21,8 +21,9 @@ export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCip
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
 
-type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
-export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; status?: number; constructor(message: string, detail: APIError, status?: number) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; this.status = status; } }
+type APIError = { error?: { code?: string; message?: string; challenge?: string }; conflictId?: string; currentVersion?: number };
+/** challenge: the open KySignOn confirmation a 409 step_up_pending names, so the caller can cancel it. */
+export class APIRequestError extends Error { code?: string; challenge?: string; conflictId?: string; currentVersion?: number; status?: number; constructor(message: string, detail: APIError, status?: number) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.challenge = typeof detail.error?.challenge === "string" ? detail.error.challenge : undefined; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; this.status = status; } }
 
 /** Marks writes from a bundle that seals shared containers with their container key; the server refuses shared-container writes without it. */
 export const KEY_SCHEME = "shared-v1";
@@ -149,6 +150,21 @@ export async function myIdentity(): Promise<PublicIdentity | undefined> {
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
 export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
+export const putDeviceOnlyIdentity = (publicKey: string) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ publicKey, wrapAlg: "none" }) });
+/** A device-link request as the trusted side lists it; newcomerKey is "" until revealed to this session. */
+export type LinkRequestRow = { id: string; commitment: string; createdAt: string; expiresAt: string; claimed: boolean; newcomerKey: string };
+/** The newcomer's view of its request; bundle once, after approval. */
+export type LinkState = { state: "pending" | "claimed" | "revealed" | "approved"; expiresAt: string; approverKey?: string; bundle?: string };
+const linkURL = (id: string, suffix = "") => `/api/v1/me/link-requests/${encodeURIComponent(id)}${suffix}`;
+export const createLinkRequest = (commitment: string) => request<{ id: string; expiresAt: string }>("/api/v1/me/link-requests", { method: "POST", body: JSON.stringify({ commitment }) });
+export const linkRequests = () => request<LinkRequestRow[]>("/api/v1/me/link-requests");
+export const claimLinkRequest = (id: string, approverKey: string) => request<void>(linkURL(id, "/claim"), { method: "POST", body: JSON.stringify({ approverKey }) });
+export const revealLinkRequest = (id: string, newcomerKey: string) => request<void>(linkURL(id, "/reveal"), { method: "POST", body: JSON.stringify({ newcomerKey }) });
+/** Only outbound.ts sendLinkBundle calls this (outbound.test.ts). */
+export const approveLinkRequest = (id: string, bundle: string) => request<void>(linkURL(id, "/approve"), { method: "POST", body: JSON.stringify({ bundle }) });
+/** A POST (CSRF, no-store): collecting deletes the approved bundle. */
+export const collectLinkRequest = (id: string) => request<LinkState>(linkURL(id, "/collect"), { method: "POST" });
+export const cancelLinkRequest = (id: string) => request<void>(linkURL(id), { method: "DELETE" });
 export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: async (authSecret) => (await stepUp(authSecret))?.identity };
 export const containerEnvelopes = (containerID: string) => request<Envelope[]>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`);
 export const putEnvelopes = (containerID: string, envelopes: Envelope[]) => request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`, { method: "PUT", body: JSON.stringify({ envelopes }) });

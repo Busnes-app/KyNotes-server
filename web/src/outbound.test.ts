@@ -74,7 +74,7 @@ describe("outbound structure", () => {
   it("only outbound.ts reaches the ciphertext upload API functions", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./api.ts", "!./outbound.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toContain("./main.tsx");
-    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer)\b/;
+    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer|approveLinkRequest)\b/;
     expect(Object.entries(sources).filter(([, text]) => raw.test(text)).map(([name]) => name)).toEqual([]);
   });
 });
