@@ -472,7 +472,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   sealed, re-trust in Settings, unsent edits export and discard, and a click during the automatic load
   (held at its last request) leaves the list loaded when it stops being busy. P3c steps: newcomer Cancel,
   either side leaving Settings, and approver "Codes differ" each delete the request (collect answers 404);
-  a reload mid-attempt never reveals, so the server row waits for the approver's Cancel or expiry; a relay
+  a reload mid-attempt sends a keepalive cancel, so the request is gone (collect answers 404); a relay
   swapping the approver key (rewritten collect) keeps Approve disabled with the newcomer's code typed and
   sends nothing; the honest link needs the typed code, keeps the collected bundle unopened until the
   newcomer's "Codes match", stores the same identity sealed and non-extractable, refuses a second collect,
@@ -538,26 +538,31 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   key rotations. Step-up start, poll and cancel need a session, not an admin; challenge creation has a
   per-account `challenge` bucket; the 409 codes are `step_up_pending` (with the challenge ID),
   `sso_step_up_required`, `sso_sign_in_required` and `password_change_required`; the action body is capped at 64 KiB
-  (413). `password_admin_known` refuses every local action step-up and link step; on an SSO-linked account
-  `POST /auth/password` then needs a fresh KySignOn confirmation. `internal/httpapi/link_routes.go` relays
+  (`413 payload_too_large`, JSON). `password_admin_known` refuses every local action step-up and the link steps create, claim, reveal, approve and
+  collect (list and cancel accept it); on an SSO-linked account `POST /auth/password` then needs a fresh KySignOn
+  confirmation. Every password change revokes the account's other sessions and non-identity device credentials in
+  its transaction (audit `sessions_revoked=N,devices_revoked=N`). `internal/httpapi/link_routes.go` relays
   `/api/v1/me/link-requests` (seven routes: create with a commitment, list, claim, reveal, approve after
   step-up, collect, cancel). Collect is `POST …/collect` with CSRF and `no-store`, once; the relay holds
   ciphertext only; per user, 10-minute TTL checked in the transaction, 3 live, both sessions live,
   session-only, audited `identity.link.*` (collect misses are not audited), GC'd, deleted with the identity.
   Rate limits: own `link` bucket at `pairing_per_hour`, `link-step` at `login_per_minute`, collect at
-  `ratelimit.link_poll_per_minute` (default 60).
+  `ratelimit.link_poll_per_minute` (default 60; the newcomer polls every 4 s, so the 3 live requests make 45 a
+  minute).
   Web: `linking.ts` (commitment, six-digit check code, 61-byte bundle, frozen branded confirmations;
   `testdata/protocol/link_vectors.json` from `internal/teamkeys`), `linkFlow.ts` (newcomer pins the approver
-  key before revealing, a failed reveal ends the attempt, no auto-retry; the approver types the newcomer's code,
+  key before revealing, a failed reveal ends the attempt, no auto-retry with a new key; `awaitLinkBundle` keeps the
+  attempt through a 429 or network error and backs off to 30 s, ending on a 404 or a streak past the TTL; a create
+  404 is `LinkNoIdentityError`; the approver types the newcomer's code,
   NFKC with spaces ignored, there is no "Codes match" on the approver; the newcomer opens a bundle only after its
   own confirmation and only for the listed identity), `outbound.ts` `sendLinkBundle` and `collectLinkBundle`
   (only with a typed confirmation, only while the attempt's one-time key is live), `api.ts` `cancelSSOStepUp`
   (cancels an open confirmation, also after `step_up_pending`), `storage.ts` (identity under a non-extractable
   device key in the vault record, labels "wrapped"/"plain"; not at-rest protection; plain HTTP unwrapped with a
-  Settings warning; no IndexedDB, no identity; compare-and-swap writes), `identity.ts` (`settleSSOIdentity`
+  Settings warning; no IndexedDB, no identity; compare-and-swap writes), `identity.ts` (`settlePasswordIdentity` stores compare-and-swap against the copy read first; `settleSSOIdentity`
   keeps a pending key before the PUT and never overwrites a held identity without "Replace"; `currentCopy` uses
   the vault copy only while the server lists it), `keyService.ts` `KySync.deferred` (SSO stewards share on a
-  "Share keys" click), `components/DeviceLink.tsx`, the Forget-this-device confirmation (the encrypted save
+  "Share keys" click), `components/DeviceLink.tsx` (a row another tab claimed shows "Being approved in another tab", no Approve), the Forget-this-device confirmation (the encrypted save
   queue stays), the SSO set-up banners, and N1: a failed local cache write still sends the edit, with copy that
   says the browser could not keep its copy. The P3a limit "SSO users block sharing" is gone. Verify `TestSSOUserStepUp*`,
   `TestSSOStepUpScopeIsBoundToTheGrant`, `TestSSOSessionCreatesDeviceOnlyIdentity`,

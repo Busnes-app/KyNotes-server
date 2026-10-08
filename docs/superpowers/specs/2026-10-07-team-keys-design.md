@@ -309,7 +309,7 @@ Each phase can ship on its own.
   11. The loss path is an administrator password reset, which deletes the identity (device-only included) and the account's link requests.
   12. SSO stewards share keys on a click ("Share keys", `KySync.deferred`), because every write asks KySignOn.
   13. Invitation envelopes stay behind a local password step-up; invitations from SSO sessions are keyless and the sweep fills them in after accept.
-  14. Link creation uses a `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a `link-step` bucket at `ratelimit.login_per_minute`; collect has its own `link-poll` bucket at `ratelimit.link_poll_per_minute` (default 60). Collect misses are not audited because the newcomer polls.
+  14. Link creation uses a `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a `link-step` bucket at `ratelimit.login_per_minute`; collect has its own `link-poll` bucket at `ratelimit.link_poll_per_minute` (default 60; three live requests polling every 4 s make 45 a minute). A 429 or network error on collect keeps the attempt and its one-time key and backs off to 30 s; only a definitive end (404) stops it. Collect misses are not audited because the newcomer polls.
   15. Collect is `POST …/{id}/collect` with CSRF and `no-store`, not a `GET`, so a cross-site navigation cannot delete an approved bundle. It is collected once, in one transaction.
   16. Any session of the account may cancel a request, which gives the trusted list a "Not me" button.
   17. The migration is `0024_device_linking.sql` (it also carries `sso_stepup.scope`).
@@ -317,7 +317,7 @@ Each phase can ship on its own.
   19. Link vectors come from `internal/teamkeys`, which the server does not import; the server's commitment check reads the same file.
   20. A linked browser cannot be revoked separately, because every browser holds the same identity.
   21. A failed local cache write no longer blocks sending an edit: the edit is sent, and the copy says the browser could not keep its local copy.
-  22. While `password_admin_known` is set, every local action step-up and every link step refuses with `409 password_change_required`. On an SSO-linked account, changing an administrator-set password needs a fresh KySignOn confirmation.
+  22. While `password_admin_known` is set, every local action step-up refuses with `409 password_change_required`, and so do the link steps create, claim, reveal, approve and collect (list and cancel do not). A password change revokes the account's other sessions and device credentials, so a session opened under the administrator's password ends with the takeback. On an SSO-linked account, changing an administrator-set password needs a fresh KySignOn confirmation.
 
   Known limits:
   - A linked browser cannot be revoked separately; resetting the identity (administrator password reset) is the only way.
@@ -333,7 +333,7 @@ Each phase can ship on its own.
   - On a local-only account, an administrator who set the temporary password can act as the user until the user changes it.
   - With SSO unconfigured, an SSO-linked account cannot change an administrator-set password until an operator restores SSO or clears the account's SSO link.
   - "Forget this device" keeps the encrypted save queue; unsent edits stay until sent or discarded under Unsent edits.
-  - Decisions awaiting Yoshi before merge: (1) keep the raw identity on plain HTTP; (2) add a self-service identity reset before P5 (none exists); (3) keep the device-key layer, approved in §8 but not at-rest protection; (4) accept that an IdP operator can create an SSO account's first identity.
+  - Decisions awaiting Yoshi before merge: (1) keep the raw identity on plain HTTP. **Awaits Yoshi:** this is not the most secure default; refusing to keep an identity on non-secure origins is (the no-IndexedDB path already does that). The interim keeps it raw only so http LAN installs do not regress; (2) add a self-service identity reset before P5 (none exists); (3) keep the device-key layer, approved in §8 but not at-rest protection; (4) accept that an IdP operator can create an SSO account's first identity.
 
 **P4. Lazy team migration and admin separation hook.** Re-encryption pass, then refusal of legacy-key reads in shared containers (closes the §6 read-downgrade residual), opaque-author UI, admin-owned team migration (with sub-project A).
 - Tests:
