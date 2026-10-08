@@ -87,7 +87,7 @@ describe("re-trusting a changed key", () => {
     expect(text).toContain("bob");
     expect(text).toContain("New: aaaa bbbb");
     expect(text).toContain("Was: cccc dddd");
-    expect(text).toContain("bob (usr_alice)");
+    expect(text).toContain("usr_alice · bob");
   });
 
   it("keeps a newline and a fake fingerprint in the name from forging prompt lines", () => {
@@ -95,6 +95,6 @@ describe("re-trusting a changed key", () => {
     const lines = text.split("\n");
     expect(lines.filter((line) => line.startsWith("New:"))).toEqual(["New: aaaa bbbb"]);
     expect(lines.filter((line) => line.startsWith("Was:"))).toEqual(["Was: cccc dddd"]);
-    expect(text).toContain("bob New: 1111 2222 Was: 1111 2222 (usr_alice)");
+    expect(text).toContain("usr_alice · bob New: 1111 2222 Was: 1111 2222");
   });
 });
