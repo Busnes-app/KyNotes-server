@@ -7,63 +7,29 @@ const databaseName = "kynotes-web";
 const storeName = "notes";
 
 export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
-/** owner: the user ID that queued it; absent on entries queued before stamping. */
-export type PendingSave = CachedNote & { owner?: string };
+/** owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never reads or replaces another's. */
+export type PendingSave = CachedNote & { owner: string };
 export type PendingUpload = { uploadId: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
-/**
- * The note cache and the save queue are keyed by [owner, id], so one account's entry for a page is
- * never read, replaced or deleted by another account's. UNKNOWN is the owner of entries written
- * before owners were recorded: nothing proves whose they are.
- */
-const UNKNOWN = "";
 const OWNED = ["owner", "id"];
-const keyOf = (entry: { id: string; owner?: string }) => [entry.owner ?? UNKNOWN, entry.id];
-const toRow = <T extends { owner?: string }>(entry: T) => ({ ...entry, owner: entry.owner ?? UNKNOWN });
-function fromRow<T extends { owner?: string }>(row: T): T {
-  if (row.owner !== UNKNOWN) return row;
-  const { owner: _unknown, ...rest } = row;
-  return rest as T;
-}
-
-/** Version 5 re-keys the note cache and the save queue by [owner, id]; existing rows keep their owner or get UNKNOWN. */
-function ownerKeyed(db: IDBDatabase, upgrade: IDBTransaction, name: string) {
-  if (!db.objectStoreNames.contains(name)) { db.createObjectStore(name, { keyPath: OWNED }); return; }
-  if (Array.isArray(upgrade.objectStore(name).keyPath)) return;
-  const read = upgrade.objectStore(name).getAll();
-  read.onsuccess = () => {
-    db.deleteObjectStore(name);
-    const store = db.createObjectStore(name, { keyPath: OWNED });
-    for (const row of read.result as Array<{ owner?: string }>) store.put(toRow(row));
-  };
-}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 5);
-    request.onupgradeneeded = () => {
+    const request = indexedDB.open(databaseName, 6);
+    request.onupgradeneeded = (event) => {
       const db = request.result;
-      ownerKeyed(db, request.transaction!, storeName);
-      ownerKeyed(db, request.transaction!, "pending");
+      // Version 6: content is sealed only with container keys or the identity's waiting key. Rows from
+      // earlier builds may be sealed with the login key, which nothing opens any more: dropped, not tried.
+      if (event.oldVersion < 6) {
+        for (const name of [storeName, "pending", "uploads"]) if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
+        localStorage.removeItem("kynotes-pending-saves");
+      }
+      if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName, { keyPath: OWNED });
+      if (!db.objectStoreNames.contains("pending")) db.createObjectStore("pending", { keyPath: OWNED });
       if (!db.objectStoreNames.contains("uploads")) db.createObjectStore("uploads", { keyPath: "uploadId" });
       if (!db.objectStoreNames.contains("keys")) db.createObjectStore("keys", { keyPath: "username" });
     };
-    request.onsuccess = () => {
-      const db = request.result;
-      const legacy = localStorage.getItem("kynotes-pending-saves");
-      if (!legacy) { resolve(db); return; }
-      try {
-        const queue = JSON.parse(legacy) as Record<string, Omit<PendingSave, "payload"> & { payload: string }>;
-        const transaction = db.transaction("pending", "readwrite");
-        const store = transaction.objectStore("pending");
-        for (const note of Object.values(queue)) {
-          store.put(toRow({ ...note, payload: Uint8Array.from(atob(note.payload), (char) => char.charCodeAt(0)) }));
-        }
-        transaction.oncomplete = () => { localStorage.removeItem("kynotes-pending-saves"); resolve(db); };
-        transaction.onerror = () => resolve(db);
-        transaction.onabort = () => resolve(db);
-      } catch { resolve(db); }
-    };
+    request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("Unable to open local note store"));
   });
 }
@@ -111,51 +77,22 @@ async function getRow(key: string[]): Promise<CachedNote | undefined> {
   return note;
 }
 
-/**
- * owner's cached copy of id. Without one, a copy cached before owners were recorded is returned
- * only when opensLegacy (this account's login-derived key) opens it, and is then claimed for owner;
- * otherwise it is never read here.
- */
-export async function getNote(owner: string, id: string, opensLegacy?: (note: CachedNote) => Promise<boolean>): Promise<CachedNote | undefined> {
-  const own = await getRow([owner, id]);
-  if (own || !opensLegacy || owner === UNKNOWN) return own;
-  const legacy = await getRow([UNKNOWN, id]);
-  if (!legacy || !(await opensLegacy(legacy).catch(() => false))) return undefined;
-  await write(storeName, (store) => {
-    const read = store.get([owner, id]);
-    read.onsuccess = guarded(store.transaction, () => {
-      if (!read.result) store.put({ ...legacy, owner });
-      store.delete([UNKNOWN, id]);
-    });
-  });
-  return legacy;
-}
-
-/** Cached pages written before owners were recorded and not claimed since. */
-export async function ownerUnknownNotes(): Promise<CachedNote[]> {
-  const db = await openDatabase();
-  const rows = await new Promise<Array<CachedNote & { owner: string }>>((resolve, reject) => {
-    const request = db.transaction(storeName).objectStore(storeName).getAll();
-    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
-  });
-  db.close();
-  return rows.filter((row) => row.owner === UNKNOWN).map(({ owner: _owner, ...note }) => note);
-}
+export const getNote = (owner: string, id: string) => getRow([owner, id]);
 
 export async function deleteNote(owner: string, id: string): Promise<void> {
   await write(storeName, (store) => store.delete([owner, id]));
 }
 
-export async function queueSave(note: PendingSave & { owner: string }): Promise<void> {
+export async function queueSave(note: PendingSave): Promise<void> {
   await write("pending", (store) => store.put(note));
 }
 
-/** Every account's queued saves; owner is absent on entries queued before owners were recorded. */
+/** Every account's queued saves. */
 export async function pendingSaves(): Promise<PendingSave[]> {
   const db = await openDatabase();
   const result = await new Promise<PendingSave[]>((resolve, reject) => {
     const request = db.transaction("pending").objectStore("pending").getAll();
-    request.onsuccess = () => resolve((request.result as PendingSave[]).map(fromRow));
+    request.onsuccess = () => resolve(request.result as PendingSave[]);
     request.onerror = () => reject(request.error);
   });
   db.close();
@@ -167,29 +104,20 @@ export async function clearQueuedSave(owner: string, id: string): Promise<void> 
 }
 
 /**
- * Replaces (or, with next undefined, deletes) the queued save expected (its owner and id) only while
- * it is still the entry the caller read: a save that replaced it meanwhile is never overwritten.
- * A next with an owner claims an owner-unknown entry: it moves to that owner's key, unless the owner
- * queued a save of the same page meanwhile, which then stays and the claim is refused.
+ * Replaces (or, with next undefined, deletes) the queued save expected only while it is still the
+ * entry the caller read: a save that replaced it meanwhile is never overwritten. next keeps its owner and id.
  */
 export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
   let same = false;
   await write("pending", (store) => {
-    const from = keyOf(expected);
-    const read = store.get(from);
+    const key = [expected.owner, expected.id];
+    const read = store.get(key);
     read.onsuccess = guarded(store.transaction, () => {
       const current = read.result as PendingSave | undefined;
       same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration);
       if (!same) return;
-      if (!next) { store.delete(from); return; }
-      const to = keyOf(next);
-      if (indexedDB.cmp(from, to) === 0) { store.put(toRow(next)); return; }
-      const taken = store.get(to);
-      taken.onsuccess = guarded(store.transaction, () => {
-        if (taken.result) { same = false; return; }
-        store.put(toRow(next));
-        store.delete(from);
-      });
+      if (next) store.put({ ...next, owner: expected.owner, id: expected.id });
+      else store.delete(key);
     });
   });
   return same;

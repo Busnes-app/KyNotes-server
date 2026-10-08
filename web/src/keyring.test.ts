@@ -315,10 +315,10 @@ describe("main.tsx key wiring", () => {
 
   it("opens server rows with the login key only through readKeys", () => {
     const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
-    // The two bare uses check this browser's own cache (ownsCached) and queue (the drain stamp).
-    expect(main.match(/decrypt\w*\(legacy\b/g)).toEqual(["decryptObject(legacy", "decryptObject(legacy"]);
-    // No hand-built key list puts the login key beside container keys.
-    expect(main).not.toMatch(/\[legacy,/);
+    // No bare use: owner proofs by the login key are gone.
+    expect(main).not.toMatch(/decrypt\w*\(legacy\b/);
+    // One hand-built list: unsent-edit export (keysFor) until the login key stops reading.
+    expect(main.match(/\[legacy,/g)).toHaveLength(1);
   });
 
   it("AdminTeams reads names with the login key only through readKeys", () => {

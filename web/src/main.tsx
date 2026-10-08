@@ -130,7 +130,6 @@ import {
   storeConfirmedPin,
   storeKeyState,
   storePins,
-  type CachedNote,
   type PendingSave,
   type PendingUpload,
 } from "./storage";
@@ -155,7 +154,6 @@ import {
 import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
-import { drainable } from "./stuckEdits";
 import "./styles.css";
 import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
@@ -672,10 +670,8 @@ function Workspace({
   // Leave sites read dirtiness synchronously; a closure's `dirty` lags a save that just finished.
   const dirtyRef = useRef(false);
   const markDirty = (value: boolean) => { dirtyRef.current = value; setDirty(value); };
-  // The login-derived key: it reads rows sealed before their notebook had a key and proves this browser's own unstamped cache and queue entries. It never seals anything new (keyring.ts writeKey).
+  // The login-derived key: it reads rows sealed before their notebook had a key. It never seals anything new (keyring.ts writeKey).
   const legacy = useMemo(() => legacyKeyRef(auth.authSecret), [auth.authSecret]);
-  // A page cached before owners were recorded is this account's only if its login-derived key opens it.
-  const ownsCached = (note: CachedNote) => decryptObject(legacy, note.containerID, note.payload).then(() => true, () => false);
   const ringsRef = useRef<Record<string, Keyring>>({});
   const [rings, setRings] = useState(ringsRef.current);
   const putRing = (containerID: string, ring: Keyring) => { ringsRef.current = { ...ringsRef.current, [containerID]: ring }; setRings(ringsRef.current); };
@@ -1307,14 +1303,14 @@ function Workspace({
       for (const change of result.changes.filter((entry) => entry.kind === "object" && !entry.deleted)) {
         try {
           const object = await readObject(change.id);
-          const cached = await getNote(auth.user.id, change.id, ownsCached);
+          const cached = await getNote(auth.user.id, change.id);
           // A cache entry without its generation cannot be read in a shared container: use the server copy.
           const useCache = Boolean(cached && cached.version >= object.version && (container.sharedGeneration === 0 || cached.keyGeneration !== undefined));
           const keys = useCache ? localReadKeysFor(container, cached!.keyGeneration) : readKeysFor(container, object.keyGeneration);
           const payload = await openFirst(keys, (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString(), useCache ? cached!.keyGeneration : object.keyGeneration);
         } catch {
-          const cached = await getNote(auth.user.id, change.id, ownsCached);
+          const cached = await getNote(auth.user.id, change.id);
           if (cached) {
             try {
               add(change.id, await openFirst(localReadKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
@@ -1682,13 +1678,7 @@ function Workspace({
     draining.current = true;
     try {
       // Only this account's edits: another account's entry could be sent, misattributed, to a notebook both share.
-      const { drain, stamp, superseded } = await drainable(await pendingSaves(), auth.user.id, (item) => decryptObject(legacy, item.containerID, item.payload).then(() => true));
-      // This account's legacy key opened them: record the owner before any re-key removes that proof.
-      // An entry not claimed (a newer save of the page took its key meanwhile) waits for the next drain.
-      const unclaimed = new Set<string>();
-      for (const item of stamp) if (!(await replaceQueuedSave(item, { ...item, owner: auth.user.id }).catch(() => false))) unclaimed.add(item.id);
-      for (const item of superseded) await replaceQueuedSave(item).catch(() => false);
-      const queued = drain.filter((item) => !unclaimed.has(item.id));
+      const queued = (await pendingSaves()).filter((item) => item.owner === auth.user.id);
       if (!queued.length) return;
       setSyncStatus("syncing");
       let remaining = false;
@@ -1851,7 +1841,7 @@ function Workspace({
   /** The shared cache's copy of a page; another tab may have written it. */
   async function otherTabDraft(id: string) {
     if (!selected) return undefined;
-    const cached = await getNote(auth.user.id, id, ownsCached).catch(() => undefined);
+    const cached = await getNote(auth.user.id, id).catch(() => undefined);
     if (!cached) return undefined;
     const containerID = selected.id;
     const payload = await openFirst(localReadKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
@@ -2893,9 +2883,8 @@ function Workspace({
             authSecret={auth.authSecret}
             username={auth.username}
             userID={auth.user.id}
-            legacyKey={legacy}
             colleagueNames={colleagueNames.current}
-            teamKeys={(item) => { const container = items.find((entry) => entry.id === item.containerID); return container ? localReadKeysFor(container, item.keyGeneration) : []; }}
+            keysFor={(item) => { const container = items.find((entry) => entry.id === item.containerID); return [legacy, ...(container ? localReadKeysFor(container, item.keyGeneration) : [])]; }}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
@@ -3361,9 +3350,8 @@ function SettingsView({
   onAuthSecret,
   createTeam,
   knownNames,
-  legacyKey,
   colleagueNames,
-  teamKeys,
+  keysFor,
   identityState,
   sso,
   heldIdentity,
@@ -3378,12 +3366,10 @@ function SettingsView({
   onBack: () => void;
   username: string;
   userID: string;
-  /** The login-derived key, for exporting edits stranded on this device. */
-  legacyKey: KeyRef;
   /** Usernames seen in key passes this session, for the colleague keys card. */
   colleagueNames: Record<string, string>;
-  /** Keys this browser holds for a queued edit's notebook and generation. */
-  teamKeys: (item: PendingSave) => KeyRef[];
+  /** Keys this browser holds for a queued edit: its notebook's key for that generation, or the waiting key. */
+  keysFor: (item: PendingSave) => KeyRef[];
   onForgetDevice?: () => void;
   onAuthSecret: (authSecret: string) => void;
   createTeam: (name: string) => Promise<string>;
@@ -3412,7 +3398,7 @@ function SettingsView({
   async function exportWaiting(): Promise<number> {
     const queued = (await pendingSaves()).filter((item) => item.owner === userID);
     if (!queued.length) return 0;
-    const file = await exportUnsent(queued, (item) => openFirst([legacyKey, ...teamKeys(item)], (key) => decryptObject(key, item.containerID, item.payload)));
+    const file = await exportUnsent(queued, (item) => openFirst(keysFor(item as PendingSave), (key) => decryptObject(key, item.containerID, item.payload)));
     downloadFile("kynotes-unsent-edits.json", file.json, "application/json");
     return queued.length - file.unreadable;
   }
@@ -3540,7 +3526,7 @@ function SettingsView({
             {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked(true); onIdentityChanged(); }} />}
             {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
             <PinnedKeys username={username} userID={userID} names={colleagueNames} />
-            <UnsentEdits legacyKey={legacyKey} username={username} userID={userID} teamKeys={teamKeys} />
+            <UnsentEdits username={username} userID={userID} keysFor={keysFor} />
             {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onIdentityChanged} password={sso ? undefined : passwordReset(username)} />}
           </>
         )}

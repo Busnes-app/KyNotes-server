@@ -18,7 +18,7 @@ async function drain(item: PendingSave, container: KeyedContainer, floor: KeyFlo
 describe("queued save drain", () => {
   it("never uploads a legacy draft once the notebook is known shared; re-seals it when the key arrives", async () => {
     const note = { title: "draft", body: "before sharing" };
-    const legacyDraft: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", keyGeneration: 1, payload: await encryptNote(login, cnt, note) };
+    const legacyDraft: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", keyGeneration: 1, owner: "usr_me", payload: await encryptNote(login, cnt, note) };
     const upload = vi.fn<(save: PendingSave) => void>();
     // This tab learns the notebook was shared (generation 2) before it has the key.
     const shared: KeyFloor = { shared: 2, generation: 2 };
@@ -84,7 +84,7 @@ describe("waiting edits", () => {
     const me = "usr_me", page = { title: "waiting", body: "edit" };
     const k2 = newContainerKey();
     const shared = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
-    const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", payload: new Uint8Array() };
+    const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", owner: "usr_me", payload: new Uint8Array() };
     const identity = generateIdentity();
     const waiting = waitingKey(identity);
     const before = { ...item, keyGeneration: WAITING_GENERATION, owner: me, payload: await encryptNote(waiting, cnt, page) };

@@ -1,34 +1,18 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
-import type { CachedNote, PendingSave } from "./storage";
+import type { PendingSave } from "./storage";
 
 const shared = indexedDB;
-/** Writes rows as a version 4 browser left them: under the owner-unknown key. */
-async function seedLegacy(rows: { pending?: PendingSave[]; notes?: CachedNote[] }) {
-  await pendingSaves(); // opens (and upgrades) the database
-  await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("kynotes-web");
-    request.onsuccess = () => {
-      const db = request.result;
-      const transaction = db.transaction(["pending", "notes"], "readwrite");
-      for (const row of rows.pending ?? []) transaction.objectStore("pending").put({ ...row, owner: "" });
-      for (const row of rows.notes ?? []) transaction.objectStore("notes").put({ ...row, owner: "" });
-      transaction.oncomplete = () => { db.close(); resolve(); };
-      transaction.onerror = () => reject(transaction.error);
-    };
-    request.onerror = () => reject(request.error);
-  });
-}
-
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const held = { deviceId: "dev_00000000000000000000000000", ...generateIdentity() };
 
-vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
+const local = new Map<string, string>();
+vi.stubGlobal("localStorage", { getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => { local.set(key, value); }, removeItem: (key: string) => { local.delete(key); } });
 
 describe("keys vault identity", () => {
   beforeEach(clearAllDeviceKeys);
@@ -217,18 +201,6 @@ describe("queued saves", () => {
     await clearQueuedSave(userID, item.id);
     expect(await pendingSaves()).toEqual([theirs]);
   });
-
-  it("moves a proven owner-unknown entry to its owner, but never over that owner's newer save", async () => {
-    const { owner: _owner, ...unknown } = item;
-    await seedLegacy({ pending: [unknown] });
-    expect(await pendingSaves()).toEqual([unknown]);
-    expect(await replaceQueuedSave(unknown, { ...unknown, owner: userID })).toBe(true);
-    expect(await pendingSaves()).toEqual([item]);
-    await seedLegacy({ pending: [unknown] });
-    await queueSave({ ...item, version: 4 });
-    expect(await replaceQueuedSave(unknown, { ...unknown, owner: userID })).toBe(false);
-    expect((await pendingSaves()).map((entry) => [entry.owner, entry.version])).toEqual([[undefined, 3], [userID, 4]]);
-  });
 });
 
 describe("note cache", () => {
@@ -237,53 +209,56 @@ describe("note cache", () => {
 
   it("never returns, replaces or deletes another account's copy of the same page", async () => {
     await putNote(other, { ...note, payload: new Uint8Array([9]) });
-    expect(await getNote(userID, note.id, async () => true)).toBeUndefined();
+    expect(await getNote(userID, note.id)).toBeUndefined();
     await putNote(userID, note);
     await deleteNote(userID, note.id);
     expect(await getNote(other, note.id)).toEqual({ ...note, payload: new Uint8Array([9]) });
     await deleteNote(other, note.id);
   });
-
-  it("returns a copy cached before owners were recorded only to the account whose key opens it, and claims it", async () => {
-    await seedLegacy({ notes: [note] });
-    expect(await getNote(other, note.id, async () => false)).toBeUndefined();
-    expect(await getNote(userID, note.id)).toBeUndefined();
-    expect(await getNote(userID, note.id, async () => true)).toEqual(note);
-    // Claimed: now this account's copy, and gone from the owner-unknown key.
-    expect(await getNote(userID, note.id)).toEqual(note);
-    expect(await getNote(other, note.id, async () => true)).toBeUndefined();
-    await deleteNote(userID, note.id);
-  });
 });
 
-describe("version 4 upgrade", () => {
-  it("re-keys the cache and the queue by owner and keeps every entry readable", async () => {
+describe("version 6 upgrade", () => {
+  const CID = `cnt_${"a".repeat(26)}`;
+  /** A v5 database as earlier builds left it: an owner-unknown cached page, a queue entry, an upload and a vault record. */
+  const seedV5 = (factory: IDBFactory) => new Promise<void>((resolve, reject) => {
+    const open = factory.open("kynotes-web", 5);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      db.createObjectStore("notes", { keyPath: ["owner", "id"] }).put({ owner: "", id: "obj_a", containerID: CID, version: 1, payload: new Uint8Array(1), updatedAt: "t" });
+      db.createObjectStore("pending", { keyPath: ["owner", "id"] }).put({ owner: "usr_x", id: "obj_b", containerID: CID, version: 1, payload: new Uint8Array(1), updatedAt: "t", keyGeneration: 0 });
+      db.createObjectStore("uploads", { keyPath: "uploadId" }).put({ uploadId: "upl_c" });
+      db.createObjectStore("keys", { keyPath: "username" }).put({ username: "alice", authSecret: "a".repeat(64), updatedAt: "t", pins: { userID, keys: { usr_b: "pin" } }, keyStates: { userID, byContainer: { [CID]: { mark: 2, digests: { 2: "d2" }, shared: 2, generation: 2 } } } });
+    };
+    open.onsuccess = () => { open.result.close(); resolve(); };
+    open.onerror = () => reject(open.error);
+  });
+  const fresh = async (run: () => Promise<void>) => {
     const factory = new IDBFactory();
     vi.stubGlobal("indexedDB", factory);
-    try {
-      const stamped = { id: "obj_s", containerID: "cnt_1", version: 1, payload: new Uint8Array([1]), updatedAt: "t1", keyGeneration: 2, owner: userID };
-      const unstamped = { id: "obj_u", containerID: "cnt_1", version: 1, payload: new Uint8Array([2]), updatedAt: "t1", keyGeneration: 0 };
-      const cached = { id: "obj_c", containerID: "cnt_1", version: 1, payload: new Uint8Array([3]), updatedAt: "t1", keyGeneration: 0 };
-      await new Promise<void>((resolve, reject) => {
-        const request = factory.open("kynotes-web", 4);
-        request.onupgradeneeded = () => {
-          const db = request.result;
-          db.createObjectStore("notes", { keyPath: "id" }).put(cached);
-          const pending = db.createObjectStore("pending", { keyPath: "id" });
-          pending.put(stamped); pending.put(unstamped);
-          db.createObjectStore("uploads", { keyPath: "uploadId" });
-          db.createObjectStore("keys", { keyPath: "username" }).put({ username: "alice", authSecret: "s" });
-        };
-        request.onsuccess = () => { request.result.close(); resolve(); };
-        request.onerror = () => reject(request.error);
-      });
-      expect(await pendingSaves()).toEqual([unstamped, stamped]);
-      expect(await getNote(userID, cached.id, async () => true)).toEqual(cached);
-      expect(await getDeviceKey("alice")).toBe("s");
-    } finally {
-      vi.stubGlobal("indexedDB", shared);
-    }
-  });
+    try { await seedV5(factory); await run(); } finally { vi.stubGlobal("indexedDB", shared); local.clear(); }
+  };
+
+  it("a v5 database opens at v6 with empty stores and its vault", () => fresh(async () => {
+    localStorage.setItem("kynotes-pending-saves", "{}");
+    expect(await pendingSaves()).toEqual([]);
+    expect(await pendingUploads()).toEqual([]);
+    expect(await getNote("", "obj_a")).toBeUndefined();
+    expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+    expect(await getPins("alice", userID)).toEqual({ usr_b: "pin" });
+    expect(await getKeyState("alice", userID, CID)).toEqual({ mark: 2, digests: { 2: "d2" }, shared: 2, generation: 2 });
+    expect(localStorage.getItem("kynotes-pending-saves")).toBeNull();
+  }));
+
+  it("clears once: entries written after the upgrade survive every later open", () => fresh(async () => {
+    const save = { id: "obj_d", containerID: CID, version: 1, payload: new Uint8Array([4]), updatedAt: "t", keyGeneration: 2, owner: userID };
+    await queueSave(save);
+    await putNote(userID, save);
+    localStorage.setItem("kynotes-pending-saves", "{}"); // only the upgrade removes it
+    expect(await pendingSaves()).toEqual([save]);
+    const { owner: _owner, ...cached } = save;
+    expect(await getNote(userID, save.id)).toEqual(cached);
+    expect(localStorage.getItem("kynotes-pending-saves")).toBe("{}");
+  }));
 });
 
 const vaultRow = (username: string) => new Promise<Record<string, any> | undefined>((resolve, reject) => {
