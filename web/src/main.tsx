@@ -1644,8 +1644,8 @@ function Workspace({
   /**
    * A queued save as it may be sent now (readyToSend against the container's current state and
    * this tab's floor), re-sealed for the current write key if needed; undefined keeps it queued.
-   * ponytail: an edit for a notebook this user lost, or sealed under a password changed in another
-   * browser, never opens and waits here forever (N1). Upgrade: P3b key-status UI with discard/export.
+   * ponytail: one sealed under a password changed in another browser never opens and waits here
+   * (N3). Upgrade: P5 identity-keyed storage.
    */
   async function sendable(item: PendingSave, synced: Map<string, Promise<Container>>): Promise<{ item: PendingSave; container: Container } | undefined> {
     // One background key pass per container per drain; it never opens a dialog.

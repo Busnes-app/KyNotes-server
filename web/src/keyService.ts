@@ -231,7 +231,8 @@ export type Invited =
   | { invitation: Invitation; keys: Exclude<InviteKeys, "sealed">; recipient?: undefined };
 /**
  * The team the user chose to invite to. Child workspaces are never added here: teamId is a server
- * claim. floor: this tab's in-memory floor (mergeFloor), merged with the stored one, which can lag;
+ * claim. ponytail: team container only; children wait for the steward sweep after accept. Upgrade: a
+ * verifiable parent link the team key authenticates. floor: this tab's in-memory floor (mergeFloor), merged with the stored one, which can lag;
  * undefined (not loaded yet) sends no keys.
  */
 export type InviteTarget = { container: ReportedContainer; ring: Keyring; floor: KeyFloor | undefined };

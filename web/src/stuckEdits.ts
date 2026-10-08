@@ -21,6 +21,8 @@ export type Unsent = { owned: PendingSave[]; unowned: PendingSave[]; unknown: Pe
  *   discarded, wherever its notebook is; listed for export when opens (any key this browser holds)
  *   reads it, otherwise counted in sealed.
  * Another account's stamped entries are never offered.
+ * ponytail: queued saves only; pending uploads (pendingUploads) for lost notebooks are not listed.
+ * Upgrade: stamp uploads with their owner and list them here the same way.
  */
 export async function unsentEdits(queued: PendingSave[], live: ReadonlySet<string> | undefined, owner: string, opensLegacy: (item: PendingSave) => Promise<boolean>, opens: (item: PendingSave) => Promise<boolean>): Promise<Unsent> {
   const out: Unsent = { owned: [], unowned: [], unknown: [], sealed: 0 };
