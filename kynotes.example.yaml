@@ -26,10 +26,10 @@ gc:
   interval: "1h"
 ratelimit:
   login_per_minute: 10 # also browser link-relay steps (claim, reveal, approve, cancel), per account
-  pairing_per_hour: 20 # device pairing tokens and browser link requests, per account
+  pairing_per_hour: 20 # device pairing tokens, browser link requests and identity writes (create, reset, recovery-code set/fetch), per account, separate buckets
   upload_per_minute: 60
   invitation_per_hour: 30 # invitation creation; accepts get their own bucket at this rate
-  link_poll_per_minute: 60 # browser link collect polls (every 4 s, backing off on 429) and legacy-row lists, per account, separate buckets
+  link_poll_per_minute: 60 # browser link collect polls (every 4 s, backing off on 429), per account
 log:
   level: "info"
   format: "json"

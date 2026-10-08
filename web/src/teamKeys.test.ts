@@ -159,7 +159,7 @@ describe("binding", () => {
 
 describe("vector-only exports", () => {
   it("are imported by tests only (caller-chosen nonces and ephemeral keys)", () => {
-    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./teamKeys.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
+    const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./teamKeys.ts", "!./recovery.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toContain("./main.tsx");
     expect(Object.entries(sources).filter(([, text]) => text.includes("ForVector")).map(([name]) => name)).toEqual([]);
   });

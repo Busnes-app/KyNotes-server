@@ -25,7 +25,9 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
-		rows, err := db.Query(`SELECT m.user_id,u.username,m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
+		// keyResetAt (stewards only): the member's last self-service key reset, which retires this
+		// notebook's key until a steward mints the next one; the cause of a waiting notebook.
+		rows, err := db.Query(`SELECT m.user_id,u.username,m.role,COALESCE((SELECT MAX(a.created_at) FROM audit_events a WHERE a.user_id=m.user_id AND a.event='identity.create' AND a.outcome='success' AND a.reason_code LIKE '%,reset%'),'') FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -33,12 +35,16 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 		defer rows.Close()
 		out := []map[string]string{}
 		for rows.Next() {
-			var id, username, memberRole string
-			if rows.Scan(&id, &username, &memberRole) != nil {
+			var id, username, memberRole, resetAt string
+			if rows.Scan(&id, &username, &memberRole, &resetAt) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			out = append(out, map[string]string{"userId": id, "username": username, "role": memberRole})
+			member := map[string]string{"userId": id, "username": username, "role": memberRole}
+			if isSteward(role) && resetAt != "" {
+				member["keyResetAt"] = resetAt
+			}
+			out = append(out, member)
 		}
 		writeJSON(w, out)
 	})))

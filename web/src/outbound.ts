@@ -1,4 +1,4 @@
-import { approveLinkRequest, collectLinkRequest, createComment, createUpload, finalizeUpload, rewriteComment, saveObject, updateContainer, uploadChunk, type LinkState } from "./api";
+import { approveLinkRequest, collectLinkRequest, createComment, createUpload, finalizeUpload, saveObject, updateContainer, uploadChunk, type LinkState } from "./api";
 import { base64 } from "./crypto";
 import { queuedSaveStep } from "./drain";
 import { floorOf } from "./floors";
@@ -24,13 +24,13 @@ export function setWriteKeySource(source: (container: ReportedContainer) => Writ
 }
 
 /**
- * The one gate in front of every container-key or login-key ciphertext upload: right before the
+ * The one gate in front of every ciphertext upload: right before the
  * request, the sealing generation must be this tab's current write generation under the tab-wide
  * floor (queuedSaveStep "send"). Otherwise it throws KeysWaitingError and nothing is sent.
  */
 export function sendCiphertext(sealed: Sealed): void {
   const write = currentWrite?.(sealed.container);
-  if (queuedSaveStep(sealed.container, floorOf(sealed.container.id), sealed.generation, write) !== "send") throw new KeysWaitingError();
+  if (queuedSaveStep(floorOf(sealed.container.id), sealed.generation, write) !== "send") throw new KeysWaitingError();
 }
 
 // main.tsx reaches these API calls only through the wrappers below (outbound.test.ts).
@@ -45,10 +45,6 @@ export const sendContainerName = (sealed: Sealed, metaCiphertext: string, baseVe
 export const sendComment = (sealed: Sealed, objectID: string, bodyCiphertext: string) => {
   sendCiphertext(sealed);
   return createComment(objectID, bodyCiphertext, sealed.generation);
-};
-export const sendCommentRewrite = (sealed: Sealed, commentID: string, bodyCiphertext: string) => {
-  sendCiphertext(sealed);
-  return rewriteComment(commentID, bodyCiphertext, sealed.generation);
 };
 export const sendUploadStart = (sealed: Sealed, declaredBytes: number, expectedDigest: string) => {
   sendCiphertext(sealed);

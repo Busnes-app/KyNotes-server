@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
@@ -28,10 +27,10 @@ var (
 	errVersionConflict       = errors.New("version conflict")
 )
 
-// keySchemeHeader marks a write from a client that seals shared containers with
-// their container key. A shared container refuses writes without it, so a tab
-// loaded before team keys cannot store login-key ciphertext at a shared generation.
-const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v1"
+// keySchemeHeader marks a write from a client that seals content only with container keys.
+// Every content write and name change must carry it; a tab from an older build is refused
+// and told to reload.
+const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v2"
 
 type envelopeIn struct {
 	DeviceID      string `json:"deviceId"`
@@ -165,18 +164,16 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 	return nil
 }
 
-// putGenerationTx is the generation a PUT envelope targets. Legacy containers
-// (shared_generation=0) keep the current generation, as before. A shared
-// container accepts any generation from shared_generation to current that
-// already holds an envelope: stewards backfill history for newcomers, but a key
-// is minted only by key-rotations, never by PUT (no split generations).
+// putGenerationTx is the generation a PUT envelope targets: any generation from shared_generation
+// to current that already holds an envelope, so stewards backfill history for newcomers. Keys are
+// minted only by key-rotations, so a container without a key yet takes no envelope here.
 func putGenerationTx(tx *sql.Tx, cid string, current, requested int64) (int64, error) {
 	var shared int64
 	if err := tx.QueryRow(`SELECT shared_generation FROM containers WHERE id=?`, cid).Scan(&shared); err != nil {
 		return 0, err
 	}
 	if shared == 0 {
-		return current, nil
+		return 0, errKeyRotationIncomplete
 	}
 	if requested < shared || requested > current {
 		return 0, errGenerationMoved
@@ -273,118 +270,6 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		writeJSON(w, map[string]any{"keyGeneration": next})
 	})))
-	mux.Handle("PUT /api/v1/comments/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth.CheckCSRF(r) != nil {
-			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
-			return
-		}
-		s, _ := auth.SessionFromContext(r)
-		id := r.PathValue("id")
-		var in struct {
-			BodyCiphertext string `json:"bodyCiphertext"`
-			KeyGeneration  int64  `json:"keyGeneration"`
-		}
-		if ids.Validate("cmt", id) != nil || json.NewDecoder(r.Body).Decode(&in) != nil || in.KeyGeneration < 1 {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		body, err := base64.StdEncoding.DecodeString(in.BodyCiphertext)
-		if err != nil {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		err = dbTx(db, func(tx *sql.Tx) error {
-			var cid, author, role string
-			err := tx.QueryRow(`SELECT c.container_id,c.author_user_id,m.role FROM comments c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, s.UserID, id).Scan(&cid, &author, &role)
-			if err != nil {
-				return err
-			}
-			if author != s.UserID || role == "viewer" {
-				return errInsufficientRole
-			}
-			if err := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); err != nil {
-				return err
-			}
-			now := time.Now().UTC().Format(time.RFC3339)
-			var seq int64
-			if err := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); err != nil {
-				return err
-			}
-			_, err = tx.Exec(`UPDATE comments SET body_ciphertext=?,key_generation=?,change_seq=? WHERE id=?`, body, in.KeyGeneration, seq, id)
-			return err
-		})
-		if writeTeamKeyError(w, r, err) {
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})))
-	// The rows of a container written below its shared generation (sealed with each author's login
-	// key), for the web client's review. A hint only: the client opens every row with its own key and
-	// decides on its own device when to stop reading them. Any live member; session only.
-	mux.Handle("GET /api/v1/containers/{id}/legacy", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		s, _ := auth.SessionFromContext(r)
-		cid := r.PathValue("id")
-		var shared int64
-		if ids.Validate("cnt", cid) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		// A storage error is 500, never a 404 the client could read as "not a member".
-		if err := db.QueryRow(`SELECT c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, s.UserID, cid).Scan(&shared); errors.Is(err, sql.ErrNoRows) {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		} else if err != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
-			return
-		}
-		// A never-shared container (shared 0) matches no row: key_generation is at least 1.
-		// ponytail: comments and conflicts are scanned with no index on (container_id, key_generation). Upgrade: add indexes.
-		kinds := []struct {
-			name, query string
-			scan        func(*sql.Rows) (map[string]any, error)
-		}{
-			{"objects", `SELECT o.id,v.key_generation FROM objects o JOIN object_versions v ON v.object_id=o.id AND v.version=o.current_version WHERE o.container_id=?1 AND o.deleted_at='' AND v.key_generation<?2 ORDER BY o.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id string
-				var generation int64
-				err := rows.Scan(&id, &generation)
-				return map[string]any{"id": id, "keyGeneration": generation}, err
-			}},
-			{"comments", `SELECT c.id,c.object_id,c.author_user_id,c.body_ciphertext,c.key_generation FROM comments c JOIN objects o ON o.id=c.object_id AND o.deleted_at='' WHERE c.container_id=?1 AND c.deleted_at='' AND c.key_generation<?2 ORDER BY c.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, object, author string
-				var body []byte
-				var generation int64
-				err := rows.Scan(&id, &object, &author, &body, &generation)
-				return map[string]any{"id": id, "objectId": object, "authorUserId": author, "bodyCiphertext": base64.StdEncoding.EncodeToString(body), "keyGeneration": generation}, err
-			}},
-			{"attachments", `SELECT a.id,group_concat(DISTINCT ar.object_id),a.metadata_ciphertext,a.key_generation FROM attachments a JOIN attachment_refs ar ON ar.attachment_id=a.id JOIN objects o ON o.id=ar.object_id AND o.deleted_at='' WHERE a.container_id=?1 AND a.deleted_at='' AND a.key_generation<?2 GROUP BY a.id ORDER BY a.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, objects string
-				var generation int64
-				var meta []byte
-				err := rows.Scan(&id, &objects, &meta, &generation)
-				return map[string]any{"id": id, "objectIds": strings.Split(objects, ","), "metadataCiphertext": base64.StdEncoding.EncodeToString(meta), "keyGeneration": generation}, err
-			}},
-			{"conflicts", `SELECT f.id,f.object_id,f.key_generation FROM conflicts f JOIN objects o ON o.id=f.object_id AND o.deleted_at='' WHERE f.container_id=?1 AND f.resolved_at='' AND f.key_generation<?2 ORDER BY f.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, object string
-				var generation int64
-				err := rows.Scan(&id, &object, &generation)
-				return map[string]any{"id": id, "objectId": object, "keyGeneration": generation}, err
-			}},
-		}
-		out := map[string]any{"complete": true}
-		for _, kind := range kinds {
-			list, complete, err := legacyRows(db, kind.query, cid, shared, kind.scan)
-			if err != nil {
-				WriteError(w, r, 500, "internal", "internal server error")
-				return
-			}
-			out[kind.name] = list
-			if !complete {
-				out["complete"] = false
-			}
-		}
-		writeJSON(w, out)
-	})))
 	// Visible to the user, to anyone sharing a live container with them, and to a
 	// team or project owner/admin holding a pending invitation for them. Everyone
 	// else gets the same 404, so the route is no liveness oracle for strangers.
@@ -411,44 +296,44 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 	})))
 }
 
-// missingEnvelopesSQL is the legacy save gate for containers that never rotated
-// (shared_generation=0): members' paired devices lacking an envelope at the
-// current generation. Identity rows are excluded.
-const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
-
 type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// checkWriteGate admits a content write by userID into cid at generation
-// requested. Containers that never rotated keep the legacy device rule; once
-// rotated, the writer must send keySchemeShared and its own identity needs an
-// envelope at the current generation. Call it before streaming a body and again
-// inside the write transaction.
-func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
+// checkContainerKeyed admits bytes from userID into cid before any generation is named (upload
+// start, chunks, preview finalize): a live member, sending keySchemeShared, into a container that
+// has a key (shared_generation > 0). It returns the current generation.
+func checkContainerKeyed(q rowQuerier, cid, userID, scheme string) (int64, error) {
 	var generation, shared int64
 	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
-		return errNotMember
+		return 0, errNotMember
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if shared != 0 && scheme != keySchemeShared {
-		return errStaleClient
+	if scheme != keySchemeShared {
+		return 0, errStaleClient
+	}
+	if shared == 0 {
+		return 0, errKeyRotationIncomplete
+	}
+	return generation, nil
+}
+
+// checkWriteGate admits a content write by userID into cid at generation requested: the container
+// passes checkContainerKeyed, requested is its current generation and the writer's own identity
+// holds an envelope there. Call it before streaming a body and again inside the write transaction.
+func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
+	generation, err := checkContainerKeyed(q, cid, userID, scheme)
+	if err != nil {
+		return err
 	}
 	if requested != generation {
 		return errKeyRotationIncomplete
 	}
-	admitted := false
-	if shared == 0 {
-		var missing int
-		err = q.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing)
-		admitted = missing == 0
-	} else {
-		err = q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted)
-	}
-	if err != nil {
+	var admitted bool
+	if err := q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted); err != nil {
 		return err
 	}
 	if !admitted {
@@ -486,6 +371,22 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		}
 	}
 	return nil
+}
+
+// retireKeysTx advances key_generation in every keyed container userID is a live member of, as a
+// member removal does: a self-service reset may follow a stolen browser, so the old identity's
+// keys must open nothing written afterwards. The new generation has no envelopes; writes wait
+// until a steward mints it. It returns how many containers it retired.
+func retireKeysTx(tx *sql.Tx, userID, now string) (int64, error) {
+	const scope = `(SELECT container_id FROM memberships WHERE user_id=?1 AND revoked_at='')`
+	res, err := tx.Exec(`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?2 WHERE shared_generation>0 AND deleted_at='' AND id IN `+scope, userID, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM invitation_envelopes WHERE container_id IN `+scope+` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`, userID); err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // admitMemberTx makes userID a member of cid and its live child workspaces with
@@ -531,8 +432,8 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 		return errEnvelopeInvalid
 	}
 	var role string
-	var generation int64
-	err := tx.QueryRow(`SELECT m.role,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation)
+	var generation, shared int64
+	err := tx.QueryRow(`SELECT m.role,c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errEnvelopeInvalid
 	}
@@ -541,6 +442,10 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 	}
 	if !isSteward(role) {
 		return errInsufficientRole
+	}
+	// Keys are minted only by key-rotations: a container without one takes no envelope.
+	if shared == 0 {
+		return errKeyRotationIncomplete
 	}
 	if v.KeyGeneration != generation {
 		return errGenerationMoved
@@ -566,7 +471,7 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 // container is still at their generation and whose identity is still live; the
 // rest are dropped for the key steward sweep to fill.
 func moveInvitationEnvelopesTx(tx *sql.Tx, invitationID, invitee, now string) error {
-	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
+	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.shared_generation>0 AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
 	if err != nil {
 		return err
 	}
@@ -599,32 +504,4 @@ func moveInvitationEnvelopesTx(tx *sql.Tx, invitationID, invitee, now string) er
 	}
 	_, err = tx.Exec(`DELETE FROM invitation_envelopes WHERE invitation_id=?`, invitationID)
 	return err
-}
-
-// legacyListMax bounds each kind of row GET /containers/{id}/legacy returns; a longer list is
-// reported with complete=false, and the web client then never stops reading legacy rows on its own.
-const legacyListMax = 1000
-
-// legacyRows reads up to legacyListMax rows of one kind; complete is false when there were more.
-func legacyRows(db *sql.DB, query, cid string, shared int64, scan func(*sql.Rows) (map[string]any, error)) ([]map[string]any, bool, error) {
-	rows, err := db.Query(query, cid, shared, legacyListMax+1)
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		row, err := scan(rows)
-		if err != nil {
-			return nil, false, err
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-	if len(out) > legacyListMax {
-		return out[:legacyListMax], false, nil
-	}
-	return out, true, nil
 }

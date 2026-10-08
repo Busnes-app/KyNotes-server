@@ -1,13 +1,15 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
-import { decryptObject, encryptNote, fromBase64, legacyKeyRef, type KeyRef } from "../src/crypto";
+import { expect, test, type Browser, type Locator, type Page, type Request } from "@playwright/test";
+import { asContentKey, decryptComment, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
+import { waitingKey } from "../src/keyring";
+import { newRecoveryCode } from "../src/recovery";
 import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
 // Three people in three isolated browser contexts (cookies and IndexedDB apart).
 const TEMPORARY = "temporary horse battery staple";
 const OWN = "my own horse battery staple";
 const TEAM = "Team Keys E2E";
-const WAITING = "Waiting for a team owner to share this notebook's keys. It is read-only until then.";
+const WAITING = "This notebook is read-only until its keys reach this browser.";
 
 /** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
 type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
@@ -46,17 +48,130 @@ async function signIn(page: Page, username: string, password: string) {
   await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
 }
 
-/** An administrator-set password blocks the identity; the user's own change creates it. */
+/** On Settings. An administrator-set password blocks the identity; the user's own change creates it. */
+async function changeOwnPassword(page: Page, current: string, next: string) {
+  await page.getByLabel("Current password").fill(current);
+  await page.getByLabel("New password", { exact: true }).fill(next);
+  await page.getByLabel("Confirm new password").fill(next);
+  await page.getByRole("button", { name: "Change password" }).click();
+  await expect(page.getByText("Password changed.")).toBeVisible();
+}
+
 async function takeOverPassword(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByLabel("Current password").fill(TEMPORARY);
-  await page.getByLabel("New password", { exact: true }).fill(OWN);
-  await page.getByLabel("Confirm new password").fill(OWN);
-  await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Change password" }).click();
+  await changeOwnPassword(page, TEMPORARY, OWN);
   await expect.poll(() => vaultOf(page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
   await page.getByRole("button", { name: "← Workspace" }).click();
 }
+
+// Copied from components/RecoveryCode.tsx, recovery.ts and main.tsx: a changed string fails the run.
+const RECOVERY_SAVED = "Recovery code saved. Keep it somewhere safe.";
+const LINKED = "Linked. This browser now holds your encryption key.";
+const RECOVERY_TYPO = "Check the recovery code: a character is wrong or missing.";
+const RECOVERY_WRONG = "This recovery code does not open your key. Check it and try again.";
+const RECOVERY_STALE = "The server's recovery copy is not for your account's current key. Reload and try again.";
+const RESET_HELD = "This browser holds your encryption key, so you do not need a reset to get it back: save a recovery code instead. Reset only if a browser that holds your key was lost or stolen.";
+const RESET_CONFIRM = "Reset your encryption key? Your personal notebooks become unreadable for good, on every browser, and so does any team notebook whose keys no other owner or admin holds. Unsent edits waiting for a notebook's keys are never sent afterwards: export them first. Team owners must share each team's keys with you again, and colleagues are asked to trust your new key. Type RESET to continue.";
+const RESET_WRONG_PASSWORD = "That password is not right. Nothing was reset.";
+const RESET_DONE = "Your encryption key was reset. Team owners share their notebooks' keys with you again when they next open them.";
+const ADMIN_RESET = "Password reset. All existing sessions and paired device credentials were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.";
+const CODE_FORMAT = /^([0-9A-HJKMNP-TV-Z]{4}-){6}[0-9A-HJKMNP-TV-Z]{4}$/;
+
+const typeBackLabel = (scope: Locator) => scope.locator("label.field span").filter({ hasText: /^Type group [1-7] of 7 from your saved copy$/ });
+
+/**
+ * On a shown code: reads it, hides it, shows it again (the asked group must change, so the group just read
+ * is never the one asked), then types back the asked group and saves. Returns the code.
+ */
+async function saveShownCode(scope: Locator, shots?: { page: Page; phase: string; state: string }) {
+  const shown = scope.locator(".recovery-code");
+  const code = (await shown.textContent())!.trim();
+  expect(code).toMatch(CODE_FORMAT);
+  if (shots) await shoot(shots.page, shots.phase, `${shots.state}-code`, scope);
+  await scope.getByRole("button", { name: "I saved it" }).click();
+  await expect(shown).toHaveCount(0);
+  const first = (await typeBackLabel(scope).textContent())!;
+  if (shots) await shoot(shots.page, shots.phase, `${shots.state}-type-back`, scope);
+  await scope.getByRole("button", { name: "Show the code again" }).click();
+  await expect(shown).toHaveText(code);
+  await scope.getByRole("button", { name: "I saved it" }).click();
+  const label = (await typeBackLabel(scope).textContent())!;
+  expect(label).not.toBe(first);
+  const group = Number(/group ([1-7])/.exec(label)![1]);
+  await scope.getByLabel(label).fill(code.split("-")[group - 1].toLowerCase());
+  await scope.getByRole("button", { name: "Save recovery code" }).click();
+  return code;
+}
+
+/**
+ * The user's own reset in Settings, from a browser that holds the key; returns the new recovery code.
+ * It needs RESET typed and a password step-up before any code is shown. The reset's response is lost
+ * after the server committed it: the browser finishes from the identity the server then lists.
+ */
+async function resetOwnKey(who: Person, password: string) {
+  const { page } = who;
+  await page.getByRole("button", { name: "Settings" }).click();
+  const card = page.locator("#identity-reset");
+  await expect(card.getByText(RESET_HELD)).toBeVisible();
+  const steps: string[] = [];
+  const track = (request: { method: () => string; url: () => string }) => {
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/v1/auth/step-up" || path === "/api/v1/me/identity" && request.method() !== "GET") steps.push(`${request.method()} ${path}`);
+  };
+  page.on("request", track);
+  await card.getByRole("button", { name: "Reset encryption key…" }).click();
+  await expect(card.getByRole("alert")).toHaveText(RESET_CONFIRM);
+  await shoot(page, "p5", "reset-dialog", card);
+  const go = card.getByRole("button", { name: "Continue" });
+  await card.getByLabel("Your password").fill(password);
+  for (const typed of ["", "reset", "RESETX"]) {
+    await card.getByLabel("Type RESET to confirm").fill(typed);
+    await expect(go).toBeDisabled();
+  }
+  await card.getByLabel("Type RESET to confirm").fill("RESET");
+  await card.getByLabel("Your password").fill(`${password} wrong`);
+  await go.click();
+  await expect(card.getByText(RESET_WRONG_PASSWORD)).toBeVisible();
+  await expect(card.locator(".recovery-code")).toHaveCount(0);
+  expect(steps).toEqual(["POST /api/v1/auth/step-up"]);
+  await card.getByLabel("Your password").fill(password);
+  await go.click();
+  await expect(card.locator(".recovery-code")).toBeVisible();
+  await shoot(page, "p5", "reset-code", card);
+  // The server commits the reset, then the connection drops before its answer arrives.
+  const committed: number[] = [];
+  await page.route((url) => url.pathname === "/api/v1/me/identity", async (route) => {
+    if (route.request().method() !== "PUT") { await route.continue(); return; }
+    committed.push((await route.fetch()).status());
+    await route.abort("connectionreset");
+  });
+  const code = await saveShownCode(card);
+  await expect(card.getByText(RESET_DONE)).toBeVisible({ timeout: 30_000 });
+  await page.unroute((url) => url.pathname === "/api/v1/me/identity");
+  page.off("request", track);
+  expect(committed).toEqual([200]);
+  // Every write was behind a step-up, and the one reset request followed the last of them.
+  expect(steps.slice(-2)).toEqual(["POST /api/v1/auth/step-up", "PUT /api/v1/me/identity"]);
+  expect(steps.filter((step) => step.startsWith("PUT"))).toHaveLength(1);
+  await expect(page.locator("#recovery")).toContainText("You saved a recovery code on");
+  await page.getByRole("button", { name: "← Workspace" }).click();
+  return code;
+}
+
+/** True when any storage this page can see (IndexedDB, localStorage, sessionStorage, the URL) holds needle. */
+const storageHolds = (page: Page, needle: string) => page.evaluate(async (text) => {
+  const dumps: string[] = [location.href, JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage })];
+  for (const info of await indexedDB.databases()) {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const open = indexedDB.open(info.name!); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); });
+    for (const name of [...db.objectStoreNames]) {
+      const rows = await new Promise<unknown[]>((resolve) => { const all = db.transaction(name).objectStore(name).getAll(); all.onsuccess = () => resolve(all.result); });
+      dumps.push(JSON.stringify(rows, (_, value) => (ArrayBuffer.isView(value) ? new TextDecoder().decode(value as Uint8Array) : value)));
+    }
+    db.close();
+  }
+  const forms = [text, text.replaceAll("-", "")].map((form) => form.toLowerCase());
+  return dumps.some((dump) => forms.some((form) => dump.toLowerCase().includes(form)));
+}, needle);
 
 type Vault = { authSecret: string; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
 
@@ -164,9 +279,38 @@ async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array
     const envelope = fromBase64(row.envelope);
     const sender = senders.get(envelopeSender(envelope));
     if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(envelope)}`);
-    return [row.keyGeneration, unwrapEnvelope(envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender)];
+    return [row.keyGeneration, asContentKey(unwrapEnvelope(envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
   }));
 }
+
+type Queued = { id: string; containerID: string; version: number; payload: number[]; keyGeneration: number; owner: string };
+
+/** Puts an entry in this browser's queue of unsent edits, shaped as the app's saveNow queues one. */
+const queueEdit = (page: Page, entry: Queued) => page.evaluate((item) => new Promise<void>((resolve, reject) => {
+  const open = indexedDB.open("kynotes-web");
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const tx = open.result.transaction("pending", "readwrite");
+    tx.objectStore("pending").put({ ...item, payload: new Uint8Array(item.payload), updatedAt: new Date().toISOString() });
+    tx.oncomplete = () => { open.result.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  };
+}), entry);
+
+/** Every row of one store of this browser's local database, byte arrays as numbers; null when the store is missing. */
+const storeRows = (page: Page, store: string) => page.evaluate((name) => new Promise<Array<Record<string, unknown>> | null>((resolve, reject) => {
+  const open = indexedDB.open("kynotes-web");
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const db = open.result;
+    if (!db.objectStoreNames.contains(name)) { db.close(); resolve(null); return; }
+    const all = db.transaction(name).objectStore(name).getAll();
+    all.onsuccess = () => {
+      db.close();
+      resolve((all.result as Array<Record<string, unknown>>).map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value instanceof Uint8Array ? [...value] : value]))));
+    };
+  };
+}), store);
 
 const SECOND = "Second Team E2E";
 const listed = (page: Page) => page.evaluate(async () => ((await (await fetch("/api/v1/containers")).json()) as Array<{ id: string }>).map((entry) => entry.id));
@@ -203,6 +347,9 @@ const stashed = (page: Page) => page.evaluate(() => sessionStorage.getItem("kyno
 
 const titleOf = (key: KeyRef, cid: string, bytes: number[]) => decryptObject(key, cid, Uint8Array.from(bytes)).then((payload) => payload?.title);
 
+/** The key the server could derive from what it sees at sign-in. Test-only: content must never open with it. */
+const loginKey = (authSecret: string) => asContentKey(Uint8Array.from(Buffer.from(authSecret, "hex")));
+
 test("team keys: three people share, a removed member loses new content", async ({ browser }) => {
   const owner = await person(browser);
   const editor = await person(browser);
@@ -211,19 +358,32 @@ test("team keys: three people share, a removed member loses new content", async 
   const shared = await person(browser);
   // A second browser of the editor's account, linked from the editor's browser.
   const second = await person(browser);
+  // The legacy review route is gone: no browser may ever ask for it.
+  const legacyCalls: string[] = [];
+  const watch = (who: Person) => who.page.on("request", (request) => { if (/\/legacy(\?|$)/.test(new URL(request.url()).pathname)) legacyCalls.push(request.url()); });
+  for (const who of [owner, editor, newcomer, shared, second]) watch(who);
+  // Browsers the later scenarios open; each is watched and checked the same way.
+  const extra: Person[] = [];
+  const another = async () => {
+    const who = await person(browser);
+    watch(who);
+    extra.push(who);
+    return who;
+  };
   try {
-    await scenario(owner, editor, newcomer, shared, second);
+    await scenario(owner, editor, newcomer, shared, second, another);
   } finally {
     // An unexpected dialog (a fingerprint change, an error alert) is the root cause of whatever failed after it.
-    for (const who of [owner, editor, newcomer, shared, second]) expect(who.unexpected).toEqual([]);
+    for (const who of [owner, editor, newcomer, shared, second, ...extra]) expect(who.unexpected).toEqual([]);
+    expect(legacyCalls).toEqual([]);
   }
 });
 
-async function scenario(owner: Person, editor: Person, newcomer: Person, shared: Person, second: Person) {
+async function scenario(owner: Person, editor: Person, newcomer: Person, shared: Person, second: Person, another: () => Promise<Person>) {
   // Owner: first-run setup (its own password, so its identity exists at once), then accounts.
   await owner.page.goto("/");
   await owner.page.getByLabel("Administrator Username").fill("owner");
-  await owner.page.getByLabel("Master Password").fill(OWN);
+  await owner.page.getByLabel("Password", { exact: true }).fill(OWN);
   await owner.page.getByLabel("Confirm Password").fill(OWN);
   await owner.page.getByRole("button", { name: "Initialize KyNotes" }).click();
   await expect.poll(() => vaultOf(owner.page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
@@ -263,7 +423,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const ownerKeys = await heldKeys(owner.page, cid, senders);
   const ownerCopy = await serverCopy(owner.page, "Owner page");
   expect(ownerCopy.generation).toBeGreaterThan(0);
-  await expect(titleOf(legacyKeyRef((await vaultOf(owner.page))!.authSecret), cid, ownerCopy.bytes)).rejects.toThrow();
+  await expect(titleOf(loginKey((await vaultOf(owner.page))!.authSecret), cid, ownerCopy.bytes)).rejects.toThrow();
   await expect(titleOf(ownerKeys.get(ownerCopy.generation)!, cid, ownerCopy.bytes)).resolves.toBe("Owner page");
 
   // Editor reads the owner's page, comment and attachment, and writes back.
@@ -278,7 +438,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const editorKeys = await heldKeys(editor.page, cid, senders);
   const editorCopy = await serverCopy(editor.page, "Editor page");
   expect(editorCopy.generation).toBe(ownerCopy.generation);
-  await expect(titleOf(legacyKeyRef((await vaultOf(editor.page))!.authSecret), cid, editorCopy.bytes)).rejects.toThrow();
+  await expect(titleOf(loginKey((await vaultOf(editor.page))!.authSecret), cid, editorCopy.bytes)).rejects.toThrow();
   await expect(titleOf(editorKeys.get(editorCopy.generation)!, cid, editorCopy.bytes)).resolves.toBe("Editor page");
   await expect(titleOf(ownerKeys.get(editorCopy.generation)!, cid, editorCopy.bytes)).resolves.toBe("Editor page");
 
@@ -348,7 +508,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await readPage(editor.page, "Owner page", ["owner comment"]);
   await p3b(owner, editor, newcomer, shared, cid, senders);
   await p3c(editor, second, cid, senders);
-  await p4(owner, editor, second, senders);
+  await p5(owner, editor, cid, another);
 }
 
 async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Person, cid: string, senders: Map<string, Uint8Array>) {
@@ -434,23 +594,35 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   await openTeam(newcomer.page, TEAM, cid);
   await readPage(newcomer.page, "After removal", ["after comment"]);
 
-  // 3. A reset deletes the newcomer's identity: members see it has none.
+  // 3. An administrator reset keeps the newcomer's key (members still see it); only the newcomer's own reset replaces it.
   await owner.page.getByRole("button", { name: "Admin" }).click();
   const users = owner.page.locator("#users");
   await users.getByLabel("Confirm your password").fill(OWN);
   await users.getByRole("button", { name: "Authorize user creation and password resets" }).click();
   await expect(users.getByText("Password confirmed for ten minutes.")).toBeVisible();
   owner.expected.push({ type: "prompt", text: "New temporary password for newcomer", answer: TEMPORARY });
-  await withDialog(owner, { type: "alert", text: /^Password reset\./ }, () =>
+  await withDialog(owner, { type: "alert", text: ADMIN_RESET }, () =>
     owner.page.locator(".admin-user", { hasText: "newcomer" }).getByRole("button", { name: "Reset password" }).click());
   await owner.page.goto("about:blank");
   await openTeam(editor.page, TEAM, cid);
-  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("no encryption key yet");
-  const oldDevice = (await vaultOf(newcomer.page))!.identity!.deviceId;
+  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
+  const oldIdentity = (await vaultOf(newcomer.page))!.identity!;
   await signIn(newcomer.page, "newcomer", TEMPORARY);
   await takeOverPassword(newcomer.page);
-  // The vault keeps the old identity until the new one is stored: wait for the new device.
-  await expect.poll(async () => (await vaultOf(newcomer.page))?.identity?.deviceId, { timeout: 30_000 }).not.toBe(oldDevice);
+  expect((await vaultOf(newcomer.page))!.identity!.deviceId).toBe(oldIdentity.deviceId);
+  // Every content key the old identity opens: a stolen browser would keep these after the reset.
+  const preReset = await heldKeys(newcomer.page, cid, senders);
+  expect(preReset.size).toBeGreaterThan(0);
+  const newCode = await resetOwnKey(newcomer, OWN);
+  await expect.poll(async () => (await vaultOf(newcomer.page))?.identity?.deviceId, { timeout: 30_000 }).not.toBe(oldIdentity.deviceId);
+  expect(await storageHolds(newcomer.page, newCode)).toBe(false);
+  // The reset retired the team's generation: until a steward mints the next one, a member sees the
+  // waiting state (its name is sealed with the current key only) and cannot write.
+  await openTeam(editor.page, `Notebook ${cid.slice(4, 10)}`, cid);
+  await expect(editor.page.getByText(WAITING)).toBeVisible();
+  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("waiting for key");
+  // Only owners and admins are told who reset: an editor's list does not say.
+  await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).not.toContainText("reset their key");
   const renewed = await ownSettings(newcomer.page);
   expect(renewed.fingerprint).not.toBe(newcomerOwn.fingerprint);
 
@@ -473,23 +645,37 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   // No fingerprint dialog may appear now (unexpected dialogs fail the run): the sweep wraps for the new key.
   await openTeam(owner.page, TEAM, cid);
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
+  await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("reset their key");
+  // That one pass minted the generation the reset retired and wrapped the team's history for the new key.
   await openTeam(newcomer.page, TEAM, cid);
   await readPage(newcomer.page, "Owner page", ["owner comment"]);
+  // The steward re-shared for the new key only: the old key is gone from the server and opens none of it.
+  const newIdentity = (await vaultOf(newcomer.page))!.identity!;
+  const rows = await newcomer.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; envelope: string }>;
+  expect(rows.filter((row) => row.deviceId === oldIdentity.deviceId)).toEqual([]);
+  const reshared = rows.filter((row) => row.deviceId === newIdentity.deviceId);
+  expect(reshared.length).toBeGreaterThan(0);
+  for (const row of reshared) {
+    const envelope = fromBase64(row.envelope);
+    const sender = senders.get(envelopeSender(envelope))!;
+    expect(() => unwrapEnvelope(envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toThrow();
+    expect(() => unwrapEnvelope(envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, oldIdentity.deviceId, sender)).toThrow();
+    expect(unwrapEnvelope(envelope, Uint8Array.from(newIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toHaveLength(32);
+  }
+  // The reset retired the old key's generations: the steward minted a new one, so content written
+  // afterwards sits above them all and no retained pre-reset key opens the server's bytes.
+  await writePage(owner.page, "After reset", "after reset comment");
+  const afterReset = await serverCopy(owner.page, "After reset");
+  expect(afterReset.generation).toBeGreaterThan(Math.max(...preReset.keys()));
+  for (const key of preReset.values()) await expect(titleOf(key, cid, afterReset.bytes)).rejects.toThrow();
+  await expect(titleOf((await heldKeys(newcomer.page, cid, senders)).get(afterReset.generation)!, cid, afterReset.bytes)).resolves.toBe("After reset");
 
   // 5. An edit stranded on the device for a notebook this account cannot open: exported, then discarded.
   const lost = `cnt_${"z".repeat(26)}`;
-  const stranded = await encryptNote(legacyKeyRef((await vaultOf(newcomer.page))!.authSecret), lost, { type: "page", title: "Stranded edit", body: "[]" });
+  // Sealed as the app seals an edit made while the key is missing: generation 0, the identity's waiting key.
+  const stranded = await encryptNote(waitingKey({ privateKey: Uint8Array.from(newIdentity.privateKey) }), lost, { type: "page", title: "Stranded edit", body: "[]" });
   // Stamped with its account, as the app queues every edit: only those may be discarded.
-  await newcomer.page.evaluate(({ container, bytes, owner }) => new Promise<void>((resolve, reject) => {
-    const open = indexedDB.open("kynotes-web");
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const tx = open.result.transaction("pending", "readwrite");
-      tx.objectStore("pending").put({ id: `obj_${"z".repeat(26)}`, containerID: container, version: 1, payload: new Uint8Array(bytes), updatedAt: new Date().toISOString(), keyGeneration: 0, owner });
-      tx.oncomplete = () => { open.result.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    };
-  }), { container: lost, bytes: [...stranded], owner: newcomerOwn.userId });
+  await queueEdit(newcomer.page, { id: `obj_${"z".repeat(26)}`, containerID: lost, version: 1, payload: [...stranded], keyGeneration: 0, owner: newcomerOwn.userId });
   await newcomer.page.getByRole("button", { name: "Settings" }).click();
   const card = newcomer.page.locator("#unsent-edits");
   await expect(card).toContainText("1 edit(s)");
@@ -541,7 +727,7 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
 const LINK_BANNER = /This browser does not hold your encryption key/;
 const LINK_ENDED = "This link request ended: it was cancelled on the other browser or expired. Start again.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
-const FORGET = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. If no other browser holds a key you created with single sign-on, that key is lost. Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+const FORGET = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 const linkCode = (id: string) => id.slice(-6).toUpperCase();
 
 /** Starts a link on the newcomer's Settings card; returns the request ID the server issued. */
@@ -669,7 +855,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   expect((await vaultOf(newcomer))!.identity).toBeUndefined();
   await expect(newcomer.locator(".check-code")).toHaveText(code);
   await newcomer.getByRole("button", { name: "Codes match", exact: true }).click();
-  await expect(newcomer.getByText("Linked. This browser now holds your encryption key.")).toBeVisible({ timeout: 30_000 });
+  await expect(newcomer.getByText(LINKED)).toBeVisible({ timeout: 30_000 });
   const linked = (await vaultOf(newcomer))!;
   expect(linked).toMatchObject({ sealed: true, extractable: false });
   const original = (await vaultOf(approver))!.identity!;
@@ -704,70 +890,10 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await expect.poll(() => vaultOf(newcomer)).toBeNull();
 }
 
-const LEGACY_TEAM = "Legacy Team E2E";
-const LEGACY_CLOSED = "This browser no longer opens items written before this notebook was shared.";
-const LEGACY_CHECKING = "Checking the items written before this notebook was shared…";
-const LEGACY_UNCHECKED = "This browser could not list the items written before this notebook was shared.";
-const LEGACY_STILL_OPEN = "This browser still opens items written before this notebook was shared; they are not end-to-end verified.";
-const LEGACY_LABEL = "Written before sharing; not end-to-end verified";
-const LEGACY_BLOCKED = "These pages use attachments you're sharing; tick them too, or keep the notebook open:";
-const LEAVE_ONE = "1 item you did not tick will stay on the server, and this browser will stop opening them. Share the ticked items and stop opening the rest?";
-const STOP_LEGACY = "Stop opening items written before this notebook was shared? This browser will no longer open any of them, including your own that you have not shared. They stay on the server.";
-const REOPEN_CONFIRM = "Show items written before this notebook was shared again? They are not end-to-end verified: the server could have written or changed any of them. This browser opens them with your login key until you stop again.";
-const STOP = "Stop opening pre-sharing items";
-const REOPEN = "Show pre-sharing items again";
-const FORGED = `obj_${"f".repeat(26)}`;
-// Long, so the dialog's wrapping is exercised too.
-const FORGED_TITLE = "Forged page the server wrote with your login key to look like one of your own notes from before this notebook was shared";
-
-/** This browser's legacy closure for cid (0: still open), read from its vault's key memory. */
-const closedIn = (page: Page, cid: string) => page.evaluate((id) => new Promise<number>((resolve) => {
-  const open = indexedDB.open("kynotes-web");
-  open.onerror = () => resolve(0);
-  open.onsuccess = () => {
-    const all = open.result.transaction("keys").objectStore("keys").getAll();
-    all.onsuccess = () => {
-      open.result.close();
-      const row = (all.result as Array<{ keyStates?: { byContainer: Record<string, { closed?: number }> } }>)[0];
-      resolve(row?.keyStates?.byContainer[id]?.closed ?? 0);
-    };
-  };
-}), cid);
-
-const legacyPath = (cid: string) => (url: URL) => url.pathname === `/api/v1/containers/${cid}/legacy`;
-const legacyListed = (page: Page, cid: string) => page.waitForResponse((response) => legacyPath(cid)(new URL(response.url())));
-
-/**
- * A malicious server: it seals a page with this account's login key (derivable from what the server
- * sees at sign-in), labels it below sharing and slips it into the change feed of cid. While listed, it
- * is in the legacy list too, which also claims it uses every pre-sharing attachment, and the server
- * accepts a new copy's attach to it.
- */
-async function forgeLegacyPage(page: Page, cid: string) {
-  const forgery = { listed: true };
-  const bytes = await encryptNote(legacyKeyRef((await vaultOf(page))!.authSecret), cid, { type: "page", title: FORGED_TITLE, body: "" });
-  await page.route((url) => url.pathname === `/api/v1/objects/${FORGED}`, (route) => route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "X-Kynotes-Version": "1", "X-Kynotes-Key-Generation": "1" }, body: Buffer.from(bytes) }));
-  await page.route((url) => url.pathname === `/api/v1/objects/${FORGED}/attachments`, (route) => route.request().method() === "POST" ? route.fulfill({ status: 204 }) : route.fulfill({ json: [] }));
-  await page.route((url) => url.pathname === `/api/v1/containers/${cid}/changes`, async (route) => {
-    const response = await route.fetch();
-    const json = await response.json() as { changes: Array<Record<string, unknown>> };
-    if (new URL(route.request().url()).searchParams.get("since") === "0") json.changes.push({ id: FORGED, kind: "object", changeSeq: 1, deleted: false });
-    await route.fulfill({ response, json });
-  });
-  await page.route(legacyPath(cid), async (route) => {
-    if (!forgery.listed) { await route.continue(); return; }
-    const response = await route.fetch();
-    const json = await response.json() as { objects: Array<Record<string, unknown>>; attachments: Array<{ objectIds: string[] }> };
-    json.objects.push({ id: FORGED, version: 1, keyGeneration: 1 });
-    for (const attachment of json.attachments) attachment.objectIds.push(FORGED);
-    await route.fulfill({ response, json });
-  });
-  return forgery;
-}
 const pageRow = (page: Page, title: string) => page.locator(".note-row", { hasText: title });
 
-/** KYNOTES_E2E_SHOTS=<dir>: each P4 state in Busnes Light and Dark at 1280x900 and 390x844 (UI-VERIFICATION.md). */
-async function shoot(page: Page, state: string, focus: Locator) {
+/** KYNOTES_E2E_SHOTS=<dir>: a state in Busnes Light and Dark at 1280x900 and 390x844 (UI-VERIFICATION.md). */
+async function shoot(page: Page, phase: string, state: string, focus: Locator) {
   const dir = process.env.KYNOTES_E2E_SHOTS;
   if (!dir) return;
   const size = page.viewportSize()!;
@@ -781,162 +907,246 @@ async function shoot(page: Page, state: string, focus: Locator) {
         const dialog = document.querySelector("dialog[open]");
         return { scrollWidth: document.documentElement.scrollWidth, dialog: dialog && { overflowY: getComputedStyle(dialog).overflowY, scrolls: dialog.scrollHeight > dialog.clientHeight, right: dialog.getBoundingClientRect().right } };
       });
-      console.log(`shot ${state}-${scheme}-${form}: ${JSON.stringify(measured)}`);
+      console.log(`shot ${phase}-${state}-${scheme}-${form}: ${JSON.stringify(measured)}`);
       expect(measured.scrollWidth).toBeLessThanOrEqual(width);
-      await page.screenshot({ path: `${dir}/team-keys-p4-${state}-${scheme}-${form}.png` });
+      await page.screenshot({ path: `${dir}/team-keys-${phase}-${state}-${scheme}-${form}.png` });
     }
   }
   await page.emulateMedia({ colorScheme: null });
   await page.setViewportSize(size);
 }
 
-async function p4(owner: Person, editor: Person, second: Person, senders: Map<string, Uint8Array>) {
-  // 1. A team the editor writes in before its owner first opens it: those rows use the editor's login key.
-  const before = await listed(owner.page);
-  await owner.page.getByRole("button", { name: "Admin" }).click();
-  await withDialog(owner, { type: "prompt", text: "Team name", answer: LEGACY_TEAM }, () => owner.page.getByRole("button", { name: "Create team" }).click());
-  await expect(owner.page.getByRole("combobox", { name: "Team", exact: true })).toContainText(LEGACY_TEAM);
-  await owner.page.getByRole("button", { name: "← Workspace" }).click();
-  const lid = (await listed(owner.page)).find((id) => !before.includes(id))!;
-  await addToTeam(owner, "editor", lid);
-  await owner.page.goto("about:blank"); // no owner tab mints meanwhile
-  await openTeam(editor.page, `Notebook ${lid.slice(4, 10)}`, lid);
-  await writePage(editor.page, "Pre-sharing page", "pre-sharing comment");
-  await editor.page.locator('input[type="file"]').setInputFiles({ name: "legacy.txt", mimeType: "text/plain", buffer: Buffer.from("legacy attachment bytes") });
-  await expect(editor.page.getByRole("button", { name: /legacy\.txt/ })).toBeVisible();
-  const editorLogin = legacyKeyRef((await vaultOf(editor.page))!.authSecret);
-  const pre = await serverCopy(editor.page, "Pre-sharing page");
-  await expect(titleOf(editorLogin, lid, pre.bytes)).resolves.toBe("Pre-sharing page");
+const KEYED = "Keyed Notebook";
+const WAITED = "Keyed page, edited while waiting";
+const NEW_OWN = "newer horse battery staple";
+const RESET_TEMPORARY = "reset horse battery staple";
+const FORGED = `obj_${"f".repeat(26)}`;
+const FORGED_TITLE = "Forged page sealed with the login key";
 
-  // 2. The owner opens it: the first key is minted. Nothing listed is the owner's, so its browser
-  // stops opening pre-sharing rows by itself, and counts the editor's.
-  await openTeam(owner.page, LEGACY_TEAM, lid);
-  await expect(owner.page.getByText(/^3 items written before this notebook was shared can be opened only by their authors\./)).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => closedIn(owner.page, lid)).toBeGreaterThan(0);
-  await expect(owner.page.getByRole("button", { name: "Review and share…" })).toHaveCount(0);
-  await expect(owner.page.getByRole("button", { name: REOPEN })).toBeVisible();
-  await shoot(owner.page, "others", owner.page.getByText(/can be opened only by their authors/));
+type Write = { method: string; path: string; scheme?: string; body: Buffer | null };
+const openers: Array<[string, (key: KeyRef, cid: string, bytes: Uint8Array) => Promise<unknown>]> = [["object", decryptObject], ["name", decryptContainerMeta], ["comment", decryptComment]];
 
-  // 3. The editor's browser is still open: its rows read with the login key, labelled. The forged page does too.
-  const forgery = await forgeLegacyPage(editor.page, lid);
-  await openTeam(editor.page, LEGACY_TEAM, lid);
-  await expect(pageRow(editor.page, "Pre-sharing page")).toContainText("Not verified");
-  await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified");
-  await expect(editor.page.getByText(/^4 items you wrote before this notebook was shared are not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
-  await expect(editor.page.getByRole("button", { name: STOP })).toBeVisible();
-  expect(await closedIn(editor.page, lid)).toBe(0);
-  await shoot(editor.page, "banner", editor.page.locator(".legacy-banner"));
+/** Every ciphertext a request body could carry: its raw bytes, and each base64 string in a JSON body. */
+function bodyBlobs(body: Buffer | null): Uint8Array[] {
+  if (!body?.length) return [];
+  const blobs: Uint8Array[] = [Uint8Array.from(body)];
+  const walk = (value: unknown) => {
+    if (typeof value === "string" && value.length >= 24 && /^[A-Za-z0-9+/]+=*$/.test(value)) blobs.push(fromBase64(value));
+    else if (value && typeof value === "object") for (const entry of Object.values(value)) walk(entry);
+  };
+  try { walk(JSON.parse(body.toString("utf8"))); } catch { /* raw ciphertext, not JSON */ }
+  return blobs;
+}
 
-  // 4. Review: every item is labelled, nothing is ticked and Share is off until something is. The editor
-  // ticks only its own three; sharing asks before the unticked forged page is hidden.
-  await editor.page.getByRole("button", { name: "Review and share…" }).click();
-  const dialog = editor.page.locator("dialog.legacy-review");
-  const items = ["Page: Pre-sharing page", `Page: ${FORGED_TITLE}`, "Comment: pre-sharing comment", /Attachment: legacy\.txt \(1 KB\)/];
-  for (const label of items) {
-    await expect(dialog.getByLabel(label)).not.toBeChecked();
-    await expect(dialog.locator("li", { has: editor.page.getByLabel(label) })).toContainText(LEGACY_LABEL);
+/** What blob opens as under key in cid: object, name and/or comment. */
+async function opensAs(key: KeyRef, cid: string, blob: Uint8Array) {
+  const kinds: string[] = [];
+  for (const [kind, open] of openers) if (await open(key, cid, blob).then(() => true, () => false)) kinds.push(kind);
+  return kinds;
+}
+
+/** The title of the server's current copy of id, opened with key. */
+const serverTitle = async (page: Page, id: string, key: KeyRef, cid: string) =>
+  titleOf(key, cid, await page.evaluate(async (oid) => [...new Uint8Array(await (await fetch(`/api/v1/objects/${oid}`)).arrayBuffer())], id)).catch(() => undefined);
+
+async function p5(owner: Person, editor: Person, cid: string, another: () => Promise<Person>) {
+  const editorKey = (await vaultOf(editor.page))!.identity!;
+  const editorId = (await ownSettings(editor.page)).userId;
+  const senders = new Map([[editorKey.deviceId, Uint8Array.from(editorKey.publicKey)]]);
+  const login = loginKey((await vaultOf(editor.page))!.authSecret);
+
+  // 1. A new personal notebook is keyed before anything is written. No request carries anything the
+  //    login-derived key opens; the name and pages open only with the container key.
+  const writes: Write[] = [];
+  const record = (request: Request) => {
+    if (request.method() !== "GET") writes.push({ method: request.method(), path: new URL(request.url()).pathname, scheme: request.headers()["x-kynotes-key-scheme"], body: request.postDataBuffer() });
+  };
+  editor.page.on("request", record);
+  await withDialog(editor, { type: "prompt", text: "Notebook name", answer: KEYED }, () => editor.page.getByRole("button", { name: "＋ New notebook" }).click());
+  await expect(editor.page.locator(".workspace-title")).toHaveText(KEYED);
+  const nid = containerOf(editor.page);
+  await writePage(editor.page, "Keyed page", "keyed comment");
+  editor.page.off("request", record);
+  const created = writes.filter((write) => write.method === "POST" && write.path === "/api/v1/containers");
+  expect(created.map((write) => JSON.parse(write.body!.toString()))).toEqual([{ kind: "workbook", teamId: "" }]);
+  for (const write of writes.filter((entry) => /^\/api\/v1\/(objects|containers)\//.test(entry.path))) expect(write.scheme, `${write.method} ${write.path}`).toBe("shared-v2");
+  const keys = await heldKeys(editor.page, nid, senders);
+  expect([...keys.keys()]).toEqual([2]);
+  const opened = new Set<string>();
+  for (const write of writes) {
+    for (const blob of bodyBlobs(write.body)) {
+      expect(await opensAs(login, nid, blob), `${write.method} ${write.path}`).toEqual([]);
+      for (const kind of await opensAs(keys.get(2)!, nid, blob)) opened.add(kind);
+    }
   }
-  const share = dialog.getByRole("button", { name: "Share ticked items" });
-  await expect(share).toBeDisabled();
-  await shoot(editor.page, "dialog", dialog.getByRole("heading"));
-  for (const label of [items[0], items[2], items[3]]) await dialog.getByLabel(label).check();
-  await expect(share).toBeEnabled();
-  // The server swaps the page's bytes after the review: what is sealed must be what the dialog showed.
-  const swapped = await encryptNote(editorLogin, lid, { type: "page", title: "Swapped by the server", body: "[]" });
-  const reviewed = await serverCopy(editor.page, "Pre-sharing page");
-  const swap = (url: URL) => url.pathname === `/api/v1/objects/${reviewed.id}`;
-  await editor.page.route(swap, (route) => route.request().method() !== "GET" ? route.continue() : route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "X-Kynotes-Version": String(reviewed.version), "X-Kynotes-Key-Generation": String(reviewed.generation) }, body: Buffer.from(swapped) }));
-  await withDialog(editor, { type: "confirm", text: LEAVE_ONE }, () => share.click());
-  await expect(editor.page.getByText(`Shared 3 items. ${LEGACY_CLOSED}`)).toBeVisible({ timeout: 60_000 });
-  await editor.page.unroute(swap);
-  expect(await closedIn(editor.page, lid)).toBeGreaterThan(0);
-  // The server's claim that the forged page uses the shared attachment blocked nothing: its own text does not.
-  await expect(editor.page.getByText(LEGACY_BLOCKED)).toHaveCount(0);
-  await expect(editor.page.getByRole("button", { name: "Tick these too" })).toHaveCount(0);
+  // The bodies were read: the container key opens the name, the page and the comment in them.
+  expect([...opened].sort()).toEqual(["comment", "name", "object"]);
+  const copy = await serverCopy(editor.page, "Keyed page");
+  expect(copy.generation).toBe(2);
+  await expect(titleOf(keys.get(2)!, nid, copy.bytes)).resolves.toBe("Keyed page");
+  await expect(titleOf(login, nid, copy.bytes)).rejects.toThrow();
+  const meta = await editor.page.evaluate(async (id) => ((await (await fetch("/api/v1/containers")).json()) as Array<{ id: string; metaCiphertext: string }>).find((entry) => entry.id === id)!.metaCiphertext, nid);
+  await expect(decryptContainerMeta(keys.get(2)!, nid, fromBase64(meta))).resolves.toMatchObject({ name: KEYED });
+  await expect(decryptContainerMeta(login, nid, fromBase64(meta))).rejects.toThrow();
+  await shoot(editor.page, "p5", "keyed", editor.page.locator(".workspace-title"));
 
-  // 5. Closed: the forged page is gone although the server still offers it; the shared rows read without a label.
-  await openTeam(editor.page, LEGACY_TEAM, lid);
-  await expect(pageRow(editor.page, "Pre-sharing page")).toBeVisible();
+  // A server that slips in a page sealed with the login key, at a generation this notebook never had a
+  // key for: the browser fetches it and never shows it.
+  const forged = await encryptNote(login, nid, { type: "page", title: FORGED_TITLE, body: "" });
+  const forgedReads: string[] = [];
+  const forgedPath = (url: URL) => url.pathname === `/api/v1/objects/${FORGED}`;
+  const changesPath = (url: URL) => url.pathname === `/api/v1/containers/${nid}/changes`;
+  await editor.page.route(forgedPath, (route) => {
+    forgedReads.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: "application/octet-stream", headers: { "X-Kynotes-Version": "1", "X-Kynotes-Key-Generation": "1" }, body: Buffer.from(forged) });
+  });
+  await editor.page.route(changesPath, async (route) => {
+    const response = await route.fetch();
+    const json = await response.json() as { changes: Array<Record<string, unknown>> };
+    if (new URL(route.request().url()).searchParams.get("since") === "0") json.changes.push({ id: FORGED, kind: "object", changeSeq: 1, deleted: false });
+    await route.fulfill({ response, json });
+  });
+  await openTeam(editor.page, KEYED, nid);
+  await expect(pageRow(editor.page, "Keyed page")).toBeVisible();
+  expect(forgedReads.length).toBeGreaterThan(0);
   await expect(pageRow(editor.page, FORGED_TITLE)).toHaveCount(0);
-  await expect(pageRow(editor.page, "Pre-sharing page")).not.toContainText("Not verified");
-  await readPage(editor.page, "Pre-sharing page", ["pre-sharing comment"]);
-  await expect(editor.page.getByRole("button", { name: "Review and share…" })).toHaveCount(0);
-  await expect(editor.page.getByRole("button", { name: REOPEN })).toBeVisible();
-  await shoot(editor.page, "closed", editor.page.getByRole("button", { name: REOPEN }));
+  await editor.page.unroute(forgedPath);
+  await editor.page.unroute(changesPath);
 
-  // 6. The server holds every migrated row under the container key, as reviewed, none under the login key.
-  const keys = await heldKeys(editor.page, lid, senders);
-  const migrated = await serverCopy(editor.page, "Pre-sharing page");
-  expect(migrated.generation).toBeGreaterThan(pre.generation);
-  await expect(titleOf(keys.get(migrated.generation)!, lid, migrated.bytes)).resolves.toBe("Pre-sharing page");
-  await expect(titleOf(editorLogin, lid, migrated.bytes)).rejects.toThrow();
-  const rows = await editor.page.evaluate(async (oid) => ({
-    comments: await (await fetch(`/api/v1/objects/${oid}/comments`)).json() as Array<{ keyGeneration: number }>,
-    attachments: await (await fetch(`/api/v1/objects/${oid}/attachments`)).json() as Array<{ keyGeneration: number }>,
-  }), migrated.id);
-  expect(rows.comments.map((row) => row.keyGeneration)).toEqual([migrated.generation]);
-  expect(rows.attachments.map((row) => row.keyGeneration)).toEqual([migrated.generation]);
+  // 2. The editor saves a recovery code: shown, asked back by a group that changes when it is shown
+  //    again, never sent, never stored.
+  const sentBodies: string[] = [];
+  const recoveryWrites = (request: Request) => { if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/v1/me/identity/recovery") sentBodies.push(request.postData() ?? ""); };
+  editor.page.on("request", recoveryWrites);
+  await editor.page.getByRole("button", { name: "Settings" }).click();
+  const recovery = editor.page.locator("#recovery");
+  await recovery.getByRole("button", { name: "Create recovery code" }).click();
+  const code = await saveShownCode(recovery, { page: editor.page, phase: "p5", state: "recovery" });
+  await expect(recovery.getByText(RECOVERY_SAVED)).toBeVisible({ timeout: 30_000 });
+  editor.page.off("request", recoveryWrites);
+  expect(sentBodies).toHaveLength(1);
+  expect(sentBodies[0]).not.toContain(code);
+  expect(sentBodies[0].toUpperCase()).not.toContain(code.replaceAll("-", ""));
+  expect(await storageHolds(editor.page, code)).toBe(false);
 
-  // 7. The owner reads all of it: page, comment and attachment.
-  await openTeam(owner.page, LEGACY_TEAM, lid);
-  await readPage(owner.page, "Pre-sharing page", ["pre-sharing comment"]);
-  const download = owner.page.waitForEvent("download");
-  await owner.page.getByRole("button", { name: /legacy\.txt/ }).click();
-  expect(readFileSync(await (await download).path()).toString()).toBe("legacy attachment bytes");
-  await expect(owner.page.getByText(/can be opened only by/)).toHaveCount(0);
+  // 3. An edit made while the key is missing (no envelopes reach this fresh load) waits sealed with the
+  //    waiting key; it survives a password change and is sent once the key arrives. Another browser
+  //    signs in with the new password and reads it.
+  const waitingRef = waitingKey({ privateKey: Uint8Array.from(editorKey.privateKey) });
+  const current = (await decryptObject(keys.get(2)!, nid, Uint8Array.from(copy.bytes)))!;
+  const waited = await encryptNote(waitingRef, nid, { ...current, title: WAITED } as Parameters<typeof encryptNote>[2]);
+  const envelopesPath = (url: URL) => url.pathname === `/api/v1/containers/${nid}/envelopes`;
+  await editor.page.route(envelopesPath, (route) => route.abort("connectionreset"));
+  await editor.page.goto("/readyz");
+  await queueEdit(editor.page, { id: copy.id, containerID: nid, version: copy.version, payload: [...waited], keyGeneration: 0, owner: editorId });
+  await editor.page.goto(`/#/${nid}`);
+  await expect(editor.page.locator(".workspace-title")).toHaveText(`Notebook ${nid.slice(4, 10)}`);
+  await editor.page.getByRole("button", { name: "Settings" }).click();
+  await changeOwnPassword(editor.page, OWN, NEW_OWN);
+  const queued = (await storeRows(editor.page, "pending"))!;
+  expect(queued).toEqual([expect.objectContaining({ id: copy.id, keyGeneration: 0, owner: editorId })]);
+  await expect(titleOf(waitingRef, nid, queued[0].payload as number[])).resolves.toBe(WAITED);
+  await editor.page.unroute(envelopesPath);
+  await openTeam(editor.page, KEYED, nid);
+  await expect.poll(() => serverTitle(editor.page, copy.id, keys.get(2)!, nid), { timeout: 30_000 }).toBe(WAITED);
+  await expect.poll(async () => (await storeRows(editor.page, "pending"))!.length).toBe(0);
+  const after = await another();
+  await signIn(after.page, "editor", NEW_OWN);
+  await openTeam(after.page, KEYED, nid);
+  await readPage(after.page, WAITED, ["keyed comment"]);
+  await openTeam(after.page, TEAM, cid);
+  await readPage(after.page, "Owner page", ["owner comment"]);
 
-  // 8. Reopening changes nothing: no object is written on load.
-  const writes: string[] = [];
-  editor.page.on("request", (request) => { if (request.method() === "PUT" && /\/api\/v1\/(objects|comments)\//.test(request.url())) writes.push(request.url()); });
-  await openTeam(editor.page, LEGACY_TEAM, lid);
-  expect(writes).toEqual([]);
+  // 4. An administrator reset keeps the key: a fresh browser restores it with the code. A typo is refused
+  //    before any request, a wrong code and a copy for another key are refused, nothing asks to link, and
+  //    the code stays out of storage and the address bar.
+  await owner.page.getByRole("button", { name: "Admin" }).click();
+  const users = owner.page.locator("#users");
+  await users.getByLabel("Confirm your password").fill(OWN);
+  await users.getByRole("button", { name: "Authorize user creation and password resets" }).click();
+  await expect(users.getByText("Password confirmed for ten minutes.")).toBeVisible();
+  const row = owner.page.locator(".admin-user", { has: owner.page.locator("strong", { hasText: /^editor$/ }) });
+  owner.expected.push({ type: "prompt", text: "New temporary password for editor", answer: RESET_TEMPORARY });
+  await withDialog(owner, { type: "alert", text: ADMIN_RESET }, () => row.getByRole("button", { name: "Reset password" }).click());
+  await owner.page.getByRole("button", { name: "← Workspace" }).click();
+  const restored = await another();
+  const linkWrites: string[] = [];
+  const asked: string[] = [];
+  restored.page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== "GET" && path.startsWith("/api/v1/me/link-requests")) linkWrites.push(path);
+    if (path === "/api/v1/auth/step-up" || path.startsWith("/api/v1/me/identity/recovery")) asked.push(path);
+  });
+  await signIn(restored.page, "editor", RESET_TEMPORARY);
+  await restored.page.getByRole("button", { name: "Settings" }).click();
+  await changeOwnPassword(restored.page, RESET_TEMPORARY, OWN);
+  const restore = restored.page.locator("#recovery-restore");
+  await expect(restore).toBeVisible({ timeout: 30_000 });
+  await shoot(restored.page, "p5", "restore", restore);
+  const field = restore.getByLabel("Recovery code");
+  const restoreButton = restore.getByRole("button", { name: "Restore" });
+  asked.length = 0;
+  await field.fill(code.slice(0, -1));
+  await restoreButton.click();
+  await expect(restore.getByText(RECOVERY_TYPO)).toBeVisible();
+  expect(asked).toEqual([]);
+  await field.fill(newRecoveryCode().code);
+  await restoreButton.click();
+  await expect(restore.getByText(RECOVERY_WRONG)).toBeVisible({ timeout: 30_000 });
+  expect(asked).toContain("/api/v1/me/identity/recovery/fetch");
+  // A copy listed for another public key (the owner's) is refused before it is opened.
+  const fetchPath = (url: URL) => url.pathname === "/api/v1/me/identity/recovery/fetch";
+  const ownerPublic = Buffer.from((await vaultOf(owner.page))!.identity!.publicKey).toString("base64");
+  await restored.page.route(fetchPath, async (route) => {
+    const response = await route.fetch();
+    const json = await response.json() as { publicKey: string };
+    await route.fulfill({ response, json: { ...json, publicKey: ownerPublic } });
+  });
+  await field.fill(code);
+  await restoreButton.click();
+  await expect(restore.getByText(RECOVERY_STALE)).toBeVisible({ timeout: 30_000 });
+  expect((await vaultOf(restored.page))?.identity).toBeUndefined();
+  await restored.page.unroute(fetchPath);
+  await field.fill(` ${code.toLowerCase()} `);
+  await restoreButton.click();
+  // The restore card unmounts once the key is held, so Settings says what a link says (main.tsx justLinked).
+  await expect(restored.page.getByRole("status").filter({ hasText: "Restored. This browser now holds your encryption key." })).toBeVisible({ timeout: 30_000 });
+  await expect(restore).toHaveCount(0);
+  const back = (await vaultOf(restored.page))!.identity!;
+  expect(back.publicKey).toEqual(editorKey.publicKey);
+  expect(back.privateKey).toEqual(editorKey.privateKey);
+  expect(linkWrites).toEqual([]);
+  expect(restored.page.url()).not.toContain(code);
+  expect(await storageHolds(restored.page, code)).toBe(false);
+  await restored.page.getByRole("button", { name: "← Workspace" }).click();
+  await openTeam(restored.page, KEYED, nid);
+  await readPage(restored.page, WAITED, ["keyed comment"]);
+  await openTeam(restored.page, TEAM, cid);
+  await readPage(restored.page, "Owner page", ["owner comment"]);
+  await shoot(restored.page, "p5", "restored", restored.page.locator(".workspace-title"));
 
-  // 9. "Show pre-sharing items again" warns first; then the forged page is back, labelled.
-  await withDialog(editor, { type: "confirm", text: REOPEN_CONFIRM }, () => editor.page.getByRole("button", { name: REOPEN }).click());
-  await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified", { timeout: 30_000 });
-  await expect(editor.page.getByText(/^1 item you wrote before this notebook was shared is not end-to-end verified yet\./)).toBeVisible({ timeout: 30_000 });
-  expect(await closedIn(editor.page, lid)).toBe(0);
-  // It survives a reload where the server lists nothing of this user's, which alone would close it again.
-  forgery.listed = false;
-  const answered = legacyListed(editor.page, lid);
-  await openTeam(editor.page, LEGACY_TEAM, lid);
-  await answered;
-  await expect(editor.page.getByText(LEGACY_CHECKING)).toHaveCount(0);
-  await expect(pageRow(editor.page, FORGED_TITLE)).toContainText("Not verified");
-  expect(await closedIn(editor.page, lid)).toBe(0);
-  await expect(editor.page.getByRole("button", { name: REOPEN })).toHaveCount(0);
-  // Stop stays on screen with nothing of this user's listed, and closes it again.
-  await expect(editor.page.locator(".legacy-banner")).toContainText(LEGACY_STILL_OPEN);
-  await withDialog(editor, { type: "confirm", text: STOP_LEGACY }, () => editor.page.getByRole("button", { name: STOP }).click());
-  await expect(editor.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
-  await expect(pageRow(editor.page, FORGED_TITLE)).toHaveCount(0);
-  expect(await closedIn(editor.page, lid)).toBeGreaterThan(0);
-
-  // 10. A second browser of the editor's account (signed in again after P3c's "Forget this device"),
-  // with nothing of its own listed.
-  await signIn(second.page, "editor", OWN);
-  let answer: "fail" | "empty" = "fail";
-  await second.page.route(legacyPath(lid), (route) => answer === "fail"
-    ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "internal server error" } } })
-    : route.fulfill({ json: { complete: true, objects: [], comments: [], attachments: [], conflicts: [] } }));
-  // A failed list is not an empty one: the banner says why, Stop shows, and nothing closes.
-  await openTeam(second.page, LEGACY_TEAM, lid);
-  const banner = second.page.locator(".legacy-banner");
-  await expect(banner).toContainText(`${LEGACY_UNCHECKED} The server could not list them (500).`, { timeout: 30_000 });
-  await expect(banner.getByRole("button", { name: STOP })).toBeVisible();
-  expect(await closedIn(second.page, lid)).toBe(0);
-  await shoot(second.page, "unchecked", banner);
-  // A complete, empty list: it stops opening them by itself.
-  answer = "empty";
-  await openTeam(second.page, LEGACY_TEAM, lid);
-  await expect(second.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => closedIn(second.page, lid)).toBeGreaterThan(0);
-  // Reopened, then with the list failing again: Stop still closes it with one click.
-  answer = "fail";
-  await withDialog(second, { type: "confirm", text: REOPEN_CONFIRM }, () => second.page.getByRole("button", { name: REOPEN }).click());
-  await expect(banner).toContainText(LEGACY_UNCHECKED, { timeout: 30_000 });
-  expect(await closedIn(second.page, lid)).toBe(0);
-  await withDialog(second, { type: "confirm", text: STOP_LEGACY }, () => banner.getByRole("button", { name: STOP }).click());
-  await expect(second.page.getByRole("button", { name: REOPEN })).toBeVisible({ timeout: 30_000 });
-  expect(await closedIn(second.page, lid)).toBeGreaterThan(0);
+  // 5. A browser that ran a build before IndexedDB v6: its cache, queue, uploads and old local queue
+  //    (rows sealed with the login key) are dropped on upgrade, never sent or offered.
+  const upgraded = await another();
+  const stale = [...await encryptNote(login, nid, { type: "page", title: "Old build edit", body: "" })];
+  await upgraded.page.goto("/readyz");
+  await upgraded.page.evaluate(({ owner, container, payload }) => new Promise<void>((resolve, reject) => {
+    localStorage.setItem("kynotes-pending-saves", JSON.stringify([{ id: "obj_old", containerID: container }]));
+    const open = indexedDB.open("kynotes-web", 5);
+    open.onerror = () => reject(open.error);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      const row = { id: `obj_${"o".repeat(26)}`, owner, containerID: container, version: 1, payload: new Uint8Array(payload), updatedAt: new Date().toISOString(), keyGeneration: 1 };
+      db.createObjectStore("notes", { keyPath: ["owner", "id"] }).put(row);
+      db.createObjectStore("pending", { keyPath: ["owner", "id"] }).put(row);
+      db.createObjectStore("uploads", { keyPath: "uploadId" }).put({ uploadId: "upl_old", owner, containerID: container, payload: new Uint8Array(payload) });
+    };
+    open.onsuccess = () => { open.result.close(); resolve(); };
+  }), { owner: editorId, container: nid, payload: stale });
+  await signIn(upgraded.page, "editor", OWN);
+  expect(await upgraded.page.evaluate(() => new Promise<number>((resolve) => { const open = indexedDB.open("kynotes-web"); open.onsuccess = () => { resolve(open.result.version); open.result.close(); }; }))).toBe(6);
+  for (const store of ["notes", "pending", "uploads"]) expect(await storeRows(upgraded.page, store), store).toEqual([]);
+  expect(await upgraded.page.evaluate(() => localStorage.getItem("kynotes-pending-saves"))).toBeNull();
+  await upgraded.page.getByRole("button", { name: "Settings" }).click();
+  await expect(upgraded.page.locator("#unsent-edits")).toHaveCount(0);
 }

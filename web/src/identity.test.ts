@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { base64, type LoginKeys } from "./crypto";
-import { currentCopy, DEVICE_ONLY_WRAP, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
-import { generateIdentity } from "./teamKeys";
+import { unfinishedReset, currentCopy, DEVICE_ONLY_WRAP, recoverable, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
+import { generateIdentity, wrapIdentity } from "./teamKeys";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
 const deviceId = "dev_00000000000000000000000000";
 /** ensureIdentity for flows where an identity must result. */
-const ensure = async (...args: Parameters<typeof ensureIdentity>) => (await ensureIdentity(...args))!;
+const ensure = async (...args: Parameters<typeof ensureIdentity>) => {
+  const result = await ensureIdentity(...args);
+  if (typeof result === "string") throw new Error(result);
+  return result;
+};
 const keys = (fill: number): LoginKeys => ({ authSecret: fill.toString(16).padStart(2, "0").repeat(32), userKEK: new Uint8Array(32).fill(fill) });
 
 // Mirrors the server: the wrapped key only in step-up/login bodies, GET public only, PUT create-only.
@@ -93,11 +97,11 @@ describe("identity lifecycle", () => {
 describe("admin-known password", () => {
   it("skips creation until the user's own password change, then wraps under the new password", async () => {
     const server = fakeServer(true);
-    expect(await ensureIdentity(server.api, userID, keys(1), undefined)).toBeUndefined();
+    expect(await ensureIdentity(server.api, userID, keys(1), undefined)).toBe("admin-password");
     expect(server.uploads).toHaveLength(0);
-    expect(await rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, undefined)).toBeUndefined();
+    expect(await rewrapIdentity(server.api, userID, keys(1), keys(2), undefined)).toBeUndefined();
     server.ownPasswordChange();
-    const created = (await ensureIdentity(server.api, userID, keys(2), undefined))!;
+    const created = await ensure(server.api, userID, keys(2), undefined);
     expect(server.api.stepUp).toHaveBeenLastCalledWith(keys(2).authSecret);
     expect(bytesToHex(openIdentity(server.record(), keys(2).userKEK, userID).privateKey)).toBe(bytesToHex(created.privateKey));
     expect(() => openIdentity(server.record(), keys(1).userKEK, userID)).toThrow();
@@ -107,14 +111,14 @@ describe("admin-known password", () => {
 describe("password change re-wrap", () => {
   it("sends nothing when no identity exists", async () => {
     const server = fakeServer();
-    expect(await rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, undefined)).toBeUndefined();
+    expect(await rewrapIdentity(server.api, userID, keys(1), keys(2), undefined)).toBeUndefined();
     expect(server.api.stepUp).not.toHaveBeenCalled();
   });
 
   it("re-wraps the same key, bound to the identity device ID", async () => {
     const server = fakeServer();
     const original = await ensure(server.api, userID, keys(1), undefined);
-    const payload = (await rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, undefined))!;
+    const payload = (await rewrapIdentity(server.api, userID, keys(1), keys(2), undefined))!;
     expect(payload.identityDeviceId).toBe(deviceId);
     expect(JSON.stringify(payload)).not.toContain(base64(original.privateKey));
     server.set({ ...server.record(), wrappedPrivateKey: payload.wrappedIdentityKey });
@@ -126,7 +130,7 @@ describe("password change re-wrap", () => {
     const server = fakeServer();
     const original = await ensure(server.api, userID, keys(1), undefined);
     server.api.stepUp.mockResolvedValue(undefined);
-    const payload = (await rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, original))!;
+    const payload = (await rewrapIdentity(server.api, userID, keys(1), keys(2), original))!;
     expect(bytesToHex(openIdentity({ ...server.record(), wrappedPrivateKey: payload.wrappedIdentityKey }, keys(2).userKEK, userID).privateKey)).toBe(bytesToHex(original.privateKey));
   });
 
@@ -134,8 +138,8 @@ describe("password change re-wrap", () => {
     const server = fakeServer();
     const original = await ensure(server.api, userID, keys(1), undefined);
     server.api.stepUp.mockResolvedValue(undefined);
-    await expect(rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, { ...original, deviceId: "dev_11111111111111111111111111" })).rejects.toThrow();
-    await expect(rewrapIdentity(server.api, userID, keys(1), keys(2).userKEK, undefined)).rejects.toThrow();
+    await expect(rewrapIdentity(server.api, userID, keys(1), keys(2), { ...original, deviceId: "dev_11111111111111111111111111" })).rejects.toThrow();
+    await expect(rewrapIdentity(server.api, userID, keys(1), keys(2), undefined)).rejects.toThrow();
   });
 });
 
@@ -162,9 +166,9 @@ describe("device-only identities", () => {
   it("are never unlocked or re-wrapped by a password", async () => {
     const api = { myIdentity: vi.fn(async () => ({ deviceId: dev, publicKey: base64(generateIdentity().publicKey), fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP })), putMyIdentity: vi.fn(), stepUp: vi.fn() };
     const record = { deviceId: dev, publicKey: "", fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP, wrappedPrivateKey: "" };
-    expect(await ensureIdentity(api, userID, keys(1), record)).toBeUndefined();
+    expect(await ensureIdentity(api, userID, keys(1), record)).toBe("device-only");
     expect(api.putMyIdentity).not.toHaveBeenCalled();
-    expect(await rewrapIdentity(api, userID, keys(1), new Uint8Array(32), undefined)).toBeUndefined();
+    expect(await rewrapIdentity(api, userID, keys(1), keys(2), undefined)).toBeUndefined();
     expect(api.stepUp).not.toHaveBeenCalled();
   });
 });
@@ -175,6 +179,20 @@ describe("settlePasswordIdentity", () => {
     const v = vault();
     expect(await settlePasswordIdentity(server.api, v.store, userID, keys(1), undefined)).toBe(true);
     expect(base64(v.get()!.publicKey)).toBe(server.record().publicKey);
+  });
+
+  it("reports a create the server refused for an administrator-set password, and only that", async () => {
+    expect(await settlePasswordIdentity(fakeServer(true).api, vault().store, userID, keys(1), undefined)).toBe("admin-password");
+    expect(await settlePasswordIdentity(fakeServer().api, vault().store, userID, keys(1), undefined)).toBe(true);
+  });
+
+  it("calls a device-only identity device-only, never admin-password (M2)", async () => {
+    const server = fakeServer();
+    server.set({ deviceId: dev, publicKey: base64(generateIdentity().publicKey), fingerprint: "", wrapAlg: DEVICE_ONLY_WRAP, wrappedPrivateKey: "" });
+    const v = vault();
+    expect(await settlePasswordIdentity(server.api, v.store, userID, keys(1), undefined)).toBe("device-only");
+    expect(await settlePasswordIdentity(server.api, v.store, userID, keys(1), server.record())).toBe("device-only");
+    expect(v.saves).toHaveLength(0);
   });
 
   it("never overwrites a key another tab kept while it was signing in", async () => {
@@ -366,5 +384,71 @@ describe("which identity this browser may use", () => {
     expect(currentCopy(mine, publicOf(heldOf()))).toBeUndefined();
     expect(currentCopy(mine, undefined)).toBeUndefined();
     expect(currentCopy(heldOf(""), "unreachable")).toBeUndefined();
+  });
+});
+
+describe("recoverable", () => {
+  it("is true only with a password copy or a recovery-code copy on the server", () => {
+    const base = { deviceId: "dev", publicKey: "", fingerprint: "" };
+    expect(recoverable(undefined)).toBe(false);
+    expect(recoverable({ ...base, wrapAlg: "aes-256-gcm" })).toBe(true);
+    expect(recoverable({ ...base, wrapAlg: "none" })).toBe(false);
+    expect(recoverable({ ...base, wrapAlg: "none", recoveryId: "" })).toBe(false);
+    expect(recoverable({ ...base, wrapAlg: "none", recoveryId: "rcv_1" })).toBe(true);
+  });
+});
+
+describe("password copy after a reset stripped it", () => {
+  const stripped = (held: HeldIdentity, passwordCopy?: string) => ({ myIdentity: vi.fn(async () => ({ ...publicOf(held), wrapAlg: DEVICE_ONLY_WRAP, passwordCopy })), stepUp: vi.fn() });
+
+  it("is re-added from the copy this browser holds, bound to the listed identity", async () => {
+    const mine = heldOf();
+    const api = stripped(mine, "addable");
+    const payload = (await rewrapIdentity(api, userID, keys(1), keys(2), mine))!;
+    expect(payload.identityDeviceId).toBe(mine.deviceId);
+    const record = { ...publicOf(mine), wrapAlg: "aes-256-gcm", wrappedPrivateKey: payload.wrappedIdentityKey };
+    expect(bytesToHex(openIdentity(record, keys(2).userKEK, userID).privateKey)).toBe(bytesToHex(mine.privateKey));
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("is not added when the server does not offer it, or this browser holds another copy or none", async () => {
+    const mine = heldOf();
+    expect(await rewrapIdentity(stripped(mine), userID, keys(1), keys(2), mine)).toBeUndefined();
+    expect(await rewrapIdentity(stripped(mine, "addable"), userID, keys(1), keys(2), undefined)).toBeUndefined();
+    expect(await rewrapIdentity(stripped(mine, "addable"), userID, keys(1), keys(2), heldOf())).toBeUndefined();
+    expect(await rewrapIdentity(stripped(mine, "addable"), userID, keys(1), keys(2), { ...mine, deviceId: `dev_${"z".repeat(26)}` })).toBeUndefined();
+  });
+});
+
+describe("password copy integrity", () => {
+  it("is never sent unless it opens under the new password's key to the listed public key", async () => {
+    const mine = heldOf();
+    const api = { myIdentity: vi.fn(async () => ({ ...publicOf(mine), wrapAlg: DEVICE_ONLY_WRAP, passwordCopy: "addable" })), stepUp: vi.fn() };
+    // A damaged vault copy: the listed public key with some other private key.
+    const damaged = { ...mine, privateKey: generateIdentity().privateKey };
+    await expect(rewrapIdentity(api, userID, keys(1), keys(2), damaged)).rejects.toThrow(/damaged/);
+    const payload = (await rewrapIdentity(api, userID, keys(1), keys(2), mine))!;
+    const record = { ...publicOf(mine), wrapAlg: "aes-256-gcm", wrappedPrivateKey: payload.wrappedIdentityKey };
+    expect(() => openIdentity(record, keys(1).userKEK, userID)).toThrow();
+    expect(bytesToHex(openIdentity(record, keys(2).userKEK, userID).privateKey)).toBe(bytesToHex(mine.privateKey));
+  });
+
+  it("a planted password copy of another key is refused at unlock, never substituted", () => {
+    const mine = heldOf();
+    const planted = { ...publicOf(mine), wrapAlg: "aes-256-gcm", wrappedPrivateKey: base64(wrapIdentity(keys(1).userKEK, generateIdentity().privateKey, userID)) };
+    expect(() => openIdentity(planted, keys(1).userKEK, userID)).toThrow(/public key mismatch/);
+  });
+});
+
+describe("unfinishedReset (M4)", () => {
+  it("is true only when the server lists the key this browser's reset sent and the vault holds another", () => {
+    const old = heldOf();
+    const sent = heldOf(`dev_${"s".repeat(26)}`);
+    expect(unfinishedReset(old, publicOf(sent), sent.publicKey)).toBe(true);
+    expect(unfinishedReset(sent, publicOf(sent), sent.publicKey)).toBe(false); // kept here
+    expect(unfinishedReset(old, publicOf(old), sent.publicKey)).toBe(false); // the reset never committed
+    expect(unfinishedReset(old, publicOf(heldOf()), sent.publicKey)).toBe(false); // someone else's reset
+    expect(unfinishedReset(old, publicOf(sent), undefined)).toBe(false);
+    expect(unfinishedReset(undefined, publicOf(sent), sent.publicKey)).toBe(false); // nothing to forget: restore works
   });
 });

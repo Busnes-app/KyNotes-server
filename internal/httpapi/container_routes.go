@@ -7,10 +7,13 @@ import (
 	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"strings"
 	"time"
 )
+
+var errDeleteReauth = errors.New("re-authentication required")
 
 func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,8 +64,8 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		meta, e := base64.StdEncoding.DecodeString(in.Meta)
-		if e != nil || len(meta) > 4096 {
+		// A notebook has no name until its first key exists: the owner's browser seals it then.
+		if in.Meta != "" {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -80,26 +83,26 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		id, _ := ids.Mint("cnt")
 		mem, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
-		e = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, meta, 0, now, now); e != nil {
+		e := dbTx(db, func(tx *sql.Tx) error {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
 			if in.TeamID != "" {
 				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT ?,?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
 					return e
 				}
-				_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, s.UserID, now, in.TeamID, s.UserID)
-				return e
+				_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),?,user_id,role,?,invited_by FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, now, in.TeamID, s.UserID)
+				return err
 			}
-			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
-			return e
+			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
+			return err
 		})
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		recordAudit(db, s.UserID, "container.create", id, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": in.Meta, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
+		writeJSON(w, map[string]any{"id": id, "kind": in.Kind, "teamId": in.TeamID, "metaCiphertext": "", "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
 	})))
 	mux.Handle("PATCH /api/v1/containers/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
@@ -115,7 +118,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 		var in struct {
 			Meta        string `json:"metaCiphertext"`
 			BaseVersion int64  `json:"baseVersion"`
-			// The generation the name was sealed with; required once the container is shared.
+			// The generation the name was sealed with; required.
 			KeyGeneration *int64 `json:"keyGeneration"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
@@ -141,11 +144,12 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			if role != "owner" && role != "admin" && role != "editor" {
 				return errInsufficientRole
 			}
-			if shared != 0 && !current {
+			if !current {
 				return errStaleClient
 			}
-			// A shared name is sealed with the current generation only, so readers never need an older key.
-			if shared != 0 && (in.KeyGeneration == nil || *in.KeyGeneration != generation) {
+			// A name is sealed with the current generation only, so readers never need an older key;
+			// a container without a key has no name to seal.
+			if shared == 0 || in.KeyGeneration == nil || *in.KeyGeneration != generation {
 				return errKeyRotationIncomplete
 			}
 			e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,meta_ciphertext=?,meta_version=meta_version+1,updated_at=? WHERE id=? AND meta_version=? RETURNING change_seq`, meta, now, cid, in.BaseVersion).Scan(&seq)
@@ -170,21 +174,42 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var role string
-		if db.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		if role != "owner" {
-			WriteError(w, r, 403, "forbidden", "insufficient role")
-			return
-		}
-		if time.Since(s.CreatedAt) >= 5*time.Minute {
+		e := dbTx(db, func(tx *sql.Tx) error {
+			// blank: this user created it, still stewards it, and it was never keyed or named and holds
+			// nothing (no rows of any kind, no invitations, no child notebooks; a team has no other active
+			// member). Its creator may undo a failed creation at any time: there is nothing to lose.
+			var role string
+			var blank bool
+			if e := tx.QueryRow(`SELECT m.role,c.owner_user_id=m.user_id AND m.role IN ('owner','admin') AND c.shared_generation=0 AND c.meta_version=0`+
+				` AND NOT EXISTS(SELECT 1 FROM objects WHERE container_id=c.id) AND NOT EXISTS(SELECT 1 FROM comments WHERE container_id=c.id)`+
+				` AND NOT EXISTS(SELECT 1 FROM attachments WHERE container_id=c.id) AND NOT EXISTS(SELECT 1 FROM upload_sessions WHERE container_id=c.id)`+
+				` AND NOT EXISTS(SELECT 1 FROM key_envelopes WHERE container_id=c.id) AND NOT EXISTS(SELECT 1 FROM invitations WHERE container_id=c.id)`+
+				` AND NOT EXISTS(SELECT 1 FROM containers t WHERE t.team_id=c.id AND t.deleted_at='')`+
+				` AND (c.kind<>'team' OR NOT EXISTS(SELECT 1 FROM memberships o WHERE o.container_id=c.id AND o.user_id<>m.user_id AND o.revoked_at=''))`+
+				` FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &blank); e != nil {
+				return e
+			}
+			if !blank && role != "owner" {
+				return errInsufficientRole
+			}
+			if !blank && time.Since(s.CreatedAt) >= 5*time.Minute {
+				return errDeleteReauth
+			}
+			now := time.Now().UTC().Format(time.RFC3339)
+			reason := ""
+			if blank {
+				reason = "blank"
+			}
+			if _, e := tx.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, now, now, cid); e != nil {
+				return e
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.delete", cid, "", "success", reason, RequestID(r))
+		})
+		if errors.Is(e, errDeleteReauth) {
 			WriteError(w, r, 403, "forbidden", "re-authentication required")
 			return
 		}
-		if _, e := db.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), cid); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

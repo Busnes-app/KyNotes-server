@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -98,6 +99,7 @@ func runPrivacy(t *testing.T) privacyRunResult {
 		ID string `json:"id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&c)
+	generation := keyForTest(t, s.DB(), c.ID, "usr_privacy")
 	r = do("POST", "/api/v1/containers/"+c.ID+"/objects", strings.NewReader(`{"kind":"note"}`), true)
 	var o struct {
 		ID string `json:"id"`
@@ -108,7 +110,8 @@ func runPrivacy(t *testing.T) privacyRunResult {
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/objects/"+o.ID, bytes.NewReader(sum[:]))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("X-Kynotes-Base-Version", "0")
-	req.Header.Set("X-Kynotes-Key-Generation", "1")
+	req.Header.Set("X-Kynotes-Key-Generation", strconv.FormatInt(generation, 10))
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range jar.Cookies(req.URL) {
 		if c.Name == "csrf_token" {
 			req.Header.Set("X-CSRF-Token", c.Value)

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acceptInvitation, APIRequestError, cancelLinkRequest, claimLinkRequest, collectLinkRequest, createLinkRequest, inviteMember, legacyRows, putDeviceOnlyIdentity, readObject, revealLinkRequest, serverGeneration } from "./api";
+import { acceptInvitation, APIRequestError, cancelLinkRequest, claimLinkRequest, collectLinkRequest, createAdminTeam, createComment, createContainer, createLinkRequest, finalizeUpload, inviteMember, KEY_SCHEME, members, putDeviceOnlyIdentity, putEnvelopes, readObject, revealLinkRequest, saveObject, serverGeneration, updateContainer } from "./api";
 
 const obj = `obj_${"a".repeat(26)}`;
 const serve = (headers: Record<string, string>) => vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { headers })));
@@ -108,44 +108,41 @@ describe("device-only identities and device links", () => {
   });
 });
 
-describe("legacyRows", () => {
+describe("writes and creation", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
+  const cnt = `cnt_${"a".repeat(26)}`, obj = `obj_${"a".repeat(26)}`;
+  const capture = () => {
+    const sent: Array<{ method: string; headers: Headers; body: unknown }> = [];
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, init?: RequestInit) => {
+      sent.push({ method: String(init?.method ?? "GET"), headers: new Headers(init?.headers), body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body });
+      return Response.json({ id: cnt, version: 1, metaVersion: 1, changeSeq: 1 });
+    }));
+    return sent;
+  };
 
-  it("keeps only server generations it can trust, well-formed IDs and an explicit complete flag", async () => {
-    const id = (prefix: string, c: string) => `${prefix}_${c.repeat(26)}`;
-    const cnt = id("cnt", "a");
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
-      complete: "yes",
-      objects: [{ id: id("obj", "a"), version: 2, keyGeneration: "1" }, { id: id("obj", "b"), version: 1, keyGeneration: -1 }, { id: "obj_../x", version: 1, keyGeneration: 1 }, { id: 7 }],
-      comments: [{ id: id("cmt", "a"), objectId: id("obj", "a"), authorUserId: id("usr", "a"), bodyCiphertext: "AA==", keyGeneration: 1.5 }, { id: id("cmt", "b"), objectId: id("obj", "a"), authorUserId: id("usr", "a"), bodyCiphertext: 3 }],
-      attachments: [{ id: id("att", "a"), objectIds: [id("obj", "a"), "obj_bad", 4], bytes: 4, metadataCiphertext: "AA==", keyGeneration: 1 }],
-    })));
-    const rows = await legacyRows(cnt);
-    expect(rows.complete).toBe(false);
-    expect(rows.objects.map((row) => [row.id, row.keyGeneration])).toEqual([[id("obj", "a"), 1], [id("obj", "b"), undefined]]);
-    expect(rows.comments.map((row) => [row.id, row.keyGeneration])).toEqual([[id("cmt", "a"), undefined]]);
-    expect(rows.attachments.map((row) => row.objectIds)).toEqual([[id("obj", "a")]]);
-    expect(rows.conflicts).toEqual([]);
+  it("every write carries the shared-v2 key scheme; reads carry none", async () => {
+    const sent = capture();
+    await saveObject(obj, new Uint8Array([1]), 0, 2);
+    await updateContainer(cnt, "AA==", 0, 2);
+    await createComment(obj, "AA==", 2);
+    await finalizeUpload("upl_x", "AA==", 2);
+    await putEnvelopes(cnt, []);
+    await createContainer();
+    await members(cnt);
+    expect(KEY_SCHEME).toBe("shared-v2");
+    for (const write of sent.filter((entry) => entry.method !== "GET")) expect(write.headers.get("X-Kynotes-Key-Scheme")).toBe("shared-v2");
+    expect(sent.filter((entry) => entry.method !== "GET")).toHaveLength(6);
+    expect(sent.find((entry) => entry.method === "GET")!.headers.has("X-Kynotes-Key-Scheme")).toBe(false);
   });
 
-  it("drops conflicts, attachments and comments with a malformed ID or ciphertext field", async () => {
-    const id = (prefix: string, c: string) => `${prefix}_${c.repeat(26)}`;
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
-      complete: true,
-      comments: [{ id: id("cmt", "a"), objectId: "obj_x", authorUserId: id("usr", "a"), bodyCiphertext: "" }, { id: id("cmt", "b"), objectId: id("obj", "a"), authorUserId: "me", bodyCiphertext: "" }],
-      attachments: [{ id: id("att", "a"), objectIds: [], bytes: 1, metadataCiphertext: null }, { id: "att_x", objectIds: [], bytes: 1, metadataCiphertext: "" }],
-      conflicts: [{ id: id("cfl", "a"), objectId: id("obj", "a"), createdAt: "t" }, { id: id("cfl", "b"), objectId: "../", createdAt: "t" }, { id: "x", objectId: id("obj", "a"), createdAt: "t" }],
-    })));
-    const rows = await legacyRows(`cnt_${"a".repeat(26)}`);
-    expect(rows).toMatchObject({ complete: true, objects: [], comments: [], attachments: [] });
-    expect(rows.conflicts.map((row) => row.id)).toEqual([id("cfl", "a")]);
-  });
-
-  it("fails on a rate limit, a server error or no network, never answering with an empty list", async () => {
-    const cnt = `cnt_${"a".repeat(26)}`;
-    for (const reply of [() => Response.json({ error: { code: "rate_limited", message: "slow down" } }, { status: 429 }), () => new Response("boom", { status: 500 }), () => { throw new TypeError("Failed to fetch"); }]) {
-      vi.stubGlobal("fetch", vi.fn(async () => reply()));
-      await expect(legacyRows(cnt)).rejects.toThrow();
-    }
+  it("creates a notebook or an administrator's team without a name: names are sealed only after the first key", async () => {
+    const sent = capture();
+    await createContainer("workbook", cnt);
+    await createAdminTeam();
+    expect(sent.map((entry) => entry.body)).toEqual([{ kind: "workbook", teamId: cnt }, {}]);
+    // No caller can pass one.
+    expect(createContainer.length).toBe(0);
+    expect(createAdminTeam.length).toBe(0);
   });
 });

@@ -1,159 +1,91 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
-import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import { deleteNote, getNote, ownerUnknownNotes, pendingSaves, putNote, queueSave, replaceQueuedSave, type CachedNote, type PendingSave } from "./storage";
-import { drainable, exportUnsent, stuckSaves, unknownDrafts, unsentEdits } from "./stuckEdits";
+import { decryptObject, encryptNote } from "./crypto";
+import { newContainerKey, WAITING_GENERATION } from "./keyring";
+import { deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, type PendingSave } from "./storage";
+import { exportUnsent, previousKeyEdits, retireWaiting, stuckSaves, unsentEdits } from "./stuckEdits";
 
-const lost = `cnt_${"a".repeat(26)}`, kept = `cnt_${"b".repeat(26)}`;
-const legacy = legacyKeyRef("5a".repeat(32));
-const save = async (id: string, containerID: string, title: string, key = legacy, owner?: string): Promise<PendingSave> =>
-  ({ id, containerID, version: 1, updatedAt: "2026-10-07T00:00:00Z", keyGeneration: 0, payload: await encryptNote(key, containerID, { type: "page", title, body: "[]" }), ...(owner ? { owner } : {}) });
+const LOST = `cnt_${"a".repeat(26)}`, LIVE = `cnt_${"b".repeat(26)}`;
+const key = newContainerKey(), other = newContainerKey();
 const alice = "usr_aaaaaaaaaaaaaaaaaaaaaaaaaa", bob = "usr_bbbbbbbbbbbbbbbbbbbbbbbbbb";
-
-const never = () => Promise.resolve(false);
-const team = legacyKeyRef("7c".repeat(32)); // stands in for a team notebook's container key
-const opener = (...keys: typeof legacy[]) => async (item: PendingSave) => {
-  for (const key of keys) if (await decryptObject(key, item.containerID, item.payload).then(() => true, () => false)) return true;
-  return false;
-};
+const save = async (id: string, containerID: string, title: string, owner: string, sealedWith = key): Promise<PendingSave> =>
+  ({ id, containerID, version: 1, updatedAt: "2026-10-07T00:00:00Z", keyGeneration: 2, owner, payload: await encryptNote(sealedWith, containerID, { type: "page", title, body: "[]" }) });
 
 describe("stuck edits", () => {
   it("are the queued edits of notebooks the server no longer lists, and none when the list is unknown", async () => {
-    const queued = [await save(`obj_${"c".repeat(26)}`, lost, "gone"), await save(`obj_${"d".repeat(26)}`, kept, "here")];
-    expect(stuckSaves(queued, new Set([kept])).map((item) => item.containerID)).toEqual([lost]);
+    const queued = [await save(`obj_${"c".repeat(26)}`, LOST, "gone", alice), await save(`obj_${"d".repeat(26)}`, LIVE, "here", alice)];
+    expect(stuckSaves(queued, new Set([LIVE])).map((item) => item.containerID)).toEqual([LOST]);
     expect(stuckSaves(queued, undefined)).toEqual([]);
   });
 
-  it("are the signed-in account's own; an unstamped entry is offered for export only when this account's key opens it", async () => {
-    const opens = (item: PendingSave) => decryptObject(legacy, item.containerID, item.payload).then(() => true, () => false);
-    const mine = await save(`obj_${"c".repeat(26)}`, lost, "mine", legacy, alice);
-    const theirs = await save(`obj_${"d".repeat(26)}`, lost, "theirs", legacyKeyRef("6b".repeat(32)), bob);
-    const oldMine = await save(`obj_${"e".repeat(26)}`, lost, "old mine");
-    const oldTheirs = await save(`obj_${"f".repeat(26)}`, lost, "old theirs", legacyKeyRef("6b".repeat(32)));
-    const live = await save(`obj_${"g".repeat(26)}`, kept, "live", legacy, alice);
-    const queued = [mine, theirs, oldMine, oldTheirs, live];
-    expect(await unsentEdits(queued, new Set([kept]), alice, opens, opens)).toEqual({ owned: [mine], unowned: [oldMine], unknown: [], sealed: 1 });
-    // Bob sees only his own edit; Alice's stamped edit is never his to discard.
-    expect(await unsentEdits(queued, new Set([kept]), bob, never, never)).toEqual({ owned: [theirs], unowned: [], unknown: [], sealed: 2 });
-    expect(await unsentEdits(queued, undefined, alice, opens, opens)).toEqual({ owned: [], unowned: [], unknown: [], sealed: 1 });
+  it("lists only this account's edits for notebooks no longer listed", () => {
+    const mine = { id: "obj_a", containerID: LOST, owner: "usr_me" } as PendingSave;
+    const live = { id: "obj_b", containerID: LIVE, owner: "usr_me" } as PendingSave;
+    const theirs = { id: "obj_c", containerID: LOST, owner: "usr_other" } as PendingSave;
+    expect(unsentEdits([mine, live, theirs], new Set([LIVE]), "usr_me")).toEqual([mine]);
+    expect(unsentEdits([mine], undefined, "usr_me")).toEqual([]);
   });
 
   it("exports what the key opens and counts the rest", async () => {
-    const items = [await save(`obj_${"c".repeat(26)}`, lost, "gone"), await save(`obj_${"e".repeat(26)}`, lost, "sealed elsewhere", legacyKeyRef("6b".repeat(32)))];
-    const file = await exportUnsent(items, (item) => decryptObject(legacy, item.containerID, item.payload));
+    const items = [await save(`obj_${"c".repeat(26)}`, LOST, "gone", alice), await save(`obj_${"e".repeat(26)}`, LOST, "sealed elsewhere", alice, other)];
+    const file = await exportUnsent(items, (item) => decryptObject(key, item.containerID, item.payload));
     expect(file.unreadable).toBe(1);
-    expect(JSON.parse(file.json)).toEqual([{ id: items[0].id, notebook: lost, updatedAt: "2026-10-07T00:00:00Z", content: expect.objectContaining({ title: "gone" }) }]);
-  });
-});
-
-describe("drainable", () => {
-  it("sends only this account's edits: another account's never, an unstamped one only if this account's legacy key opens it", async () => {
-    const opens = (item: PendingSave) => decryptObject(legacy, item.containerID, item.payload).then(() => true);
-    // Both accounts may share this team notebook, so the server would accept either upload.
-    const mine = await save(`obj_${"c".repeat(26)}`, kept, "mine", legacy, alice);
-    const theirs = await save(`obj_${"d".repeat(26)}`, kept, "theirs", legacy, bob);
-    const oldMine = await save(`obj_${"e".repeat(26)}`, kept, "old mine");
-    const oldTheirs = await save(`obj_${"f".repeat(26)}`, kept, "old theirs", legacyKeyRef("6b".repeat(32)));
-    expect((await drainable([mine, theirs, oldMine, oldTheirs], alice, opens)).drain).toEqual([mine, { ...oldMine, owner: alice }]);
-    expect((await drainable([mine, theirs, oldMine, oldTheirs], bob, never)).drain).toEqual([theirs]);
-  });
-
-  it("stamps an unstamped edit with this account once its legacy key opens it", async () => {
-    const oldMine = await save(`obj_${"e".repeat(26)}`, kept, "old mine");
-    const { drain, stamp } = await drainable([oldMine], alice, opener(legacy));
-    // stamp: the stored entries to rewrite with the owner; drain carries it, so a re-key keeps it.
-    expect(stamp).toEqual([oldMine]);
-    expect(drain).toEqual([{ ...oldMine, owner: alice }]);
-    // Once re-keyed to a team key the legacy key no longer opens it, but the stamp still claims it.
-    const rekeyed = { ...drain[0], payload: (await save(oldMine.id, kept, "old mine", team)).payload, keyGeneration: 2 };
-    expect(await drainable([rekeyed], alice, opener(legacy))).toEqual({ drain: [rekeyed], stamp: [], superseded: [] });
-  });
-
-  it("supersedes a proven unstamped edit when this account queued the same page since", async () => {
-    const oldMine = await save(`obj_${"e".repeat(26)}`, kept, "old mine");
-    const newer = { ...(await save(oldMine.id, kept, "newer", legacy, alice)), version: 2 };
-    expect(await drainable([oldMine, newer], alice, opener(legacy))).toEqual({ drain: [newer], stamp: [], superseded: [oldMine] });
+    expect(JSON.parse(file.json)).toEqual([{ id: items[0].id, notebook: LOST, updatedAt: "2026-10-07T00:00:00Z", content: expect.objectContaining({ title: "gone" }) }]);
   });
 });
 
 describe("two accounts, one page, one browser", () => {
   vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
   const page = `obj_${"p".repeat(26)}`;
-  const theirs = (entries: PendingSave[]) => entries.filter((entry) => entry.owner === alice);
+  const hersOnly = (entries: PendingSave[]) => entries.filter((entry) => entry.owner === alice);
 
   it("Bob's drain and discard never touch Alice's queued edit or cached draft", async () => {
-    const hers = await save(page, lost, "alice's", legacy, alice);
-    await queueSave({ ...hers, owner: alice });
+    const hers = await save(page, LOST, "alice's", alice);
+    await queueSave(hers);
     await putNote(alice, hers);
-    const his = { ...(await save(page, lost, "bob's", legacyKeyRef("6b".repeat(32)), bob)), updatedAt: "2026-10-07T00:09:00Z" };
-    await queueSave({ ...his, owner: bob });
+    const his = { ...(await save(page, LOST, "bob's", bob, other)), updatedAt: "2026-10-07T00:09:00Z" };
+    await queueSave(his);
     await putNote(bob, his);
-    expect(theirs(await pendingSaves())).toEqual([hers]);
-    // Bob's drain: only his entry, and its post-send clear removes only his.
-    const { drain } = await drainable(await pendingSaves(), bob, never);
+    expect(hersOnly(await pendingSaves())).toEqual([hers]);
+    // Bob's drain (main.tsx drainQueue): only his entry, and its post-send clear removes only his.
+    const drain = (await pendingSaves()).filter((item) => item.owner === bob);
     expect(drain).toEqual([his]);
     expect(await replaceQueuedSave(drain[0])).toBe(true);
-    expect(theirs(await pendingSaves())).toEqual([hers]);
+    expect(hersOnly(await pendingSaves())).toEqual([hers]);
     // Bob's discard (Settings, notebook lost): only his own, and only his cached draft.
-    await queueSave({ ...his, owner: bob });
-    const unsent = await unsentEdits(await pendingSaves(), new Set([kept]), bob, never, never);
-    expect(unsent.owned).toEqual([his]);
-    for (const item of unsent.owned) if (await replaceQueuedSave(item)) await deleteNote(bob, item.id);
+    await queueSave(his);
+    const unsent = unsentEdits(await pendingSaves(), new Set([LIVE]), bob);
+    expect(unsent).toEqual([his]);
+    for (const item of unsent) if (await replaceQueuedSave(item)) await deleteNote(bob, item.id);
     expect(await pendingSaves()).toEqual([hers]);
     expect((await getNote(alice, page))?.payload).toEqual(hers.payload);
     expect(await getNote(bob, page)).toBeUndefined();
   });
 });
 
-describe("edits whose owner is unknown", () => {
-  it("are never sent or discarded, and are listed export-only when a key this browser holds opens them", async () => {
-    // Queued before stamping, sealed with a team key: the legacy key proves nothing about whose it is.
-    const shared = { ...(await save(`obj_${"h".repeat(26)}`, kept, "shared old", team)), keyGeneration: 2 };
-    const unreadable = { ...(await save(`obj_${"i".repeat(26)}`, lost, "elsewhere", legacyKeyRef("6b".repeat(32)))), keyGeneration: 2 };
-    const queued = [shared, unreadable];
-    expect((await drainable(queued, alice, opener(legacy))).drain).toEqual([]);
-    const unsent = await unsentEdits(queued, new Set([kept]), alice, opener(legacy), opener(legacy, team));
-    expect(unsent).toEqual({ owned: [], unowned: [], unknown: [shared], sealed: 1 });
-    // Listed even while the notebook list is unavailable: they never drain, so nothing else shows them.
-    expect((await unsentEdits(queued, undefined, alice, opener(legacy), opener(legacy, team))).unknown).toEqual([shared]);
-    const file = await exportUnsent(unsent.unknown, (item) => decryptObject(team, item.containerID, item.payload));
-    expect(JSON.parse(file.json)).toEqual([expect.objectContaining({ id: shared.id, content: expect.objectContaining({ title: "shared old" }) })]);
-  });
-});
+describe("edits waiting under a key a reset replaced (M5)", () => {
+  const waiting = (id: string, owner = alice): PendingSave => ({ id, containerID: LIVE, version: 1, updatedAt: "t", keyGeneration: WAITING_GENERATION, owner, payload: new Uint8Array([1]) });
 
-describe("cached drafts whose owner is unknown", () => {
-  /** Rows as a version 4 browser left them: the upgrade keyed them owner-unknown. */
-  const seed = async (notes: CachedNote[]) => {
-    await pendingSaves(); // opens (and upgrades) the database
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open("kynotes-web");
-      request.onsuccess = () => {
-        const db = request.result;
-        const transaction = db.transaction("notes", "readwrite");
-        for (const note of notes) transaction.objectStore("notes").put({ ...note, owner: "" });
-        transaction.oncomplete = () => { db.close(); resolve(); };
-        transaction.onerror = () => reject(transaction.error);
-      };
-      request.onerror = () => reject(request.error);
+  it("are marked never-send at the reset, re-sealed when the old key was held, and only as read", async () => {
+    const mine = waiting("obj_1"), keyed = { ...waiting("obj_2"), keyGeneration: 2 }, theirs = waiting("obj_3", bob), moved = waiting("obj_4");
+    const replaced: PendingSave[] = [];
+    await retireWaiting([mine, keyed, theirs, moved], alice, async (item) => (item.id === "obj_1" ? new Uint8Array([9]) : undefined), async (expected, next) => {
+      if (expected.id === "obj_4") return false; // a newer save replaced it meanwhile
+      replaced.push(next);
+      return true;
     });
-  };
+    expect(replaced).toEqual([{ ...mine, payload: new Uint8Array([9]), previousKey: true }]);
+    // Without the old key the entry is only marked.
+    const marked: PendingSave[] = [];
+    await retireWaiting([mine], alice, async () => { throw new Error("no key"); }, async (_, next) => { marked.push(next); return true; });
+    expect(marked).toEqual([{ ...mine, previousKey: true }]);
+  });
 
-  it("are listed export-only when a notebook key opens them, never claimed, sent or deleted", async () => {
-    const teamDraft = { ...(await save(`obj_${"j".repeat(26)}`, kept, "team draft", team)), keyGeneration: 2 };
-    const ownDraft = await save(`obj_${"k".repeat(26)}`, kept, "own draft");
-    const elsewhere = await save(`obj_${"m".repeat(26)}`, kept, "elsewhere", legacyKeyRef("6b".repeat(32)));
-    const alsoQueued = { ...(await save(`obj_${"n".repeat(26)}`, kept, "queued too", team)), keyGeneration: 2 };
-    await seed([teamDraft, ownDraft, elsewhere, alsoQueued]);
-    const queued = [alsoQueued]; // an owner-unknown queue entry, listed there instead
-    const drafts = await unknownDrafts(await ownerUnknownNotes(), queued, opener(legacy), opener(legacy, team));
-    expect(drafts).toEqual([teamDraft]);
-    const file = await exportUnsent(drafts, (item) => decryptObject(team, item.containerID, item.payload));
-    expect(JSON.parse(file.json)).toEqual([expect.objectContaining({ id: teamDraft.id, content: expect.objectContaining({ title: "team draft" }) })]);
-    // The login key does not open it, so a page load never claims it, and the queue never holds it.
-    expect(await getNote(alice, teamDraft.id, opener(legacy))).toBeUndefined();
-    expect((await drainable(await pendingSaves(), alice, opener(legacy))).drain.map((item) => item.id)).not.toContain(teamDraft.id);
-    expect((await ownerUnknownNotes()).map((note) => note.id)).toContain(teamDraft.id);
-    // Listed again on the next visit: nothing hides it.
-    expect(await unknownDrafts(await ownerUnknownNotes(), queued, opener(legacy), opener(legacy, team))).toEqual([teamDraft]);
+  it("are listed when marked, or when the held waiting key does not open them", async () => {
+    const marked = { ...waiting("obj_1"), previousKey: true as const }, opens = waiting("obj_2"), closed = waiting("obj_3"), keyed = { ...waiting("obj_4"), keyGeneration: 2 }, theirs = { ...waiting("obj_5", bob), previousKey: true as const };
+    const open = async (item: PendingSave) => item.id === "obj_2";
+    expect(await previousKeyEdits([marked, opens, closed, keyed, theirs], alice, true, open)).toEqual([marked, closed]);
+    // No waiting key held: nothing is guessed from a failed open.
+    expect(await previousKeyEdits([marked, opens, closed], alice, false, open)).toEqual([marked]);
   });
 });

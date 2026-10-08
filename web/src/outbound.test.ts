@@ -1,19 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decryptAttachment, decryptAttachmentMetadata, encryptAttachment, encryptAttachmentMetadata, fromBase64, base64, legacyKeyRef } from "./crypto";
+import { decryptAttachment, decryptAttachmentMetadata, encryptAttachment, encryptAttachmentMetadata, fromBase64, base64, type KeyRef } from "./crypto";
 import { attachmentStep, sealAttachment } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
-import { keysAllowed, newContainerKey, writeKey, type ReportedContainer } from "./keyring";
+import { keysAllowed, newContainerKey, WAITING_GENERATION, waitingKey, writeKey, type ReportedContainer } from "./keyring";
+import { generateIdentity } from "./teamKeys";
 import { confirmCheckCode, confirmTypedCheckCode, discardLinkKey, newLinkKey } from "./linking";
-import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendCommentRewrite, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
+import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
 import type { PendingUpload } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
-const login = legacyKeyRef("a".repeat(64));
+const waiting = waitingKey(generateIdentity());
 const file = { name: "photo.png", type: "image/png", size: 4 };
 const shared: ReportedContainer = { id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 };
 
 describe("outbound ciphertext gate", () => {
-  const ring = new Map<number, Uint8Array>();
+  const ring = new Map<number, KeyRef>();
   let unregister = () => {};
   const fetches = vi.fn(async () => new Response(JSON.stringify({ receivedBytes: 4, nextChunk: 1 }), { status: 200 }));
   beforeEach(() => {
@@ -22,46 +23,46 @@ describe("outbound ciphertext gate", () => {
     fetches.mockClear();
     vi.stubGlobal("fetch", fetches);
     vi.stubGlobal("document", { cookie: "" });
-    // main.tsx's writeKeyFor: the tab-wide floor, this tab's ring, the login key.
+    // main.tsx's writeKeyFor: the tab-wide floor and this tab's ring.
     unregister = setWriteKeySource((container) => {
       const floor = floorOf(container.id);
-      return floor && keysAllowed(container, floor) ? writeKey(container, ring, login, floor) : undefined;
+      return floor && keysAllowed(container, floor) ? writeKey(container, ring, floor) : undefined;
     });
   });
   afterEach(() => { unregister(); vi.unstubAllGlobals(); });
 
-  it("sends no chunk of a legacy pending upload once sharing is known, and re-seals it for the current key", async () => {
+  it("sends no chunk of a waiting pending upload, and re-seals it for the current key once that arrives", async () => {
     const plaintext = new Uint8Array([1, 2, 3, 4]);
-    // Started before sharing: sealed with the login key at generation 1.
-    const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: 1, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(login, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(login, cnt, file)), ...file };
+    // Started while this browser had no key: sealed with the identity's waiting key.
+    const job: PendingUpload = { uploadId: "upl", owner: "usr_me", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     // Keys missing: the resume waits, and the gate refuses the stored chunk outright.
-    expect((await attachmentStep(job, shared, floorOf(cnt), undefined, ring, login)).kind).toBe("wait");
+    expect((await attachmentStep(job, shared, floorOf(cnt), undefined, ring, waiting)).kind).toBe("wait");
     expect(() => sendUploadChunk({ container: shared, generation: job.keyGeneration }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
     expect(fetches).not.toHaveBeenCalled();
     // The key arrives: the payload and metadata are re-sealed before any chunk is sent.
     const key = newContainerKey();
     ring.set(2, key);
-    const write = writeKey(shared, ring, login, floorOf(cnt)!)!;
-    const step = await attachmentStep(job, shared, floorOf(cnt), write, ring, login);
+    const write = writeKey(shared, ring, floorOf(cnt)!)!;
+    const step = await attachmentStep(job, shared, floorOf(cnt), write, ring, waiting);
     expect(step.kind).toBe("reseal");
     if (step.kind !== "reseal") return;
     const resealed = await sealAttachment(write, cnt, step.plaintext, step.file);
     expect(resealed.keyGeneration).toBe(2);
     expect(await decryptAttachment(key, cnt, resealed.payload)).toEqual(plaintext);
     expect(await decryptAttachmentMetadata(key, cnt, fromBase64(resealed.metadataCiphertext))).toEqual(file);
-    await expect(decryptAttachment(login, cnt, resealed.payload)).rejects.toThrow();
+    await expect(decryptAttachment(waiting, cnt, resealed.payload)).rejects.toThrow();
     // The old ciphertext still never passes; the re-sealed one does.
-    expect(() => sendUploadChunk({ container: shared, generation: 1 }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
+    expect(() => sendUploadChunk({ container: shared, generation: WAITING_GENERATION }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
     await sendUploadChunk({ container: shared, generation: 2 }, "upl2", 0, resealed.payload);
     expect(fetches).toHaveBeenCalledOnce();
     expect((fetches.mock.calls[0] as unknown as [string, RequestInit])[1].body).toEqual(resealed.payload);
   });
 
-  it("refuses a stale container object, an unloaded floor, and any send with no workspace mounted", () => {
+  it("refuses a never-shared container (no login-key send), a stale container object, an unloaded floor, and any send with no workspace mounted", () => {
     raiseFloorIn(cnt, { shared: 0, generation: 1 });
     const unshared: ReportedContainer = { id: cnt, kind: "team", keyGeneration: 1, sharedGeneration: 0 };
-    expect(() => sendCiphertext({ container: unshared, generation: 1 })).not.toThrow();
+    expect(() => sendCiphertext({ container: unshared, generation: 1 })).toThrow(KeysWaitingError);
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     expect(() => sendCiphertext({ container: unshared, generation: 1 })).toThrow(KeysWaitingError);
     expect(() => sendCiphertext({ container: { ...unshared, id: `cnt_${"b".repeat(26)}` }, generation: 1 })).toThrow(KeysWaitingError);
@@ -94,26 +95,13 @@ describe("outbound ciphertext gate", () => {
     expect(() => collectLinkBundle({ ...newLinkKey() }, id)).toThrow(/ended/);
     expect(fetches).toHaveBeenCalledOnce();
   });
-
-  it("sends a comment re-seal only at the current write generation", async () => {
-    raiseFloorIn(cnt, { shared: 2, generation: 2 });
-    ring.set(2, newContainerKey());
-    // Sealed at a legacy generation, or at an older one: refused before any request.
-    for (const generation of [0, 1]) expect(() => sendCommentRewrite({ container: shared, generation }, `cmt_${"a".repeat(26)}`, "AA==")).toThrow(KeysWaitingError);
-    expect(fetches).not.toHaveBeenCalled();
-    fetches.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await sendCommentRewrite({ container: shared, generation: 2 }, `cmt_${"a".repeat(26)}`, "AA==");
-    const [path, init] = fetches.mock.calls[0] as unknown as [string, RequestInit];
-    expect(path).toBe(`/api/v1/comments/cmt_${"a".repeat(26)}`);
-    expect(JSON.parse(String(init.body))).toEqual({ bodyCiphertext: "AA==", keyGeneration: 2 });
-  });
 });
 
 describe("outbound structure", () => {
   it("only outbound.ts reaches the ciphertext upload API functions", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./api.ts", "!./outbound.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toContain("./main.tsx");
-    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|rewriteComment|updateContainer|approveLinkRequest|collectLinkRequest)\b/;
+    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer|approveLinkRequest|collectLinkRequest)\b/;
     expect(Object.entries(sources).filter(([, text]) => raw.test(text)).map(([name]) => name)).toEqual([]);
   });
 

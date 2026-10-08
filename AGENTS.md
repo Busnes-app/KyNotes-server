@@ -75,16 +75,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
-- `cmd/kynotes-probe` is the live 13-step client interoperability acceptance
-  path; it uses the same session, pairing, envelope, sync, upload, and GC
-  contracts as external clients. Its X25519 device key is random, persisted 0600
-  (`-device-key`, default under the user cache dir per server URL and username),
-  never derived from `authSecret`; the device is revoked at the end of every run.
-  An operator-set password (`password_change_required` on an empty envelope PUT,
-  before pairing) is changed to a random one through `POST /api/v1/auth/password`
-  and set back to `-password` after the device is revoked, clearing the admin-known
-  flag so re-runs skip it. The temporary password sits beside the device key
-  (`.takeover`, 0600) until restored; the next run restores it first.
+- `cmd/kynotes-probe` is the live 14-step client interoperability acceptance path: same session,
+  identity, rotation, pairing, envelope, sync, upload and GC contracts as external clients. It
+  unwraps or creates a password-wrapped identity (`teamkeys.UserKEK`/`SealIdentity`/`OpenIdentity`),
+  stops on one without a password copy, and keys its notebook by a first rotation (generation 2).
+  Its X25519 device key is random, persisted 0600 (`-device-key`, default under the user cache dir
+  per server URL and username), never derived from `authSecret`; the device is revoked every run.
+  An operator-set password (`password_change_required` on identity create, before pairing) is
+  changed to a random one through `POST /api/v1/auth/password` and set back to `-password` after
+  the device is revoked, re-wrapping the identity each time; re-runs skip it. The temporary
+  password sits beside the device key (`.takeover`, 0600) until restored; the next run restores it.
 - `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
   browser crypto/local-storage boundaries, sync state machine, and mobile
   reuse path; it does not alter the frozen server plan.
@@ -143,10 +143,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   client path.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
   that expires after 15 seconds.
-- `web/` persists local zero-knowledge device keys in the IndexedDB keys vault upon
-  password login/setup to enable seamless 1-click SSO returns on trusted devices,
-  while providing explicit "Forget this device" controls to clear stored secrets;
-  sessions without a cached device key prompt for the master password once.
+- `web/` keeps a vault record per account in IndexedDB (the password sign-in's verifier, or for
+  a KySignOn session a random per-browser value from `ssoDeviceSecret`) beside the identity, with
+  "Forget this device" to clear it. KySignOn sessions are never asked for a password; a local
+  session without a record signs in with its password, and a refused password lets no one in.
 - `web/` surfaces server-confirmed save times and treats `version_conflict`
   responses separately from offline failures, preserving the encrypted local
   draft without endlessly retrying a stale version. Server-kept conflicting
@@ -165,9 +165,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
 - `POST /api/v1/admin/teams` is the explicit admin team-creation path; it
-  creates the owner membership and records `admin.team.create`. Team names are
-  encrypted in the browser using the team ID before metadata is updated; the
-  admin list returns ciphertext for browser-side decryption.
+  creates the owner membership and records `admin.team.create`. It takes no name
+  (`400` for a non-empty `metaCiphertext`); the owner's browser seals one after the first
+  key. The admin list carries name ciphertext that administrator pages never decrypt (they show
+  only names this browser sealed); it passes through `observeContainers` for the key floors.
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
@@ -354,7 +355,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `user_identities`); device auth, device list/revoke/selection, directory deactivation and role
   changes, register and the save gate exclude it. Password change must carry `identityDeviceId`
   and `wrappedIdentityKey` when a password-wrapped one exists (`409 identity_rewrap_required`), clears every session's
-  step-up and shares the step-up lockout; recovery and admin reset delete it with an audit row.
+  step-up and shares the step-up lockout; recovery and admin reset remove only its password copy (audit `identity.password_wrap.delete`), and admin reset revokes paired device credentials in the same transaction.
   `PUT` and password change recheck inside their write transaction (`auth.RecheckUserStepUpTx`,
   `auth.RecheckSessionTx`, `TestRecheckTxSeesCommitsAfterMiddleware`): a session revoked (401)
   or a password/step-up changed (403 for `PUT`) after the middleware writes nothing.
@@ -365,8 +366,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   recovery) makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
   invitation keys) answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
-  set the flag. `/setup` accepts only `authSecret`. Until shared keys land, the password form warns
-  that existing notes become unreadable and needs an acknowledgement (`web/src/passwordChange.ts`).
+  set the flag. `/setup` accepts only `authSecret`. A password change needs no content warning
+  (`web/src/passwordChange.ts`).
   `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
   (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
@@ -374,7 +375,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
   `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
-  `TestRecoveryAndAdminResetDeleteIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
+  `TestRecoveryAndAdminResetKeepIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
   `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
   `TestUserAddFlagsOperatorKnownPassword`, `TestEnvelopeVectors` and `npm test` (which also keeps
   `*ForVector` exports out of non-test sources).
@@ -385,54 +386,65 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `PUT .../envelopes` and `POST .../key-rotations` use `auth.RequireUserActionStepUp` plus
   `RecheckUserActionTx` (SSO stewards confirm each request with KySignOn; invitation envelopes stay local-password). Rotation compares and increments `key_generation`, sets
   `containers.shared_generation` (migration 0022) once, and requires the caller and every active
-  member identity. `checkWriteGate` serves object saves, comment create/rewrite and attachment
+  member identity. `checkWriteGate` serves object saves, comment create and attachment
   finalize, before streaming and inside the transaction (object saves also recheck role there):
-  live membership, current generation, then the legacy device rule while `shared_generation=0` or
-  the writer's own identity envelope after. `removeMemberTx` serves owner/admin and server-admin
+  live membership, `shared-v2`, a key (`shared_generation > 0`), the current generation, then the
+  writer's own identity envelope; `checkContainerKeyed` (member, `shared-v2`, a key) gates upload start,
+  chunks and preview finalize, and container creation takes no name. `removeMemberTx` serves owner/admin and server-admin
   removal (children revoked, generations bumped, envelopes, selections and the removed user's
   pending invitations deleted, audited in the same transaction). Invitations may carry identity
   envelopes (`invitation_envelopes`, moved on accept only at their generation and only while the
   inviter is still a steward); creating one with envelopes needs `auth.HasUserStepUp` plus
-  `RecheckUserStepUpTx`, while accept only moves envelopes authorized at insertion. `PUT /comments/{id}` is author-only; `GET /users/{id}/identity`
+  `RecheckUserStepUpTx`, while accept only moves envelopes authorized at insertion. `GET /users/{id}/identity`
   answers self, live co-members and an inviting steward, else a uniform 404;
   `object_versions.author_user_id` is written, not yet read. Shared 409 `already_exists` covers
   moved generations, duplicates and incomplete rotations. Known limits are listed in
   `IMPLEMENTATION_PLAN.md` §9. The probe seals and opens a real envelope with `internal/teamkeys`
   (never linked into the server). Verify `TestEnvelope*`, `TestKeyRotation*`,
   `TestOwnIdentityWriteIsRewrapOnly`, `TestConcurrentRotationsCannotSplitAGeneration`,
-  `TestLegacyContainersKeepTheDeviceGate`, `TestNewContentRefusedUntilRotationEnvelopesExist`,
+  `TestUnkeyedContainerRefusesEveryWrite`, `TestUnkeyedContainerTakesNoInvitationEnvelope`,
+  `TestEveryWriteNeedsTheCurrentKeyScheme`, `TestContainerCreationTakesNoName`,
+  `TestNewContentRefusedUntilRotationEnvelopesExist`,
   `TestSaveRacing*`, `TestAdminMemberRemovalRotatesLikeOwnerRemoval`,
   `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
-  `TestInvitation*`, `TestCommentRewriteIsAuthorOnly`, `TestUserIdentityVisibility`,
+  `TestInvitation*`, `TestUserIdentityVisibility`,
   `TestOpenEnvelopeAgreesWithVectors` and the probe.
 - Team keys P3a (web): `web/src/keyring.ts` (pure: envelopes → generation keys, write key, exact-generation
   read key, steward sweep plan), `web/src/keyService.ts` (one sweep against an injected API: mint via
   rotation, backfill wraps, one retry on 409) and `web/src/pins.ts` (add-only TOFU pins in the vault
   record, local fingerprints; trust rules in the next bullet). Trust prompts and key notices name people
   only through `displayName(username, userId)`: one sanitized line, `<userId> · <name>`, ID first so a name
-  cannot pose as it, name capped at 64 characters. Reads: at or above `sharedGeneration`
-  only that generation's key, below it and personal the legacy key, malformed generation no key.
-  `main.tsx` reaches the login key only through
-  `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
+  cannot pose as it, name capped at 64 characters. Reads: `readKeys` opens a row only with
+  the container key of its own generation at or above the first keyed generation (`sharedGeneration`); below it,
+  in an unkeyed container or with a malformed generation it gives no key. `ownCopyKeys` adds the identity's
+  waiting key for this browser's own generation-0 copies only. `KeyRef` is branded and minted only in
+  `keyring.ts` (`asContentKey`); `contentKeys.test.ts` fails if any other file mints or casts one, or if
+  `authSecret` meets content crypto. `writeKey(container, ring, floor)` has no write key for an unkeyed
+  container, so the `outbound.ts` gate refuses it; local copies wait under `waitingKey(identity)` (HKDF
+  `kynotes/waiting/v1`) or are not kept; `planSweep` mints a first key for every keyed member only when
+  the caller's identity is `recoverable` (plan `unrecoverable` otherwise; re-mints never wait).
+  Notebooks are created only through `createNamed` (`observe.ts` `createKeyed`: a still-empty notebook
+  whose mint or naming failed is deleted). Waiting copy follows the member list, never `kind`
+  (`web/src/keyNotices.ts`).   `web/src/components/RecoveryCode.tsx` is the only UI that shows, uploads, restores or resets a recovery
+  code: shown once (print or download on a click, never the clipboard, URL or storage), type-back of a
+  random group, autofill opt-outs on every code field, restore beside "Link this browser", and a reset
+  that lists its losses, offers the unsent-edit export, needs RESET typed and, for password sessions,
+  the password (step-up and new password copy). Verify `RecoveryCode.test.tsx` and `workspaceWiring.test.ts`.
+  `main.tsx` writes containers only with the current key; with
   keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty
   objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0. The
   drain uploads an entry only through `readyToSend` (`web/src/drain.ts`): as is only when sealed for the
-  current `writeKeyFor` generation and not a `legacyRow` under the floor, otherwise re-sealed from its own
-  generation's key first, or kept queued while no write key exists. Every container-key or login-key
+  current `writeKeyFor` generation, otherwise re-sealed from its own
+  generation's key first, or kept queued while no write key exists. Every container-key
   ciphertext upload (object saves, attachment start/chunks/finalize, comments, container names) goes
   through the `web/src/outbound.ts` gate, which re-checks the sealing generation against `floorOf` and
   the workspace's `writeKeyFor` right before the request; pending attachments pass `attachmentStep`
   (wait or reseal payload and metadata) before the first chunk, and `outbound.test.ts` fails if any other
   module calls those API functions; queue
-  replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
-  (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
-  the device closes them (Team keys P4 below): `readKeys` and the label share that one decision (generation 0 included), and `api.ts`
-  `serverGeneration` turns malformed server generations into `undefined`. Labelled rows are re-sealed only
-  by an explicit edit or move of that row (`placePage`/`updateStructure` `explicit`, which report a
-  skip); block moves carrying a labelled subpage are refused (`movesLabelledSubpage`); legacy conflict
-  versions are never copied (`copyableConflicts`). The first mint re-seals the shown name and says so.
+  replacements go through `replaceQueuedSave` (compare-and-set). `api.ts`
+  `serverGeneration` turns malformed server generations into `undefined`. The first mint re-seals the shown name and says so.
   Rollback rule: `KeyState` also keeps the highest `shared`/`generation` the server reported (add-only,
-  persisted by `syncContainerKeys` before use); `writeKey`/`readKeys`/`legacyRow` require that floor and
+  persisted by `syncContainerKeys` before use); `writeKey`/`readKeys` require that floor and
   `guardContainer` applies it, `main.tsx` passes it only through `floorFor`, a thin lookup for every
   container (no loaded floor, no key; `ensureFloor` before first use; every server container read
   passes the observer (`web/src/observe.ts`: list, current, create, admin team list/create), which
@@ -444,17 +456,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   into a floor they already hold after validating the ID pattern and non-negative safe integers, and `syncContainerKeys` raises it through `onFloor` before any
   envelope fetch and again the moment `rotate` succeeds; the post-mint ring opens from the accepted
   rows, never a re-fetch, so a pass that later throws still pauses writes), and a lower report is plan
-  `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
-  `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
-  (`needsKeyPass`) but never skip one.
+  `rollback`: writes paused. `kind`/`teamId` are server claims for layout only and
+  decide no key; every notebook gets a key pass. `keyring.test.ts` fails if a key module reads them.
   `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
   pass then stops before upload (plan `untrusted`). A pass that stops on a pin it could not keep
   (declined, unsaved or conflicting) re-opens against the stored pins (`persistedOnly`) and returns, and
   saves key memory from, only that; if a first-contact pin is still unstored it returns only held keys
   matching the stored digests and re-saves the prior key memory with the raised floor, so a refused
   sender's key is never adopted or remembered and `keyStateSaved` reports that save.
-  Server: containers report `sharedGeneration`; shared containers refuse writes without
-  `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
+  Server: containers report `sharedGeneration`; every content write and name change needs
+  `X-Kynotes-Key-Scheme: shared-v2` (409 otherwise); meta `PATCH` must carry the current `keyGeneration` and checks role
   and `baseVersion` in its transaction; conflict
   listings report `keyGeneration`; envelope `PUT` backfills existing shared generations and never mints
   (`putGenerationTx`). Verify `TestSharedContainerRefusesStaleClientWrites`,
@@ -469,10 +480,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, login limit raised because every
   person shares one loopback IP; serves the embedded bundle: build and sync `internal/web/dist` first).
   It checks server bytes: shared rows open
-  with the container key and not the writer's login key, a newcomer gets history, removal re-mints at once
+  with the container key, a newcomer gets history, removal re-mints at once
   (generation N+2 holds envelopes for the remaining members only, before anyone writes), and a
   write without the key-scheme header gets 409. P3b steps: an invitation sealed for the invitee opens
-  the team before any owner reopens it, refuses another account and a pre-removal invitation, a link
+  the team before any owner opens it again, refuses another account and a pre-removal invitation, a link
   pasted into an open tab joins, a re-invited member waits and asks, a declined changed key is never
   sealed, re-trust in Settings, unsent edits export and discard, and a click during the automatic load
   (held at its last request) leaves the list loaded when it stops being busy. P3c steps: newcomer Cancel,
@@ -482,7 +493,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   sends nothing; the honest link needs the typed code, keeps the collected bundle unopened until the
   newcomer's "Codes match", stores the same identity sealed and non-extractable, refuses a second collect,
   opens the team with one fingerprint; a cache that refuses writes still sends with the no-local-copy text;
-  Forget asks with its exact text and empties the vault. Every browser dialog must
+  Forget asks with its exact text and empties the vault. P5 steps: an administrator reset keeps the key and
+  the user's own reset (typed RESET, password step-up, its response lost after commit) replaces it, after
+  which the old key opens no re-shared envelope; a new personal notebook is keyed at creation and no request
+  body opens with the login key; a login-key page a server slips in never shows; a recovery code's type-back
+  group changes when it is shown again; a waiting-key edit survives a password change and is sent; a fresh
+  browser restores with the code (typo refused before any request, wrong code and a copy for another key
+  refused, no link request, code in no storage or URL); a v5 local database is dropped at v6. No browser
+  ever requests a `/legacy` path. Every browser dialog must
   be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
@@ -522,12 +540,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   names via `displayName`, re-trust re-fetches the key and stores it compare-and-swap against the "Was" pin,
   only via `confirmFingerprintChange` → `storeConfirmedPin`) and unsent edits (`components/UnsentEdits.tsx`,
   `stuckEdits.ts`): edits are bound to the account; the note cache and save queue are keyed by
-  `[owner, id]` (IndexedDB v5 re-keys older rows to owner-unknown `""`), so no save, replace, clear or
-  read touches another account's entry, and an owner-unknown cached page is read only once the user's own
-  legacy key opens it (then claimed), and one only a notebook key opens is listed in Unsent edits as
-  "Draft, owner unknown", export-only (`unknownDrafts`); an unstamped edit is stamped once the user's own legacy
-  key proves it, team-key-only owner-unknown edits are export-only and never drained or discarded, export is
-  plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
+  `[owner, id]` (IndexedDB v6 cleared older rows once), so no save, replace, clear or
+  read touches another account's entry; every entry carries its owner, and Unsent edits lists this
+  account's edits for notebooks it lost and those sealed under a previous key (export, discard). Export is plaintext and marked unencrypted, the drain uploads only this account's edits. `loadGate.ts` lets only the
   newest notebook load finish. Verify `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`,
   `TestRemovedMemberIsReadmittedByReactivation`, `TestTeamAdminRemovesOnlyAdminsItInvited`,
   `TestRemovalVoidsPendingInvitationsToTheRemovedMember`, `TestAcceptAndAdminAddAreAudited`,
@@ -578,43 +593,54 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestLinkPollLimitEnvAndValidation`, `go test ./internal/teamkeys`, `npm test` (linking, linkFlow, storage,
   identity, keyService, outbound, DeviceLink) and `npm run e2e --prefix web`.
 
-- Team keys P4: legacy review and per-device closure. Server: read-only `GET /api/v1/containers/{id}/legacy`
-  (`teamkeys_routes.go`; any live member, session only; rows below `shared_generation`; unknown and foreign
-  containers get one 404, a storage error 500; 1000 per kind with `complete`; `no-store`; per-account bucket
-  at `link_poll_per_minute`, `ponytail:` upgrade a `legacy_per_minute` key; comments and conflicts scan
-  without an index, `ponytail:` upgrade indexes); objects send `id`/`keyGeneration` only, attachments no size,
-  conflicts no timestamp. No migration; `0025` is unused. Web: `KeyFloor.closed` (a malformed value counts as
-  closed) and the reopen mark have single writers. Storage: only `closeLegacyStored` (via `observe.ts`
-  `closeLegacy`) and `reopenLegacy` write them, creating a vault record without a device key when none exists;
-  `storeKeyState` keeps the stored values in its transaction. Memory (`floors.ts`): only a tab's first load,
-  `closeFloorIn` and a peer's close message raise it; raises broadcast generations only. `readKeys` returns no login
-  key for any server row once closed; `localReadKeysFor`/`localReadKeys` (closure ignored) serve only this
-  browser's owner-stamped queue entries, pending uploads and cache entries (the cache never holds server
-  bytes). `migration.ts`: `reviewLegacy` opens each listed row only with the key `readKeys` picks and is bound
-  to the sharing floor it covered (incomplete on any failed fetch or row without a valid generation; a comment
-  naming another author is refused); `checkLegacyRows` auto-closes only on a complete successful response
-  listing nothing of the user's, `sharedGeneration` above 0, an unchanged floor and no reopen mark, re-read in
-  the closing transaction, and only once storage kept it (a 429, 500, network error, `complete:false` or no
-  IndexedDB never closes); `closeLegacy` reports `closed`/`unsaved`/`reopened`/`not-shared`; `migrateLegacy` re-seals only the ticked rows of a branded,
-  single-use `MigrationApproval` (frozen copy of what the dialog showed, bound to user, container, floor and a
-  `reviewLegacy` review, minted only by `components/LegacyReview.tsx`), detaches and resolves only after the
-  matching re-seal, and closes only when the review was complete, nothing failed, the floor is unchanged and the
-  user confirmed the hidden count. The dialog shows every payload string as plain text (`reviewText`: link targets,
-  table cells, attachment name/type/size), offers each attachment's reviewed bytes as a local download, labels
-  every item "not end-to-end verified", pre-ticks nothing, disables Share until something is ticked and while
-  a ticked page uses an unticked reviewed attachment (`attachmentsLeftBehind`, also refused by
-  `approveMigration`). Stop shows whenever the notebook carries the reopen mark or labelled rows. `reopenLegacy` (`storage.ts`, with a
-  single-use `ReopenConfirmation` minted only from the "Show pre-sharing items again" confirm) lowers the
-  closure and persists a reopen mark that blocks auto-close in every tab and across reloads; Stop or a
-  completed confirmed share clears it, and `floors.ts` `reopenFloorIn` makes other tabs re-read storage.
-  `main.tsx` calls `setClosureReader` at sign-in and reloads the open notebook whenever its closure changes;
-  `outbound.ts` `sendCommentRewrite` is the comment re-seal. Limits: auto-close trusts the server's list, a
-  forged row ticked by the user is sealed, viewers cannot share their pre-sharing rows, rows of removed authors
-  stay opaque, tabs on a pre-P4 bundle ignore the closure and can erase it or a reopen from storage until
-  reloaded, administrator-owned teams wait for sub-project A. Awaiting Yoshi before merge: decision 1
-  (per-device closure, no steward marker) and decision 2 (auto-close trusts the server's list; recovery is
-  "Show pre-sharing items again"); spec §7 P4 records both.
-  Verify `TestLegacyRows*`, `npm test` (keyring, storage, floors, observe, drain, api, outbound, migration,
-  keyService, legacyWiring, LegacyReview) and `npm run e2e --prefix web` (a forged pre-sharing page, sealing the
-  reviewed copy, reopen across a reload with Stop still offered, a 500 from `/legacy` never closing; `KYNOTES_E2E_SHOTS=<dir>` writes the
-  `UI-VERIFICATION.md` captures).
+- Team keys P5: personal keys and the recovery code. Every notebook is keyed at creation (`main.tsx`
+  `createNamed`, also for administrator-created teams); one whose first key was never minted is read-only
+  until its owner's next open mints it; `planSweep` has no `blocked` plan and refuses a first key while the caller's
+  identity is not `recoverable` (password or recovery-code copy); no key module reads `kind` or `teamId`
+  (structure test). Waiting edits seal with `waitingKey` (HKDF `kynotes/waiting/v1` over the identity).
+  Server: migration `0025_identity_recovery.sql`; `PUT /api/v1/me/identity/recovery` (compare-and-swap on
+  `recoveryId`, idempotent for an identical copy, user-action step-up) and `POST …/recovery/fetch`
+  (step-up, `no-store`, audited, one 404 for no identity and no copy). Both and `PUT /me/identity` share the
+  `recovery` bucket at `pairing_per_hour` (`ponytail:` in `ratelimit.go`). `PUT /me/identity` with
+  `replace` and `expectedDeviceId` is the self-service reset: one transaction swaps the identity, its
+  recovery copy and (password users) its password copy, revokes other sessions and paired devices with
+  their envelopes, advances `key_generation` in every keyed container the user belongs to (`retireKeysTx`,
+  as a removal; stewards mint the next key), refuses the old key and audits `identity.reset`
+  (`containers_retired=N`), at most `identityResetsPerDay` (3) a rolling day (`429`); members lists give stewards
+  `keyResetAt`; a minting sweep also wraps history in that pass. Verify `TestIdentityReset*`,
+  `TestStewardsSeeWhoResetTheirKey`, keyService and keyNotices tests. Recovery and administrator resets keep
+  the identity and remove only its password copy; the user's own password change re-adds it when
+  `GET /me/identity` says `passwordCopy:"addable"` (never for KySignOn-linked accounts). Web:
+  `recovery.ts` (128-bit Crockford code, 10-bit checksum, PBKDF2-SHA256 600000 over a labelled salt with
+  client-side constants, AAD user and public key; `testdata/protocol/recovery_vectors.json` from
+  `internal/teamkeys`), upload only after `confirmRecoverySaved` (a random type-back group, fresh each time
+  the code is shown; `components/RecoveryCode.tsx` only), restore checks the checksum first and never
+  overwrites another key, reset needs the typed phrase and retries with the same key after a lost response.
+  A KySignOn-linked account's reset is device-only from any session (`409 device_only_required`; the
+  browser re-sends it). The browser notes a reset's new key before sending (`resetSent`) and explains a
+  committed reset whose answer never arrived; edits waiting under the replaced key are marked `previousKey`,
+  never sent, and listed under Unsent edits. A notebook's creator (still its owner or admin) deletes it
+  without the recent-sign-in window only while it was never keyed or named and holds nothing (spec P5 item 24).
+  Add person, Remove and New team notebook show only to stewards (member role from the server).
+  A replaced code stays valid in database backups; only a reset cuts it off. Awaiting Yoshi: D-P5-1
+  (resets keep the identity), D-P5-2 (the stricter never-password-wrap-after-reset option, not built),
+  and P3c (1) raw identity on plain HTTP (P5 adds restored identities), (3) the device-key layer and
+  (4) IdP-operator powers (P5 adds replacing the recovery code and resetting an SSO account's identity).
+  Known limits are in spec §7 "P5 as built". Verify `TestIdentityRecovery*`, `TestIdentityReset*`,
+  `TestRecoveryAndAdminResetKeepIdentity`, `TestPasswordChangeReadds*`, `TestSSOAccountSetsAndFetches*`,
+  `TestSSOResetStaysDeviceOnly`, `TestLinkedAccountResetIsDeviceOnlyFromALocalSession`,
+  `TestNonStewardsCannotManageMembersOrCreateTeamNotebooks`, `TestCreatorDeletesABlankNotebookWithoutARecentSignIn`,
+  `TestAdminPasswordResetRevokesPairedDevices`, `go test ./internal/teamkeys`, `npm test` (recovery, identity,
+  keyring, keyService, drain, contentKeys, workspaceWiring, keyNotices, RecoveryCode, storage, stuckEdits) and
+  `npm run e2e --prefix web`.
+- Team keys, legacy key removed (2026-10-08, spec §9): no content key derives from `authSecret`. Server: a
+  container takes content, names, envelopes, invitation envelopes and uploads only once it has a key
+  (`checkWriteGate`, `checkContainerKeyed`, meta `PATCH`, `putGenerationTx`), creation takes no name, and
+  every write carries `X-Kynotes-Key-Scheme: shared-v2`; `GET /containers/{id}/legacy` and
+  `PUT /comments/{id}` are gone (`TestRemovedLegacyRoutesStayGone`); no migration. Web: IndexedDB v6 drops
+  the earlier cache, queue and uploads once; `readKeys`/`ownCopyKeys` are the only key choices;
+  `contentKeys.test.ts` guards the brand. Probe:
+  password-wrapped identity (`teamkeys.UserKEK`/`SealIdentity`/`OpenIdentity`), notebook keyed at creation.
+  Verify `TestUnkeyedContainerRefusesEveryWrite`, `TestEveryWriteNeedsTheCurrentKeyScheme`,
+  `TestContainerCreationTakesNoName`, `TestIdentityWrapAgreesWithVectors`, `npm test` (contentKeys,
+  keyring, drain, storage, stuckEdits, workspaceWiring) and `npm run e2e --prefix web`.

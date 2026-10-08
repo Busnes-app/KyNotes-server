@@ -1,16 +1,14 @@
 import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
-import type { Envelope, InvitationEnvelope } from "./keyring";
+import type { Envelope, InvitationEnvelope, Member } from "./keyring";
+import type { RecoveryAPI, RecoveryCopy } from "./recovery";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
 export type Invitation = { id: string; token: string; expiresAt: string };
 
-/**
- * A row generation from the server: a non-negative safe integer, else undefined, which readKeys
- * never opens. 0 passes: a personal container reads it as before, a shared one labels it (legacyRow).
- */
+/** A row generation from the server: a non-negative safe integer, else undefined, which readKeys never opens. */
 export function serverGeneration(value: unknown): number | undefined {
   const parsed = typeof value === "string" ? (/^\d+$/.test(value) ? Number(value) : Number.NaN) : value;
   return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
@@ -26,7 +24,7 @@ type APIError = { error?: { code?: string; message?: string; challenge?: string 
 export class APIRequestError extends Error { code?: string; challenge?: string; conflictId?: string; currentVersion?: number; status?: number; constructor(message: string, detail: APIError, status?: number) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.challenge = typeof detail.error?.challenge === "string" ? detail.error.challenge : undefined; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; this.status = status; } }
 
 /** Marks writes from a bundle that seals shared containers with their container key; the server refuses shared-container writes without it. */
-export const KEY_SCHEME = "shared-v1";
+export const KEY_SCHEME = "shared-v2";
 
 export function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
@@ -114,13 +112,16 @@ export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/them
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
 export const containers = () => request<Container[]>("/api/v1/containers");
 
-export function createContainer(kind = "workbook", metaCiphertext = "", teamId = "") {
+/** Created without a name: the server refuses one, and the name is sealed only once the first key exists. */
+export function createContainer(kind = "workbook", teamId = "") {
   return request<Container>("/api/v1/containers", {
-    method: "POST", body: JSON.stringify({ kind, metaCiphertext, teamId }),
+    method: "POST", body: JSON.stringify({ kind, teamId }),
   });
 }
 
 /** keyGeneration is the generation the name was sealed with; a shared container refuses any but the current one. */
+/** Owner only, and only within five minutes of sign-in (server rule); createKeyed's best-effort cleanup. */
+export const deleteContainer = (id: string) => request<void>(`/api/v1/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
 export function updateContainer(id: string, metaCiphertext: string, baseVersion: number, keyGeneration: number) {
   return request<{ metaVersion: number; changeSeq: number }>(`/api/v1/containers/${encodeURIComponent(id)}`, {
     method: "PATCH", body: JSON.stringify({ metaCiphertext, baseVersion, keyGeneration }),
@@ -134,7 +135,8 @@ export async function serviceStatus() {
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
 export const adminTeams = () => request<AdminTeam[]>("/api/v1/admin/teams");
-export function createAdminTeam(metaCiphertext: string) { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({ metaCiphertext }) }); }
+/** Created without a name, like createContainer. */
+export function createAdminTeam() { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({}) }); }
 export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; role: string }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
 export function resetAdminPassword(id: string, input: { newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(input) }); }
 export function addAdminTeamMember(teamID: string, userID: string, role: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members`, { method: "POST", body: JSON.stringify({ userId: userID, role }) }); }
@@ -151,6 +153,16 @@ export async function myIdentity(): Promise<PublicIdentity | undefined> {
 }
 export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
 export const putDeviceOnlyIdentity = (publicKey: string) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ publicKey, wrapAlg: "none" }) });
+/** Sets or replaces the recovery-code copy (compare-and-swap); recovery.ts saveRecovery is the only caller. */
+export const putRecovery: RecoveryAPI["putRecovery"] = (input) => request<{ recoveryId: string }>("/api/v1/me/identity/recovery", { method: "PUT", body: JSON.stringify(input) });
+/** Behind a user-action step-up; undefined when the account has no identity or no copy (one 404 for both). */
+export async function fetchRecovery(): Promise<RecoveryCopy | undefined> {
+  try { return await request<RecoveryCopy>("/api/v1/me/identity/recovery/fetch", { method: "POST" }); }
+  catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
+}
+/** The self-service reset: a new identity with its recovery copy, replacing the one named by expectedDeviceId. */
+export const replaceIdentity: RecoveryAPI["replaceIdentity"] = (input) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ ...input, replace: true }) });
+export const recoveryAPI: RecoveryAPI = { myIdentity, putRecovery, fetchRecovery, replaceIdentity };
 /** A device-link request as the trusted side lists it; newcomerKey is "" until revealed to this session. */
 export type LinkRequestRow = { id: string; commitment: string; createdAt: string; expiresAt: string; claimed: boolean; newcomerKey: string };
 /** The newcomer's view of its request; bundle once, after approval. */
@@ -172,36 +184,12 @@ export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: asy
 export const containerEnvelopes = (containerID: string) => request<Envelope[]>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`);
 export const putEnvelopes = (containerID: string, envelopes: Envelope[]) => request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`, { method: "PUT", body: JSON.stringify({ envelopes }) });
 export const rotateKeys = (containerID: string, expectedGeneration: number, envelopes: Envelope[]) => request<{ keyGeneration: number }>(`/api/v1/containers/${encodeURIComponent(containerID)}/key-rotations`, { method: "POST", body: JSON.stringify({ expectedGeneration, envelopes }) });
-/** A shared notebook's rows below its sharing generation, as the server lists them: a hint for the review (migration.ts), never proof. */
-export type LegacyRows = {
-  complete: boolean;
-  objects: Array<{ id: string; keyGeneration?: number }>;
-  comments: Array<{ id: string; objectId: string; authorUserId: string; bodyCiphertext: string; keyGeneration?: number }>;
-  attachments: Array<{ id: string; objectIds: string[]; metadataCiphertext: string; keyGeneration?: number }>;
-  conflicts: Array<{ id: string; objectId: string; keyGeneration?: number }>;
-};
-const wireID = /^[a-z]{3}_[0-9a-hjkmnp-tv-z]{26}$/;
-const isID = (value: unknown): value is string => typeof value === "string" && wireID.test(value);
-export async function legacyRows(containerID: string): Promise<LegacyRows> {
-  const rows = await request<Partial<Record<keyof LegacyRows, unknown>>>(`/api/v1/containers/${encodeURIComponent(containerID)}/legacy`);
-  // Server data: rows whose IDs or ciphertext fields are malformed are dropped here, before any key or URL sees them.
-  const list = <T extends { keyGeneration?: unknown }>(value: unknown, valid: (row: Record<string, unknown>) => boolean) =>
-    withGeneration((Array.isArray(value) ? value : []).filter((row): row is T => typeof row === "object" && row !== null && valid(row as Record<string, unknown>)));
-  return {
-    complete: rows.complete === true,
-    objects: list(rows.objects, (row) => isID(row.id)),
-    comments: list(rows.comments, (row) => isID(row.id) && isID(row.objectId) && isID(row.authorUserId) && typeof row.bodyCiphertext === "string"),
-    attachments: list<LegacyRows["attachments"][number]>(rows.attachments, (row) => isID(row.id) && typeof row.metadataCiphertext === "string")
-      .map((row) => ({ ...row, objectIds: Array.isArray(row.objectIds) ? row.objectIds.filter(isID) : [] })),
-    conflicts: list(rows.conflicts, (row) => isID(row.id) && isID(row.objectId)),
-  } as LegacyRows;
-}
 /** A colleague's public identity; undefined when they have none or the server will not show it. */
 export async function userIdentity(userID: string): Promise<PublicIdentity | undefined> {
   try { return await request<PublicIdentity>(`/api/v1/users/${encodeURIComponent(userID)}/identity`); }
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
-export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
+export const members = (containerID: string) => request<Array<Member>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
 export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }
@@ -213,8 +201,6 @@ export const acceptInvitation = (id: string, token: string) => request<void>(`/a
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const comments = (objectID: string): Promise<Comment[]> => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`).then(withGeneration);
 export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }
-/** Re-seals the caller's own comment at keyGeneration (server: author only). Only outbound.ts sendCommentRewrite calls this. */
-export function rewriteComment(commentID: string, bodyCiphertext: string, keyGeneration: number) { return request<void>(`/api/v1/comments/${encodeURIComponent(commentID)}`, { method: "PUT", body: JSON.stringify({ bodyCiphertext, keyGeneration }) }); }
 
 export async function changes(containerID: string, since = 0) {
   return request<{ changes: Change[]; nextCursor: string; hasMore: boolean }>(
@@ -235,7 +221,7 @@ export async function readObject(objectID: string, version?: number) {
     credentials: "include", headers: { Accept: "application/octet-stream" },
   });
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
-  // A missing or malformed generation stays undefined so readKeys finds no key, never the legacy one.
+  // A missing or malformed generation stays undefined so readKeys finds no key.
   const keyGeneration = serverGeneration(response.headers.get("X-Kynotes-Key-Generation"));
   return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
 }
@@ -259,19 +245,12 @@ export const deleteUpload = (uploadID: string) => request<void>(`/api/v1/uploads
 export function uploadChunk(uploadID: string, index: number, bytes: Uint8Array) { return request<{ receivedBytes: number; nextChunk: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}`, { method: "PATCH", body: bytes as unknown as BodyInit, headers: { "Content-Type": "application/octet-stream", "X-Kynotes-Chunk-Index": String(index) } }); }
 export function finalizeUpload(uploadID: string, metadataCiphertext: string, keyGeneration: number) { return request<{ attachmentId: string; digest: string; bytes: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}/finalize`, { method: "POST", body: JSON.stringify({ metadataCiphertext, keyGeneration }) }); }
 export function attachToObject(objectID: string, attachmentID: string, objectVersion: number) { return request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`, { method: "POST", body: JSON.stringify({ attachmentId: attachmentID, objectVersion }) }); }
-export function detachAttachment(objectID: string, attachmentID: string) { return request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments/${encodeURIComponent(attachmentID)}`, { method: "DELETE" }); }
 export const objectAttachments = (objectID: string) => request<Array<{ id: string; bytes: number; metadataCiphertext: string; keyGeneration?: number }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`).then(withGeneration);
 export async function downloadAttachment(attachmentID: string) { const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error("Unable to download attachment"); return new Uint8Array(await response.arrayBuffer()); }
 
 export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; keyGeneration?: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`).then(withGeneration);
 export async function conflictCiphertext(conflictID: string) { const response = await fetch(`/api/v1/conflicts/${encodeURIComponent(conflictID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error(`Unable to read conflicting version (${response.status})`); return new Uint8Array(await response.arrayBuffer()); }
 export const resolveConflict = (conflictID: string) => request<void>(`/api/v1/conflicts/${encodeURIComponent(conflictID)}/resolve`, { method: "POST" });
-
-export function createShareLink(objectID: string, expiresAt: string, version = 0) {
-  return request<{ id: string; token: string; objectId: string; version: number; expiresAt: string; commitReceipt: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/share-links`, {
-    method: "POST", body: JSON.stringify({ version, expiresAt }),
-  });
-}
 
 export function createSealedShareLink(ciphertext: Uint8Array, expiresAt: string) {
   let binary = ""; for (const byte of ciphertext) binary += String.fromCharCode(byte);

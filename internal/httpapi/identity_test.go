@@ -242,24 +242,6 @@ func TestRegisterCannotClaimIdentity(t *testing.T) {
 	}
 }
 
-func TestIdentityDoesNotBlockSaves(t *testing.T) {
-	p := newPairClient(t, strings.Repeat("p", 32))
-	p.createIdentity(t)
-	res := p.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), true, false)
-	var c struct {
-		ID string `json:"id"`
-	}
-	data, _ := io.ReadAll(res.Body)
-	res.Body.Close()
-	if json.Unmarshal(data, &c) != nil || c.ID == "" {
-		t.Fatalf("container=%d %s", res.StatusCode, data)
-	}
-	var missing int
-	if err := p.db.QueryRow(missingEnvelopesSQL, c.ID, c.ID, 1).Scan(&missing); err != nil || missing != 0 {
-		t.Fatalf("identity row trips the save gate: %d %v", missing, err)
-	}
-}
-
 func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	identityID := "dev_00000000000000000000000000"
@@ -302,8 +284,9 @@ func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	}
 }
 
-// Device-only identities go too: the planned P3c loss path until P5's recovery code.
-func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
+// Neither the new password's setter nor recovery can re-wrap the identity, so only its password copy
+// goes: another browser or the recovery code still restores it (ruling D-P5-1).
+func TestRecoveryAndAdminResetKeepIdentity(t *testing.T) {
 	for _, tc := range []struct{ path, wrap string }{{"recover", identityWrapAlg}, {"admin", identityWrapAlg}, {"recover", deviceOnlyWrapAlg}, {"admin", deviceOnlyWrapAlg}} {
 		path := tc.path
 		t.Run(path+"/"+tc.wrap, func(t *testing.T) {
@@ -319,6 +302,15 @@ func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_00000000000000000000000000','cnt_00000000000000000000000000',?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01',?)`, id, now); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.db.Exec(`UPDATE user_identities SET recovery_id='rcv_keep',recovery_alg=?,recovery_wrapped_key=? WHERE user_id=?`, recoveryWrapAlg, recoveryCopy, pairUser); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.db.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES('dev_phone0000000000000000000000',?,?,'fp-phone','sha256:x','android',?)`, pairUser, b64s(bytes.Repeat([]byte{5}, 32)), now); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_phone0000000000000000000000','cnt_00000000000000000000000000','dev_phone0000000000000000000000',1,'x25519-hkdf-sha256-chacha20poly1305',x'01',?)`, now); err != nil {
 				t.Fatal(err)
 			}
 			salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
@@ -349,19 +341,60 @@ func TestRecoveryAndAdminResetDeleteIdentity(t *testing.T) {
 					t.Fatalf("admin reset=%d %s", got, b)
 				}
 			}
-			var devices, identities, envelopes int
-			if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE id=?),(SELECT COUNT(*) FROM user_identities),(SELECT COUNT(*) FROM key_envelopes)`, id).Scan(&devices, &identities, &envelopes); err != nil || devices+identities+envelopes != 0 {
-				t.Fatalf("identity survived %s: devices=%d identities=%d envelopes=%d %v", path, devices, identities, envelopes, err)
+			// The identity, its envelope and its recovery copy survive; only the password copy goes.
+			var revoked, alg, rid string
+			var wrapped []byte
+			if err := p.db.QueryRow(`SELECT d.revoked_at,i.wrap_alg,i.wrapped_private_key,i.recovery_id FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.device_id=?`, id).Scan(&revoked, &alg, &wrapped, &rid); err != nil {
+				t.Fatalf("identity gone after %s: %v", path, err)
+			}
+			if revoked != "" || alg != deviceOnlyWrapAlg || len(wrapped) != 0 || rid != "rcv_keep" {
+				t.Fatalf("after %s: revoked=%q alg=%q wrapped=%d recovery=%q", path, revoked, alg, len(wrapped), rid)
+			}
+			var own, phone int
+			if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM key_envelopes WHERE device_id=?),(SELECT COUNT(*) FROM key_envelopes WHERE device_id='dev_phone0000000000000000000000')`, id).Scan(&own, &phone); err != nil || own != 1 {
+				t.Fatalf("identity envelope after %s: %d %v", path, own, err)
+			}
+			// Recovery still ends every paired device; an administrator reset leaves devices to their own routes.
+			if path == "recover" && phone != 0 {
+				t.Fatal("recovery kept a paired device's envelope")
+			}
+			// A later password change of this account needs no re-wrap: no password copy is left.
+			var aes int
+			if err := p.db.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE wrap_alg=?`, identityWrapAlg).Scan(&aes); err != nil || aes != 0 {
+				t.Fatal("password copy left", aes, err)
 			}
 			var flag int
 			if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&flag); err != nil || flag != wantFlag {
 				t.Fatalf("password_admin_known after %s=%d %v", path, flag, err)
 			}
-			var audited int
-			if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.delete' AND object_id=? AND outcome='success'`, id).Scan(&audited); err != nil || audited != 1 {
-				t.Fatalf("identity.delete audit=%d %v", audited, err)
+			var stripped, deleted int
+			if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM audit_events WHERE event='identity.password_wrap.delete' AND object_id=?),(SELECT COUNT(*) FROM audit_events WHERE event IN ('identity.delete','identity.reset'))`, id).Scan(&stripped, &deleted); err != nil || deleted != 0 || stripped != map[string]int{identityWrapAlg: 1, deviceOnlyWrapAlg: 0}[tc.wrap] {
+				t.Fatalf("audits after %s/%s: stripped=%d deleted=%d %v", path, tc.wrap, stripped, deleted, err)
 			}
 		})
+	}
+}
+
+// The administrator reset and its session revocation commit together or not at all.
+func TestAdminResetRevokesSessionsInItsTransaction(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	p.stepUp(t)
+	if _, err := p.db.Exec(`CREATE TRIGGER no_revoke BEFORE UPDATE OF revoked_at ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	salt := base64.StdEncoding.EncodeToString([]byte("fedcba9876543210"))
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	if code, b := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusInternalServerError {
+		t.Fatalf("reset with a failing revocation=%d %s", code, b)
+	}
+	var known int
+	var alg string
+	if err := p.db.QueryRow(`SELECT u.password_admin_known,i.wrap_alg FROM users u JOIN user_identities i ON i.user_id=u.id WHERE u.id=? AND i.device_id=?`, pairUser, id).Scan(&known, &alg); err != nil || known != 0 || alg != identityWrapAlg {
+		t.Fatal("the reset committed without revoking sessions", known, alg, err)
 	}
 }
 
@@ -632,5 +665,82 @@ func TestLoginRejectsConcurrentPasswordChange(t *testing.T) {
 	var after int
 	if err := p.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&after); err != nil || after != before {
 		t.Fatalf("sessions %d -> %d %v", before, after, err)
+	}
+}
+
+// After a recovery or administrator reset dropped the password copy, the user's own password change
+// re-adds one for the identity the browser holds (compare-and-swap on device ID and 'none'). An
+// account with a KySignOn subject never gets one: its device-only identity may never have had one.
+func TestPasswordChangeReaddsAStrippedPasswordCopy(t *testing.T) {
+	for _, sso := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "sso-linked"}[sso], func(t *testing.T) {
+			p := newPairClient(t, strings.Repeat("p", 32))
+			id := p.createIdentity(t)
+			if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
+				t.Fatal(err)
+			}
+			if sso {
+				if _, err := p.db.Exec(`UPDATE users SET sso_subject='sub-1' WHERE id=?`, pairUser); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, live := status(t, p.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false))
+			if got := strings.Contains(live, `"passwordCopy":"addable"`); got == sso {
+				t.Fatalf("GET passwordCopy addable=%v for sso=%v: %s", got, sso, live)
+			}
+			wrapped := bytes.Repeat([]byte{7}, wrappedIdentityBytes)
+			change := func(device string) (int, string) {
+				body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(device) + `}`
+				return status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false))
+			}
+			if code, body := change("dev_00000000000000000000000000"); code != http.StatusConflict || !strings.Contains(body, "identity_rewrap_required") {
+				t.Fatalf("re-add for another identity: %d %s", code, body)
+			}
+			code, body := change(id)
+			var alg string
+			var stored []byte
+			if err := p.db.QueryRow(`SELECT wrap_alg,wrapped_private_key FROM user_identities WHERE user_id=?`, pairUser).Scan(&alg, &stored); err != nil {
+				t.Fatal(err)
+			}
+			var audits int
+			if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.password_wrap.create' AND object_id=?`, id).Scan(&audits); err != nil {
+				t.Fatal(err)
+			}
+			if sso {
+				if code != http.StatusConflict || alg != deviceOnlyWrapAlg || len(stored) != 0 || audits != 0 {
+					t.Fatalf("sso-linked re-add: %d %s alg=%q audits=%d", code, body, alg, audits)
+				}
+				return
+			}
+			if code != http.StatusNoContent || alg != identityWrapAlg || !bytes.Equal(stored, wrapped) || audits != 1 {
+				t.Fatalf("re-add: %d %s alg=%q audits=%d", code, body, alg, audits)
+			}
+		})
+	}
+}
+
+// After an administrator reset the user's first own change runs while password_admin_known is set; it
+// must re-add the copy and clear the flag in one commit (refusing would strand the password unlock).
+func TestPasswordChangeReaddsUnderAdminKnownPassword(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, live := status(t, p.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)); !strings.Contains(live, `"passwordCopy":"addable"`) {
+		t.Fatal("not addable under the flag:", live)
+	}
+	wrapped := bytes.Repeat([]byte{7}, wrappedIdentityBytes)
+	body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(id) + `}`
+	if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false)); code != http.StatusNoContent {
+		t.Fatalf("re-add under the flag: %d %s", code, out)
+	}
+	var flag int
+	var alg string
+	if err := p.db.QueryRow(`SELECT u.password_admin_known,i.wrap_alg FROM users u JOIN user_identities i ON i.user_id=u.id WHERE u.id=?`, pairUser).Scan(&flag, &alg); err != nil || flag != 0 || alg != identityWrapAlg {
+		t.Fatalf("flag=%d alg=%q %v", flag, alg, err)
 	}
 }
