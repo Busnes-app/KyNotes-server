@@ -87,3 +87,13 @@ export function displayName(username: string, userId: string): string {
 export async function fingerprint(publicKey: string): Promise<string> {
   return (await digestSha256Hex(publicKeyBytes(publicKey))).match(/.{4}/g)!.join(" ");
 }
+
+export type PinRow = { userId: string; pinned: string; current?: string; state: "same" | "changed" | "unseen" };
+
+/** Settings rows: each pin against the key the server shows now; unseen when it shows none (no shared notebook, or no identity). */
+export function pinRows(pins: Pins, current: Record<string, string | undefined>): PinRow[] {
+  return Object.entries(pins).sort(([a], [b]) => a.localeCompare(b)).map(([userId, pinned]) => {
+    const now = current[userId];
+    return { userId, pinned, current: now, state: now === undefined ? "unseen" : sameKey(pinned, now) ? "same" : "changed" };
+  });
+}

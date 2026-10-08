@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePins, confirmFingerprintChange, displayName, fingerprint, isPinConfirmation, PinConfirmation, sameKey } from "./pins";
+import { comparePins, confirmFingerprintChange, displayName, fingerprint, isPinConfirmation, PinConfirmation, pinRows, sameKey } from "./pins";
 
 const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)));
 const member = (id: string, publicKey?: string) => ({ userId: id, username: id, role: "editor", identity: publicKey ? { deviceId: "dev", publicKey } : undefined });
@@ -56,5 +56,15 @@ describe("displayName", () => {
     const shown = displayName(`Alice (${fake})`, id);
     expect(shown).toBe(`${id} · Alice (${fake})`);
     expect(shown.startsWith(`${id} · `)).toBe(true);
+  });
+});
+
+describe("pinRows", () => {
+  it("compares each pin with the key the server shows now, sorted by user", () => {
+    expect(pinRows({ b: key(2), a: key(1), c: key(3) }, { a: key(1), b: key(9) })).toEqual([
+      { userId: "a", pinned: key(1), current: key(1), state: "same" },
+      { userId: "b", pinned: key(2), current: key(9), state: "changed" },
+      { userId: "c", pinned: key(3), current: undefined, state: "unseen" },
+    ]);
   });
 });
