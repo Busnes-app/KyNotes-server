@@ -155,7 +155,7 @@ export function LegacyReview({ userID, containerID, review, checking, failure, c
       {closed && (
         <div className="workspace-kind" role="status">
           {LEGACY_CLOSED}{" "}
-          <button className="quiet" disabled={busy} onClick={() => void run(() => submitReopen(userID, containerID, (text) => confirm(text), onReopen))}>{REOPEN_LEGACY}</button>
+          <button disabled={busy} onClick={() => void run(() => submitReopen(userID, containerID, (text) => confirm(text), onReopen))}>{REOPEN_LEGACY}</button>
         </div>
       )}
       {refused > 0 && <div className="workspace-kind" role="status">{legacyRefused(refused)}</div>}
