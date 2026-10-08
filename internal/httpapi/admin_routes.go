@@ -282,8 +282,15 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=1,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
 				return err
 			}
-			// The old password's sessions end with the reset, or the reset does not commit.
-			if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
+			// The old password's sessions and paired device credentials end with the reset, or it does not commit.
+			now := time.Now().UTC().Format(time.RFC3339)
+			if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, r.PathValue("id")); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, now, r.PathValue("id")); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, r.PathValue("id")); err != nil {
 				return err
 			}
 			return stripPasswordWrapTx(tx, r.PathValue("id"), s.UserID, RequestID(r))

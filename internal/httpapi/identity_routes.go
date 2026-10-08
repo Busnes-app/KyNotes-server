@@ -47,6 +47,12 @@ var (
 	errRecoveryMoved   = errors.New("recovery copy changed")
 )
 
+// errResetWrap: a local reset's copy kind does not match the account. linked: a KySignOn-linked
+// account sent a password copy; else a password account sent none.
+type errResetWrap struct{ linked bool }
+
+func (errResetWrap) Error() string { return "reset wrap does not match the account" }
+
 func decodeWrappedIdentity(value string) ([]byte, bool) {
 	wrapped, err := base64.StdEncoding.DecodeString(value)
 	return wrapped, err == nil && len(wrapped) == wrappedIdentityBytes
@@ -131,8 +137,9 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			var good bool
 			wrapped, good = decodeWrappedIdentity(in.WrappedPrivateKey)
 			ok = ok && good
-		case sso && in.WrapAlg == deviceOnlyWrapAlg && in.WrappedPrivateKey == "":
-			// Nothing an SSO session proves could wrap a key: the identity lives only in browsers.
+		case (sso || in.Replace) && in.WrapAlg == deviceOnlyWrapAlg && in.WrappedPrivateKey == "":
+			// Nothing an SSO session proves could wrap a key: the identity lives only in browsers. A local
+			// session sends this only for a KySignOn-linked account's reset (checked in the transaction).
 			wrapped = []byte{}
 		default:
 			ok = false
@@ -140,7 +147,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		recoveryID, recoveryAlg, recoveryAt := "", "", ""
 		if in.Replace {
 			// A reset carries its recovery-code copy, so the new identity never exists without a way back.
-			// The copy kind follows the session as on a first identity (spec §8: password users keep theirs).
+			// Password accounts keep their password copy (spec §8); KySignOn-linked accounts never get one.
 			good := false
 			if in.Recovery != nil {
 				recovery, good = decodeRecoveryCopy(in.Recovery.WrapAlg, in.Recovery.WrappedKey)
@@ -179,6 +186,15 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			// Recovery or a password change may have committed since the middleware ran.
 			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
 				return err
+			}
+			if in.Replace && !sso {
+				var linked bool
+				if err := tx.QueryRow(`SELECT sso_subject<>'' FROM users WHERE id=?`, s.UserID).Scan(&linked); err != nil {
+					return err
+				}
+				if linked != (in.WrapAlg == deviceOnlyWrapAlg) {
+					return errResetWrap{linked}
+				}
 			}
 			if in.Replace {
 				// Compare-and-swap: only the identity this browser saw listed is replaced.
@@ -259,6 +275,15 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		if errors.Is(err, errIdentityExists) {
 			WriteError(w, r, 409, "identity_exists", "an identity already exists for this account")
+			return
+		}
+		var wrapErr errResetWrap
+		if errors.As(err, &wrapErr) {
+			if wrapErr.linked {
+				WriteError(w, r, 409, "device_only_required", "an account linked to KySignOn keeps no password copy of its key")
+			} else {
+				WriteError(w, r, 400, "invalid_request", "invalid request")
+			}
 			return
 		}
 		if err != nil {

@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var errDeleteReauth = errors.New("re-authentication required")
+
 func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
@@ -88,7 +90,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT ?,?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
 					return e
 				}
-				_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),?,?,role,?,invited_by FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, s.UserID, now, in.TeamID, s.UserID)
+				_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),?,user_id,role,?,invited_by FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, now, in.TeamID, s.UserID)
 				return err
 			}
 			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
@@ -171,21 +173,29 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var role string
-		if db.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		if role != "owner" {
-			WriteError(w, r, 403, "forbidden", "insufficient role")
-			return
-		}
-		if time.Since(s.CreatedAt) >= 5*time.Minute {
+		e := dbTx(db, func(tx *sql.Tx) error {
+			// blank: this user created it, it was never keyed and holds nothing, so a failed creation
+			// can be undone by its creator (a team admin included) at any time: there is nothing to lose.
+			var role string
+			var blank bool
+			if e := tx.QueryRow(`SELECT m.role,c.owner_user_id=m.user_id AND c.shared_generation=0 AND NOT EXISTS(SELECT 1 FROM objects o WHERE o.container_id=c.id) AND NOT EXISTS(SELECT 1 FROM containers t WHERE t.team_id=c.id AND t.deleted_at='') FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role, &blank); e != nil {
+				return e
+			}
+			if !blank && role != "owner" {
+				return errInsufficientRole
+			}
+			if !blank && time.Since(s.CreatedAt) >= 5*time.Minute {
+				return errDeleteReauth
+			}
+			now := time.Now().UTC().Format(time.RFC3339)
+			_, e := tx.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, now, now, cid)
+			return e
+		})
+		if errors.Is(e, errDeleteReauth) {
 			WriteError(w, r, 403, "forbidden", "re-authentication required")
 			return
 		}
-		if _, e := db.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), cid); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

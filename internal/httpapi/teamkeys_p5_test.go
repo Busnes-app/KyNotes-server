@@ -507,3 +507,152 @@ func TestIdentityRecoveryReplayOfTheStoredCopyIsIdempotent(t *testing.T) {
 		t.Fatalf("replay audit=%d %v", replayed, err)
 	}
 }
+
+// A KySignOn-linked account never gets a password copy back, even through a local session's reset:
+// the reset must be device-only. A password account's reset keeps its password copy (spec §8).
+func TestLinkedAccountResetIsDeviceOnlyFromALocalSession(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	old := p.createIdentity(t)
+	if _, err := p.db.Exec(`UPDATE users SET sso_issuer='https://sso.example',sso_subject='pair-sub' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	newPub := bytes.Repeat([]byte{8}, 32)
+	p.stepUp(t)
+	if code, out := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(newPub, expecting(old)+resetRecovery+b64s(recoveryCopy)+`"}`), true, false)); code != http.StatusConflict || errorCode(t, out) != "device_only_required" {
+		t.Fatal("linked account reset with a password copy", code, out)
+	}
+	var kept string
+	if err := p.db.QueryRow(`SELECT device_id FROM user_identities WHERE user_id=?`, pairUser).Scan(&kept); err != nil || kept != old {
+		t.Fatal("a refused reset changed the identity", kept, err)
+	}
+	deviceOnly := []byte(`{"publicKey":` + quote(b64s(newPub)) + `,"wrapAlg":"none"` + expecting(old) + resetRecovery + b64s(recoveryCopy) + `"}}`)
+	if code, out := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", deviceOnly, true, false)); code != http.StatusOK {
+		t.Fatal("linked account device-only reset", code, out)
+	}
+	var alg string
+	var wrapped []byte
+	if err := p.db.QueryRow(`SELECT wrap_alg,wrapped_private_key FROM user_identities WHERE user_id=?`, pairUser).Scan(&alg, &wrapped); err != nil || alg != deviceOnlyWrapAlg || len(wrapped) != 0 {
+		t.Fatal("after the reset", alg, len(wrapped), err)
+	}
+	// Nor does the stripped copy come back through a password change (passwordCopyAddableSQL).
+	if identity, err := loadIdentity(p.db, pairUser, false); err != nil || identity["passwordCopy"] != "" {
+		t.Fatal("a linked account's copy is addable", identity, err)
+	}
+}
+
+// Only stewards (owner, admin) manage members or create team notebooks.
+func TestNonStewardsCannotManageMembersOrCreateTeamNotebooks(t *testing.T) {
+	tm := newTeam(t)
+	for name, m := range map[string]member{"editor": tm.editor, "viewer": tm.viewer} {
+		other := tm.admin.id
+		requests := map[string]struct {
+			method, path string
+			body         []byte
+		}{
+			"remove":        {http.MethodDelete, "/api/v1/containers/" + tm.id + "/members/" + other, nil},
+			"invite":        {http.MethodPost, "/api/v1/containers/" + tm.id + "/invitations", []byte(`{"inviteeId":` + quote(mint(t, "usr")) + `,"role":"viewer"}`)},
+			"team notebook": {http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","teamId":` + quote(tm.id) + `}`)},
+		}
+		for route, req := range requests {
+			if code, out := status(t, m.do(t, req.method, req.path, req.body, true, false)); code != http.StatusForbidden {
+				t.Fatal(name, route, code, out)
+			}
+		}
+	}
+	var members, invitations, notebooks int
+	if err := tm.owner.db.QueryRow(`SELECT (SELECT COUNT(*) FROM memberships WHERE container_id=? AND revoked_at=''),(SELECT COUNT(*) FROM invitations),(SELECT COUNT(*) FROM containers WHERE team_id=?)`, tm.id, tm.id).Scan(&members, &invitations, &notebooks); err != nil || members != 4 || invitations != 0 || notebooks != 1 {
+		t.Fatal("a refused request changed something", members, invitations, notebooks, err)
+	}
+}
+
+// The creator undoes a failed creation at any time, a team admin included: the server checks in the
+// transaction that the notebook was never keyed and holds nothing. Anything else keeps the owner-only,
+// recent-sign-in rule.
+func TestCreatorDeletesABlankNotebookWithoutARecentSignIn(t *testing.T) {
+	tm := newTeam(t)
+	create := func(m *pairClient) string {
+		t.Helper()
+		code, out := status(t, m.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","teamId":`+quote(tm.id)+`}`), true, false))
+		var c struct{ ID string }
+		if code != http.StatusOK || json.Unmarshal([]byte(out), &c) != nil {
+			t.Fatal("create", code, out)
+		}
+		return c.ID
+	}
+	del := func(m *pairClient, cid string) int {
+		t.Helper()
+		code, _ := status(t, m.do(t, http.MethodDelete, "/api/v1/containers/"+cid, nil, true, false))
+		return code
+	}
+	blank, withNote, keyed, ownerBlank := create(tm.admin.pairClient), create(tm.admin.pairClient), create(tm.admin.pairClient), create(tm.owner)
+	if _, code := tm.admin.save(t, withNote, "", 1); code == 0 {
+		t.Fatal("object")
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE containers SET shared_generation=1 WHERE id=?`, keyed); err != nil {
+		t.Fatal(err)
+	}
+	// Every session is older than the five-minute window.
+	if _, err := tm.owner.db.Exec(`UPDATE sessions SET created_at='2020-01-01T00:00:00Z'`); err != nil {
+		t.Fatal(err)
+	}
+	if code := del(tm.editor.pairClient, ownerBlank); code != http.StatusForbidden {
+		t.Fatal("a member who did not create it", code)
+	}
+	if code := del(tm.admin.pairClient, withNote); code != http.StatusForbidden {
+		t.Fatal("not empty", code)
+	}
+	if code := del(tm.admin.pairClient, keyed); code != http.StatusForbidden {
+		t.Fatal("keyed", code)
+	}
+	if code := del(tm.owner, tm.id); code != http.StatusForbidden {
+		t.Fatal("the owner outside the window, a team that holds notebooks", code)
+	}
+	if code := del(tm.admin.pairClient, blank); code != http.StatusNoContent {
+		t.Fatal("the creator's blank notebook", code)
+	}
+	if code := del(tm.owner, ownerBlank); code != http.StatusNoContent {
+		t.Fatal("the owner's blank notebook", code)
+	}
+	var live int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM containers WHERE id IN (?,?) AND deleted_at=''`, blank, ownerBlank).Scan(&live); err != nil || live != 0 {
+		t.Fatal("not deleted", live, err)
+	}
+	if code := del(tm.admin.pairClient, blank); code != http.StatusNotFound {
+		t.Fatal("deleted twice", code)
+	}
+}
+
+// An administrator's password reset ends paired device credentials in the same transaction, as the
+// user's own reset and a password change do; the identity device stays.
+func TestAdminPasswordResetRevokesPairedDevices(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	victim := p.addUser(t, "victim")
+	identity := victim.createIdentity(t)
+	victim.deviceID, victim.deviceSecret, _ = victim.register(t, victim.mintToken(t), bytes.Repeat([]byte{5}, 32))
+	cid := seedContainer(t, p, "workbook", "", map[string]string{victim.id: "owner"})
+	for i, device := range []string{identity, victim.deviceID} {
+		if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES(?,?,?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01','now')`, mint(t, "env"), cid, device); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	if code, _ := status(t, victim.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusOK {
+		t.Fatal("paired device before the reset", code)
+	}
+	p.stepUp(t)
+	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+victim.id+"/password", []byte(body), true, false)); code != http.StatusNoContent {
+		t.Fatal("admin reset", code, out)
+	}
+	if code, _ := status(t, victim.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusUnauthorized {
+		t.Fatal("a paired device credential survived the admin reset", code)
+	}
+	var phone, kept int
+	var revoked string
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM key_envelopes WHERE device_id=?),(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?),(SELECT revoked_at FROM devices WHERE id=?)`, victim.deviceID, identity, identity).Scan(&phone, &kept, &revoked); err != nil || phone != 0 || kept != 1 || revoked != "" {
+		t.Fatal("after the reset", phone, kept, revoked, err)
+	}
+}
