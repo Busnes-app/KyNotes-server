@@ -27,18 +27,21 @@ export type PinStore = {
 export type Caller = { userId: string; identity?: HeldIdentity; canWrap: boolean };
 /**
  * plan: "untrusted" the user declined a changed colleague key; "pins-unsaved" this device
- * could not keep a pin. Neither shared anything. fresh: pinned this pass; changed: the
+ * could not keep a pin. Neither shared anything. fresh: pinned by this call; changed: the
  * changed keys asked about; conflicts: generations whose envelope disagreed with an
- * accepted key (reported, never used or wrapped); known: the key memory persisted.
+ * accepted key (reported, never used or wrapped); known: the key memory written, and
+ * keyStateSaved whether this device kept it.
  */
 export type KeySync = {
-  container: KeyedContainer; ring: Keyring; minted: boolean; known: KeyState;
+  container: KeyedContainer; ring: Keyring; minted: boolean; known: KeyState; keyStateSaved: boolean;
   plan: SweepPlan | { kind: "untrusted"; members: string[] } | { kind: "pins-unsaved" };
   fresh: MemberKey[]; changed: PinChange[]; conflicts: number[];
 };
+type Pass = Omit<KeySync, "keyStateSaved">;
+type Latest = { saved?: { containerID: string; known: KeyState } };
 
 const code = (error: unknown) => (error as { code?: string }).code;
-const isSteward = (role: string | undefined) => role === "owner" || role === "admin";
+const uniqueBy = <T>(items: T[], id: (item: T) => string) => items.filter((item, i) => items.findIndex((other) => id(other) === id(item)) === i);
 
 /**
  * Loads this browser's keys for a team container, authenticating senders against the
@@ -46,50 +49,59 @@ const isSteward = (role: string | undefined) => role === "owner" || role === "ad
  * session may wrap, it then shares keys: the first mint, the re-mint after a removal, and
  * wraps for members missing a generation. A changed colleague key stops everything unless
  * the user confirms it. Another steward winning a race (409 already_exists) is retried
- * once from fresh server state.
+ * once from fresh server state. Key memory is written after every attempt, even one that throws.
  */
 export async function syncContainerKeys(api: KeyAPI, containerID: string, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>, held?: Keyring): Promise<KeySync> {
   const identity = caller.identity;
   const me = identity && { ...identity, userId: caller.userId };
-  for (let attempt = 0; ; attempt += 1) {
+  const own = identity && { deviceId: identity.deviceId, publicKey: base64(identity.publicKey) };
+  // First-contact pins already stored by an attempt that lost a race.
+  const carried: MemberKey[] = [];
+
+  /** latest receives the key memory of the newest keyring this attempt opened. */
+  const pass = async (attempt: number, latest: Latest): Promise<Pass | "retry"> => {
     let container = await api.container(containerID);
     const envelopes = await api.envelopes(container.id);
-    const own = identity && { deviceId: identity.deviceId, publicKey: base64(identity.publicKey) };
     const members: MemberKey[] = await Promise.all((await api.members(container.id)).map(async (member) => ({ ...member, identity: member.userId === caller.userId && own ? own : await api.userIdentity(member.userId) })));
     const known = await store.loadKeyState(container.id);
-    const open = (pins: Pins, rows: Envelope[], ring?: Keyring): OpenedKeyring => openKeyring({ containerID: container.id, envelopes: rows, me, members, pins, known, held: ring ?? held });
-    const wraps = !!me && caller.canWrap && isSteward(members.find((member) => member.userId === caller.userId)?.role);
+    const open = (pins: Pins, rows: Envelope[], ring?: Keyring): OpenedKeyring => {
+      const opened = openKeyring({ containerID: container.id, envelopes: rows, me, members, pins, known, held: ring ?? held });
+      latest.saved = { containerID: container.id, known: opened.known };
+      return opened;
+    };
+    // planSweep itself is idle for a caller who is not a steward with an identity.
     const plan = (opened: OpenedKeyring): SweepPlan => {
-      if (!wraps) return { kind: "idle" };
+      if (!me || !caller.canWrap) return { kind: "idle" };
       const next = planSweep({ container, me: caller.userId, members, envelopes, ring: opened.ring });
       if (next.kind !== "wrap") return next;
       const grants = next.grants.filter((grant) => !opened.conflicts.includes(grant.generation));
       return grants.length ? { kind: "wrap", grants } : { kind: "idle" };
     };
-    const targets = (next: SweepPlan): MemberKey[] => next.kind === "mint" ? next.recipients : next.kind === "wrap" ? next.grants.map((grant) => grant.member) : [];
+    const targets = (next: SweepPlan): MemberKey[] => (next.kind === "mint" ? next.recipients : next.kind === "wrap" ? next.grants.map((grant) => grant.member) : []).filter((member) => member.userId !== caller.userId);
 
     let pins = await store.load();
     let opened = open(pins, envelopes);
     let sweep = plan(opened);
-    const changed = [...opened.changed, ...comparePins(pins, targets(sweep).filter((member) => member.userId !== caller.userId)).changed]
-      .filter((change, i, all) => all.findIndex((other) => other.member.userId === change.member.userId) === i);
-    const done = async (result: Omit<KeySync, "container" | "changed" | "conflicts" | "known">, last = opened): Promise<KeySync> => {
-      await store.saveKeyState(container.id, last.known);
-      return { container, changed, conflicts: last.conflicts, known: last.known, ...result };
-    };
-    if (changed.length) {
-      if (!(await confirmChanged(changed))) return done({ ring: opened.ring, plan: { kind: "untrusted", members: changed.map((change) => change.member.username) }, minted: false, fresh: [] });
-      for (const change of changed) {
+    const changed: PinChange[] = [];
+    const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh">, fresh: MemberKey[], last = opened): Pass =>
+      ({ container, changed, conflicts: last.conflicts, known: last.known, fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), ...rest });
+    // Each confirmation pins the member's current key, so a re-opened ring or re-planned sweep can only add new members.
+    for (;;) {
+      const pending = uniqueBy([...opened.changed, ...comparePins(pins, targets(sweep)).changed], (change) => change.member.userId);
+      if (!pending.length) break;
+      changed.push(...pending);
+      if ((await confirmChanged(pending)) !== true) return result({ ring: opened.ring, plan: { kind: "untrusted", members: pending.map((change) => change.member.username) }, minted: false }, []);
+      for (const change of pending) {
         const confirmation = confirmFingerprintChange(pins, change.member);
-        if (!(await store.confirm(confirmation))) return done({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false, fresh: [] });
+        if (!(await store.confirm(confirmation))) return result({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false }, []);
         pins = confirmation.pins;
       }
       opened = open(pins, envelopes);
       sweep = plan(opened);
     }
     const fresh = [...opened.fresh];
-    if (opened.fresh.length && !(await store.addFresh(opened.pins))) return done({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false, fresh });
-    if (sweep.kind === "idle" || sweep.kind === "blocked") return done({ ring: opened.ring, plan: sweep, minted: false, fresh });
+    if (opened.fresh.length && !(await store.addFresh(opened.pins))) return result({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false }, fresh);
+    if (sweep.kind === "idle" || sweep.kind === "blocked") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
     pins = opened.pins;
@@ -106,22 +118,35 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     } else {
       rows = sweep.grants.map((grant) => seal(grant.member, grant.generation, opened.ring.get(grant.generation)!));
     }
-    if (fresh.length > opened.fresh.length && !(await store.addFresh(pins))) return done({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false, fresh });
+    if (fresh.length > opened.fresh.length && !(await store.addFresh(pins))) return result({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false }, fresh);
     try {
       await api.stepUp();
       if (sweep.kind === "mint") {
-        const result = await api.rotate(container.id, container.keyGeneration, rows);
-        container = { ...container, keyGeneration: result.keyGeneration, sharedGeneration: container.sharedGeneration || result.keyGeneration };
+        const rotated = await api.rotate(container.id, container.keyGeneration, rows);
+        container = { ...container, keyGeneration: rotated.keyGeneration, sharedGeneration: container.sharedGeneration || rotated.keyGeneration };
       } else {
         await api.putEnvelopes(container.id, rows);
       }
     } catch (error) {
       // already_exists: another steward rotated or wrapped first. Re-read once; the caller's container may be stale.
       if (code(error) !== "already_exists" || attempt > 0) throw error;
-      continue;
+      carried.push(...fresh);
+      return "retry";
     }
-    if (sweep.kind === "wrap") return done({ ring: opened.ring, plan: sweep, minted: false, fresh });
+    if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
     const after = open(pins, await api.envelopes(container.id), opened.ring);
-    return done({ ring: after.ring, plan: sweep, minted: true, fresh }, after);
+    return result({ ring: after.ring, plan: sweep, minted: true }, fresh, after);
+  };
+
+  for (let attempt = 0; ; attempt += 1) {
+    const latest: Latest = {};
+    let outcome: Pass | "retry";
+    let keyStateSaved = false;
+    try {
+      outcome = await pass(attempt, latest);
+    } finally {
+      if (latest.saved) keyStateSaved = await store.saveKeyState(latest.saved.containerID, latest.saved.known);
+    }
+    if (outcome !== "retry") return { ...outcome, keyStateSaved };
   }
 }

@@ -174,7 +174,10 @@ export async function readObject(objectID: string, version?: number) {
     credentials: "include", headers: { Accept: "application/octet-stream" },
   });
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
-  return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration: Number(response.headers.get("X-Kynotes-Key-Generation") ?? 0) };
+  // A missing or malformed generation stays undefined so readKeys finds no key, never the legacy one.
+  const generation = response.headers.get("X-Kynotes-Key-Generation");
+  const keyGeneration: number | undefined = generation && /^\d+$/.test(generation) ? Number(generation) : undefined;
+  return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
 }
 
 export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration = 1) {

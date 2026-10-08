@@ -3,7 +3,7 @@ import { base64 } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import { newContainerKey, sealFor, type Envelope, type KeyState, type Member } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type PinStore } from "./keyService";
-import { isPinConfirmation, type PinConfirmation, type Pins } from "./pins";
+import { isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -132,6 +132,8 @@ describe("syncContainerKeys", () => {
     expect(result.container.keyGeneration).toBe(2);
     expect(result.ring.size).toBe(1);
     expect(state.envelopes.filter((row) => row.keyGeneration === 2)).toHaveLength(2); // one key, no split
+    // The admin was first pinned by the attempt that lost the race; it is still surfaced.
+    expect(result.fresh.map((member) => member.username)).toEqual(["admin"]);
   });
 
   it("only reads keys for a member, or a session that may not wrap", async () => {
@@ -203,5 +205,61 @@ describe("syncContainerKeys", () => {
     expect(steward.ring.get(2)).not.toEqual(first.ring.get(2));
     expect(steward.plan).toEqual({ kind: "idle" });
     expect(api.putEnvelopes).not.toHaveBeenCalled();
+  });
+
+  it("refuses a changed steward-sender key until the reader confirms it", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
+    const stale = { [owner.member.userId]: base64(new Uint8Array(32).fill(9)) };
+    const store = memoryStore(stale);
+    const declined = await syncContainerKeys(api, cnt, as(editor), store, never);
+    expect(declined.plan).toEqual({ kind: "untrusted", members: ["owner"] });
+    expect(declined.changed.map((change) => change.member.username)).toEqual(["owner"]);
+    expect(declined.ring.size).toBe(0);
+    expect(store.get()).toEqual(stale);
+    const accepted = await syncContainerKeys(api, cnt, as(editor), store, () => true);
+    expect(store.confirm).toHaveBeenCalledOnce();
+    expect(isPinConfirmation(store.confirm.mock.calls[0][0])).toBe(true);
+    expect(accepted.ring.has(2)).toBe(true);
+    expect(store.get()[owner.member.userId]).toBe(owner.public!.publicKey);
+  });
+
+  it("asks again when a confirmation reveals another changed recipient", async () => {
+    const owner = user("owner", "b", "owner"), admin = user("admin", "c", "admin"), editor = user("editor", "d", "editor");
+    const { state, api } = server([owner, admin]);
+    await syncContainerKeys(api, cnt, as(admin), memoryStore(), never);
+    state.members.push(editor);
+    const nine = base64(new Uint8Array(32).fill(9));
+    const store = memoryStore({ [admin.member.userId]: nine, [editor.member.userId]: nine });
+    const confirm = vi.fn((_changes: PinChange[]) => true);
+    const result = await syncContainerKeys(api, cnt, as(owner), store, confirm);
+    expect(confirm.mock.calls.map(([changes]) => changes.map((change) => change.member.username))).toEqual([["admin"], ["editor"]]);
+    expect(result.plan.kind).toBe("wrap");
+    expect(state.envelopes.some((row) => row.deviceId === editor.public!.deviceId)).toBe(true);
+  });
+
+  it("only an explicit true confirms a changed key", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    const store = memoryStore({ [editor.member.userId]: base64(new Uint8Array(32).fill(9)) });
+    const result = await syncContainerKeys(api, cnt, as(owner), store, (() => "yes") as unknown as () => boolean);
+    expect(result.plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(store.confirm).not.toHaveBeenCalled();
+  });
+
+  it("keeps key memory when the step-up fails, and reports an unsaved one", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor"), newcomer = user("new", "d", "editor");
+    const { state, api } = server([owner, editor]);
+    const minted = await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
+    expect(minted.keyStateSaved).toBe(true);
+    state.members.push(newcomer);
+    const store = memoryStore();
+    const failing: KeyAPI = { ...api, stepUp: async () => { throw new Error("cancelled"); } };
+    await expect(syncContainerKeys(failing, cnt, as(owner), store, never)).rejects.toThrow("cancelled");
+    expect(store.known().mark).toBe(2);
+    expect(Object.keys(store.known().digests)).toEqual(["2"]);
+    const unkept = { ...memoryStore(), saveKeyState: async () => false };
+    expect((await syncContainerKeys(api, cnt, as(editor), unkept, never)).keyStateSaved).toBe(false);
   });
 });
