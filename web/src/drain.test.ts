@@ -108,10 +108,12 @@ describe("pending upload provenance", () => {
     // sealUpload stores what it just sealed; the chunk loop only advances nextChunk on that job.
     expect(main.match(/\bputUpload\([^;]*;/g)).toEqual(["putUpload(job);", "putUpload({ ...job, nextChunk });"]);
     expect(main).toMatch(/const sealed = await sealAttachment\(write, container\.id, plaintext, file\);\n.*\n\s*const job = \{[^}]*\.\.\.sealed,/);
-    // sealUpload's plaintext: the user's picked file, or a re-seal of this browser's own pending upload.
+    // sealUpload's plaintext: the user's picked file, a re-seal of this browser's own pending upload, or the
+    // bytes the user reviewed and ticked (migrateLegacy hands the approval's copy to uploadAttachment).
     const plaintexts = [...main.matchAll(/\bsealUpload\(\w+, [\w.]+, [\w.]+, ([^,]+?), /g)].map((match) => match[1]);
     expect(main.match(/\bsealUpload\(/g)).toHaveLength(plaintexts.length + 1); // + its definition
-    expect(plaintexts.sort()).toEqual(["new Uint8Array(await file.arrayBuffer())", "plaintext"]);
+    expect(plaintexts.sort()).toEqual(["new Uint8Array(await file.arrayBuffer())", "plaintext", "plaintext"]);
     expect(main).toMatch(/resealUpload\(job, container, step\.plaintext, step\.file\)/);
+    expect(main).toContain("uploadAttachment: async (objectID, objectVersion, plaintext, file) => (await uploadPending(await sealUpload(container, objectID, objectVersion, plaintext, file))).id,");
   });
 });

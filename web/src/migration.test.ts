@@ -3,7 +3,7 @@ import { legacyRows, type LegacyRows } from "./api";
 import { base64, decryptAttachment, decryptComment, decryptObject, encryptAttachment, encryptAttachmentMetadata, encryptComment, encryptNote, fromBase64, legacyKeyRef } from "./crypto";
 import { clearFloors, raiseFloorIn } from "./floors";
 import { keysAllowed, newContainerKey, writeKey, type KeyFloor, type ReportedContainer, type WriteKey } from "./keyring";
-import { approveMigration, autoCloses, isMigrationApproval, itemLabel, LegacyClosedError, migrateLegacy, reviewLegacy, rewriteRefs, type LegacyReview, type MigrationAPI, type MigrationApproval, type MigrationInput, type ReviewAPI } from "./migration";
+import { approveMigration, autoCloses, checkLegacyRows, isMigrationApproval, itemLabel, LegacyClosedError, migrateLegacy, reviewLegacy, rewriteRefs, type LegacyReview, type MigrationAPI, type MigrationApproval, type MigrationInput, type ReviewAPI } from "./migration";
 import { KeysWaitingError, sendObject, setWriteKeySource } from "./outbound";
 import type { ObjectPayload } from "./pages";
 
@@ -163,7 +163,12 @@ describe("destructive migration calls (M2)", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./api.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./migration.ts"]));
     const callers = (name: string) => Object.entries(sources).filter(([, text]) => new RegExp(`\\b${name}\\b`).test(text)).map(([file]) => file);
-    expect(callers("detachAttachment").filter((file) => file !== "./migration.ts")).toEqual([]);
+    expect(callers("detachAttachment").filter((file) => file !== "./migration.ts" && file !== "./main.tsx")).toEqual([]);
+    // main.tsx only hands detach to migrateLegacy (its import and the MigrationAPI field), which orders it after the re-save.
+    const main = sources["./main.tsx"];
+    expect(main.match(/\bdetachAttachment\b/g)).toHaveLength(2);
+    expect(main).toContain("    detach: detachAttachment,\n");
+    expect(main).toContain("    resolve: resolveConflict,\n");
     expect(callers("resolveConflict").filter((file) => file !== "./migration.ts" && file !== "./main.tsx")).toEqual([]);
   });
 });
@@ -485,5 +490,31 @@ describe("migrateLegacy through the outbound gate", () => {
       expect(result).toMatchObject({ closed: false, failed: [{ id: id("obj", "a"), reason: new KeysWaitingError().message }] });
       expect(fetches).not.toHaveBeenCalled();
     } finally { unregister(); }
+  });
+});
+
+describe("checkLegacyRows (the workspace's check)", () => {
+  const empty = () => reviewLegacy(server({}, {}), { container, floorNow: () => floor, legacy: mine, userId: me });
+  it("never closes after a rejected review, and hands the rejection back (N2)", async () => {
+    for (const failure of [new Error("429"), new Error("500"), new TypeError("Failed to fetch"), new LegacyClosedError()]) {
+      const close = vi.fn(async () => true);
+      expect(await checkLegacyRows(() => Promise.reject(failure), () => floor, close)).toEqual({ failed: failure });
+      expect(close).not.toHaveBeenCalled();
+    }
+  });
+
+  it("auto-closes only a complete review with nothing of this user's, while open and not just reopened", async () => {
+    const close = vi.fn(async () => true);
+    expect(await checkLegacyRows(empty, () => floor, close)).toMatchObject({ autoClosed: true });
+    expect(close).toHaveBeenCalledOnce();
+    close.mockClear();
+    const incomplete = () => reviewLegacy(server({}, { complete: false }), { container, floorNow: () => floor, legacy: mine, userId: me });
+    expect(await checkLegacyRows(incomplete, () => floor, close)).toMatchObject({ autoClosed: false });
+    expect(await checkLegacyRows(empty, () => ({ ...floor, closed: 2 }), close)).toMatchObject({ autoClosed: false });
+    expect(await checkLegacyRows(empty, () => ({ shared: 3, generation: 3 }), close)).toMatchObject({ autoClosed: false });
+    expect(await checkLegacyRows(empty, () => floor, close, false)).toMatchObject({ autoClosed: false });
+    expect(close).not.toHaveBeenCalled();
+    // A close that storage did not keep is reported as not closed.
+    expect(await checkLegacyRows(empty, () => floor, async () => false)).toMatchObject({ autoClosed: false });
   });
 });

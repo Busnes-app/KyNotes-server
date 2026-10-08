@@ -1,7 +1,7 @@
 import type { LegacyRows } from "./api";
 import { base64, decryptAttachment, decryptAttachmentMetadata, decryptComment, decryptObject, encryptComment, encryptNote, fromBase64, type KeyRef } from "./crypto";
 import type { AttachmentFile } from "./drain";
-import { legacyKeys, legacyRow, openFirst, readKeys, type KeyFloor, type Keyring, type ReportedContainer, type WriteKey } from "./keyring";
+import { closedOf, legacyKeys, legacyRow, openFirst, readKeys, type KeyFloor, type Keyring, type ReportedContainer, type WriteKey } from "./keyring";
 import type { Sealed } from "./outbound";
 import type { ObjectPayload, PagePayload } from "./pages";
 
@@ -107,6 +107,21 @@ export async function reviewLegacy(api: ReviewAPI, input: ReviewInput): Promise<
  */
 export const autoCloses = (review: LegacyReview, current: KeyFloor | undefined): boolean =>
   review.shared > 0 && (current?.shared ?? 0) === review.shared && review.complete === true && review.mine.length === 0;
+
+/** The workspace's check of one notebook: the review, or why it did not finish (never an empty review). */
+export type LegacyCheck = { review: LegacyReview; autoClosed: boolean } | { failed: unknown };
+/**
+ * Runs the review and, only on a review that finished, closes legacy reads by itself when autoCloses
+ * allows it at the floor current now, the device is still open, and autoClose is on (off for a
+ * notebook the user just reopened). A rejected review is handed back as failed, never closed on.
+ */
+export async function checkLegacyRows(run: () => Promise<LegacyReview>, floorNow: () => KeyFloor | undefined, close: () => Promise<boolean>, autoClose = true): Promise<LegacyCheck> {
+  let review: LegacyReview;
+  try { review = await run(); } catch (failed) { return { failed }; }
+  const floor = floorNow();
+  const autoClosed = autoClose && closedOf(floor) === 0 && autoCloses(review, floor) && (await close().catch(() => false));
+  return { review, autoClosed };
+}
 
 /** What the review dialog shows for an item. */
 export function itemLabel(item: MigrationItem): string {
