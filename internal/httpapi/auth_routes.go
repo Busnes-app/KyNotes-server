@@ -569,15 +569,14 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if _, e := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
 				return e
 			}
-			// Without the old password the wrapped identity is unrecoverable; delete it
-			// instead of leaving a revoked row.
-			if e := deleteIdentityTx(tx, uid, uid, RequestID(r)); e != nil {
+			// The new password cannot re-wrap the identity: only its password copy goes (stripPasswordWrapTx).
+			if e := stripPasswordWrapTx(tx, uid, uid, RequestID(r)); e != nil {
 				return e
 			}
-			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
+			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity'`, now, uid); e != nil {
 				return e
 			}
-			_, e = tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=?)`, uid)
+			_, e = tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, uid)
 			if e != nil {
 				return e
 			}

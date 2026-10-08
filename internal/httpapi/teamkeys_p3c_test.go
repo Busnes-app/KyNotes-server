@@ -899,7 +899,7 @@ func TestLinkApprovalNeedsTheNewcomerLive(t *testing.T) {
 
 func TestLinkRequestsDieWithTheIdentity(t *testing.T) {
 	trusted, _, id := openLink(t)
-	if err := dbTx(trusted.db, func(tx *sql.Tx) error { return deleteIdentityTx(tx, pairUser, pairUser, "") }); err != nil {
+	if err := dbTx(trusted.db, func(tx *sql.Tx) error { return deleteIdentityTx(tx, pairUser, pairUser, "", "") }); err != nil {
 		t.Fatal(err)
 	}
 	var rows int
@@ -1031,7 +1031,7 @@ func TestLinkCollectNeedsTheLiveNewcomerSession(t *testing.T) {
 	}
 }
 
-// Admin reset deletes the identity, and with it every open link request, in one transaction.
+// Admin reset removes the password copy and every open link request, in one transaction.
 func TestAdminResetClearsLinkRequests(t *testing.T) {
 	trusted, _, _ := openLink(t)
 	if _, err := trusted.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {

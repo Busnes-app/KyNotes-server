@@ -167,10 +167,15 @@ admin whose identity key matches its local trust-on-first-use pin, or, for
 history below the device's high-water mark, from an identity already pinned
 (see below), and reads rows at or above `shared_generation` only with that
 generation's key. A password change
-re-wraps the identity in the same transaction; recovery and administrator
-password resets delete it and write an audit row. Device-only identities are
-deleted too: unless the account saved a recovery code that is how an SSO user who has lost every
-browser starts over, with a new identity that stewards re-share keys to. An SSO session creates a
+re-wraps the identity in the same transaction. Recovery and administrator
+password resets remove only its password copy and write an audit row: another
+browser or the recovery code still restores it, and nothing re-wraps it under the
+new password. Only the user deletes an identity: the self-service reset, behind a
+user-action step-up and a compare-and-swap on the identity the browser saw, swaps
+it in one transaction for a new one with a new recovery copy (and, for a password
+session, a new password copy, as on a first identity), deletes the old envelopes,
+copies and link requests, and revokes the account's other sessions. Personal
+notebooks are then lost, and stewards re-share team keys. An SSO session creates a
 device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
 request; no password copy exists on the server, and other
 browsers receive it by device linking. A password never unlocks or re-wraps it.
@@ -289,7 +294,7 @@ step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer po
 live session of that user on both sides, are rate-limited (creation with device pairing, collect polls
 by `ratelimit.link_poll_per_minute`) and are audited, except collect misses. Relay success
 without the user's help is about 10^-6 per visible attempt.
-Deleting the identity (recovery or an administrator reset) deletes the account's open link requests
+Recovery, an administrator reset and the self-service reset delete the account's open link requests
 in the same transaction.
 
 ### Device enrollment and revocation
@@ -308,7 +313,8 @@ storage on the next successful connection. Local memory and browser storage
 wiping are best effort.
 
 Recovery uses an exported recovery code. Using recovery revokes all device
-keys and all active web sessions, and deletes the user's identity key and its envelopes. The recovery code is single-use and must be
+keys and all active web sessions, and removes the password copy of the user's identity key; the
+identity, its envelopes and its recovery-code copy stay. The recovery code is single-use and must be
 replaced after successful recovery. Existing devices must be enrolled again.
 
 ### Teams and revocation limits

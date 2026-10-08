@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -98,6 +99,14 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			PublicKey         string `json:"publicKey"`
 			WrapAlg           string `json:"wrapAlg"`
 			WrappedPrivateKey string `json:"wrappedPrivateKey"`
+			// Replace is the self-service reset: the old identity and every key it held go in this commit.
+			Replace bool `json:"replace"`
+			// The identity the browser saw listed ("" for none); a different current one is refused.
+			ExpectedDeviceID *string `json:"expectedDeviceId"`
+			Recovery         *struct {
+				WrapAlg    string `json:"wrapAlg"`
+				WrappedKey string `json:"wrappedKey"`
+			} `json:"recovery"`
 		}
 		if json.NewDecoder(r.Body).Decode(&in) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
@@ -105,7 +114,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		sso := s.SSOIssuer != ""
 		pub, err := base64.StdEncoding.DecodeString(in.PublicKey)
-		var wrapped []byte
+		var wrapped, recovery []byte
 		ok := err == nil && len(pub) == 32
 		switch {
 		case !sso && in.WrapAlg == identityWrapAlg:
@@ -118,9 +127,30 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		default:
 			ok = false
 		}
+		recoveryID, recoveryAlg, recoveryAt := "", "", ""
+		if in.Replace {
+			// A reset carries its recovery-code copy, so the new identity never exists without a way back.
+			// The copy kind follows the session as on a first identity (spec §8: password users keep theirs).
+			good := false
+			if in.Recovery != nil {
+				recovery, good = decodeRecoveryCopy(in.Recovery.WrapAlg, in.Recovery.WrappedKey)
+				recoveryAlg, recoveryAt = recoveryWrapAlg, time.Now().UTC().Format(time.RFC3339)
+			}
+			ok = ok && good && in.ExpectedDeviceID != nil
+		} else {
+			// A copy for an existing identity goes through PUT /me/identity/recovery.
+			ok = ok && in.Recovery == nil && in.ExpectedDeviceID == nil
+			recovery = []byte{}
+		}
 		if !ok {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
+		}
+		if in.Replace {
+			if recoveryID, err = ids.Mint("rcv"); err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 		}
 		fp := sha256.Sum256(pub)
 		fingerprint := hex.EncodeToString(fp[:])
@@ -139,6 +169,25 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
 				return err
 			}
+			if in.Replace {
+				// Compare-and-swap: only the identity this browser saw listed is replaced.
+				var current string
+				if err := tx.QueryRow(`SELECT device_id FROM user_identities WHERE user_id=?`, s.UserID).Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+				if current != *in.ExpectedDeviceID {
+					return errRecoveryMoved
+				}
+				// Whoever held the old identity in another browser keeps no session of this account.
+				revoked, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=? AND id<>? AND revoked_at=''`, now, s.UserID, s.ID)
+				if err != nil {
+					return err
+				}
+				n, _ := revoked.RowsAffected()
+				if err := deleteIdentityTx(tx, s.UserID, s.UserID, RequestID(r), fmt.Sprintf("sessions_revoked=%d", n)); err != nil {
+					return err
+				}
+			}
 			var taken int
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id=? AND (platform='identity' OR fingerprint=?)`, s.UserID, fingerprint).Scan(&taken); err != nil {
 				return err
@@ -150,13 +199,16 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			if _, err := tx.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES(?,?,?,?,?,'identity',?)`, deviceID, s.UserID, base64.StdEncoding.EncodeToString(pub), fingerprint, "identity:"+hex.EncodeToString(unusable), now); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, in.WrapAlg, now, now); err != nil {
+			if _, err := tx.Exec(`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at,recovery_id,recovery_alg,recovery_wrapped_key,recovery_updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, s.UserID, deviceID, wrapped, in.WrapAlg, now, now, recoveryID, recoveryAlg, recovery, recoveryAt); err != nil {
 				return err
 			}
 			// Which proof created it: the password, or the KySignOn grant (decision 4's trace). No key material.
 			proof := "proof=password"
 			if sso {
 				proof = "proof=sso:" + r.Header.Get("X-Kynotes-Step-Up")
+			}
+			if in.Replace {
+				proof += ",reset"
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "wrap="+in.WrapAlg+","+proof, RequestID(r))
 		})
@@ -170,6 +222,10 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		if errors.Is(err, auth.ErrPasswordAdminKnown) {
 			WriteError(w, r, 409, "password_change_required", "change the password an administrator set before creating an identity")
+			return
+		}
+		if errors.Is(err, errRecoveryMoved) {
+			WriteError(w, r, 409, "already_exists", "your encryption key changed meanwhile; reload and try again")
 			return
 		}
 		if errors.Is(err, errIdentityExists) {
@@ -297,10 +353,9 @@ func writeIdentityError(w http.ResponseWriter, r *http.Request, err error) bool 
 	return true
 }
 
-// deleteIdentityTx deletes the user's identity (cascading to its wrapped key and
-// envelopes) when its wrapping password is gone, and audits the deletion.
-func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID string) error {
-	// Open link requests would hand out the identity being deleted.
+// deleteIdentityTx is the self-service reset: it deletes the user's identity, which cascades to its
+// envelopes and both copies, and its link requests, and audits identity.reset with reason.
+func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID, reason string) error {
 	if _, err := tx.Exec(`DELETE FROM link_requests WHERE user_id=?`, userID); err != nil {
 		return err
 	}
@@ -312,7 +367,26 @@ func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID string) error {
 	if err != nil {
 		return err
 	}
-	return storage.RecordAuditOutcomeTx(tx, actor, "identity.delete", "", deviceID, "success", "", requestID)
+	return storage.RecordAuditOutcomeTx(tx, actor, "identity.reset", "", deviceID, "success", reason, requestID)
+}
+
+// stripPasswordWrapTx serves account recovery and an administrator password reset: whoever sets the
+// new password cannot re-wrap the identity, so only its password copy goes. The identity, its envelopes
+// and its recovery-code copy stay; another browser or the recovery code still holds it. Link requests
+// go too: they belong to sessions the reset revokes.
+func stripPasswordWrapTx(tx *sql.Tx, userID, actor, requestID string) error {
+	if _, err := tx.Exec(`DELETE FROM link_requests WHERE user_id=?`, userID); err != nil {
+		return err
+	}
+	var deviceID string
+	err := tx.QueryRow(`UPDATE user_identities SET wrap_alg=?,wrapped_private_key=X'',updated_at=? WHERE user_id=? AND wrap_alg=? RETURNING device_id`, deviceOnlyWrapAlg, time.Now().UTC().Format(time.RFC3339), userID, identityWrapAlg).Scan(&deviceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return storage.RecordAuditOutcomeTx(tx, actor, "identity.password_wrap.delete", "", deviceID, "success", "", requestID)
 }
 
 // afterPasswordVerified lets tests commit a concurrent change between a password

@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -262,5 +264,148 @@ func TestSSOAccountSetsAndFetchesItsRecoveryCopyWithKySignOn(t *testing.T) {
 	fresh, _ := ssoPerson(f, "bob", "bob-2")
 	if r := ssoDo(f, fresh, "bob", "POST", "/api/v1/me/identity/recovery/fetch", ""); r.Code != 200 || !strings.Contains(r.Body.String(), b64s(recoveryCopy)) {
 		t.Fatal("fetch from a fresh browser", r.Code, r.Body.String())
+	}
+}
+
+// resetBody is a local (password) reset: per spec §8 the new identity gets a password copy, as a
+// first one does (ruling D-P5-2 reversed), and the recovery copy in extra.
+func resetBody(pub []byte, extra string) []byte {
+	return []byte(`{"publicKey":` + quote(b64s(pub)) + `,"wrapAlg":"` + identityWrapAlg + `","wrappedPrivateKey":` + quote(b64s(identityWrapped)) + extra + `}`)
+}
+
+const resetRecovery = `,"replace":true,"recovery":{"wrapAlg":"` + recoveryWrapAlg + `","wrappedKey":"`
+
+func expecting(deviceID string) string { return `,"expectedDeviceId":` + quote(deviceID) }
+
+func TestIdentityResetReplacesTheIdentityAndEveryKeyItHeld(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	old := p.createIdentity(t)
+	_, oldRecovery := p.setRecovery(t, old, "", recoveryCopy2)
+	now := "2026-10-08T00:00:00Z"
+	if _, err := p.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_00000000000000000000000000','workbook',?,?,?)`, pairUser, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_00000000000000000000000000','cnt_00000000000000000000000000',?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01',?)`, old, now); err != nil {
+		t.Fatal(err)
+	}
+	commitment, _, _ := firstLinkVector(t)
+	other := p.secondSession(t)
+	createLinkRequest(t, other, commitment)
+	newPub := bytes.Repeat([]byte{8}, 32)
+	put := func(body []byte) (int, string) {
+		return status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", body, true, false))
+	}
+	valid := resetBody(newPub, expecting(old)+resetRecovery+b64s(recoveryCopy)+`"}`)
+	for name, body := range map[string][]byte{
+		"replace without a copy":           resetBody(newPub, expecting(old)+`,"replace":true`),
+		"replace without a password copy":  []byte(`{"publicKey":` + quote(b64s(newPub)) + `,"wrapAlg":"none"` + expecting(old) + resetRecovery + b64s(recoveryCopy) + `"}}`),
+		"copy without replace":             resetBody(newPub, `,"recovery":{"wrapAlg":"`+recoveryWrapAlg+`","wrappedKey":"`+b64s(recoveryCopy)+`"}`),
+		"expectedDeviceId without replace": resetBody(newPub, expecting(old)),
+		"short copy":                       resetBody(newPub, expecting(old)+resetRecovery+b64s(recoveryCopy[:10])+`"}`),
+		"replace without expectedDeviceId": resetBody(newPub, resetRecovery+b64s(recoveryCopy)+`"}`),
+	} {
+		p.stepUp(t)
+		if code, out := put(body); code != http.StatusBadRequest {
+			t.Fatal(name, code, out)
+		}
+	}
+	if _, err := p.db.Exec(`UPDATE sessions SET stepup_at=''`); err != nil {
+		t.Fatal(err)
+	}
+	if _, out := put(valid); !strings.Contains(out, "step_up_required") {
+		t.Fatal("reset without a step-up", out)
+	}
+	p.stepUp(t)
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := put(valid); code != http.StatusConflict || !strings.Contains(out, "password_change_required") {
+		t.Fatal("reset with an administrator-known password", code, out)
+	}
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=0 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	// Compare-and-swap: a reset that names another identity (a stale tab) changes nothing.
+	for _, stale := range []string{"", mint(t, "dev")} {
+		if code, out := put(resetBody(newPub, expecting(stale)+resetRecovery+b64s(recoveryCopy)+`"}`)); code != http.StatusConflict || !strings.Contains(out, "already_exists") {
+			t.Fatal("reset against a stale identity", stale, code, out)
+		}
+	}
+	if rid, copy := storedRecovery(t, p); rid != oldRecovery || !bytes.Equal(copy, recoveryCopy2) {
+		t.Fatal("a refused reset changed the recovery copy")
+	}
+	// One transaction: a create that fails after the delete (a fingerprint already registered) leaves
+	// the old identity, its envelope and its recovery copy in place.
+	clash := bytes.Repeat([]byte{3}, 32)
+	clashFP := sha256.Sum256(clash)
+	if _, err := p.db.Exec(`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES(?,?,?,?,'sha256:x','android',?)`, mint(t, "dev"), pairUser, b64s(clash), hex.EncodeToString(clashFP[:]), now); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := put(resetBody(clash, expecting(old)+resetRecovery+b64s(recoveryCopy)+`"}`)); code != http.StatusConflict || !strings.Contains(out, "identity_exists") {
+		t.Fatal("clashing reset", code, out)
+	}
+	var kept int
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM user_identities WHERE device_id=?)+(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?)+(SELECT COUNT(*) FROM sessions WHERE revoked_at='')`, old, old).Scan(&kept); err != nil || kept != 4 {
+		t.Fatal("a failed reset committed part of its work", kept, err)
+	}
+	code, out := put(valid)
+	var created struct{ DeviceID string }
+	if code != http.StatusOK || json.Unmarshal([]byte(out), &created) != nil || created.DeviceID == old {
+		t.Fatal("reset", code, out)
+	}
+	// The same request again names an identity that is gone: refused, the new one stays.
+	if code, _ := put(valid); code != http.StatusConflict {
+		t.Fatal("a repeated reset replaced the new identity", code)
+	}
+	var oldRows, envelopes, links int
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE id=?),(SELECT COUNT(*) FROM key_envelopes),(SELECT COUNT(*) FROM link_requests)`, old).Scan(&oldRows, &envelopes, &links); err != nil || oldRows+envelopes+links != 0 {
+		t.Fatalf("left behind: device=%d envelopes=%d links=%d %v", oldRows, envelopes, links, err)
+	}
+	// The password user keeps the password unlock path (spec §8) and gets the new recovery copy.
+	var alg string
+	var wrapped []byte
+	if err := p.db.QueryRow(`SELECT wrap_alg,wrapped_private_key FROM user_identities WHERE device_id=?`, created.DeviceID).Scan(&alg, &wrapped); err != nil || alg != identityWrapAlg || !bytes.Equal(wrapped, identityWrapped) {
+		t.Fatal("new identity without its password copy", alg, len(wrapped), err)
+	}
+	if rid, copy := storedRecovery(t, p); rid == "" || rid == oldRecovery || !bytes.Equal(copy, recoveryCopy) {
+		t.Fatal("new identity without its recovery copy")
+	}
+	// Every other session of the account ends; the one that reset keeps working.
+	if code, _ := status(t, other.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)); code != http.StatusUnauthorized {
+		t.Fatal("another session survived the reset", code)
+	}
+	if code, _ := status(t, p.do(t, http.MethodGet, "/api/v1/me/identity", nil, false, false)); code != http.StatusOK {
+		t.Fatal("the resetting session ended", code)
+	}
+	var reset, createdAudit int
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM audit_events WHERE event='identity.reset' AND object_id=? AND reason_code='sessions_revoked=1'),(SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset')`, old, created.DeviceID).Scan(&reset, &createdAudit); err != nil || reset != 1 || createdAudit != 1 {
+		t.Fatal("audits", reset, createdAudit, err)
+	}
+}
+
+// Device-only identities stay device-only through a reset: an SSO session can never send a password copy.
+func TestSSOResetStaysDeviceOnly(t *testing.T) {
+	f := newLogoutFixture(t)
+	cookies, bob := ssoPerson(f, "bob", "bob-1")
+	if r := ssoDo(f, cookies, "bob", "PUT", "/api/v1/me/identity", deviceOnlyBody(identityPub)); r.Code != 200 {
+		t.Fatal("device-only create", r.Code, r.Body.String())
+	}
+	var old string
+	if err := f.db.QueryRow(`SELECT device_id FROM user_identities WHERE user_id=?`, bob).Scan(&old); err != nil {
+		t.Fatal(err)
+	}
+	newPub := bytes.Repeat([]byte{8}, 32)
+	withPassword := string(resetBody(newPub, expecting(old)+resetRecovery+b64s(recoveryCopy)+`"}`))
+	if r := ssoDo(f, cookies, "bob", "PUT", "/api/v1/me/identity", withPassword); r.Code != 400 {
+		t.Fatal("SSO reset with a password copy", r.Code, r.Body.String())
+	}
+	deviceOnly := `{"publicKey":` + quote(b64s(newPub)) + `,"wrapAlg":"none"` + expecting(old) + resetRecovery + b64s(recoveryCopy) + `"}}`
+	if r := ssoDo(f, cookies, "bob", "PUT", "/api/v1/me/identity", deviceOnly); r.Code != 200 {
+		t.Fatal("SSO reset", r.Code, r.Body.String())
+	}
+	var alg, rid string
+	var wrapped []byte
+	if err := f.db.QueryRow(`SELECT wrap_alg,wrapped_private_key,recovery_id FROM user_identities WHERE user_id=?`, bob).Scan(&alg, &wrapped, &rid); err != nil || alg != deviceOnlyWrapAlg || len(wrapped) != 0 || rid == "" {
+		t.Fatal("after SSO reset", alg, len(wrapped), rid, err)
 	}
 }
