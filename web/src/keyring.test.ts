@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
 import { copyableConflicts, guardContainer, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
-import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
+import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const dev = (c: string) => `dev_${c.repeat(26)}`;
@@ -272,7 +272,7 @@ describe("planSweep", () => {
   it("mints the first key only when every member has an identity", () => {
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
     const base = { me: owner.member.userId, envelopes: [], ring: new Map() };
-    expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member, sso] })).toEqual({ kind: "blocked", waitingFor: ["sso-user"] });
+    expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member, sso] })).toEqual({ kind: "blocked", waitingFor: [displayName("sso-user", sso.userId)] });
     expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member] })).toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparePins, confirmFingerprintChange, fingerprint, isPinConfirmation, PinConfirmation, sameKey } from "./pins";
+import { comparePins, confirmFingerprintChange, displayName, fingerprint, isPinConfirmation, PinConfirmation, sameKey } from "./pins";
 
 const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)));
 const member = (id: string, publicKey?: string) => ({ userId: id, username: id, role: "editor", identity: publicKey ? { deviceId: "dev", publicKey } : undefined });
@@ -36,5 +36,19 @@ describe("pins", () => {
     expect(isPinConfirmation(confirmFingerprintChange({}, member("a", key(4))))).toBe(true);
     expect(isPinConfirmation(Object.assign(Object.create(PinConfirmation.prototype), { userId: "a", key: key(5), pins: {} }))).toBe(false);
     expect(isPinConfirmation(key(5))).toBe(false);
+  });
+});
+
+describe("displayName", () => {
+  const id = `usr_${"b".repeat(26)}`;
+  it("keeps a spoofed fingerprint line and bidi override out of trust prompts", () => {
+    const spoof = "mallory\n\nalice: 1a2b 3c4d (was 1a2b 3c4d)\u2028bob\u202Eevil\u2066x\u0085";
+    const shown = displayName(spoof, id);
+    expect(shown).toBe(`mallory alice: 1a2b 3c4d (was 1a2b 3c4d) bob evil x (${id})`);
+    expect(shown).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/);
+  });
+  it("caps the name and tags the user ID", () => {
+    expect(displayName("a".repeat(200), id)).toBe(`${"a".repeat(63)}… (${id})`);
+    expect(displayName("\u202E\n", "usr\nx")).toBe("(no name) (usr x)");
   });
 });

@@ -6,7 +6,7 @@ import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import { mergeFloor, newContainerKey, readKeys, sealFor, writeKey, type Envelope, type KeyFloor, type KeyState, type Member } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type PinStore } from "./keyService";
-import { isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
+import { displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
 import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
 
@@ -69,6 +69,7 @@ const memoryStore = (initial: Pins = {}, known: KeyState = { mark: 0, digests: {
     known: () => state,
   } satisfies PinStore & Record<string, unknown>;
 };
+const shown = (u: User) => displayName(u.member.username, u.member.userId);
 const as = (u: User, canWrap = true) => ({ userId: u.member.userId, identity: u.held, canWrap });
 const never = () => false;
 
@@ -94,7 +95,7 @@ describe("syncContainerKeys", () => {
     const owner = user("owner", "b", "owner"), sso = user("sso", "c", "editor", false);
     const { api } = server([owner, sso]);
     const result = await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
-    expect(result.plan).toEqual({ kind: "blocked", waitingFor: ["sso"] });
+    expect(result.plan).toEqual({ kind: "blocked", waitingFor: [shown(sso)] });
     expect(api.rotate).not.toHaveBeenCalled();
     expect(api.stepUp).not.toHaveBeenCalled();
   });
@@ -118,7 +119,7 @@ describe("syncContainerKeys", () => {
     const { api } = server([owner, editor]);
     const store = memoryStore({ [editor.member.userId]: base64(new Uint8Array(32).fill(9)) });
     const refused = await syncContainerKeys(api, cnt, as(owner), store, never);
-    expect(refused.plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(refused.plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
     expect(api.rotate).not.toHaveBeenCalled();
     const confirm = vi.fn(() => true);
     const accepted = await syncContainerKeys(api, cnt, as(owner), store, confirm);
@@ -176,7 +177,7 @@ describe("syncContainerKeys", () => {
     const confirm = vi.fn(() => false);
     const result = await syncContainerKeys(api, cnt, as(owner), store, confirm);
     expect(confirm).toHaveBeenCalledWith([expect.objectContaining({ pinned: stale[editor.member.userId] })]);
-    expect(result.plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(result.plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
     expect(store.get()).toEqual(stale);
     expect(store.addFresh).not.toHaveBeenCalled();
     expect(store.confirm).not.toHaveBeenCalled();
@@ -224,7 +225,7 @@ describe("syncContainerKeys", () => {
     const stale = { [owner.member.userId]: base64(new Uint8Array(32).fill(9)) };
     const store = memoryStore(stale);
     const declined = await syncContainerKeys(api, cnt, as(editor), store, never);
-    expect(declined.plan).toEqual({ kind: "untrusted", members: ["owner"] });
+    expect(declined.plan).toEqual({ kind: "untrusted", members: [shown(owner)] });
     expect(declined.changed.map((change) => change.member.username)).toEqual(["owner"]);
     expect(declined.ring.size).toBe(0);
     expect(store.get()).toEqual(stale);
@@ -254,7 +255,7 @@ describe("syncContainerKeys", () => {
     const { api } = server([owner, editor]);
     const store = memoryStore({ [editor.member.userId]: base64(new Uint8Array(32).fill(9)) });
     const result = await syncContainerKeys(api, cnt, as(owner), store, (() => "yes") as unknown as () => boolean);
-    expect(result.plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(result.plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
     expect(store.confirm).not.toHaveBeenCalled();
   });
 
@@ -348,7 +349,7 @@ describe("conflicting first pins", () => {
     const losers = results.filter((result) => !result.minted);
     expect(results.filter((result) => result.minted)).toHaveLength(1);
     expect(losers).toHaveLength(1);
-    expect(losers[0].plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(losers[0].plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
     expect(api.rotate).toHaveBeenCalledOnce();
     expect(api.putEnvelopes).not.toHaveBeenCalled();
     // What was uploaded is sealed for the pin that won.
@@ -368,13 +369,13 @@ describe("conflicting first pins", () => {
       load: async () => { const pins = await getPins("me", owner.member.userId); await storePins("me", owner.member.userId, { [editor.member.userId]: other }); return pins; },
     };
     const result = await syncContainerKeys(api, cnt, as(owner), store, never);
-    expect(result.plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect(result.plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
     expect(api.stepUp).not.toHaveBeenCalled();
     expect(api.rotate).not.toHaveBeenCalled();
     expect((await getPins("me", owner.member.userId))[editor.member.userId]).toBe(other);
     // The next pass re-reads the pins and goes through the changed-key confirmation.
     const confirm = vi.fn(() => false);
-    expect((await syncContainerKeys(api, cnt, as(owner), vault(owner), confirm)).plan).toEqual({ kind: "untrusted", members: ["editor"] });
+    expect((await syncContainerKeys(api, cnt, as(owner), vault(owner), confirm)).plan).toEqual({ kind: "untrusted", members: [shown(editor)] });
     expect(confirm).toHaveBeenCalledOnce();
   });
 });
@@ -416,7 +417,7 @@ describe("keys from a refused first-contact sender", () => {
     expect(stored.digests[2]).toBe(bytesToHex(sha256(keys[winner])));
     // After a reload, a fresh pass that sees the losing key again still refuses it.
     const again = await syncContainerKeys(views[loser], cnt, as(editor), vault(editor), never);
-    expect(again.plan).toEqual({ kind: "untrusted", members: ["owner"] });
+    expect(again.plan).toEqual({ kind: "untrusted", members: [shown(owner)] });
     expect(again.ring.get(2)).toBeUndefined();
     expect((await getKeyState("me", editor.member.userId, cnt)).digests[2]).toBe(bytesToHex(sha256(keys[winner])));
   });

@@ -1,7 +1,7 @@
 import { base64 } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import { guardContainer, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type KeyedContainer, type KeyFloor, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type SweepPlan } from "./keyring";
-import { comparePins, confirmFingerprintChange, type PinChange, type PinConfirmation, type Pins } from "./pins";
+import { comparePins, confirmFingerprintChange, displayName, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import type { PinsStored } from "./storage";
 
 export type KeyAPI = {
@@ -97,7 +97,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     const pinFailure = (stored: PinsStored): KeySync["plan"] | undefined => {
       if (stored.ok) return undefined;
       if (!stored.conflicts.length) return { kind: "pins-unsaved" };
-      return { kind: "untrusted", members: members.filter((member) => stored.conflicts.includes(member.userId)).map((member) => member.username) };
+      return { kind: "untrusted", members: members.filter((member) => stored.conflicts.includes(member.userId)).map((member) => displayName(member.username, member.userId)) };
     };
     // planSweep itself is idle for a caller who is not a steward with an identity.
     const plan = (opened: OpenedKeyring): SweepPlan => {
@@ -130,7 +130,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       const pending = uniqueBy([...opened.changed, ...comparePins(pins, targets(sweep)).changed], (change) => change.member.userId);
       if (!pending.length) break;
       changed.push(...pending);
-      if ((await confirmChanged(pending)) !== true) return stopped({ kind: "untrusted", members: pending.map((change) => change.member.username) }, []);
+      if ((await confirmChanged(pending)) !== true) return stopped({ kind: "untrusted", members: pending.map((change) => displayName(change.member.username, change.member.userId)) }, []);
       for (const change of pending) {
         const confirmation = confirmFingerprintChange(pins, change.member);
         if (!(await store.confirm(confirmation))) return stopped({ kind: "pins-unsaved" }, []);

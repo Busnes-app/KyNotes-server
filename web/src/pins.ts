@@ -72,6 +72,17 @@ export function comparePins(pins: Pins, members: MemberKey[]): { fresh: MemberKe
   return { fresh, changed };
 }
 
+// C0, DEL, C1, zero-width, line/paragraph separators, and bidi marks, embeddings, overrides and isolates.
+const unsafe = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g;
+const clean = (text: string) => {
+  const chars = [...text.replace(unsafe, " ").replace(/\s+/g, " ").trim()];
+  return chars.length > 64 ? `${chars.slice(0, 63).join("")}…` : chars.join("");
+};
+/** A server-supplied name for trust prompts and key notices: one plain line, tied to the user ID. */
+export function displayName(username: string, userId: string): string {
+  return `${clean(username) || "(no name)"} (${clean(userId)})`;
+}
+
 /** Computed locally from the key, never taken from the server: SHA-256, hex in groups of four. */
 export async function fingerprint(publicKey: string): Promise<string> {
   return (await digestSha256Hex(publicKeyBytes(publicKey))).match(/.{4}/g)!.join(" ");

@@ -65,7 +65,7 @@ import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord 
 import { copyableConflicts, keysAllowed, legacyRow, mergeFloor, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { listAdminTeams, listContainers, newAdminTeam, newContainer, nextFloor, type FloorSink } from "./observe";
-import { fingerprint, type PinChange } from "./pins";
+import { displayName, fingerprint, type PinChange } from "./pins";
 import { PASSWORD_CHANGE_WARNING, passwordChangeProblem, resealWaitingEdits } from "./passwordChange";
 import {
   decryptComment,
@@ -739,8 +739,8 @@ function Workspace({
   function confirmChangedKeys(containerID: string) {
     return async (changes: PinChange[]) => {
       if (changes.some((change) => declinedKeys.current.has(declineID(change)))) return false;
-      const lines = await Promise.all(changes.map(async (change) => `${change.member.username}: ${await fingerprintOf(change.member.identity!.publicKey)} (was ${await fingerprintOf(change.pinned)})`));
-      const accepted = confirm(`The encryption key of ${changes.map((change) => change.member.username).join(", ")} changed since this browser last saw it. A password reset or account recovery does this; so would a server substituting its own key. Compare these fingerprints with the person (Settings shows theirs) before continuing:\n\n${lines.join("\n")}\n\nTrust the new key and exchange this notebook's keys with it?`);
+      const lines = await Promise.all(changes.map(async (change) => `${displayName(change.member.username, change.member.userId)}: ${await fingerprintOf(change.member.identity!.publicKey)} (was ${await fingerprintOf(change.pinned)})`));
+      const accepted = confirm(`The encryption key of ${changes.map((change) => displayName(change.member.username, change.member.userId)).join(", ")} changed since this browser last saw it. A password reset or account recovery does this; so would a server substituting its own key. Compare these fingerprints with the person (Settings shows theirs) before continuing:\n\n${lines.join("\n")}\n\nTrust the new key and exchange this notebook's keys with it?`);
       if (!accepted) for (const change of changes) declinedKeys.current.add(declineID(change));
       return accepted;
     };
@@ -753,7 +753,7 @@ function Workspace({
     else if (plan.kind === "rollback") notices.push(ROLLBACK);
     else if (plan.kind === "pins-unsaved") notices.push("No keys were exchanged: this browser could not save the colleague keys it checked. Allow site storage and reopen the notebook.");
     if (result.conflicts.length) notices.push("A different key was offered for this notebook than the one this device already accepted; it was refused.");
-    if (fresh.length) notices.push(`Now sharing with: ${(await Promise.all(fresh.map(async (member) => `${member.username} (fingerprint ${await fingerprintOf(member.identity!.publicKey)})`))).join(", ")}.`);
+    if (fresh.length) notices.push(`Now sharing with: ${(await Promise.all(fresh.map(async (member) => `${displayName(member.username, member.userId)} (fingerprint ${await fingerprintOf(member.identity!.publicKey)})`))).join(", ")}.`);
     if (!result.keyStateSaved) notices.push("This browser could not save its key memory; after a reload it cannot tell if this notebook's keys were swapped.");
     return notices.join(" ");
   }

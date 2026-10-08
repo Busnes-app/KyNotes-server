@@ -2,7 +2,7 @@ import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
 import { base64, fromBase64, type KeyRef } from "./crypto";
 import { sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
-import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
+import { displayName, FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
@@ -245,7 +245,7 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
   if (!self?.identity || !isSteward(self.role)) return { kind: "idle" };
   const keyed = members.filter((member) => member.identity);
   if (container.sharedGeneration === 0) {
-    const waitingFor = members.filter((member) => !member.identity).map((member) => member.username);
+    const waitingFor = members.filter((member) => !member.identity).map((member) => displayName(member.username, member.userId));
     return waitingFor.length ? { kind: "blocked", waitingFor } : { kind: "mint", recipients: keyed };
   }
   if (!envelopes.some((row) => row.keyGeneration === container.keyGeneration)) return { kind: "mint", recipients: keyed };

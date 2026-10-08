@@ -400,7 +400,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Team keys P3a (web): `web/src/keyring.ts` (pure: envelopes → generation keys, write key, exact-generation
   read key, steward sweep plan), `web/src/keyService.ts` (one sweep against an injected API: mint via
   rotation, backfill wraps, one retry on 409) and `web/src/pins.ts` (add-only TOFU pins in the vault
-  record, local fingerprints; trust rules in the next bullet). Reads: at or above `sharedGeneration`
+  record, local fingerprints; trust rules in the next bullet). Trust prompts and key notices name people
+  only through `displayName(username, userId)` (one sanitized line, capped, tagged with the user ID). Reads: at or above `sharedGeneration`
   only that generation's key, below it and personal the legacy key, malformed generation no key.
   `main.tsx` reaches the login key only through
   `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
