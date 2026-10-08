@@ -33,6 +33,7 @@ func WithChallengeLimit(ctx context.Context, allow func(userID string) bool) con
 
 // The digest binds the exact attempted operation without storing its potentially secret body.
 func stepUpAction(w http.ResponseWriter, r *http.Request) (string, error) {
+	// ponytail: one confirmation binds ≤64 KiB; upgrade: batch putEnvelopes, one confirmation each.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 	if err != nil {
 		return "", err
@@ -52,7 +53,7 @@ func requireSSOStepUp(db *sql.DB, s Session, scope string, next http.Handler, w 
 	}
 	action, err := stepUpAction(w, r)
 	if err != nil {
-		http.Error(w, "action body too large", 413)
+		WriteAuthError(w, "payload_too_large", "this change is too large to confirm with KySignOn at once")
 		return
 	}
 	grant := r.Header.Get("X-Kynotes-Step-Up")

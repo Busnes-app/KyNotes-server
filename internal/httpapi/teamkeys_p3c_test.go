@@ -66,6 +66,15 @@ func TestSSOUserStepUpNeedsNoAdminRole(t *testing.T) {
 	}
 }
 
+// One confirmation binds at most 64 KiB; past it the refusal is the JSON error schema (final review M2).
+func TestSSOStepUpBodyCapIsAJSONError(t *testing.T) {
+	f, cookies := userReauthFixture(t)
+	r := reauthAction(f, cookies, "", "/user-action", `{"x":"`+strings.Repeat("a", 64<<10)+`"}`)
+	if r.Code != 413 || !strings.Contains(r.Body.String(), `"code":"payload_too_large"`) {
+		t.Fatal("oversized confirmation", r.Code, r.Body.String())
+	}
+}
+
 func TestSSOStepUpScopeIsBoundToTheGrant(t *testing.T) {
 	f, cookies := reauthFixture(t)
 	// An admin challenge answered without kynotes.admin is rejected at the callback.

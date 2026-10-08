@@ -170,6 +170,8 @@ func WriteAuthError(w http.ResponseWriter, code, message string) {
 		status = http.StatusForbidden
 	case "rate_limited":
 		status = http.StatusTooManyRequests
+	case "payload_too_large":
+		status = http.StatusRequestEntityTooLarge
 	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message, "requestId": w.Header().Get("X-Request-Id")}})
