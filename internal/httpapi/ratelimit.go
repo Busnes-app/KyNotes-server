@@ -80,11 +80,14 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "auth"
 		case path == "/api/v1/devices/pairing-token":
 			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "pairing"
+		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/invitations"):
+			// Bounds how fast one account can learn whether user IDs are live by inviting them.
+			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "invitation"
 		case (strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/uploads")) || strings.HasPrefix(path, "/api/v1/uploads/"):
 			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "upload"
 		}
 		refill := float64(rate) / 60
-		if label == "pairing" {
+		if label == "pairing" || label == "invitation" {
 			refill = float64(rate) / 3600
 		}
 		identity := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)

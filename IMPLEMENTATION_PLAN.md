@@ -425,6 +425,7 @@ ratelimit:
   login_per_minute: 10
   pairing_per_hour: 20
   upload_per_minute: 60
+  invitation_per_hour: 30
 
 log:
   level: "info"                   # debug|info|warn|error
@@ -1640,10 +1641,10 @@ Rules:
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
 * **Known limits** (P2): creating a team invitation to a known user ID reveals
-  whether that user is active (invitation creation is not rate-limited);
-  invitations may be created without envelopes, and the new member cannot
-  write until a steward's sweep supplies them; envelopes of expired,
-  never-accepted invitations persist until the invitation row is deleted.
+  whether that user is active, at most `ratelimit.invitation_per_hour` times an
+  hour per account; invitations may be created without envelopes, and the new
+  member cannot write until a steward's sweep supplies them; envelopes of
+  expired, never-accepted invitations persist until the invitation row is deleted.
 * **Known limit** (P3a): the server sees `authSecret`, so it can derive a
   member's legacy content key and forge a row in a shared container labelled
   below `shared_generation`. The web client labels such rows as not end-to-end
@@ -1669,6 +1670,7 @@ Tests:
 - `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`
 - `TestRemovedMemberIsReadmittedByReactivation`
 - `TestTeamAdminRemovesOnlyAdminsItInvited`
+- `TestInvitationCreationIsRateLimitedPerCaller`
 - `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
@@ -1695,7 +1697,7 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user. Exceeding returns
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user. Exceeding returns
   `429 rate_limited` with `Retry-After` in seconds.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds

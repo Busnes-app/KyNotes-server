@@ -97,3 +97,36 @@ func TestRateLimitStillUsesAuthenticatedUserAcrossIPs(t *testing.T) {
 		}
 	}
 }
+
+func TestInvitationCreationIsRateLimitedPerCaller(t *testing.T) {
+	cfg := config.Defaults()
+	if cfg.RateLimit.InvitationPerHour != 30 {
+		t.Fatalf("default invitation_per_hour=%d, want 30", cfg.RateLimit.InvitationPerHour)
+	}
+	cfg.RateLimit.InvitationPerHour = 2
+	h := rateLimitMiddleware(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	call := func(method, path, ip string) int {
+		req := httptest.NewRequest(method, path, nil)
+		req.RemoteAddr = ip
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	const team = "/api/v1/containers/cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa/invitations"
+	for i := 0; i < 2; i++ {
+		if got := call(http.MethodPost, team, "203.0.113.20:1"); got != http.StatusOK {
+			t.Fatalf("invitation %d=%d", i, got)
+		}
+	}
+	for _, path := range []string{"/api/v1/containers/cnt_bbbbbbbbbbbbbbbbbbbbbbbbbb/invitations", "/api/containers/cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa/invitations"} {
+		if got := call(http.MethodPost, path, "203.0.113.20:1"); got != http.StatusTooManyRequests {
+			t.Fatalf("%s after the bucket was spent=%d, want 429", path, got)
+		}
+	}
+	if got := call(http.MethodPost, team, "203.0.113.21:1"); got != http.StatusOK {
+		t.Fatalf("another caller=%d", got)
+	}
+	if got := call(http.MethodPost, "/api/v1/invitations/inv_aaaaaaaaaaaaaaaaaaaaaaaaaa/accept", "203.0.113.20:1"); got != http.StatusOK {
+		t.Fatalf("accept was limited: %d", got)
+	}
+}
