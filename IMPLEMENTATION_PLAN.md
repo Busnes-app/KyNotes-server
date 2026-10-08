@@ -438,7 +438,7 @@ ratelimit:
   pairing_per_hour: 20           # device pairing, browser link requests and identity writes (create, reset, recovery-code set/fetch), per account, separate buckets
   upload_per_minute: 60
   invitation_per_hour: 30
-  link_poll_per_minute: 60        # device-link collect polls and legacy-row lists, per account, separate buckets
+  link_poll_per_minute: 60        # device-link collect polls, per account
 
 log:
   level: "info"                   # debug|info|warn|error
@@ -1258,7 +1258,6 @@ deliberately every phase).
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
 | PUT | `/api/v1/containers/{id}/envelopes` | session + CSRF + user step-up | `{"envelopes":[{"deviceId","keyGeneration","alg","envelope":"<b64>"}]}`; all-or-nothing; a container without a key refuses every envelope (`409 already_exists`, `key rotation incomplete`); otherwise any generation from `sharedGeneration` to current that already has an envelope (`409 already_exists` otherwise: `key generation changed` outside the range, `key rotation incomplete` for an empty generation); `409` for an existing recipient envelope |
 | POST | `/api/v1/containers/{id}/key-rotations` | session + CSRF + user step-up | owner/admin; `{"expectedGeneration":n,"envelopes":[...]}` → `{"keyGeneration":n+1}`; `409 already_exists` when the generation moved; `400` unless the set covers the caller and every active member identity at `n+1` |
-| GET | `/api/v1/containers/{id}/legacy` | session | any live member: rows below `shared_generation` (current object versions, comments, referenced attachments, unresolved conflicts; live objects only), `{"complete","objects":[{"id","keyGeneration"}],"comments":[{"id","objectId","authorUserId","bodyCiphertext","keyGeneration"}],"attachments":[{"id","objectIds","metadataCiphertext","keyGeneration"}],"conflicts":[{"id","objectId","keyGeneration"}]}`; at most 1000 per kind, `complete:false` beyond; a hint for the web client's review, never proof; uniform `404` otherwise, `500` on storage errors; `Cache-Control: no-store`; per-account bucket at `link_poll_per_minute` |
 | POST | `/api/v1/me/link-requests` | session + CSRF | newcomer: `{"commitment":"<b64 32>"}` → `{"id","expiresAt"}`; `404` without an identity; `409 already_exists` at 3 live requests; `409 password_change_required` for a local session while `password_admin_known` |
 | GET | `/api/v1/me/link-requests` | session | trusted side: live requests of the account's other live sessions, unclaimed or claimed by the caller: `[{"id","commitment","createdAt","expiresAt","claimed","newcomerKey"}]` (`newcomerKey` `""` until revealed) |
 | POST | `/api/v1/me/link-requests/{id}/claim` | session + CSRF | trusted side: `{"approverKey":"<b64 32>"}` → `204`; once; not the newcomer session; newcomer session live; `409 password_change_required` for a local session while `password_admin_known` |
@@ -1706,22 +1705,12 @@ Rules:
   invitation is `404`. A live membership anywhere in the team scope is `409`;
   rows a removal revoked are reactivated with the invitation's role and no keys.
   The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` from the parent membership.
-* **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
-  is author-only (`403` otherwise) and passes the write gate.
-* **Legacy review**: `GET /containers/{id}/legacy` lists rows below `shared_generation` for any live member; it is a hint, not proof, and the server stores no closure state (team keys P4).
 * **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
   user ID reveals whether that user is active, at most
   `ratelimit.invitation_per_hour` times an hour per account; invitations may be
   created without envelopes, and the new member cannot write until a steward's
   sweep supplies them; envelopes of an expired invitation remain until the next
   GC run.
-* **Known limit** (P3a): the server sees `authSecret`, so it can derive a
-  member's legacy content key and forge a row in a shared container labelled
-  below `shared_generation`. The web client labels such rows as not end-to-end
-  verified and re-seals one only on an explicit edit, move or ticked review item.
-  P4 closes this per browser: after the review, on "Stop opening pre-sharing items", or
-  when the server lists none of the user's, the browser opens no server row of that
-  notebook with the login key; "Show pre-sharing items again" is the user's way back.
 * Presence is in-memory only, never persisted, TTL 60 seconds, and contains only
   `{userId, containerId, since}`. On restart it is empty. That is correct.
 
@@ -1749,7 +1738,6 @@ Tests:
 - `TestAdminAddMapsOnlyConflictsTo409`
 - `TestRetryAfterFollowsRefillInterval`
 - `TestRateLimitEnvRejectsInvalidAndNegative`
-- `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
 - `TestInvitationTokenIsSingleUseAndExpires`
@@ -1775,7 +1763,7 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation and identity create/reset plus recovery-code set/fetch at `ratelimit.pairing_per_hour` (separate buckets), link steps at `ratelimit.login_per_minute` and link collect polls and `GET /containers/{id}/legacy` at `ratelimit.link_poll_per_minute` per user in separate buckets (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation and identity create/reset plus recovery-code set/fetch at `ratelimit.pairing_per_hour` (separate buckets), link steps at `ratelimit.login_per_minute` and link collect polls at `ratelimit.link_poll_per_minute` per user in separate buckets (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
   `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds

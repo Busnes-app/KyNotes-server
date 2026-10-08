@@ -533,7 +533,6 @@ func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
 	tm := newTeam(t)
 	tm.rotate(t, tm.id, 1)
 	oid, _ := tm.editor.save(t, tm.id, "", 2)
-	cmt, _ := tm.editor.comment(t, oid, 2)
 	tm.rotate(t, tm.id, 2)
 	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusConflict {
 		t.Fatalf("save at the old generation=%d", code)
@@ -549,10 +548,6 @@ func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
 		"save":    func() int { _, c := tm.editor.save(t, tm.id, oid, 4); return c }(),
 		"comment": func() int { _, c := tm.editor.comment(t, oid, 4); return c }(),
 		"upload":  func() int { return tm.editor.attach(t, tm.id, 4) }(),
-		"comment rewrite": func() int {
-			c, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":4}`), true, false))
-			return c
-		}(),
 	} {
 		if code != http.StatusConflict {
 			t.Fatalf("%s without an envelope=%d", name, code)
@@ -571,34 +566,6 @@ func TestNewContentRefusedUntilRotationEnvelopesExist(t *testing.T) {
 	var author string
 	if err := tm.owner.db.QueryRow(`SELECT author_user_id FROM object_versions WHERE object_id=? ORDER BY version DESC LIMIT 1`, oid).Scan(&author); err != nil || author != tm.editor.id {
 		t.Fatalf("author=%q %v", author, err)
-	}
-}
-
-func TestCommentRewriteIsAuthorOnly(t *testing.T) {
-	tm := newTeam(t)
-	tm.rotate(t, tm.id, 1)
-	oid, _ := tm.editor.save(t, tm.id, "", 2)
-	cmt, _ := tm.editor.comment(t, oid, 2)
-	path := "/api/v1/comments/" + cmt
-	body := []byte(`{"bodyCiphertext":"bmV3","keyGeneration":2}`)
-	if code, _ := status(t, tm.owner.do(t, http.MethodPut, path, body, true, false)); code != http.StatusForbidden {
-		t.Fatalf("owner rewrote another author's comment: %d", code)
-	}
-	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, body, false, false)); code != http.StatusForbidden {
-		t.Fatalf("without CSRF: %d", code)
-	}
-	if code, _ := status(t, tm.editor.do(t, http.MethodPut, path, []byte(`{"bodyCiphertext":"bmV3","keyGeneration":3}`), true, false)); code != http.StatusConflict {
-		t.Fatalf("future generation: %d", code)
-	}
-	if code, out := status(t, tm.editor.do(t, http.MethodPut, path, body, true, false)); code != http.StatusNoContent {
-		t.Fatalf("author rewrite=%d %s", code, out)
-	}
-	var stored []byte
-	if err := tm.owner.db.QueryRow(`SELECT body_ciphertext FROM comments WHERE id=?`, cmt).Scan(&stored); err != nil || string(stored) != "new" {
-		t.Fatalf("stored=%q %v", stored, err)
-	}
-	if code, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/cmt_bad", body, true, false)); code != http.StatusBadRequest {
-		t.Fatalf("invalid ID: %d", code)
 	}
 }
 
@@ -711,16 +678,12 @@ func TestRemovedMemberCannotWriteAnywhereInTheTeam(t *testing.T) {
 	tm := newTeam(t)
 	tm.rotate(t, tm.child, 1)
 	oid, _ := tm.editor.save(t, tm.child, "", 2)
-	cmt, _ := tm.editor.comment(t, oid, 2)
 	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
 		t.Fatalf("remove=%d %s", code, body)
 	}
 	g, _ := generationOf(t, tm.owner, tm.child)
 	if _, code := tm.editor.save(t, tm.child, oid, g); code != http.StatusNotFound {
 		t.Fatalf("removed member saved in the child workspace: %d", code)
-	}
-	if code, _ := status(t, tm.editor.do(t, http.MethodPut, "/api/v1/comments/"+cmt, []byte(`{"bodyCiphertext":"Y3Q=","keyGeneration":`+strconv.FormatInt(g, 10)+`}`), true, false)); code != http.StatusNotFound {
-		t.Fatalf("removed member rewrote a comment: %d", code)
 	}
 	if err := checkWriteGate(tm.owner.db, tm.child, tm.editor.id, g, keySchemeShared); err != errNotMember {
 		t.Fatalf("gate admitted a removed member (upload finalize path): %v", err)

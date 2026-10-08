@@ -35,7 +35,6 @@ func TestSharedContainerRefusesStaleClientWrites(t *testing.T) {
 	tm := newTeam(t)
 	tm.rotate(t, tm.id, 1)
 	oid, _ := tm.editor.save(t, tm.id, "", 2)
-	cmt, _ := tm.editor.comment(t, oid, 2)
 	stale := map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1"}
 	for name, write := range map[string]func() (int, string){
 		"save": func() (int, string) {
@@ -46,9 +45,6 @@ func TestSharedContainerRefusesStaleClientWrites(t *testing.T) {
 		},
 		"meta": func() (int, string) {
 			return tm.editor.rawWrite(t, http.MethodPatch, "/api/v1/containers/"+tm.id, nil, `{"metaCiphertext":"Y3Q=","baseVersion":0}`)
-		},
-		"comment rewrite": func() (int, string) {
-			return tm.editor.rawWrite(t, http.MethodPut, "/api/v1/comments/"+cmt, nil, `{"bodyCiphertext":"Y3Q=","keyGeneration":2}`)
 		},
 	} {
 		if code, body := write(); code != http.StatusConflict || !strings.Contains(body, "reload") {

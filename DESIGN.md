@@ -211,7 +211,7 @@ legacy login-derived key; a missing or malformed generation gets no key, so it
 fails closed. Rows below `sharedGeneration` are sealed with their author's legacy key, which the server can derive, so
 it can forge one labelled below `sharedGeneration`. The client labels such rows "not end-to-end verified"
 and re-seals one under the container key only when the user edits or moves that row, or ticks it in the
-per-notebook review of items written before sharing (`GET /containers/{id}/legacy`, a hint; each row is
+per-notebook review of items written before sharing (each row is
 opened with the reader's own key, its content is shown, and exactly the content shown is sealed), never
 as a side effect of opening, autosave, another move or a conflict copy. Each browser then stops opening that container's legacy rows (a per-device floor flag): after
 the review, on the user's "Stop opening pre-sharing items", or by itself when the server lists none that

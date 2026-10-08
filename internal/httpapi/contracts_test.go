@@ -110,3 +110,31 @@ func TestNoUserDataRouteIsRegistered(t *testing.T) {
 		}
 	}
 }
+
+// The legacy review and the comment re-seal served only the login-derived content key, which is
+// gone. A registered route answers 401 to an unauthenticated request through its session
+// middleware; an unregistered one never reaches it. The envelope list is the control: it proves
+// this server registers the team-key routes at all.
+func TestRemovedLegacyRoutesStayGone(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	send := func(method, path string) int {
+		req, _ := http.NewRequest(method, p.url+path, strings.NewReader("{}"))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if code := send(http.MethodGet, "/api/v1/containers/cnt_0123456789abcdefghjkmnpqrs/envelopes"); code != http.StatusUnauthorized {
+		t.Fatalf("control route=%d, want 401", code)
+	}
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/containers/cnt_0123456789abcdefghjkmnpqrs/legacy"},
+		{http.MethodPut, "/api/v1/comments/cmt_0123456789abcdefghjkmnpqrs"},
+	} {
+		if code := send(route.method, route.path); code != http.StatusNotFound && code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s %s=%d, want an unregistered route", route.method, route.path, code)
+		}
+	}
+}

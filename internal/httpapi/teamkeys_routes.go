@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
@@ -271,118 +270,6 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		writeJSON(w, map[string]any{"keyGeneration": next})
 	})))
-	mux.Handle("PUT /api/v1/comments/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth.CheckCSRF(r) != nil {
-			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
-			return
-		}
-		s, _ := auth.SessionFromContext(r)
-		id := r.PathValue("id")
-		var in struct {
-			BodyCiphertext string `json:"bodyCiphertext"`
-			KeyGeneration  int64  `json:"keyGeneration"`
-		}
-		if ids.Validate("cmt", id) != nil || json.NewDecoder(r.Body).Decode(&in) != nil || in.KeyGeneration < 1 {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		body, err := base64.StdEncoding.DecodeString(in.BodyCiphertext)
-		if err != nil {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		err = dbTx(db, func(tx *sql.Tx) error {
-			var cid, author, role string
-			err := tx.QueryRow(`SELECT c.container_id,c.author_user_id,m.role FROM comments c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, s.UserID, id).Scan(&cid, &author, &role)
-			if err != nil {
-				return err
-			}
-			if author != s.UserID || role == "viewer" {
-				return errInsufficientRole
-			}
-			if err := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); err != nil {
-				return err
-			}
-			now := time.Now().UTC().Format(time.RFC3339)
-			var seq int64
-			if err := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); err != nil {
-				return err
-			}
-			_, err = tx.Exec(`UPDATE comments SET body_ciphertext=?,key_generation=?,change_seq=? WHERE id=?`, body, in.KeyGeneration, seq, id)
-			return err
-		})
-		if writeTeamKeyError(w, r, err) {
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})))
-	// The rows of a container written below its shared generation (sealed with each author's login
-	// key), for the web client's review. A hint only: the client opens every row with its own key and
-	// decides on its own device when to stop reading them. Any live member; session only.
-	mux.Handle("GET /api/v1/containers/{id}/legacy", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		s, _ := auth.SessionFromContext(r)
-		cid := r.PathValue("id")
-		var shared int64
-		if ids.Validate("cnt", cid) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		// A storage error is 500, never a 404 the client could read as "not a member".
-		if err := db.QueryRow(`SELECT c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, s.UserID, cid).Scan(&shared); errors.Is(err, sql.ErrNoRows) {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		} else if err != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
-			return
-		}
-		// A never-shared container (shared 0) matches no row: key_generation is at least 1.
-		// ponytail: comments and conflicts are scanned with no index on (container_id, key_generation). Upgrade: add indexes.
-		kinds := []struct {
-			name, query string
-			scan        func(*sql.Rows) (map[string]any, error)
-		}{
-			{"objects", `SELECT o.id,v.key_generation FROM objects o JOIN object_versions v ON v.object_id=o.id AND v.version=o.current_version WHERE o.container_id=?1 AND o.deleted_at='' AND v.key_generation<?2 ORDER BY o.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id string
-				var generation int64
-				err := rows.Scan(&id, &generation)
-				return map[string]any{"id": id, "keyGeneration": generation}, err
-			}},
-			{"comments", `SELECT c.id,c.object_id,c.author_user_id,c.body_ciphertext,c.key_generation FROM comments c JOIN objects o ON o.id=c.object_id AND o.deleted_at='' WHERE c.container_id=?1 AND c.deleted_at='' AND c.key_generation<?2 ORDER BY c.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, object, author string
-				var body []byte
-				var generation int64
-				err := rows.Scan(&id, &object, &author, &body, &generation)
-				return map[string]any{"id": id, "objectId": object, "authorUserId": author, "bodyCiphertext": base64.StdEncoding.EncodeToString(body), "keyGeneration": generation}, err
-			}},
-			{"attachments", `SELECT a.id,group_concat(DISTINCT ar.object_id),a.metadata_ciphertext,a.key_generation FROM attachments a JOIN attachment_refs ar ON ar.attachment_id=a.id JOIN objects o ON o.id=ar.object_id AND o.deleted_at='' WHERE a.container_id=?1 AND a.deleted_at='' AND a.key_generation<?2 GROUP BY a.id ORDER BY a.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, objects string
-				var generation int64
-				var meta []byte
-				err := rows.Scan(&id, &objects, &meta, &generation)
-				return map[string]any{"id": id, "objectIds": strings.Split(objects, ","), "metadataCiphertext": base64.StdEncoding.EncodeToString(meta), "keyGeneration": generation}, err
-			}},
-			{"conflicts", `SELECT f.id,f.object_id,f.key_generation FROM conflicts f JOIN objects o ON o.id=f.object_id AND o.deleted_at='' WHERE f.container_id=?1 AND f.resolved_at='' AND f.key_generation<?2 ORDER BY f.id LIMIT ?3`, func(rows *sql.Rows) (map[string]any, error) {
-				var id, object string
-				var generation int64
-				err := rows.Scan(&id, &object, &generation)
-				return map[string]any{"id": id, "objectId": object, "keyGeneration": generation}, err
-			}},
-		}
-		out := map[string]any{"complete": true}
-		for _, kind := range kinds {
-			list, complete, err := legacyRows(db, kind.query, cid, shared, kind.scan)
-			if err != nil {
-				WriteError(w, r, 500, "internal", "internal server error")
-				return
-			}
-			out[kind.name] = list
-			if !complete {
-				out["complete"] = false
-			}
-		}
-		writeJSON(w, out)
-	})))
 	// Visible to the user, to anyone sharing a live container with them, and to a
 	// team or project owner/admin holding a pending invitation for them. Everyone
 	// else gets the same 404, so the route is no liveness oracle for strangers.
@@ -584,32 +471,4 @@ func moveInvitationEnvelopesTx(tx *sql.Tx, invitationID, invitee, now string) er
 	}
 	_, err = tx.Exec(`DELETE FROM invitation_envelopes WHERE invitation_id=?`, invitationID)
 	return err
-}
-
-// legacyListMax bounds each kind of row GET /containers/{id}/legacy returns; a longer list is
-// reported with complete=false, and the web client then never stops reading legacy rows on its own.
-const legacyListMax = 1000
-
-// legacyRows reads up to legacyListMax rows of one kind; complete is false when there were more.
-func legacyRows(db *sql.DB, query, cid string, shared int64, scan func(*sql.Rows) (map[string]any, error)) ([]map[string]any, bool, error) {
-	rows, err := db.Query(query, cid, shared, legacyListMax+1)
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		row, err := scan(rows)
-		if err != nil {
-			return nil, false, err
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-	if len(out) > legacyListMax {
-		return out[:legacyListMax], false, nil
-	}
-	return out, true, nil
 }
