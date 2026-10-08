@@ -1631,18 +1631,18 @@ Rules:
   moves envelopes already authorized at insertion.
   Accept rechecks, in the membership transaction, that the inviter is still an
   owner or admin of the live container (`404` otherwise), installs the
-  envelopes still at their generation and drops the rest. A consumed or void
-  invitation is `404`; an existing membership row anywhere in the team scope
-  is `409`.
+  envelopes still at their generation and drops the rest. The invitation is
+  read inside that transaction: a consumed, expired, void or other account's
+  invitation is `404`. A live membership anywhere in the team scope is `409`;
+  rows a removal revoked are reactivated with the invitation's role and no keys.
+  The server-admin add route admits the same way (`admitMemberTx`).
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
 * **Known limits** (P2): creating a team invitation to a known user ID reveals
   whether that user is active (invitation creation is not rate-limited);
   invitations may be created without envelopes, and the new member cannot
-  write until a steward's sweep supplies them; a removed member keeps a revoked
-  membership row, so re-inviting them ends in `409`; an admin may invite a peer
-  as admin and then cannot remove them; invitation expiry is not rechecked
-  inside the accept transaction; envelopes of expired, never-accepted
+  write until a steward's sweep supplies them; an admin may invite a peer
+  as admin and then cannot remove them; envelopes of expired, never-accepted
   invitations persist until the invitation row is deleted.
 * **Known limit** (P3a): the server sees `authSecret`, so it can derive a
   member's legacy content key and forge a row in a shared container labelled
@@ -1666,6 +1666,8 @@ Tests:
 - `TestCollaboratorRemovalRulesAndAcceptOutcomes`
 - `TestInvitationEnvelopesMoveOnlyAtTheirGeneration`
 - `TestInvitationsDieWithTheirStewardship`
+- `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`
+- `TestRemovedMemberIsReadmittedByReactivation`
 - `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`

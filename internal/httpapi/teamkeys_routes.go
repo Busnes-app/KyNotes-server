@@ -391,6 +391,30 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 	return nil
 }
 
+// admitMemberTx makes userID a member of cid and its live child workspaces with
+// role. Rows a removal revoked are reactivated (the unique index keeps one row
+// per container and user) and keep no keys; errMembershipExists when any row in
+// the team scope is live.
+func admitMemberTx(tx *sql.Tx, cid, userID, role, now string) error {
+	var live int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, userID, cid).Scan(&live); err != nil {
+		return err
+	}
+	if live > 0 {
+		return errMembershipExists
+	}
+	const scope = `(SELECT id FROM containers WHERE (id=?2 OR team_id=?2) AND deleted_at='')`
+	for _, q := range []string{
+		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='' WHERE user_id=?1 AND container_id IN ` + scope,
+		`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
+	} {
+		if _, err := tx.Exec(q, userID, cid, role, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type invitationEnvelopeIn struct {
 	ContainerID string `json:"containerId"`
 	envelopeIn

@@ -96,14 +96,17 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		membershipID, _ := ids.Mint("mem")
+		cid := r.PathValue("id")
 		now := time.Now().UTC().Format(time.RFC3339)
 		if err := dbTx(db, func(tx *sql.Tx) error {
-			if _, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, membershipID, r.PathValue("id"), in.UserID, in.Role, now, r.PathValue("id"), in.UserID); err != nil {
+			var ok bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, cid, in.UserID).Scan(&ok); err != nil {
 				return err
 			}
-			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, in.UserID, in.Role, now, r.PathValue("id"))
-			return err
+			if !ok {
+				return sql.ErrNoRows
+			}
+			return admitMemberTx(tx, cid, in.UserID, in.Role, now)
 		}); err != nil {
 			WriteError(w, r, 409, "already_exists", "unable to add member")
 			return
