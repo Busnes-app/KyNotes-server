@@ -410,7 +410,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   objects), and in-progress edits queue at generation 0, resealed on arrival, never uploaded at 0. The
   drain uploads an entry only through `readyToSend` (`web/src/drain.ts`): as is only when sealed for the
   current `writeKeyFor` generation and not a `legacyRow` under the floor, otherwise re-sealed from its own
-  generation's key first, or kept queued while no write key exists; queue
+  generation's key first, or kept queued while no write key exists. Every container-key or login-key
+  ciphertext upload (object saves, attachment start/chunks/finalize, comments, container names) goes
+  through the `web/src/outbound.ts` gate, which re-checks the sealing generation against `floorOf` and
+  the workspace's `writeKeyFor` right before the request; pending attachments pass `attachmentStep`
+  (wait or reseal payload and metadata) before the first chunk, and `outbound.test.ts` fails if any other
+  module calls those API functions; queue
   replacements go through `replaceQueuedSave` (compare-and-set). A password change re-seals them
   (`resealWaitingEdits`). Legacy-key rows in a shared container (`legacyRow`) are server-forgeable until
   P4: `readKeys` and the label share that one decision (generation 0 included), and `api.ts`

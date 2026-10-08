@@ -14,15 +14,12 @@ import {
   checkSetup,
   comments,
   createAdminUser,
-  createComment,
   createObject,
-  createUpload,
   deleteUpload,
   createSealedShareLink,
   deleteObject,
   downloadAttachment,
   fetchShareCiphertext,
-  finalizeUpload,
   inviteMember,
   login,
   loginParams,
@@ -43,15 +40,12 @@ import {
   removeMember,
   resetAdminPassword,
   saveAdminSSO,
-  saveObject,
   serviceStatus,
   session,
   setupInit,
   ssoConfig,
   updateAdminUser,
-  updateContainer,
   updatePresence,
-  uploadChunk,
   uploadStatus,
   type AdminTeam,
   type AdminUser,
@@ -62,9 +56,10 @@ import {
   identityAPI,
 } from "./api";
 import { ensureIdentity, rewrapIdentity, type HeldIdentity, type IdentityRecord } from "./identity";
-import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey } from "./keyring";
+import { copyableConflicts, keysAllowed, legacyRow, movesLabelledSubpage, NO_FLOOR, type KeyFloor, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
 import { syncContainerKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
-import { readyToSend } from "./drain";
+import { attachmentStep, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
+import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -81,8 +76,6 @@ import {
   type LoginKeys,
   digestSha256Hex,
   encryptComment,
-  encryptAttachment,
-  encryptAttachmentMetadata,
   encryptContainerMeta,
   encryptNote,
   encryptSharePayload,
@@ -660,10 +653,12 @@ function Workspace({
     return floor ? readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
   };
   const legacyRowFor = (container: Container, generation: number | undefined) => legacyRow(container, generation, floorFor(container) ?? NO_FLOOR);
-  const writeKeyFor = (container: Container) => {
+  const writeKeyFor = (container: ReportedContainer) => {
     const floor = floorFor(container);
     return floor && keysAllowed(container, floor) ? writeKey(container, ringsRef.current[container.id] ?? noKeys, legacy, floor) : undefined;
   };
+  // The outbound gate (outbound.ts) re-checks every ciphertext upload against this at send time.
+  useEffect(() => setWriteKeySource(writeKeyFor), [legacy]);
   /** Local copies: the write key, or the waiting seal that only this device can send later. */
   const localKeyFor = (container: Container) => writeKeyFor(container) ?? { key: legacy, generation: WAITING_GENERATION };
   /** The server reported an older sharing state than this device has seen: writes are paused. */
@@ -822,7 +817,7 @@ function Workspace({
         setNames((value) => ({ ...value, [container.id]: shown }));
       }
       const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
-      const result = await updateContainer(container.id, encoded, latest.metaVersion, write.generation);
+      const result = await sendContainerName({ container: latest, generation: write.generation }, encoded, latest.metaVersion);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
       // Visible on purpose: a name read with a key the server can derive now reaches every member (spec §6).
       return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, `Shared this notebook's name with members: ${name}.`];
@@ -1364,7 +1359,7 @@ function Workspace({
       if (!write) throw new Error("This notebook is waiting for keys");
       const encrypted = await encryptContainerMeta(write.key, container.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
-      const result = await updateContainer(container.id, encoded, container.metaVersion, write.generation);
+      const result = await sendContainerName({ container, generation: write.generation }, encoded, container.metaVersion);
       const named = {
         ...container,
         metaCiphertext: encoded,
@@ -1393,7 +1388,7 @@ function Workspace({
       if (!write) throw new Error("This team notebook is waiting for keys");
       const encrypted = await encryptContainerMeta(write.key, container.id, name);
       const encoded = btoa(String.fromCharCode(...encrypted));
-      const result = await updateContainer(container.id, encoded, container.metaVersion, write.generation);
+      const result = await sendContainerName({ container, generation: write.generation }, encoded, container.metaVersion);
       const named = { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
       setNames((value) => ({ ...value, [named.id]: name }));
       setItems((value) => [...value, named]);
@@ -1417,7 +1412,7 @@ function Workspace({
       const encrypted = await encryptContainerMeta(write.key, fresh.id, name);
       const encoded = base64(encrypted);
       // The tab's base version keeps a concurrent rename a conflict instead of overwriting it.
-      const result = await updateContainer(fresh.id, encoded, selected.metaVersion, write.generation);
+      const result = await sendContainerName({ container: fresh, generation: write.generation }, encoded, selected.metaVersion);
       const next = {
         ...fresh,
         metaCiphertext: encoded,
@@ -1485,7 +1480,7 @@ function Workspace({
         return note;
       }
       try {
-        const result = await saveObject(note.id, encrypted, note.version, write.generation);
+        const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version);
         await clearQueuedSave(note.id);
         markLegacy([note.id], false);
         setCommitToastAt(Date.now());
@@ -1517,8 +1512,8 @@ function Workspace({
           await queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation });
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
-          // The notebook's key generation moved on: the queue re-encrypts the change for it.
-          if (error instanceof APIRequestError && error.code === "already_exists") void drainQueue();
+          // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
+          if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
           else setError("Saved locally; encrypted change queued for the server.");
         }
       }
@@ -1574,8 +1569,8 @@ function Workspace({
             remaining = true;
             continue;
           }
-          item = ready;
-          const result = await saveObject(item.id, item.payload, item.version, ready.keyGeneration!);
+          item = ready.item;
+          const result = await sendObject({ container: ready.container, generation: item.keyGeneration! }, item.id, item.payload, item.version);
           // A newer save of the same page may have been queued while this one was in flight.
           await replaceQueuedSave(item);
           const saved = { version: result.version, updatedAt: item.updatedAt };
@@ -1615,15 +1610,16 @@ function Workspace({
    * ponytail: an edit for a notebook this user lost, or sealed under a password changed in another
    * browser, never opens and waits here forever (N1). Upgrade: P3b key-status UI with discard/export.
    */
-  async function sendable(item: PendingSave, synced: Map<string, Promise<Container>>): Promise<PendingSave | undefined> {
+  async function sendable(item: PendingSave, synced: Map<string, Promise<Container>>): Promise<{ item: PendingSave; container: Container } | undefined> {
     // One background key pass per container per drain; it never opens a dialog.
     if (!synced.has(item.containerID)) synced.set(item.containerID, currentContainer(item.containerID).then((found) => syncKeys(found, true)));
     const container = await synced.get(item.containerID)!;
     adoptGenerations(container);
     const ready = await readyToSend(item, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, legacy);
     // A re-sealed copy replaces the entry only while it is still the one read: a newer save stays.
-    if (!ready || ready === item) return ready;
-    return (await replaceQueuedSave(item, ready)) ? ready : undefined;
+    if (!ready) return undefined;
+    if (ready === item || (await replaceQueuedSave(item, ready))) return { item: ready, container };
+    return undefined;
   }
   async function remove(note: Note) {
     if (readOnlyForKeys() || !confirm("Delete this page?")) return;
@@ -1666,7 +1662,7 @@ function Workspace({
       return null;
     }
     try {
-      const result = await saveObject(id, encrypted, version, write.generation);
+      const result = await sendObject({ container: selected, generation: write.generation }, id, encrypted, version);
       await clearQueuedSave(id);
       markLegacy([id], false);
       carryDuringLoad(id, { version: result.version, updatedAt });
@@ -1680,7 +1676,7 @@ function Workspace({
         await queueSave({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation });
         syncChannel.current?.postMessage({ type: "queued", id });
         setSyncStatus("local");
-        if (error instanceof APIRequestError && error.code === "already_exists") void drainQueue();
+        if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
       }
       return null;
     }
@@ -2012,17 +2008,31 @@ function Workspace({
     persistDraft(next);
   }
   /** Encrypts a file for the container's current key and registers a resumable upload for it. */
-  async function sealUpload(container: Container, objectID: string, objectVersion: number, plaintext: Uint8Array, file: { name: string; type: string; size: number }): Promise<PendingUpload> {
+  async function sealUpload(container: Container, objectID: string, objectVersion: number, plaintext: Uint8Array, file: AttachmentFile): Promise<PendingUpload> {
     const write = writeKeyFor(container);
-    if (!write) throw new Error("This notebook is waiting for a team owner to share its keys");
-    const encrypted = await encryptAttachment(write.key, container.id, plaintext);
-    const upload = await createUpload(container.id, encrypted.byteLength, await digestSha256Hex(encrypted));
-    const metadata = await encryptAttachmentMetadata(write.key, container.id, file);
-    const job = { uploadId: upload.uploadId, containerID: container.id, objectID, objectVersion, keyGeneration: write.generation, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, payload: encrypted, metadataCiphertext: base64(metadata), name: file.name, type: file.type, size: file.size };
+    if (!write) throw new KeysWaitingError();
+    const sealed = await sealAttachment(write, container.id, plaintext, file);
+    const upload = await sendUploadStart({ container, generation: sealed.keyGeneration }, sealed.payload.byteLength, await digestSha256Hex(sealed.payload));
+    const job = { uploadId: upload.uploadId, containerID: container.id, objectID, objectVersion, ...sealed, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, name: file.name, type: file.type, size: file.size };
     await putUpload(job);
     return job;
   }
-  async function uploadPending(job: PendingUpload, resealed = false): Promise<string> {
+  /** Replaces a pending upload sealed for a retired key with one sealed for the current key. */
+  async function resealUpload(job: PendingUpload, container: Container, plaintext: Uint8Array, file: AttachmentFile): Promise<PendingUpload> {
+    const next = await sealUpload(container, job.objectID, job.objectVersion, plaintext, file);
+    await deleteUpload(job.uploadId).catch(() => undefined);
+    await clearUpload(job.uploadId);
+    setUploadProgress((value) => { const rest = { ...value }; delete rest[job.uploadId]; return rest; });
+    return next;
+  }
+  async function uploadPending(job: PendingUpload, tries = 0): Promise<{ id: string; keyGeneration: number }> {
+    if (tries > 1) throw new KeysWaitingError();
+    // Before the first chunk: the job must still be sealed for this notebook's current key and floor.
+    const container = await syncKeys(await currentContainer(job.containerID), true);
+    const step = await attachmentStep(job, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, legacy);
+    if (step.kind === "wait") throw new KeysWaitingError();
+    if (step.kind === "reseal") return uploadPending(await resealUpload(job, container, step.plaintext, step.file), tries + 1);
+    const sealed = { container, generation: job.keyGeneration };
     const status = await uploadStatus(job.uploadId);
     let nextChunk = status.nextChunk;
     let offset = nextChunk * job.chunkBytes;
@@ -2030,32 +2040,24 @@ function Workspace({
     while (offset < job.payload.byteLength) {
       if (cancelledUploads.current.has(job.uploadId)) throw new Error("Upload cancelled");
       const chunk = job.payload.slice(offset, offset + job.chunkBytes);
-      const result = await uploadChunk(job.uploadId, nextChunk, chunk);
+      const result = await sendUploadChunk(sealed, job.uploadId, nextChunk, chunk);
       nextChunk = result.nextChunk;
       offset += chunk.byteLength;
       await putUpload({ ...job, nextChunk });
       setUploadProgress((value) => ({ ...value, [job.uploadId]: { name: job.name, uploaded: result.receivedBytes, total: job.payload.byteLength } }));
     }
-    let finalized: Awaited<ReturnType<typeof finalizeUpload>>;
+    let finalized: Awaited<ReturnType<typeof sendUploadFinal>>;
     try {
-      finalized = await finalizeUpload(job.uploadId, job.metadataCiphertext, job.keyGeneration);
+      finalized = await sendUploadFinal(sealed, job.uploadId, job.metadataCiphertext);
     } catch (error) {
-      if (resealed || !(error instanceof APIRequestError && error.code === "already_exists")) throw error;
-      // The key generation moved during the upload: re-seal the file for the current key and send it again.
-      const container = await syncKeys(await currentContainer(job.containerID), true);
-      const keys = readKeysFor(container, job.keyGeneration);
-      const plaintext = await openFirst(keys, (key) => decryptAttachment(key, job.containerID, job.payload));
-      const file = await openFirst(keys, (key) => decryptAttachmentMetadata(key, job.containerID, fromBase64(job.metadataCiphertext)));
-      const next = await sealUpload(container, job.objectID, job.objectVersion, plaintext, file);
-      await deleteUpload(job.uploadId).catch(() => undefined);
-      await clearUpload(job.uploadId);
-      setUploadProgress((value) => { const rest = { ...value }; delete rest[job.uploadId]; return rest; });
-      return uploadPending(next, true);
+      if (!(error instanceof APIRequestError && error.code === "already_exists")) throw error;
+      // The key generation moved during the upload: the next attempt re-reads it and re-seals first.
+      return uploadPending(job, tries + 1);
     }
     await attachToObject(job.objectID, finalized.attachmentId, job.objectVersion);
     await clearUpload(job.uploadId);
     setUploadProgress((value) => { const next = { ...value }; delete next[job.uploadId]; return next; });
-    return finalized.attachmentId;
+    return { id: finalized.attachmentId, keyGeneration: job.keyGeneration };
   }
   async function resumeUploads() {
     if (drainingUploads.current) return;
@@ -2088,8 +2090,9 @@ function Workspace({
   async function uploadAttachment(file: File): Promise<PlainAttachment> {
     if (!selected || !selectedNote) throw new Error("Select a note first");
       const job = await sealUpload(selected, selectedNote.id, selectedNote.version, new Uint8Array(await file.arrayBuffer()), { name: file.name, type: file.type, size: file.size });
-      const attachmentID = await uploadPending(job);
-      return { id: attachmentID, name: file.name, type: file.type, size: file.size, keyGeneration: job.keyGeneration };
+      // A re-sealed upload reports the generation it was actually sent under.
+      const uploaded = await uploadPending(job);
+      return { id: uploaded.id, name: file.name, type: file.type, size: file.size, keyGeneration: uploaded.keyGeneration };
   }
   async function addAttachment(file: File) {
     if (!selected || !selectedNote || readOnlyForKeys()) return;
@@ -2143,7 +2146,7 @@ function Workspace({
       if (!write) throw new Error("This notebook is waiting for a team owner to share its keys");
       const encrypted = await encryptComment(write.key, selected.id, commentText.trim(), commentSection.trim());
       try {
-        await createComment(selectedNote.id, base64(encrypted), write.generation);
+        await sendComment({ container: selected, generation: write.generation }, selectedNote.id, base64(encrypted));
       } catch (error) {
         if (!(error instanceof APIRequestError && error.code === "already_exists")) throw error;
         // The notebook was re-keyed meanwhile: pick up the new key; the text stays in the box.
@@ -2930,7 +2933,7 @@ function AdminTeams({ users, authSecret, username, userID }: { users: AdminUser[
     if (!floor) throw new Error("This browser could not check whether this team is shared. Try again.");
     if (entry.sharedGeneration || floor.shared || entry.keyGeneration === undefined) throw new Error("Shared teams are renamed from the team notebook.");
     const encoded = base64(await encryptContainerMeta(legacy, entry.id, name));
-    await updateContainer(entry.id, encoded, entry.metaVersion ?? 0, entry.keyGeneration);
+    await sendContainerName({ container: { id: entry.id, kind: entry.kind, keyGeneration: entry.keyGeneration, sharedGeneration: entry.sharedGeneration ?? 0 }, generation: entry.keyGeneration }, encoded, entry.metaVersion ?? 0);
   }
   async function createTeam() {
     const name = prompt("Team name", "New team")?.trim();
