@@ -101,7 +101,8 @@ func TestReadyzFailsBeforeMigrations(t *testing.T) {
 }
 
 func TestNoUserDataRouteIsRegistered(t *testing.T) {
-	for _, path := range []string{"/api/v1/users", "/api/v1/search", "/api/v1/markdown"} {
+	// /api/v1/users/{id}/identity is the only per-user route: public key and fingerprint.
+	for _, path := range []string{"/api/v1/users", "/api/v1/users/usr_0123456789abcdefghjkmnpqrs", "/api/v1/search", "/api/v1/markdown"} {
 		w := httptest.NewRecorder()
 		testRouter(1024).ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 		if w.Code == http.StatusOK {

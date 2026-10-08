@@ -150,6 +150,22 @@ re-wraps the identity in the same transaction; recovery and administrator
 password resets delete it and write an audit row. SSO-only users have no
 password, hence no `userKEK` and no identity yet (open question).
 
+An owner or admin mints a container's content key for each key generation
+through `POST /containers/{id}/key-rotations`. In one transaction it advances
+the generation and installs envelopes for the caller and every active member
+identity. Envelopes are insert-only per container, generation and recipient.
+The one exception is a member's own identity envelope, which that member may
+re-wrap but never write first: a steward or an accepted invitation supplies
+it. Recipients must be live devices or identities of active members. Any member
+may write envelopes for its own paired devices; owners and admins may write for
+any member. Envelope writes and rotations need a local password step-up; SSO
+sessions are refused. The save gate depends on whether the container has ever
+rotated (`containers.shared_generation`). Until it has, every member's paired
+device needs an envelope at the current generation, as before. Afterwards, the
+writer's own identity needs one. Both gates also need a live membership, and
+the write transaction checks them again. Object saves also recheck the writer's
+role there; comment and attachment writes recheck only the gate.
+
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks
 equality of identical encrypted attachments; the tradeoff is documented in
@@ -198,7 +214,15 @@ replaced after successful recovery. Existing devices must be enrolled again.
 
 Team content uses team-specific keys. Membership changes rotate keys for future
 content and re-wrap them for the remaining members. Removed members cannot
-decrypt new content after revocation.
+decrypt new content after revocation. Removing a member, whether by a team
+owner or admin or by a server administrator, revokes the team and child-workspace
+memberships, advances their key generations, deletes the member's envelopes and
+device selections there, and deletes the pending invitations that member issued.
+A steward then rotates to a new key for the remaining members. An invitation may
+carry envelopes for the invitee's identity; creating it then needs the same
+password step-up as a direct envelope write. They are installed when the
+invitation is accepted, only while the generation is unchanged and the inviter
+is still an owner or admin of the live container.
 
 Previously downloaded plaintext cannot be recalled. This is an inherent limit
 of end-to-end encryption and is treated as best-effort revocation.

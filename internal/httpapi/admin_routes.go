@@ -117,12 +117,21 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
 		}
-		if _, err := db.Exec(`UPDATE memberships SET revoked_at=? WHERE container_id=? AND user_id=? AND role<>'owner' AND revoked_at=''`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), r.PathValue("userID")); err != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		cid, target := r.PathValue("id"), r.PathValue("userID")
+		if ids.Validate("cnt", cid) != nil || ids.Validate("usr", target) != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		recordAudit(db, s.UserID, "admin.team.member_remove", r.PathValue("id"), r.PathValue("userID"), r.Header.Get("X-Request-Id"))
+		err := dbTx(db, func(tx *sql.Tx) error {
+			if err := removeMemberTx(tx, cid, target); err != nil {
+				return err
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "admin.team.member_remove", cid, target, "success", "", RequestID(r))
+		})
+		if writeTeamKeyError(w, r, err) {
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("POST /api/v1/admin/users", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

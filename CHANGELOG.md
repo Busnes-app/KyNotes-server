@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Team keys phase 2 (server rules): `POST /api/v1/containers/{id}/key-rotations`, insert-only
+  envelopes (own identity re-wrap only), member-self envelope writes, envelope writes and rotations
+  behind a local password step-up (SSO sessions refused), the identity-based save gate for rotated
+  containers (migration 0022), invitation envelopes, `PUT /api/v1/comments/{id}` and
+  `GET /api/v1/users/{id}/identity`. `DELETE /api/v1/admin/teams/{id}/members/{userID}` now
+  rotates like owner removal and answers `404 not_found` for a user who is not an active
+  non-owner member (it answered 204 before). `kynotes-probe` keeps a random device key in the user
+  cache dir (`-device-key` overrides) and revokes its device at the end of each run.
 - Team keys phase 1: each local-password user gets an X25519 identity key, created silently at
   login or `/setup` and wrapped under a key derived from the password (migration 0021). Password
   change now re-wraps it; a web bundle from before this release cannot change the password of a

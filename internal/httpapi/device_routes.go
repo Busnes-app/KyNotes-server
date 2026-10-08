@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-// missingEnvelopesSQL is the save gate: members' devices lacking an envelope at
-// the current generation. Identity rows are excluded until phase 2 replaces it.
-const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
-
 func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.Handle("GET /api/v1/devices/{id}/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
@@ -136,73 +132,37 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		writeJSON(w, out)
 	})))
-	mux.Handle("PUT /api/v1/containers/{id}/envelopes", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PUT /api/v1/containers/{id}/envelopes", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
 		}
-		if s, _ := auth.SessionFromContext(r); time.Since(s.CreatedAt) >= 5*time.Minute {
-			WriteError(w, r, 403, "forbidden", "re-authentication required")
-			return
-		}
 		s, _ := auth.SessionFromContext(r)
 		cid := r.PathValue("id")
-		if ids.Validate("cnt", cid) != nil {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		var role string
-		if db.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil || (role != "owner" && role != "admin") {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		var generation int
-		if db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
 		var in struct {
-			Envelopes []struct {
-				DeviceID      string `json:"deviceId"`
-				KeyGeneration int    `json:"keyGeneration"`
-				Alg           string `json:"alg"`
-				Envelope      string `json:"envelope"`
-			} `json:"envelopes"`
+			Envelopes []envelopeIn `json:"envelopes"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
+		if ids.Validate("cnt", cid) != nil || json.NewDecoder(r.Body).Decode(&in) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
-		e := dbTx(db, func(tx *sql.Tx) error {
+		err := dbTx(db, func(tx *sql.Tx) error {
+			now := time.Now().UTC()
+			if err := auth.RecheckUserStepUpTx(tx, s, now); err != nil {
+				return err
+			}
+			role, generation, err := memberTx(tx, cid, s.UserID)
+			if err != nil {
+				return err
+			}
 			for _, v := range in.Envelopes {
-				if v.Alg != "x25519-hkdf-sha256-chacha20poly1305" {
-					return errors.New("algorithm")
-				}
-				env, e := base64.StdEncoding.DecodeString(v.Envelope)
-				if e != nil || len(env) > 4096 || ids.Validate("dev", v.DeviceID) != nil {
-					return errors.New("envelope")
-				}
-				var deviceUser string
-				if e = tx.QueryRow(`SELECT user_id FROM devices WHERE id=? AND revoked_at=''`, v.DeviceID).Scan(&deviceUser); e != nil || deviceUser == "" {
-					return errors.New("device")
-				}
-				var member int
-				if e = tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, deviceUser).Scan(&member); e != nil || member == 0 {
-					return errors.New("membership")
-				}
-				if v.KeyGeneration != generation {
-					return errors.New("generation")
-				}
-				id, _ := ids.Mint("env")
-				if _, e = tx.Exec(`INSERT OR REPLACE INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES(?,?,?,?,?,?,?)`, id, cid, v.DeviceID, v.KeyGeneration, v.Alg, env, now); e != nil {
-					return e
+				if err := insertEnvelopeTx(tx, cid, generation, s.UserID, role, v, now.Format(time.RFC3339)); err != nil {
+					return err
 				}
 			}
 			return nil
 		})
-		if e != nil {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
+		if writeTeamKeyError(w, r, err) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

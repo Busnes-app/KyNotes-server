@@ -267,14 +267,7 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return
 			}
-			var generation int64
-			if db.QueryRow(`SELECT key_generation FROM containers WHERE id=?`, cid).Scan(&generation) != nil || in.KeyGeneration != generation {
-				WriteError(w, r, 409, "already_exists", "key rotation incomplete")
-				return
-			}
-			var missing int
-			if db.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing) != nil || missing > 0 {
-				WriteError(w, r, 409, "already_exists", "key rotation incomplete")
+			if writeTeamKeyError(w, r, checkWriteGate(db, cid, s.UserID, in.KeyGeneration)) {
 				return
 			}
 			meta, decodeErr := base64.StdEncoding.DecodeString(in.MetadataCiphertext)
@@ -332,6 +325,9 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			_ = db.QueryRow(`SELECT finalized_digest FROM upload_sessions WHERE id=? AND user_id=? AND container_id=? AND kind='preview' AND status='finalized'`, in.PreviewUploadID, s.UserID, cid).Scan(&previewDigest)
 		}
 		e = dbTx(db, func(tx *sql.Tx) error {
+			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration); e != nil {
+				return e
+			}
 			if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now); e != nil {
 				return e
 			}
@@ -350,8 +346,7 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			_, e = tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
 			return e
 		})
-		if e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		writeJSON(w, map[string]any{"attachmentId": att, "digest": digest, "bytes": size})

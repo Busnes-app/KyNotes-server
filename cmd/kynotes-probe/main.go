@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -13,16 +15,20 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
 const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
 
 type client struct {
 	base, user, password, config  string
+	authSecret, keyPath           string
+	deviceKey                     *ecdh.PrivateKey
 	server                        string
 	hc                            *http.Client
 	cookies                       []*http.Cookie
@@ -38,16 +44,86 @@ func main() {
 	password := flag.String("password", "", "password")
 	config := flag.String("config", "/data/kynotes.yaml", "server config path")
 	server := flag.String("server", "kynotes-server", "server binary for maintenance checks")
+	keyPath := flag.String("device-key", "", "device private key file (default: user cache dir, per server URL and username)")
 	flag.Parse()
-	p := &client{base: strings.TrimRight(*base, "/"), user: *user, password: *password, config: *config, server: *server, hc: &http.Client{Timeout: 30 * time.Second}}
+	p := &client{base: strings.TrimRight(*base, "/"), user: *user, password: *password, config: *config, server: *server, keyPath: *keyPath, hc: &http.Client{Timeout: 30 * time.Second}}
+	if p.keyPath == "" {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "device key: %v\n", err)
+			os.Exit(1)
+		}
+		sum := sha256.Sum256([]byte(p.base + "\x00" + p.user))
+		p.keyPath = filepath.Join(cache, "kynotes-probe", hex.EncodeToString(sum[:])+".key")
+	}
 	steps := []func() error{p.login, p.pair, p.envelope, p.selectContainer, p.saveAndRead, p.conflict, p.upload, p.dedup, p.download, p.preview, p.catchUp, p.deleteAndGC}
 	for i, step := range steps {
 		if err := step(); err != nil {
 			fmt.Fprintf(os.Stderr, "step %d failed: %v\n", i+1, err)
+			if p.deviceID != "" {
+				_ = p.revokeDevice()
+			}
 			os.Exit(1)
 		}
 		fmt.Printf("step %d ok\n", i+1)
 	}
+	if err := p.revokeDevice(); err != nil {
+		fmt.Fprintf(os.Stderr, "revoke probe device: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("probe device revoked")
+}
+
+// loadOrCreateDeviceKey returns the probe's random X25519 device key, created
+// once (0600, in a 0700 directory) so re-runs re-pair the same device.
+func loadOrCreateDeviceKey(path string) (*ecdh.PrivateKey, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	if info, err := os.Stat(path); err == nil {
+		if info.Mode().Perm() != 0o600 {
+			return nil, fmt.Errorf("%s: mode %o, want 600", path, info.Mode().Perm())
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return ecdh.X25519().NewPrivateKey(raw)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	key, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = f.Write(key.Bytes()); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return nil, err
+	}
+	return key, nil
+}
+
+// revokeDevice logs in again (revocation needs a session under five minutes
+// old) and revokes the probe device so no steward keeps wrapping keys to it.
+func (p *client) revokeDevice() error {
+	if err := p.login(); err != nil {
+		return err
+	}
+	res, err := p.request(http.MethodDelete, "/api/v1/devices/"+p.deviceID, nil, nil, false)
+	if err != nil {
+		return err
+	}
+	return requireStatus(res, http.StatusNoContent)
 }
 
 func (p *client) request(method, path string, body []byte, headers map[string]string, device bool) (*http.Response, error) {
@@ -126,11 +202,10 @@ func (p *client) login() error {
 	if err = decode(res, &params); err != nil {
 		return err
 	}
-	secret, err := auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations)
-	if err != nil {
+	if p.authSecret, err = auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations); err != nil {
 		return err
 	}
-	res, err = p.request(http.MethodPost, "/api/v1/auth/login", []byte(fmt.Sprintf(`{"username":%q,"authSecret":%q}`, p.user, secret)), nil, false)
+	res, err = p.request(http.MethodPost, "/api/v1/auth/login", []byte(fmt.Sprintf(`{"username":%q,"authSecret":%q}`, p.user, p.authSecret)), nil, false)
 	if err != nil {
 		return err
 	}
@@ -164,7 +239,10 @@ func (p *client) pair() error {
 	if err = decode(res, &token); err != nil {
 		return err
 	}
-	publicKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	if p.deviceKey, err = loadOrCreateDeviceKey(p.keyPath); err != nil {
+		return err
+	}
+	publicKey := base64.StdEncoding.EncodeToString(p.deviceKey.PublicKey().Bytes())
 	body := []byte(fmt.Sprintf(`{"pairingToken":%q,"publicKey":%q,"platform":"unknown","labelCiphertext":""}`, token.Token, publicKey))
 	res, err = p.request(http.MethodPost, "/api/v1/devices/register", body, nil, false)
 	if err != nil {
@@ -184,25 +262,57 @@ func (p *client) pair() error {
 	return nil
 }
 
+// envelope steps up, installs a real envelope for the paired device, proves the
+// device opens it, and proves a second envelope for that recipient is refused.
 func (p *client) envelope() error {
-	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":1,"alg":%q,"envelope":%q}]}`, p.deviceID, envelopeAlg, base64.StdEncoding.EncodeToString([]byte("encrypted-envelope"))))
-	res, err := p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false)
+	res, err := p.request(http.MethodPost, "/api/v1/auth/step-up", []byte(fmt.Sprintf(`{"authSecret":%q}`, p.authSecret)), nil, false)
 	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("step-up status %d", res.StatusCode)
+	}
+	contentKey := make([]byte, 32)
+	if _, err = rand.Read(contentKey); err != nil {
+		return err
+	}
+	sealed, err := teamkeys.SealEnvelope(contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, 1, p.deviceID)
+	if err != nil {
+		return err
+	}
+	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":1,"alg":%q,"envelope":%q}]}`, p.deviceID, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false); err != nil {
 		return err
 	}
 	if err = requireStatus(res, http.StatusNoContent); err != nil {
 		return err
 	}
-	res, err = p.request(http.MethodGet, "/api/v1/containers/"+p.containerID+"/envelopes", nil, nil, true)
-	if err != nil {
+	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false); err != nil {
 		return err
 	}
-	var envelopes []map[string]any
+	if err = requireStatus(res, http.StatusConflict); err != nil {
+		return fmt.Errorf("second envelope for one recipient: %w", err)
+	}
+	if res, err = p.request(http.MethodGet, "/api/v1/containers/"+p.containerID+"/envelopes", nil, nil, true); err != nil {
+		return err
+	}
+	var envelopes []struct {
+		Envelope string `json:"envelope"`
+	}
 	if err = decode(res, &envelopes); err != nil {
 		return err
 	}
 	if len(envelopes) != 1 {
 		return fmt.Errorf("device read returned %d envelopes", len(envelopes))
+	}
+	raw, err := base64.StdEncoding.DecodeString(envelopes[0].Envelope)
+	if err != nil {
+		return err
+	}
+	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, 1, p.deviceID)
+	if err != nil || !bytes.Equal(opened, contentKey) {
+		return fmt.Errorf("device could not open its envelope: %v", err)
 	}
 	return nil
 }
