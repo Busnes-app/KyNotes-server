@@ -423,8 +423,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
   pass then stops before upload (plan `untrusted`). A pass that stops on a pin it could not keep
   (declined, unsaved or conflicting) re-opens against the stored pins (`persistedOnly`) and returns, and
-  saves key memory from, only that; if a first-contact pin is still unstored it returns the previously
-  held ring and saves nothing, so a refused sender's key is never adopted or remembered.
+  saves key memory from, only that; if a first-contact pin is still unstored it returns only held keys
+  matching the stored digests and re-saves the prior key memory with the raised floor, so a refused
+  sender's key is never adopted or remembered and `keyStateSaved` reports that save.
   Server: containers report `sharedGeneration`; shared containers refuse writes without
   `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
   and `baseVersion` in its transaction; conflict

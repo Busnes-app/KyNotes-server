@@ -80,14 +80,15 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     };
     /**
      * After a pin write failed or was refused: re-open against the pins actually stored. If that
-     * still needs a first-contact pin, nothing new is adopted: the keys held before this pass, and
-     * this device's prior key memory, which is not re-saved.
+     * still needs a first-contact pin, nothing new is adopted: only held keys matching the stored
+     * digests, and this device's prior key memory with the raised floor.
      */
     const persistedOnly = async (): Promise<OpenedKeyring> => {
-      const again = open(await store.load(), envelopes);
+      const stored = await store.load();
+      const again = open(stored, envelopes);
       if (!again.fresh.length) return trusted(again);
-      latest.saved = undefined;
-      return { ...again, ring: new Map(held ?? []), fresh: [], conflicts: [], known };
+      latest.saved = { containerID: container.id, known };
+      return { ...open(stored, []), known };
     };
     /** A conflict means another pass pinned a different key first: stop; the next pass asks about it. */
     const pinFailure = (stored: PinsStored): KeySync["plan"] | undefined => {
@@ -182,8 +183,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
   for (let attempt = 0; ; attempt += 1) {
     const latest: Latest = {};
     let outcome: Pass | "retry";
-    // Nothing to save (a stopped pass keeps the prior memory) is not a failure.
-    let keyStateSaved = true;
+    let keyStateSaved = false;
     try {
       outcome = await pass(attempt, latest);
     } finally {

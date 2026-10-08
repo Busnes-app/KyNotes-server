@@ -421,3 +421,27 @@ describe("keys from a refused first-contact sender", () => {
     expect((await getKeyState("me", editor.member.userId, cnt)).digests[2]).toBe(bytesToHex(sha256(keys[winner])));
   });
 });
+
+describe("a pass that stops on an unstored first-contact pin", () => {
+  it("reports key memory unsaved when no record keeps it", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
+    const unkept = { ...memoryStore({}, undefined, false), saveKeyState: vi.fn(async () => false) };
+    const result = await syncContainerKeys(api, cnt, as(editor), unkept, never);
+    expect(result.plan).toEqual({ kind: "pins-unsaved" });
+    expect(result.keyStateSaved).toBe(false);
+  });
+
+  it("returns held keys only when they match the stored digests", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { api } = server([owner, editor]);
+    const minted = await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
+    const real = bytesToHex(sha256(minted.ring.get(2)!));
+    const store = memoryStore({}, { mark: 2, digests: { 2: real } }, false);
+    const result = await syncContainerKeys(api, cnt, as(editor), store, never, new Map([[2, newContainerKey()]]));
+    expect(result.plan).toEqual({ kind: "pins-unsaved" });
+    expect(result.ring.has(2)).toBe(false);
+    expect(result.conflicts).toEqual([2]);
+  });
+});
