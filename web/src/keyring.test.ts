@@ -317,6 +317,20 @@ describe("main.tsx key wiring", () => {
     expect(main).not.toMatch(/\[legacy,/);
   });
 
+  it("AdminTeams reads names with the login key only through readKeys", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    const admin = main.slice(main.indexOf("function AdminTeams("));
+    const body = admin.slice(0, admin.indexOf("\nfunction ", 1) > 0 ? admin.indexOf("\nfunction ", 1) : undefined).replace(/\/\/.*$/gm, "");
+    // Every use of the login key: its declaration, readKeys (floor-aware), and the write of a name the admin creates.
+    const uses = [...body.matchAll(/[^\n]*\blegacy\b[^\n]*/g)].map((m) => m[0]);
+    expect(uses).toHaveLength(3);
+    // Token count, not lines: a second use on a readKeys line (e.g. "? ... : [legacy]") is caught too.
+    expect(body.match(/\blegacy\b/g)).toHaveLength(3);
+    expect(uses.filter((line) => /const legacy = legacyKeyRef\(/.test(line))).toHaveLength(1);
+    expect(uses.filter((line) => /readKeys\(.*\blegacy\b/.test(line))).toHaveLength(1);
+    expect(uses.filter((line) => /encryptContainerMeta\(legacy\b/.test(line))).toHaveLength(1);
+  });
+
   it("uses the local exception only for entries this browser sealed itself", () => {
     const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
     // localReadKeysFor opens only cache and queue entries, never a server row's generation.
