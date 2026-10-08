@@ -3412,7 +3412,7 @@ function SettingsView({
               )}
             </section>
             <PinnedKeys username={username} userID={userID} names={colleagueNames} />
-            <UnsentEdits legacyKey={legacyKey} userID={userID} teamKeys={teamKeys} />
+            <UnsentEdits legacyKey={legacyKey} username={username} userID={userID} teamKeys={teamKeys} />
           </>
         )}
         {admin && (

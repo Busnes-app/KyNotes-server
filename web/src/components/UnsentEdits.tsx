@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { containers } from "../api";
 import { decryptObject, type KeyRef } from "../crypto";
-import { openFirst } from "../keyring";
-import { deleteNote, pendingSaves, replaceQueuedSave, type PendingSave } from "../storage";
+import { openFirst, type KeyState } from "../keyring";
+import { listContainers } from "../observe";
+import { deleteNote, getKeyState, pendingSaves, replaceQueuedSave, storeKeyState, type PendingSave } from "../storage";
 import { exportUnsent, unsentEdits, type Unsent } from "../stuckEdits";
 
 const NONE: Unsent = { owned: [], unowned: [], unknown: [], sealed: 0 };
@@ -14,13 +14,15 @@ const NONE: Unsent = { owned: [], unowned: [], unknown: [], sealed: 0 };
  * a click; discard asks first. teamKeys: the keys this browser holds for an edit's notebook and
  * generation (readKeys), tried after the login-derived key.
  */
-export function UnsentEdits({ legacyKey, userID, teamKeys }: { legacyKey: KeyRef; userID: string; teamKeys: (item: PendingSave) => KeyRef[] }) {
+export function UnsentEdits({ legacyKey, username, userID, teamKeys }: { legacyKey: KeyRef; username: string; userID: string; teamKeys: (item: PendingSave) => KeyRef[] }) {
   const [unsent, setUnsent] = useState<Unsent>(NONE);
   const decrypt = (keys: KeyRef[]) => (item: PendingSave) => openFirst(keys, (key) => decryptObject(key, item.containerID, item.payload));
   const open = (item: PendingSave) => decrypt([legacyKey, ...teamKeys(item)])(item);
   const opens = (read: (item: PendingSave) => Promise<unknown>) => (item: PendingSave) => read(item).then((content) => content !== undefined);
   async function find(): Promise<Unsent> {
-    const live = await containers().then((list) => new Set(list.map((entry) => entry.id)), () => undefined);
+    // Through the observer, like every container read: the generations it reports raise this device's floor.
+    const sink = { load: (id: string) => getKeyState(username, userID, id), save: (id: string, state: KeyState) => storeKeyState(username, userID, id, state) };
+    const live = await listContainers(sink).then((list) => new Set(list.map((entry) => entry.id)), () => undefined);
     return unsentEdits(await pendingSaves().catch(() => []), live, userID, opens(decrypt([legacyKey])), opens(open));
   }
   const load = async () => setUnsent(await find());

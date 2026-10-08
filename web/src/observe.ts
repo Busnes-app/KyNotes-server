@@ -25,7 +25,7 @@ export async function observeContainer<C extends Reported>(sink: FloorSink, cont
 }
 export const observeContainers = <C extends Reported>(sink: FloorSink, list: C[]) => Promise.all(list.map((entry) => observeContainer(sink, entry)));
 
-// The only callers of the raw container fetchers; main.tsx imports these instead (observe.test.ts).
+// The only callers of the raw container fetchers; every other module imports these instead (observe.test.ts).
 export const listContainers = async (sink: FloorSink) => observeContainers(sink, await containers());
 export const newContainer = async (sink: FloorSink, ...args: Parameters<typeof createContainer>) => observeContainer(sink, await createContainer(...args));
 export const listAdminTeams = async (sink: FloorSink) => observeContainers(sink, await adminTeams());
