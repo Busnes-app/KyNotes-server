@@ -90,3 +90,18 @@ export class CheckCodeConfirmation {
 export const confirmCheckCode = (requestID: string, code: string): CheckCodeConfirmation => mint(requestID, code);
 export const isCheckCodeConfirmation = (value: unknown, requestID: string): value is CheckCodeConfirmation =>
   typeof value === "object" && value !== null && confirmations.has(value as CheckCodeConfirmation) && (value as CheckCodeConfirmation).requestID === requestID;
+
+const typed = new WeakSet<CheckCodeConfirmation>();
+const digits = (code: string) => code.normalize("NFKC").replace(/\s/g, "");
+/**
+ * The approver's only confirmation: the user typed the code the other browser shows (entered), and it
+ * equals this screen's code (shown) after NFKC and with spaces ignored. There is no "codes match" button.
+ */
+export function confirmTypedCheckCode(requestID: string, shown: string, entered: string): CheckCodeConfirmation {
+  if (!shown || digits(entered) !== digits(shown)) throw new Error("That is not the code the other browser shows. Type it again; if the codes differ, cancel.");
+  const confirmation = mint(requestID, shown);
+  typed.add(confirmation);
+  return confirmation;
+}
+export const isTypedCheckCodeConfirmation = (value: unknown, requestID: string): value is CheckCodeConfirmation =>
+  isCheckCodeConfirmation(value, requestID) && typed.has(value);

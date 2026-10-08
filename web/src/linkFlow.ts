@@ -2,7 +2,7 @@ import { x25519 } from "@noble/curves/ed25519.js";
 import { base64, fromBase64 } from "./crypto";
 import { APIRequestError, cancelSSOStepUp, type LinkRequestRow, type LinkState } from "./api";
 import type { HeldIdentity, IdentityStore, PublicIdentity } from "./identity";
-import { checkCode, confirmCheckCode, discardLinkKey, isCheckCodeConfirmation, isLiveLinkKey, linkCommitment, newLinkKey, openLinkBundle, sealLinkBundle, type CheckCodeConfirmation } from "./linking";
+import { checkCode, confirmTypedCheckCode, discardLinkKey, isCheckCodeConfirmation, isLiveLinkKey, isTypedCheckCodeConfirmation, linkCommitment, newLinkKey, openLinkBundle, sealLinkBundle, type CheckCodeConfirmation } from "./linking";
 import { sendLinkBundle } from "./outbound";
 import { publicKeyBytes } from "./pins";
 import { sameBytes, type Identity } from "./teamKeys";
@@ -49,9 +49,15 @@ export type NewcomerAPI = {
 };
 /**
  * One attempt on the browser being linked. Its one-time key lives only here, in memory.
- * pollNewcomerLink pins approverKey and code on this object before this browser's key is revealed.
+ * approverKey and code are a view of the pin pollNewcomerLink keeps for the one-time key.
  */
-export type NewcomerLink = Attempt & { readonly expiresAt: string; approverKey?: Uint8Array; code?: string };
+export type NewcomerLink = Attempt & { readonly expiresAt: string; readonly approverKey?: Uint8Array; readonly code?: string };
+type Pin = { approverKey: Uint8Array; code: string };
+/**
+ * The approver key each one-time key was revealed against, keyed by its private key bytes: every
+ * copy of a NewcomerLink shares one pin and one reveal for the key's lifetime.
+ */
+const pins = new WeakMap<Uint8Array, Pin>();
 
 /** Starts a link; refuses before any request when this browser could not keep the identity. */
 export async function startNewcomerLink(api: Pick<NewcomerAPI, "create">, canKeep: () => Promise<boolean>, userID: string): Promise<NewcomerLink> {
@@ -62,49 +68,54 @@ export async function startNewcomerLink(api: Pick<NewcomerAPI, "create">, canKee
 }
 
 /**
- * One poll. When the approver's key first arrives, it and the check code are pinned on link, then
- * this browser reveals its own key (committed to at start). A failed reveal ends the attempt, so
- * this key is never revealed against a second approver key; a key that changes later is refused.
+ * One poll. When the approver's key first arrives, it and the check code are pinned to the one-time
+ * key, then this browser reveals its own key (committed to at start). A failed reveal ends the
+ * attempt; once pinned, the key is never revealed again, and a different approver key is refused.
  * bundle: once the approver sent it. It is opened only by finishNewcomerLink.
  */
 export async function pollNewcomerLink(api: Pick<NewcomerAPI, "collect" | "reveal">, link: NewcomerLink, userID: string): Promise<{ link: NewcomerLink; bundle?: Uint8Array }> {
   live(link, userID);
   const state = await api.collect(link.key, link.id);
-  if (link.approverKey) {
-    if (state.approverKey && !sameBytes(publicKeyBytes(state.approverKey), link.approverKey)) {
+  const pinned = pins.get(link.key.privateKey);
+  if (pinned) {
+    if (state.approverKey && !sameBytes(publicKeyBytes(state.approverKey), pinned.approverKey)) {
       endLink(link);
       throw new LinkTamperedError();
     }
-    return { link, bundle: state.bundle ? fromBase64(state.bundle) : undefined };
+    return { link: { ...link, ...pinned }, bundle: state.bundle ? fromBase64(state.bundle) : undefined };
   }
   if (!state.approverKey) return { link };
-  await orEnd(link, async () => {
-    link.approverKey = publicKeyBytes(state.approverKey!);
-    link.code = checkCode(link.userID, link.id, link.approverKey, link.key.publicKey);
+  const pin = await orEnd(link, async () => {
+    const approverKey = publicKeyBytes(state.approverKey!);
+    const next = { approverKey, code: checkCode(link.userID, link.id, approverKey, link.key.publicKey) };
+    pins.set(link.key.privateKey, next);
     await api.reveal(link.id, base64(link.key.publicKey));
+    return next;
   });
-  return { link };
+  return { link: { ...link, ...pin } };
 }
 
 /**
  * Opens the bundle only after this browser's own user confirmed the code it shows, only when it
- * carries the identity the server lists for the account, and keeps it with a compare-and-swap
- * against the copy read here: a key another tab kept meanwhile is never overwritten. Past the
- * confirmation check, the attempt ends whatever happens (the server deleted the bundle at collect).
+ * carries the identity the server lists for the account. It never replaces another copy this
+ * browser holds (pending, orphaned or older), and keeps the key with a compare-and-swap against
+ * the copy read here. Past the confirmation check, the attempt ends whatever happens (the server
+ * deleted the bundle at collect).
  */
 export async function finishNewcomerLink(link: NewcomerLink, bundle: Uint8Array, confirmation: CheckCodeConfirmation, userID: string, api: Pick<NewcomerAPI, "myIdentity">, store: IdentityStore): Promise<HeldIdentity> {
   live(link, userID);
-  if (!link.approverKey || !isCheckCodeConfirmation(confirmation, link.id) || confirmation.code !== link.code) throw new Error("Compare the check codes on both screens first.");
-  const approverKey = link.approverKey;
+  const pin = pins.get(link.key.privateKey);
+  if (!pin || !isCheckCodeConfirmation(confirmation, link.id) || confirmation.code !== pin.code) throw new Error("Compare the check codes on both screens first.");
   try {
     const listed = await api.myIdentity();
     if (!listed) throw new Error("Your account has no encryption key to link.");
-    const privateKey = openLinkBundle(bundle, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: listed.deviceId, approverKey, newcomerKey: link.key.publicKey });
+    const privateKey = openLinkBundle(bundle, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: listed.deviceId, approverKey: pin.approverKey, newcomerKey: link.key.publicKey });
     const publicKey = x25519.getPublicKey(privateKey);
     if (!sameBytes(publicKey, publicKeyBytes(listed.publicKey))) throw new Error("The key sent is not your account's encryption key. Nothing was linked.");
     const identity = { deviceId: listed.deviceId, publicKey, privateKey };
     const current = await store.load();
-    if (current?.deviceId === identity.deviceId && sameBytes(current.publicKey, publicKey)) return current;
+    if (current && !sameBytes(current.publicKey, publicKey)) throw new Error("This browser holds another copy of your key. Use Forget this device first.");
+    if (current?.deviceId === identity.deviceId) return current;
     if (!(await store.save(identity, current ?? null))) throw new LinkStorageError();
     return identity;
   } finally {
@@ -136,24 +147,14 @@ export function revealedLink(link: ApproverLink, row: LinkRequestRow | undefined
   return { ...link, newcomerKey, code: checkCode(link.userID, link.id, link.key.publicKey, newcomerKey) };
 }
 
-const typed = new WeakSet<CheckCodeConfirmation>();
-const digits = (code: string) => code.replace(/\s/g, "");
-/**
- * The approver's only confirmation: the user types the code the other browser shows, and it must
- * equal this screen's code (spaces ignored). There is no "codes match" button.
- */
-export function confirmTypedCode(link: ApproverLink, entered: string): CheckCodeConfirmation {
-  if (!link.code || digits(entered) !== digits(link.code)) throw new Error("That is not the code the other browser shows. Type it again; if the codes differ, cancel.");
-  const confirmation = confirmCheckCode(link.id, link.code);
-  typed.add(confirmation);
-  return confirmation;
-}
+/** The approver's only confirmation: the code typed from the other browser (see confirmTypedCheckCode). */
+export const confirmTypedCode = (link: ApproverLink, entered: string): CheckCodeConfirmation => confirmTypedCheckCode(link.id, link.code ?? "", entered);
 
 /** Seals the identity to the newcomer and sends it, after the user typed the matching code and a fresh step-up. */
 export async function approveLink(link: ApproverLink, confirmation: CheckCodeConfirmation, identity: HeldIdentity, userID: string, stepUp: () => Promise<void>, send: typeof sendLinkBundle = sendLinkBundle): Promise<void> {
   live(link, userID);
   if (!link.newcomerKey || !link.code) throw new Error("The other browser has not answered yet.");
-  if (!typed.has(confirmation) || !isCheckCodeConfirmation(confirmation, link.id) || confirmation.code !== link.code) throw new Error("Type the code the other browser shows first.");
+  if (!isTypedCheckCodeConfirmation(confirmation, link.id) || confirmation.code !== link.code) throw new Error("Type the code the other browser shows first.");
   const bundle = sealLinkBundle(identity.privateKey, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: identity.deviceId, approverKey: link.key.publicKey, newcomerKey: link.newcomerKey });
   // A failed step-up or send keeps the attempt: approving again re-seals to the same keys.
   await stepUp();

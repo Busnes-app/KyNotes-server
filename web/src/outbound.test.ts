@@ -3,7 +3,7 @@ import { decryptAttachment, decryptAttachmentMetadata, encryptAttachment, encryp
 import { attachmentStep, sealAttachment } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
 import { keysAllowed, newContainerKey, writeKey, type ReportedContainer } from "./keyring";
-import { confirmCheckCode, discardLinkKey, newLinkKey } from "./linking";
+import { confirmCheckCode, confirmTypedCheckCode, discardLinkKey, newLinkKey } from "./linking";
 import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
 import type { PendingUpload } from "./storage";
 
@@ -74,9 +74,12 @@ describe("outbound ciphertext gate", () => {
     const id = `lnk_${"a".repeat(26)}`;
     const bundle = new Uint8Array(61);
     expect(() => sendLinkBundle({ requestID: id } as never, id, bundle)).toThrow(/check codes/);
-    expect(() => sendLinkBundle(confirmCheckCode(`lnk_${"b".repeat(26)}`, "123 456"), id, bundle)).toThrow(/check codes/);
+    expect(() => sendLinkBundle(confirmTypedCheckCode(`lnk_${"b".repeat(26)}`, "123 456", "123456"), id, bundle)).toThrow(/check codes/);
+    // A click-style confirmation, even for this request and code, is not the typed code.
+    expect(() => sendLinkBundle(confirmCheckCode(id, "123 456"), id, bundle)).toThrow(/check codes/);
+    expect(() => confirmTypedCheckCode(id, "123 456", "123 457")).toThrow(/not the code/);
     expect(fetches).not.toHaveBeenCalled();
-    await sendLinkBundle(confirmCheckCode(id, "123 456"), id, bundle);
+    await sendLinkBundle(confirmTypedCheckCode(id, "123 456", "123456"), id, bundle);
     expect((fetches.mock.calls[0] as unknown as [string])[0]).toBe(`/api/v1/me/link-requests/${id}/approve`);
   });
 
@@ -106,5 +109,9 @@ describe("outbound structure", () => {
     // A rejected cacheWrite is captured (cacheMiss) and reported; the send runs regardless.
     expect(main).not.toMatch(/await cacheWrite\(/);
     expect(main.match(/await cacheMiss\(/g)).toHaveLength(2);
+    // A conflict without a local copy says so; a failed queue write says the edit is not saved.
+    expect(main).toContain("noteConflictMessage(uncached)");
+    expect(main).not.toContain("preserved locally");
+    expect(main.match(/await queueSave\(/g)?.length).toBe(main.match(/\)\.catch\(notSaved\)/g)?.length);
   });
 });

@@ -3,7 +3,7 @@ import { base64 } from "./crypto";
 import { queuedSaveStep } from "./drain";
 import { floorOf } from "./floors";
 import type { ReportedContainer, WriteKey } from "./keyring";
-import { isCheckCodeConfirmation, isLiveLinkKey, type CheckCodeConfirmation } from "./linking";
+import { isLiveLinkKey, isTypedCheckCodeConfirmation, type CheckCodeConfirmation } from "./linking";
 import type { Identity } from "./teamKeys";
 
 /** Ciphertext about to leave: the container it was sealed for and the generation it was sealed at. */
@@ -59,9 +59,9 @@ export const sendUploadFinal = (sealed: Sealed, uploadID: string, metadataCipher
   return finalizeUpload(uploadID, metadataCiphertext, sealed.generation);
 };
 
-/** A device-link bundle leaves only with the user's confirmation that both screens showed one check code for that request. */
+/** A device-link bundle leaves only after the user typed the newcomer's check code for that request (confirmTypedCheckCode). */
 export function sendLinkBundle(confirmation: CheckCodeConfirmation, requestID: string, bundle: Uint8Array): Promise<void> {
-  if (!isCheckCodeConfirmation(confirmation, requestID)) throw new Error("Compare the check codes on both screens first.");
+  if (!isTypedCheckCodeConfirmation(confirmation, requestID)) throw new Error("Compare the check codes on both screens first.");
   return approveLinkRequest(requestID, base64(bundle));
 }
 

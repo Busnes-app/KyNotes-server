@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import { queuedSaveStep, readyToSend } from "./drain";
+import { NOT_SAVED, noteConflictMessage, notSaved, queuedSaveStep, readyToSend } from "./drain";
 import { newContainerKey, writeKey, type KeyFloor, type KeyedContainer, type Keyring } from "./keyring";
 import type { PendingSave } from "./storage";
 
@@ -47,5 +47,15 @@ describe("queued save drain", () => {
     const floor = { shared: 2, generation: 1 };
     expect(writeKey(odd, ring, login, floor)?.generation).toBe(1);
     expect(queuedSaveStep(odd, floor, 1, writeKey(odd, ring, login, floor))).toBe("reseal");
+  });
+});
+
+describe("save failure messages", () => {
+  it("never claims a local copy this browser could not keep", () => {
+    expect(noteConflictMessage(false)).toMatch(/preserved locally/);
+    expect(noteConflictMessage(true)).not.toMatch(/preserved|saved/i);
+    expect(noteConflictMessage(true)).toMatch(/exists only in this tab.*copy or export it now/i);
+    expect(() => notSaved()).toThrow(NOT_SAVED);
+    expect(NOT_SAVED).toMatch(/^Not saved.*only in this tab/);
   });
 });

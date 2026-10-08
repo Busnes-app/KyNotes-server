@@ -106,16 +106,41 @@ describe("device linking", () => {
     r.newcomer.reveal.mockImplementationOnce(async () => { r.calls.push("reveal"); throw new Error("500"); });
     const pinned = await pollNewcomerLink(r.newcomer, link, me).catch((error: unknown) => error);
     expect(pinned).toBeInstanceOf(Error);
-    expect(link.approverKey).toBeDefined();
     r.setApproverKey(base64(newLinkKey().publicKey));
-    const code = link.code;
     await expect(pollNewcomerLink(r.newcomer, link, me)).rejects.toBeInstanceOf(LinkEndedError);
     // Even a caller holding a copy taken before the poll cannot start over with the same key.
     await expect(pollNewcomerLink(r.newcomer, { ...link, approverKey: undefined, code: undefined }, me)).rejects.toBeInstanceOf(LinkEndedError);
     expect(r.calls.slice(first)).toEqual(["collect", "reveal"]);
-    expect(link.code).toBe(code);
     expect(isLiveLinkKey(link.key)).toBe(false);
     expect(link.key.privateKey.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("binds the pin and the reveal to the one-time key: a copy taken before the poll cannot reveal again", async () => {
+    const r = relay();
+    const link = await startNewcomerLink(r.newcomer, async () => true, me);
+    const stale = { ...link };
+    await claimLink(r.approver, r.row(), me);
+    const { link: shownLink } = await pollNewcomerLink(r.newcomer, link, me);
+    // Same approver key through the copy: the pinned code, no second reveal.
+    expect((await pollNewcomerLink(r.newcomer, { ...stale }, me)).link.code).toBe(shownLink.code);
+    r.setApproverKey(base64(newLinkKey().publicKey));
+    await expect(pollNewcomerLink(r.newcomer, stale, me)).rejects.toBeInstanceOf(LinkTamperedError);
+    expect(r.newcomer.reveal).toHaveBeenCalledOnce();
+    expect(isLiveLinkKey(link.key)).toBe(false);
+    expect(link.key.privateKey.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it("reveals once when two polls of one attempt race with different approver keys", async () => {
+    const r = relay();
+    const link = await startNewcomerLink(r.newcomer, async () => true, me);
+    await claimLink(r.approver, r.row(), me);
+    const swapped = { state: "claimed" as const, expiresAt: "", approverKey: base64(newLinkKey().publicKey) };
+    const honest = await r.newcomer.collect(link.key, link.id);
+    const api = { reveal: r.newcomer.reveal, collect: vi.fn().mockResolvedValueOnce(honest).mockResolvedValueOnce(swapped) };
+    const results = await Promise.allSettled([pollNewcomerLink(api, link, me), pollNewcomerLink(api, { ...link }, me)]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect((results[1] as PromiseRejectedResult).reason).toBeInstanceOf(LinkTamperedError);
+    expect(r.newcomer.reveal).toHaveBeenCalledOnce();
   });
 
   it("refuses a newcomer key that does not match the commitment seen before claiming", async () => {
@@ -169,14 +194,23 @@ describe("device linking", () => {
   it("keeps the identity with compare-and-swap: a key another tab kept meanwhile is never overwritten", async () => {
     const { r, link, approver } = await shown();
     const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
-    const pending = { ...generateIdentity(), deviceId: "" };
-    const store = vault(pending);
-    // Another tab replaces the vault copy between this run's read and its write.
+    const store = vault();
+    // Another tab keeps a key between this run's read and its write.
     const load = store.load;
     store.load = async () => { const seen = await load(); store.replace({ ...generateIdentity(), deviceId: "" }); return seen; };
     await expect(finishNewcomerLink(link, honest, confirmed(link), me, r.newcomer, store)).rejects.toBeInstanceOf(LinkStorageError);
-    expect(store.save).toHaveBeenCalledWith(expect.objectContaining({ deviceId: dev }), pending);
+    expect(store.save).toHaveBeenCalledWith(expect.objectContaining({ deviceId: dev }), null);
     expect(store.held()?.deviceId).toBe("");
+  });
+
+  it.each([["pending", ""], ["orphaned", `dev_${"e".repeat(26)}`]])("refuses to link over another %s copy this browser holds", async (_kind, deviceId) => {
+    const { r, link, approver } = await shown();
+    const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
+    const other = { ...generateIdentity(), deviceId };
+    const store = vault(other);
+    await expect(finishNewcomerLink(link, honest, confirmed(link), me, r.newcomer, store)).rejects.toThrow("This browser holds another copy of your key. Use Forget this device first.");
+    expect(store.save).not.toHaveBeenCalled();
+    expect(store.held()).toBe(other);
   });
 
   it("reports a browser that could not keep the linked key", async () => {
@@ -207,9 +241,13 @@ describe("device linking", () => {
     const wrong = link.code === "000 000" ? "000 001" : "000 000";
     expect(() => confirmTypedCode(approver, wrong)).toThrow(/not the code/);
     expect(() => confirmTypedCode(approver, "")).toThrow(/not the code/);
+    // Arabic-Indic digits are not compatibility digits: still refused.
+    expect(() => confirmTypedCode(approver, [...link.code!].map((c) => (c === " " ? " " : String.fromCharCode(c.charCodeAt(0) - 0x30 + 0x660))).join(""))).toThrow(/not the code/);
     await expect(approveLink(approver, confirmCheckCode(approver.id, approver.code!), identity, me, stepUp(r.calls), r.send)).rejects.toThrow(/Type the code/);
     expect(r.send).not.toHaveBeenCalled();
-    await approveLink(approver, confirmTypedCode(approver, link.code!.replace(" ", "")), identity, me, stepUp(r.calls), r.send);
+    // Fullwidth digits from an IME are the same code (NFKC); spaces are ignored.
+    const fullwidth = [...link.code!].map((c) => (c === " " ? "\u3000" : String.fromCharCode(c.charCodeAt(0) + 0xfee0))).join("");
+    await approveLink(approver, confirmTypedCode(approver, fullwidth), identity, me, stepUp(r.calls), r.send);
     expect(r.send).toHaveBeenCalledOnce();
     // The approver's one-time key is gone once the bundle left.
     expect(isLiveLinkKey(approver.key)).toBe(false);

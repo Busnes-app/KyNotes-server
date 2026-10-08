@@ -43,7 +43,7 @@ export type KeySync = {
   plan: SweepPlan | { kind: "untrusted"; members: string[] } | { kind: "pins-unsaved" } | { kind: "rollback" };
   fresh: MemberKey[]; changed: PinChange[]; conflicts: number[];
   members: MemberKey[]; envelopes: Envelope[];
-  /** A caller that may not wrap (canWrap false) would mint or wrap now: the UI offers to share on request. */
+  /** A caller that may not wrap (canWrap false) would mint or wrap now: the UI offers to share on request. False when the pass stopped. */
   deferred: boolean;
 };
 type Pass = Omit<KeySync, "keyStateSaved">;
@@ -133,6 +133,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       ({ container, changed, conflicts: last.conflicts, known: raiseFloor(last.known, container), fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), members, envelopes: seen, deferred, ...rest });
     /** A pass that stops on a pin it could not keep returns only what the stored pins vouch for. */
     const stopped = async (plan: KeySync["plan"], fresh: MemberKey[]): Promise<Pass> => {
+      deferred = false; // nothing is offered while the pass stopped
       const safe = await persistedOnly();
       return result({ ring: safe.ring, plan, minted: false }, fresh, safe);
     };

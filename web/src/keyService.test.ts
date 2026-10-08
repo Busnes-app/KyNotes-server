@@ -742,6 +742,17 @@ describe("a steward who shares only on request (single sign-on)", () => {
     expect(after.deferred).toBe(false);
   });
 
+  it("reports no deferred work when the pass stopped", async () => {
+    const owner = user("owner", "b", "owner"), coowner = user("coowner", "e", "owner"), late = user("late", "d", "editor");
+    const { state, api } = server([owner, coowner]);
+    await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
+    state.members = [owner, coowner, late];
+    // The co-owner's device cannot keep the sender pin it just checked.
+    const stopped = await syncContainerKeys(api, cnt, as(coowner, false), memoryStore({}, undefined, false), never);
+    expect(stopped.plan).toEqual({ kind: "pins-unsaved" });
+    expect(stopped.deferred).toBe(false);
+  });
+
   it("still explains a first key that waits for a member without an identity", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor", false);
     const { api } = server([owner, editor]);
