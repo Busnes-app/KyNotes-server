@@ -116,4 +116,21 @@ describe("floors across tabs", () => {
     expect(b.floorOf(other)).toEqual({ shared: 1, generation: 1 });
   });
 
+
+  it("a storage read begun before a closure never lowers that closure when it lands", async () => {
+    vi.stubGlobal("BroadcastChannel", FakeChannel);
+    const a = await tab();
+    a.raiseFloorIn(cnt, { shared: 2, generation: 2 });
+    let release!: (floor: KeyFloor) => void;
+    a.setClosureReader(() => new Promise((resolve) => { release = resolve; }));
+    const adopting = a.reopenFloorIn(cnt); // a peer's reopen hint: adoptStored starts reading
+    a.raiseFloorIn(cnt, { shared: 2, generation: 2, closed: 2 }); // closeLegacy in this tab meanwhile
+    release({ shared: 2, generation: 2 }); // the read predates the closure's save
+    await adopting;
+    expect(a.floorOf(cnt)?.closed).toBe(2);
+    // A later read sees the stored state and adopts it as before.
+    a.setClosureReader(async () => ({ shared: 2, generation: 2 }));
+    await a.reopenFloorIn(cnt);
+    expect(a.floorOf(cnt)?.closed).toBeUndefined();
+  });
 });

@@ -1,6 +1,6 @@
 import { x25519 } from "@noble/curves/ed25519.js";
 import type { HeldIdentity } from "./identity";
-import { isReopenConfirmation, type KeyState, type ReopenConfirmation } from "./keyring";
+import { closedOf, consumeReopenConfirmation, type KeyState, type ReopenConfirmation } from "./keyring";
 import { isPinConfirmation, sameKey, type PinConfirmation, type Pins } from "./pins";
 import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
@@ -418,7 +418,7 @@ export async function storeKeyState(username: string, userID: string, containerI
   return updateRecord(username, (record) => {
     const byContainer = statesOf(record, userID);
     const prior: KeyState = byContainer[containerID] ?? { mark: 0, digests: {} };
-    const closed = Math.max(prior.closed ?? 0, state.closed ?? 0);
+    const closed = Math.max(closedOf(prior), closedOf(state));
     const next: KeyState = {
       mark: Math.max(prior.mark, state.mark),
       digests: { ...state.digests, ...prior.digests },
@@ -432,12 +432,13 @@ export async function storeKeyState(username: string, userID: string, containerI
 }
 
 /**
- * The one way this device's legacy closure falls: the user confirmed "Show pre-sharing items
- * again" for this container. Everything else in the key memory stays. Other tabs adopt it by
- * reading storage (floors.ts reopenFloorIn), never from a message.
+ * The one way this device's legacy closure falls: this user confirmed "Show pre-sharing items
+ * again" for this container. The confirmation is used up even if the write fails. Everything
+ * else in the key memory stays. Call floors.ts reopenFloorIn after a true result: it lowers this
+ * tab and tells the others to re-read storage; without it the tabs stay closed until a reload.
  */
 export async function reopenLegacy(username: string, userID: string, containerID: string, confirmation: ReopenConfirmation): Promise<boolean> {
-  if (!isReopenConfirmation(confirmation, containerID)) return false;
+  if (!consumeReopenConfirmation(confirmation, userID, containerID)) return false;
   return updateRecord(username, (record) => {
     const byContainer = statesOf(record, userID);
     const { closed: _, ...open } = byContainer[containerID] ?? { mark: 0, digests: {} };

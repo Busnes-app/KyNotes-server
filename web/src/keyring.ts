@@ -42,26 +42,37 @@ export type KeyState = KeyFloor & { mark: number; digests: Record<number, string
  */
 export type KeyFloor = { shared?: number; generation?: number; closed?: number };
 
+/** A stored or relayed closure as a number: anything but a positive safe integer is no closure. */
+export const closedOf = (floor: KeyFloor | undefined): number => {
+  const closed = floor?.closed;
+  return Number.isSafeInteger(closed) && closed! > 0 ? closed! : 0;
+};
+
+/** Unused confirmations; consuming one removes it, so a kept object never reopens twice. */
 const reopenConfirmations = new WeakSet<ReopenConfirmation>();
-let mintReopen: (containerID: string) => ReopenConfirmation;
-/** Proof the user confirmed "Show pre-sharing items again" for one container; only confirmReopenLegacy makes one. */
+let mintReopen: (userID: string, containerID: string) => ReopenConfirmation;
+/** Proof one user confirmed "Show pre-sharing items again" for one container; only confirmReopenLegacy makes one. */
 export class ReopenConfirmation {
   private declare readonly brand: true; // nominal: look-alike objects do not type-check
   static {
-    mintReopen = (containerID) => {
-      // Frozen: a holder cannot re-target it at another container.
-      const confirmation = new ReopenConfirmation(containerID);
+    mintReopen = (userID, containerID) => {
+      // Frozen: a holder cannot re-target it at another user or container.
+      const confirmation = new ReopenConfirmation(userID, containerID);
       Object.freeze(confirmation);
       reopenConfirmations.add(confirmation);
       return confirmation;
     };
   }
-  private constructor(readonly containerID: string) {}
+  private constructor(readonly userID: string, readonly containerID: string) {}
 }
 /** Call only from the user's own confirm of "Show pre-sharing items again" (LegacyReview; keyring.test.ts checks the callers). */
-export const confirmReopenLegacy = (containerID: string): ReopenConfirmation => mintReopen(containerID);
-export const isReopenConfirmation = (value: unknown, containerID: string): value is ReopenConfirmation =>
-  typeof value === "object" && value !== null && reopenConfirmations.has(value as ReopenConfirmation) && (value as ReopenConfirmation).containerID === containerID;
+export const confirmReopenLegacy = (userID: string, containerID: string): ReopenConfirmation => mintReopen(userID, containerID);
+export const isReopenConfirmation = (value: unknown, userID: string, containerID: string): value is ReopenConfirmation =>
+  typeof value === "object" && value !== null && reopenConfirmations.has(value as ReopenConfirmation) &&
+  (value as ReopenConfirmation).userID === userID && (value as ReopenConfirmation).containerID === containerID;
+/** Single use: true once for an unused confirmation of this user and container, false ever after. */
+export const consumeReopenConfirmation = (value: unknown, userID: string, containerID: string): boolean =>
+  isReopenConfirmation(value, userID, containerID) && reopenConfirmations.delete(value);
 /** For containers this device never tracks (personal notebooks until P5). */
 export const NO_FLOOR: KeyFloor = {};
 
@@ -69,10 +80,11 @@ export const NO_FLOOR: KeyFloor = {};
 export const raiseFloor = <T extends KeyFloor>(floor: T, container: KeyedContainer): T =>
   ({ ...floor, shared: Math.max(floor.shared ?? 0, container.sharedGeneration), generation: Math.max(floor.generation ?? 0, container.keyGeneration) });
 
-/** Add-only merge of a floor into this device's in-memory one: no field ever falls. */
+/** Add-only merge of a floor into this device's in-memory one: no field ever falls, and a malformed closure keeps the old one. */
 export const mergeFloor = <T extends KeyFloor>(floor: KeyFloor | undefined, next: T): T => {
-  const closed = Math.max(floor?.closed ?? 0, next.closed ?? 0);
-  return { ...next, shared: Math.max(floor?.shared ?? 0, next.shared ?? 0), generation: Math.max(floor?.generation ?? 0, next.generation ?? 0), ...(closed ? { closed } : {}) };
+  const { closed: _, ...rest } = next;
+  const closed = Math.max(closedOf(floor), closedOf(next));
+  return { ...rest, shared: Math.max(floor?.shared ?? 0, next.shared ?? 0), generation: Math.max(floor?.generation ?? 0, next.generation ?? 0), ...(closed ? { closed } : {}) } as T;
 };
 
 /**
@@ -209,7 +221,7 @@ export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
  * The login-derived key for a legacy row, or none once this device closed legacy reads for the
  * container: the server can derive that key, so after the closure no server row opens with it.
  */
-export const legacyKeys = (floor: KeyFloor, legacy: KeyRef): KeyRef[] => ((floor.closed ?? 0) > 0 ? [] : [legacy]);
+export const legacyKeys = (floor: KeyFloor, legacy: KeyRef): KeyRef[] => (floor.closed === undefined || floor.closed === 0 ? [legacy] : []);
 
 /**
  * The one key a server row may be read with. Rows at or above sharedGeneration open only with

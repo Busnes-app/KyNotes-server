@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { confirmReopenLegacy, copyableConflicts, guardContainer, isReopenConfirmation, localReadKeys, mergeFloor, ReopenConfirmation, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
+import { confirmReopenLegacy, consumeReopenConfirmation, legacyKeys, copyableConflicts, guardContainer, isReopenConfirmation, localReadKeys, mergeFloor, ReopenConfirmation, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -447,13 +447,29 @@ describe("legacy closure", () => {
 });
 
 describe("reopening legacy reads", () => {
-  it("recognises only confirmations confirmReopenLegacy made, for that container", () => {
-    const real = confirmReopenLegacy(cnt);
-    expect(isReopenConfirmation(real, cnt)).toBe(true);
+  const me = `usr_${"m".repeat(26)}`;
+  it("recognises only confirmations confirmReopenLegacy made, for that user and container, once", () => {
+    const real = confirmReopenLegacy(me, cnt);
+    expect(isReopenConfirmation(real, me, cnt)).toBe(true);
     expect(Object.isFrozen(real)).toBe(true);
-    expect(isReopenConfirmation(real, `cnt_${"b".repeat(26)}`)).toBe(false);
-    for (const forged of [{ containerID: cnt }, Object.create(ReopenConfirmation.prototype), Object.assign(Object.create(ReopenConfirmation.prototype), { containerID: cnt }), null, cnt])
-      expect(isReopenConfirmation(forged, cnt)).toBe(false);
+    expect(isReopenConfirmation(real, me, `cnt_${"b".repeat(26)}`)).toBe(false);
+    expect(isReopenConfirmation(real, `usr_${"n".repeat(26)}`, cnt)).toBe(false);
+    for (const forged of [{ userID: me, containerID: cnt }, Object.create(ReopenConfirmation.prototype), Object.assign(Object.create(ReopenConfirmation.prototype), { userID: me, containerID: cnt }), null, cnt])
+      expect(isReopenConfirmation(forged, me, cnt)).toBe(false);
+    // Another user's or container's check does not use it up; the first real use does.
+    expect(consumeReopenConfirmation(real, `usr_${"n".repeat(26)}`, cnt)).toBe(false);
+    expect(consumeReopenConfirmation(real, me, cnt)).toBe(true);
+    expect(consumeReopenConfirmation(real, me, cnt)).toBe(false);
+    expect(isReopenConfirmation(real, me, cnt)).toBe(false);
+  });
+
+  it("treats a malformed closure as no change, never as open", () => {
+    for (const bad of [NaN, "x", -1, 1.5, Infinity, null, {}] as unknown as number[]) {
+      expect(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: bad }).closed).toBe(2);
+      expect(mergeFloor({ shared: 2 }, { shared: 2, closed: bad })).not.toHaveProperty("closed");
+      expect(legacyKeys({ closed: bad }, legacy)).toEqual([]); // a malformed value in hand fails closed
+    }
+    expect(legacyKeys(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: NaN }), legacy)).toEqual([]);
   });
 
   it("mints a reopen confirmation only from the user's \"Show pre-sharing items again\" confirm", () => {

@@ -1,19 +1,27 @@
 import { useSyncExternalStore } from "react";
-import { mergeFloor, type KeyFloor } from "./keyring";
+import { closedOf, mergeFloor, type KeyFloor } from "./keyring";
 
 /**
  * This tab's one in-memory sharing floor per container, shared by every component. Add-only:
- * a floor only rises until clearFloors (sign-out). Key decisions read floorOf at decision time.
+ * a floor only rises until clearFloors (sign-out), except closed, which adoptStored lowers to
+ * what storage holds. Key decisions read floorOf at decision time.
  */
 let floors: Readonly<Record<string, KeyFloor>> = {};
 /** Peer raises for containers this tab has not loaded: never a loaded floor, only a minimum applied on load. */
 let pending: Record<string, KeyFloor> = {};
 const listeners = new Set<() => void>();
 const changed = () => { for (const listener of listeners) listener(); };
+/** Bumped each time a closure rises in this tab, so a storage read begun earlier cannot lower it. */
+const closures: Record<string, number> = {};
+const noteClosure = (containerID: string, before: KeyFloor | undefined, after: KeyFloor) => {
+  if (closedOf(after) > closedOf(before)) closures[containerID] = (closures[containerID] ?? 0) + 1;
+};
 const merge = (containerID: string, floor: KeyFloor) => {
   const minimum = pending[containerID];
   if (minimum) delete pending[containerID];
-  floors = { ...floors, [containerID]: mergeFloor(mergeFloor(floors[containerID], floor), minimum ?? {}) };
+  const before = floors[containerID];
+  floors = { ...floors, [containerID]: mergeFloor(mergeFloor(before, floor), minimum ?? {}) };
+  noteClosure(containerID, before, floors[containerID]);
   changed();
 };
 
@@ -34,7 +42,11 @@ if (channel) channel.onmessage = (event: MessageEvent) => {
   if (!count(shared) || !count(generation) || !count(closed)) return;
   const floor: KeyFloor = { shared, generation, ...(closed ? { closed } : {}) };
   if (floors[containerID]) merge(containerID, floor);
-  else pending[containerID] = mergeFloor(pending[containerID], floor);
+  else {
+    const before = pending[containerID];
+    pending[containerID] = mergeFloor(before, floor);
+    noteClosure(containerID, before, pending[containerID]);
+  }
 };
 
 /** This device's stored key memory (storage.ts getKeyState for the signed-in user); none: closures never fall. */
@@ -44,16 +56,17 @@ const withClosure = (floor: KeyFloor, closed: number): KeyFloor => {
   const { closed: _, ...open } = floor;
   return closed ? { ...open, closed } : open;
 };
-/** The only way a closure falls in memory: to at most what storage holds now. */
+/** The only way a closure falls in memory: to what storage holds, unless a closure rose during the read. */
 async function adoptStored(containerID: string): Promise<void> {
+  const epoch = closures[containerID];
   const stored = await readStored?.(containerID).catch(() => undefined);
-  if (!stored) return;
-  const closed = stored.closed ?? 0;
-  if (floors[containerID] && (floors[containerID].closed ?? 0) > closed) {
+  if (!stored || closures[containerID] !== epoch) return;
+  const closed = closedOf(stored);
+  if (floors[containerID] && closedOf(floors[containerID]) > closed) {
     floors = { ...floors, [containerID]: withClosure(floors[containerID], closed) };
     changed();
   }
-  if (pending[containerID] && (pending[containerID].closed ?? 0) > closed) pending[containerID] = withClosure(pending[containerID], closed);
+  if (pending[containerID] && closedOf(pending[containerID]) > closed) pending[containerID] = withClosure(pending[containerID], closed);
 }
 
 /** undefined: not loaded in this tab, so no key. */
@@ -63,7 +76,7 @@ export function raiseFloorIn(containerID: string, floor: KeyFloor): void {
   const { shared = 0, generation = 0, closed = 0 } = floors[containerID];
   channel?.postMessage({ containerID, shared, generation, closed });
 }
-/** After storage.ts reopenLegacy: this tab, then every other one, adopts the stored closure. */
+/** Second half of a reopen, after storage.ts reopenLegacy returned true: this tab, then every other one, adopts the stored closure. */
 export async function reopenFloorIn(containerID: string): Promise<void> {
   await adoptStored(containerID);
   channel?.postMessage({ containerID, reopened: true });

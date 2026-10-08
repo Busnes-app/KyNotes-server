@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sort"
 	"testing"
+
+	"github.com/Busnes-app/kynotes-server/internal/config"
 )
 
 // legacyList is GET /containers/{id}/legacy as a client decodes it.
@@ -180,5 +182,27 @@ func TestLegacyRowsGates(t *testing.T) {
 	}
 	if code, _ := legacyOf(t, tm.editor.pairClient, tm.id); code != http.StatusInternalServerError {
 		t.Fatalf("membership error=%d", code)
+	}
+}
+
+// Any member can trigger the comment and conflict scans: one per-account bucket at the poll rate.
+func TestLegacyRowsAreRateLimitedPerAccount(t *testing.T) {
+	tm := newTeam(t)
+	limit := config.Defaults().RateLimit.LinkPollPerMinute
+	for i := 0; i < limit; i++ {
+		if code, _ := legacyOf(t, tm.editor.pairClient, tm.id); code != http.StatusOK {
+			t.Fatal(i, code)
+		}
+	}
+	res := tm.editor.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/legacy", nil, false, false)
+	if code, _ := status(t, res); code != http.StatusTooManyRequests || res.Header.Get("Retry-After") != "1" {
+		t.Fatal("past the account's bucket", code, res.Header.Get("Retry-After"))
+	}
+	// The /api/ alias shares the bucket; other accounts keep their own.
+	if code, _ := status(t, tm.editor.do(t, http.MethodGet, "/api/containers/"+tm.id+"/legacy", nil, false, false)); code != http.StatusTooManyRequests {
+		t.Fatal("alias", code)
+	}
+	if code, _ := legacyOf(t, tm.viewer.pairClient, tm.id); code != http.StatusOK {
+		t.Fatal("other account", code)
 	}
 }

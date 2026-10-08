@@ -157,14 +157,20 @@ describe("pin and key-mark writes never downgrade", () => {
   it("lowers the legacy closure only through a reopen confirmation for that container", async () => {
     await storeDeviceKey("alice", "a".repeat(64));
     await storeKeyState("alice", userID, cnt, { mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3, closed: 2 });
-    for (const forged of [{ containerID: cnt }, Object.create(ReopenConfirmation.prototype), confirmReopenLegacy(`cnt_${"b".repeat(26)}`), undefined])
+    const otherUser = "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz";
+    for (const forged of [{ userID, containerID: cnt }, Object.create(ReopenConfirmation.prototype), confirmReopenLegacy(userID, `cnt_${"b".repeat(26)}`), confirmReopenLegacy(otherUser, cnt), undefined])
       expect(await reopenLegacy("alice", userID, cnt, forged as ReopenConfirmation)).toBe(false);
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
-    expect(await reopenLegacy("alice", userID, cnt, confirmReopenLegacy(cnt))).toBe(true);
+    const confirmed = confirmReopenLegacy(userID, cnt);
+    expect(await reopenLegacy("alice", userID, cnt, confirmed)).toBe(true);
     // Back to the pre-closure state; the rest of the key memory is untouched.
     expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
-    // And closing again still sticks.
+    // Closing again sticks, and the kept confirmation cannot reopen a second time.
     await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: 2 });
+    expect(await reopenLegacy("alice", userID, cnt, confirmed)).toBe(false);
+    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
+    // A malformed closure in a write keeps the stored one.
+    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: NaN });
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
   });
 
