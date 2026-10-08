@@ -237,3 +237,26 @@ Findings, not fixed here:
 - User IDs (30 chars, no break points) wrap mid-ID in the 210 px sidebar member rows (`web/src/styles.css:149`); the last row sits flush against the ACCOUNT label.
 - "Ask an owner" is an 11 px quiet link in the status line (`web/src/main.tsx:2481`); at 390 px the member list pushes it and the join banner about 700 px down the page.
 - A member row whose username equals its role reads "usr_... · editor · editor · has key".
+
+## Team keys P3c (2026-10-08)
+
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle at the P3c head). Scratch scripts lived outside the repo. Contexts: the owner's browser (holds the key), a second browser of the owner's account whose vault identity was removed (as a single sign-on browser would not hold it), and an administrator-created account with no key whose `GET /api/v1/auth/session` answer was rewritten to `sso: true` (the only stub; nothing was set in the DOM). Each state was shot in Busnes Light and Dark (context `colorScheme`) at 1280x900 and 390x844 as `docs/team-keys-p3c-<state>-<light|dark>-<desktop|mobile>.png`, two animation frames after each resize. Overflow was measured in the page (`documentElement.scrollWidth` and elements whose right edge passes the viewport); the check code's line count is its `getClientRects().length`.
+
+| State | Files | Result |
+| --- | --- | --- |
+| Workspace link banner ("This browser does not hold your encryption key", Link this browser) | `link-banner-*` | Pass; no overflow |
+| Newcomer waiting, request code shown | `newcomer-waiting-*` | Pass |
+| Approver "Link another browser" with one request row | `approver-request-*` | Pass |
+| Newcomer with the check code, Codes match / Codes differ | `newcomer-check-code-*` | Pass; check code on one line at both widths |
+| Approver with the newcomer's code typed, Approve — send key enabled / Codes differ | `approver-check-code-*` | Pass; buttons wrap at 390 px |
+| SSO "Set up encryption key" banner | `sso-setup-*` | Pass |
+
+Every state: `scrollWidth` equals the viewport. At 390 px the only elements past the right edge are Settings nav links inside `.settings-nav`, which scrolls horizontally by design (`overflow: auto`).
+
+Not captured as screenshots: the Forget-this-device confirm is a native `confirm`; the e2e matches its full text. Real single sign-on (KySignOn step-up for an approve, SSO key set-up) needs a live IdP and was not driven; only the banner was rendered.
+
+Findings, not fixed here:
+
+- At 390 px "Codes differ" wraps under "Approve — send key" and sits 8 px right of it (`.config-card button + button { margin-left: 8px }` at `web/src/styles.css:95` adds to the `.link-actions` gap), so the two buttons do not align.
+- The approver's check-code input is 23 px tall, below a comfortable touch target.
+- The newcomer's Settings "Trusted Device & SSO" intro still says "This browser holds your local zero-knowledge encryption key" directly above "This browser holds no encryption key for team notebooks".

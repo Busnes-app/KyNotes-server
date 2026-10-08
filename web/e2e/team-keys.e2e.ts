@@ -58,11 +58,11 @@ async function takeOverPassword(page: Page) {
   await page.getByRole("button", { name: "← Workspace" }).click();
 }
 
-type Vault = { authSecret: string; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
+type Vault = { authSecret: string; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
 
-/** This browser's keys vault record (P1 stores the identity unwrapped). Never creates the database. */
+/** This browser's keys vault record; a sealed identity is opened in the page with its device key. Never creates the database. */
 function vaultOf(page: Page) {
-  return page.evaluate(() => new Promise<Vault | null>((resolve) => {
+  return page.evaluate(() => new Promise<Vault | null>((resolve, reject) => {
     const open = indexedDB.open("kynotes-web");
     open.onupgradeneeded = () => open.transaction!.abort(); // not created yet: leave it to the app
     open.onerror = () => resolve(null);
@@ -70,16 +70,37 @@ function vaultOf(page: Page) {
       const db = open.result;
       if (!db.objectStoreNames.contains("keys")) { db.close(); resolve(null); return; }
       const all = db.transaction("keys").objectStore("keys").getAll();
-      all.onsuccess = () => {
+      all.onsuccess = async () => {
         db.close();
-        const row = (all.result as Array<{ authSecret: string; identity?: { deviceId: string; publicKey: Uint8Array; privateKey: Uint8Array } }>)[0];
+        type Stored = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey?: Uint8Array; sealed?: Uint8Array; deviceKey?: CryptoKey };
+        const row = (all.result as Array<{ authSecret: string; identity?: Stored }>)[0];
         if (!row) { resolve(null); return; }
-        const identity = row.identity && { deviceId: row.identity.deviceId, publicKey: [...row.identity.publicKey], privateKey: [...row.identity.privateKey] };
-        resolve({ authSecret: row.authSecret, identity });
+        const stored = row.identity;
+        if (!stored) { resolve({ authSecret: row.authSecret, sealed: false }); return; }
+        try {
+          const privateKey = stored.sealed && stored.deviceKey
+            ? new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: new TextEncoder().encode(`kynotes/device-identity/v1|${stored.userID}|${stored.deviceId}`) }, stored.deviceKey, stored.sealed.slice(12)))
+            : stored.privateKey!;
+          resolve({ authSecret: row.authSecret, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
+        } catch (error) { reject(error); }
       };
     };
   }));
 }
+
+/** Removes the identity from this browser's vault, as on a browser that never held it. */
+const dropVaultIdentity = (page: Page) => page.evaluate(() => new Promise<void>((resolve, reject) => {
+  const open = indexedDB.open("kynotes-web");
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const tx = open.result.transaction("keys", "readwrite");
+    const store = tx.objectStore("keys");
+    const all = store.getAll();
+    all.onsuccess = () => { for (const row of all.result as Array<Record<string, unknown>>) { delete row.identity; store.put(row); } };
+    tx.oncomplete = () => { open.result.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  };
+}));
 
 /** Reloads the app on cid (default: the first notebook) and waits until that load has finished. */
 async function openTeam(page: Page, name = TEAM, cid?: string) {
@@ -187,15 +208,17 @@ test("team keys: three people share, a removed member loses new content", async 
   const newcomer = await person(browser);
   // A fourth browser where an invitation link is opened and then another account signs in.
   const shared = await person(browser);
+  // A second browser of the editor's account, linked from the editor's browser.
+  const second = await person(browser);
   try {
-    await scenario(owner, editor, newcomer, shared);
+    await scenario(owner, editor, newcomer, shared, second);
   } finally {
     // An unexpected dialog (a fingerprint change, an error alert) is the root cause of whatever failed after it.
-    for (const who of [owner, editor, newcomer, shared]) expect(who.unexpected).toEqual([]);
+    for (const who of [owner, editor, newcomer, shared, second]) expect(who.unexpected).toEqual([]);
   }
 });
 
-async function scenario(owner: Person, editor: Person, newcomer: Person, shared: Person) {
+async function scenario(owner: Person, editor: Person, newcomer: Person, shared: Person, second: Person) {
   // Owner: first-run setup (its own password, so its identity exists at once), then accounts.
   await owner.page.goto("/");
   await owner.page.getByLabel("Administrator Username").fill("owner");
@@ -323,6 +346,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await readPage(editor.page, "After removal", ["after comment"]);
   await readPage(editor.page, "Owner page", ["owner comment"]);
   await p3b(owner, editor, newcomer, shared, cid, senders);
+  await p3c(editor, second, cid, senders);
 }
 
 async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Person, cid: string, senders: Map<string, Uint8Array>) {
@@ -510,4 +534,178 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   expect(await editor.page.evaluate(() => (window as unknown as Settled).settled)).toContainEqual(expect.stringContaining("Owner page"));
   await expect(editor.page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
   await expect(editor.page.locator(".note-row", { hasText: "Owner page" })).toBeVisible();
+}
+
+const LINK_BANNER = /This browser does not hold your encryption key/;
+const LINK_ENDED = "This link request ended: it was cancelled on the other browser or expired. Start again.";
+const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
+const FORGET = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. If no other browser holds a key you created with single sign-on, that key is lost. Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+const linkCode = (id: string) => id.slice(-6).toUpperCase();
+
+/** Starts a link on the newcomer's Settings card; returns the request ID the server issued. */
+async function startLink(page: Page) {
+  const created = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/me/link-requests" && response.ok());
+  await page.locator("#link-this-browser").getByRole("button", { name: "Link this browser" }).click();
+  const { id } = await (await created).json() as { id: string };
+  await expect(page.locator("#link-this-browser .link-code")).toHaveText(linkCode(id));
+  return id;
+}
+
+/**
+ * The newcomer session's collect of a request, as the app polls it: 404 once the server holds no
+ * such request. Only called while no bundle waits (a collect delivers and deletes one).
+ */
+const collectStatus = (page: Page, id: string) => page.evaluate(async (rid) => {
+  const csrf = document.cookie.split("; ").find((value) => value.startsWith("csrf_token="))?.slice(11) ?? "";
+  return (await fetch(`/api/v1/me/link-requests/${rid}/collect`, { method: "POST", headers: { "X-CSRF-Token": csrf } })).status;
+}, id);
+
+/** Request IDs the approver's session can still see (unclaimed, or claimed by it). */
+const openRequests = (page: Page) => page.evaluate(async () => ((await (await fetch("/api/v1/me/link-requests")).json()) as Array<{ id: string }>).map((row) => row.id));
+
+const approveButton = (page: Page) => page.locator("#link-devices").getByRole("button", { name: "Approve — send key" });
+const typedCode = (page: Page) => page.locator("#link-devices").getByLabel("Check code shown on the other browser");
+
+async function p3c(editor: Person, second: Person, cid: string, senders: Map<string, Uint8Array>) {
+  const newcomer = second.page;
+  const approver = editor.page;
+  // A second browser of the editor's account that does not hold the key (as a single sign-on browser would not).
+  await signIn(newcomer, "editor", OWN);
+  await expect.poll(() => vaultOf(newcomer), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
+  await dropVaultIdentity(newcomer);
+  await newcomer.goto("about:blank");
+  await newcomer.goto(`/#/${cid}`);
+  await expect(newcomer.getByText(LINK_BANNER)).toBeVisible();
+  await expect(newcomer.locator(".workspace-title")).toHaveText(`Notebook ${cid.slice(4, 10)}`);
+  await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
+
+  // Every bundle the newcomer collects, and every key the approver sends.
+  const collected: string[] = [];
+  newcomer.on("response", async (response) => {
+    if (!/\/api\/v1\/me\/link-requests\/[^/]+\/collect$/.test(response.url()) || !response.ok()) return;
+    const body = await response.json().catch(() => ({})) as { bundle?: string };
+    if (body.bundle) collected.push(response.url());
+  });
+  const sent: string[] = [];
+  approver.on("request", (request) => { if (/\/api\/v1\/me\/link-requests\/lnk_[0-9a-z]+\/approve$/.test(request.url())) sent.push(request.url()); });
+  await approver.getByRole("button", { name: "Settings" }).click();
+  await expect(approver.locator("#link-devices")).toContainText("No browser is asking to be linked.");
+
+  // 1. Cancel on the newcomer: the request leaves the server and the approver's list.
+  let id = await startLink(newcomer);
+  await expect(approver.locator("#link-devices .pin-row", { hasText: linkCode(id) })).toBeVisible();
+  await newcomer.locator("#link-this-browser").getByRole("button", { name: "Cancel" }).click();
+  await expect(newcomer.getByText("Request cancelled.")).toBeVisible();
+  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
+  await expect(approver.locator("#link-devices .pin-row")).toHaveCount(0);
+
+  // 2. Leaving the newcomer's screen mid-attempt (unmount) cancels it too.
+  id = await startLink(newcomer);
+  await newcomer.getByRole("button", { name: "← Workspace" }).click();
+  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
+  expect(await openRequests(approver)).toEqual([]);
+  await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
+
+  // 3. A reload mid-attempt ends it: the one-time key was in memory only, so the request is never answered.
+  id = await startLink(newcomer);
+  await newcomer.reload();
+  await expect(newcomer.getByText(LINK_BANNER)).toBeVisible();
+  await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
+  await expect(newcomer.locator("#link-this-browser .link-code")).toHaveCount(0);
+  await approver.locator("#link-devices .pin-row", { hasText: linkCode(id) }).getByRole("button", { name: "Approve…" }).click();
+  await expect(approver.locator("#link-devices")).toContainText(`Waiting for request ${linkCode(id)} to answer…`);
+  // Three of the approver's two-second polls later the reloaded browser has still revealed nothing.
+  for (let polls = 0; polls < 3; polls++) await approver.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/me/link-requests" && response.request().method() === "GET");
+  expect(await newcomer.evaluate(async (rid) => {
+    const csrf = document.cookie.split("; ").find((value) => value.startsWith("csrf_token="))?.slice(11) ?? "";
+    return (await (await fetch(`/api/v1/me/link-requests/${rid}/collect`, { method: "POST", headers: { "X-CSRF-Token": csrf } })).json() as { state: string }).state;
+  }, id)).toBe("claimed");
+  await expect(typedCode(approver)).toHaveCount(0);
+  await approver.locator("#link-devices").getByRole("button", { name: "Cancel" }).click();
+  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
+
+  // 4. The approver leaving its screen after the claim (unmount) cancels the request; the newcomer sees it end.
+  id = await startLink(newcomer);
+  await approver.locator("#link-devices .pin-row", { hasText: linkCode(id) }).getByRole("button", { name: "Approve…" }).click();
+  await expect(newcomer.locator(".check-code")).toBeVisible({ timeout: 30_000 });
+  await expect(typedCode(approver)).toBeVisible({ timeout: 30_000 });
+  await approver.getByRole("button", { name: "← Workspace" }).click();
+  await expect(newcomer.getByText(LINK_ENDED)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
+  await approver.getByRole("button", { name: "Settings" }).click();
+
+  // 5. A relay that swaps the approver's one-time key on its way to the newcomer: the codes differ,
+  // the approver's Approve stays disabled with the newcomer's code typed, and no key leaves.
+  const swapped = Buffer.alloc(32, 9).toString("base64");
+  await newcomer.route("**/api/v1/me/link-requests/*/collect", async (route) => {
+    const response = await route.fetch();
+    if (!response.ok()) { await route.fulfill({ response }); return; }
+    const body = await response.json() as { approverKey?: string };
+    if (body.approverKey) body.approverKey = swapped;
+    await route.fulfill({ response, json: body });
+  });
+  id = await startLink(newcomer);
+  await approver.locator("#link-devices .pin-row", { hasText: linkCode(id) }).getByRole("button", { name: "Approve…" }).click();
+  const forged = (await newcomer.locator(".check-code").textContent({ timeout: 30_000 }))!.trim();
+  await typedCode(approver).fill(forged);
+  await expect(approveButton(approver)).toBeDisabled();
+  await approver.locator("#link-devices").getByRole("button", { name: "Codes differ" }).click();
+  await expect(approver.getByText(/^Linking cancelled: the codes differed\./)).toBeVisible();
+  await expect(newcomer.getByText(LINK_ENDED)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
+  expect(sent).toEqual([]);
+  expect(collected).toEqual([]);
+  expect((await vaultOf(newcomer))!.identity).toBeUndefined();
+  await newcomer.unroute("**/api/v1/me/link-requests/*/collect");
+
+  // 6. The honest link. The approver accepts only the newcomer's code, typed; the newcomer keeps the
+  // collected key unopened until its own user confirms the code it shows.
+  id = await startLink(newcomer);
+  await approver.locator("#link-devices .pin-row", { hasText: linkCode(id) }).getByRole("button", { name: "Approve…" }).click();
+  const code = (await newcomer.locator(".check-code").textContent({ timeout: 30_000 }))!.trim();
+  const wrong = code.replace(/\d/, (digit) => String((Number(digit) + 1) % 10));
+  await typedCode(approver).fill(wrong);
+  await expect(approveButton(approver)).toBeDisabled();
+  await typedCode(approver).fill(code);
+  await expect(approveButton(approver)).toBeEnabled();
+  await approveButton(approver).click();
+  await expect(approver.getByText("Key sent. Finish on the other browser.")).toBeVisible({ timeout: 30_000 });
+  expect(sent).toHaveLength(1);
+  await expect.poll(() => collected.length, { timeout: 30_000 }).toBe(1);
+  expect((await vaultOf(newcomer))!.identity).toBeUndefined();
+  await expect(newcomer.locator(".check-code")).toHaveText(code);
+  await newcomer.getByRole("button", { name: "Codes match", exact: true }).click();
+  await expect(newcomer.getByText("Linked. This browser now holds your encryption key.")).toBeVisible({ timeout: 30_000 });
+  const linked = (await vaultOf(newcomer))!;
+  expect(linked).toMatchObject({ sealed: true, extractable: false });
+  const original = (await vaultOf(approver))!.identity!;
+  expect(linked.identity).toEqual(original);
+  // Collect delivered the bundle once and deleted the request: a second collect is refused.
+  expect(await collectStatus(newcomer, id)).toBe(404);
+  expect(await openRequests(approver)).toEqual([]);
+  await approver.getByRole("button", { name: "← Workspace" }).click();
+
+  // 7. The linked browser opens the team's keys: it reads what the owner wrote; both show one fingerprint.
+  await openTeam(newcomer, TEAM, cid);
+  await expect(newcomer.getByText(LINK_BANNER)).toHaveCount(0);
+  await readPage(newcomer, "Owner page", ["owner comment"]);
+  expect((await ownSettings(newcomer)).fingerprint).toBe((await ownSettings(approver)).fingerprint);
+
+  // 8. A local cache that refuses every write: the edit still reaches the server, and the page says it has no local copy.
+  await newcomer.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["put"]>) {
+      if (this.name === "notes") throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      return put.apply(this, args);
+    };
+  });
+  await writePage(newcomer, "Linked page", "linked comment");
+  await expect(newcomer.getByText(UNCACHED)).toBeVisible();
+  const uncached = await serverCopy(newcomer, "Linked page");
+  await expect(titleOf((await heldKeys(newcomer, cid, senders)).get(uncached.generation)!, cid, uncached.bytes)).resolves.toBe("Linked page");
+
+  // 9. Forget this device asks first, names what it removes and keeps, then deletes the sealed key and its device key together.
+  await newcomer.getByRole("button", { name: "Settings" }).click();
+  await withDialog(second, { type: "confirm", text: FORGET }, () => newcomer.getByRole("button", { name: "Forget this device & sign out" }).click());
+  await expect.poll(() => vaultOf(newcomer)).toBeNull();
 }

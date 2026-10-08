@@ -459,7 +459,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestMetaPatchRechecksInsideTheTransaction` and `npm test` (keyring, keyService, pins, crypto, storage,
   passwordChange).
   `npm run e2e --prefix web` (`web/e2e/team-keys.e2e.ts`) runs owner, editor and newcomer in three
-  Chromium contexts, plus one where another account signs in over an opened invitation link, against
+  Chromium contexts, plus one where another account signs in over an opened invitation link and one
+  second browser of the editor's account, against
   `web/e2e/server.sh` (throwaway `/tmp` data on `127.0.0.1:18080`, login limit raised because every
   person shares one loopback IP; serves the embedded bundle: build and sync `internal/web/dist` first).
   It checks server bytes: shared rows open
@@ -469,7 +470,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   the team before any owner reopens it, refuses another account and a pre-removal invitation, a link
   pasted into an open tab joins, a re-invited member waits and asks, a declined changed key is never
   sealed, re-trust in Settings, unsent edits export and discard, and a click during the automatic load
-  (held at its last request) leaves the list loaded when it stops being busy. Every browser dialog must
+  (held at its last request) leaves the list loaded when it stops being busy. P3c steps: newcomer Cancel,
+  either side leaving Settings, and approver "Codes differ" each delete the request (collect answers 404);
+  a reload mid-attempt never reveals, so the server row waits for the approver's Cancel or expiry; a relay
+  swapping the approver key (rewritten collect) keeps Approve disabled with the newcomer's code typed and
+  sends nothing; the honest link needs the typed code, keeps the collected bundle unopened until the
+  newcomer's "Codes match", stores the same identity sealed and non-extractable, refuses a second collect,
+  opens the team with one fingerprint; a cache that refuses writes still sends with the no-local-copy text;
+  Forget asks with its exact text and empties the vault. Every browser dialog must
   be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
