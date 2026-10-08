@@ -112,6 +112,17 @@ export async function getNote(owner: string, id: string, opensLegacy?: (note: Ca
   return legacy;
 }
 
+/** Cached pages written before owners were recorded and not claimed since. */
+export async function ownerUnknownNotes(): Promise<CachedNote[]> {
+  const db = await openDatabase();
+  const rows = await new Promise<Array<CachedNote & { owner: string }>>((resolve, reject) => {
+    const request = db.transaction(storeName).objectStore(storeName).getAll();
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  db.close();
+  return rows.filter((row) => row.owner === UNKNOWN).map(({ owner: _owner, ...note }) => note);
+}
+
 export async function deleteNote(owner: string, id: string): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {

@@ -1,4 +1,4 @@
-import type { PendingSave } from "./storage";
+import type { CachedNote, PendingSave } from "./storage";
 
 /**
  * Queued edits whose notebook the server no longer lists for this account: they can never be
@@ -58,8 +58,24 @@ export async function drainable(queued: PendingSave[], owner: string, opensLegac
   return { drain, stamp, superseded };
 }
 
+/**
+ * Cached drafts written before owners were recorded that this account's login-derived key does not
+ * open (it would claim them, getNote) but another key this browser holds does: whose they are is
+ * unknown, so they are listed for export only, never sent or discarded. A page that also has an
+ * owner-unknown queued edit is listed once, there.
+ */
+export async function unknownDrafts(cached: CachedNote[], queued: PendingSave[], opensLegacy: (note: CachedNote) => Promise<boolean>, opens: (note: CachedNote) => Promise<boolean>): Promise<CachedNote[]> {
+  const listed = new Set(queued.filter((item) => item.owner === undefined).map((item) => item.id));
+  const out: CachedNote[] = [];
+  for (const note of cached) {
+    if (listed.has(note.id) || await opensLegacy(note).catch(() => false)) continue;
+    if (await opens(note).catch(() => false)) out.push(note);
+  }
+  return out;
+}
+
 /** A JSON export of the edits open() reads; the rest are counted, never guessed at. */
-export async function exportUnsent(items: PendingSave[], open: (item: PendingSave) => Promise<unknown>): Promise<{ json: string; unreadable: number }> {
+export async function exportUnsent(items: CachedNote[], open: (item: CachedNote) => Promise<unknown>): Promise<{ json: string; unreadable: number }> {
   const out: Array<{ id: string; notebook: string; updatedAt: string; content: unknown }> = [];
   let unreadable = 0;
   for (const item of items) {

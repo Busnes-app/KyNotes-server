@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it, vi } from "vitest";
 import { decryptObject, encryptNote, legacyKeyRef } from "./crypto";
-import { deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, type PendingSave } from "./storage";
-import { drainable, exportUnsent, stuckSaves, unsentEdits } from "./stuckEdits";
+import { deleteNote, getNote, ownerUnknownNotes, pendingSaves, putNote, queueSave, replaceQueuedSave, type CachedNote, type PendingSave } from "./storage";
+import { drainable, exportUnsent, stuckSaves, unknownDrafts, unsentEdits } from "./stuckEdits";
 
 const lost = `cnt_${"a".repeat(26)}`, kept = `cnt_${"b".repeat(26)}`;
 const legacy = legacyKeyRef("5a".repeat(32));
@@ -118,5 +118,42 @@ describe("edits whose owner is unknown", () => {
     expect((await unsentEdits(queued, undefined, alice, opener(legacy), opener(legacy, team))).unknown).toEqual([shared]);
     const file = await exportUnsent(unsent.unknown, (item) => decryptObject(team, item.containerID, item.payload));
     expect(JSON.parse(file.json)).toEqual([expect.objectContaining({ id: shared.id, content: expect.objectContaining({ title: "shared old" }) })]);
+  });
+});
+
+describe("cached drafts whose owner is unknown", () => {
+  /** Rows as a version 4 browser left them: the upgrade keyed them owner-unknown. */
+  const seed = async (notes: CachedNote[]) => {
+    await pendingSaves(); // opens (and upgrades) the database
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open("kynotes-web");
+      request.onsuccess = () => {
+        const db = request.result;
+        const transaction = db.transaction("notes", "readwrite");
+        for (const note of notes) transaction.objectStore("notes").put({ ...note, owner: "" });
+        transaction.oncomplete = () => { db.close(); resolve(); };
+        transaction.onerror = () => reject(transaction.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  };
+
+  it("are listed export-only when a notebook key opens them, never claimed, sent or deleted", async () => {
+    const teamDraft = { ...(await save(`obj_${"j".repeat(26)}`, kept, "team draft", team)), keyGeneration: 2 };
+    const ownDraft = await save(`obj_${"k".repeat(26)}`, kept, "own draft");
+    const elsewhere = await save(`obj_${"m".repeat(26)}`, kept, "elsewhere", legacyKeyRef("6b".repeat(32)));
+    const alsoQueued = { ...(await save(`obj_${"n".repeat(26)}`, kept, "queued too", team)), keyGeneration: 2 };
+    await seed([teamDraft, ownDraft, elsewhere, alsoQueued]);
+    const queued = [alsoQueued]; // an owner-unknown queue entry, listed there instead
+    const drafts = await unknownDrafts(await ownerUnknownNotes(), queued, opener(legacy), opener(legacy, team));
+    expect(drafts).toEqual([teamDraft]);
+    const file = await exportUnsent(drafts, (item) => decryptObject(team, item.containerID, item.payload));
+    expect(JSON.parse(file.json)).toEqual([expect.objectContaining({ id: teamDraft.id, content: expect.objectContaining({ title: "team draft" }) })]);
+    // The login key does not open it, so a page load never claims it, and the queue never holds it.
+    expect(await getNote(alice, teamDraft.id, opener(legacy))).toBeUndefined();
+    expect((await drainable(await pendingSaves(), alice, opener(legacy))).drain.map((item) => item.id)).not.toContain(teamDraft.id);
+    expect((await ownerUnknownNotes()).map((note) => note.id)).toContain(teamDraft.id);
+    // Listed again on the next visit: nothing hides it.
+    expect(await unknownDrafts(await ownerUnknownNotes(), queued, opener(legacy), opener(legacy, team))).toEqual([teamDraft]);
   });
 });
