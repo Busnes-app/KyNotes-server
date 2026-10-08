@@ -1,0 +1,178 @@
+{
+  "links": [
+    {
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "identityPrivateKey": "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4",
+      "approverPrivateKey": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "nonce": "000102030405060708090a0b",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "checkCode": "449 182",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "userId": "usr_zyxwvtsrqpnmkjhgfedcba9876",
+      "requestId": "lnk_tvwxyz0123456789abcdefghjk",
+      "identityDeviceId": "dev_mnpqrstvwxyz0123456789abcd",
+      "identityPrivateKey": "4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d",
+      "approverPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "approverPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "newcomerPrivateKey": "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a",
+      "newcomerPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "nonce": "0c0d0e0f1011121314151617",
+      "commitment": "e5e2d03a5d8d13c2ae4b7e4ff3c6585dd4cfecf9137b52da6e4bf5fcb48ef5a2",
+      "checkCode": "843 939",
+      "bundle": "010c0d0e0f1011121314151617ce7111a5073e597401cfbb1aa836e2e3468eae8a186c0473f3eeb23dfa0cbd061fe50f7afffced779c797633c3509854"
+    }
+  ],
+  "rejects": [
+    {
+      "case": "tampered-ciphertext",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af571589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "tampered-tag",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612a"
+    },
+    {
+      "case": "tampered-nonce",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01010102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "wrong-version",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "00000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "truncated",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed61"
+    },
+    {
+      "case": "swapped-keys",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "wrong-approver-key",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "low-order-approver-key",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "wrong-request",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_tvwxyz0123456789abcdefghjk",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "wrong-user",
+      "refused": "bundle",
+      "userId": "usr_zyxwvtsrqpnmkjhgfedcba9876",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "wrong-identity-device",
+      "refused": "bundle",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_mnpqrstvwxyz0123456789abcd",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+      "newcomerPublicKey": "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0bfbd2108bdfce6af471589de812d1a31dc4e681c6a0312fcc701fe34b50e404040718695a437e49e6dc0583797eed612b"
+    },
+    {
+      "case": "commitment-mismatch",
+      "refused": "commitment",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "requestId": "lnk_00000000000000000000000000",
+      "identityDeviceId": "dev_00000000000000000000000000",
+      "approverPublicKey": "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+      "newcomerPrivateKey": "4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d",
+      "newcomerPublicKey": "ff63fe57bfbf43fa3f563628b149af704d3db625369c49983650347a6a71e00e",
+      "commitment": "80bd4d0021fb9d5235f2bdb6acf13bd4b09e8d232f08318b5d544583b8f65b6a",
+      "bundle": "01000102030405060708090a0ba0cdf2271119ff76b1bcc200e480fa6f144488fd94c241a3c7686b02b6845b6879cd4c6685f39fc4d4b8f635fc54ba10"
+    }
+  ]
+}

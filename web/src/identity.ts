@@ -1,5 +1,5 @@
 import { base64, fromBase64, type LoginKeys } from "./crypto";
-import { generateIdentity, IDENTITY_WRAP_ALG, unwrapIdentity, wrapIdentity, type Identity } from "./teamKeys";
+import { generateIdentity, IDENTITY_WRAP_ALG, sameBytes, unwrapIdentity, wrapIdentity, type Identity } from "./teamKeys";
 
 /** The password-wrapped identity; only local login and step-up responses carry it. */
 export type IdentityRecord = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg: string; wrappedPrivateKey: string };
@@ -12,10 +12,6 @@ export type IdentityAPI = {
   /** Proves the password and returns the wrapped identity, if the session may receive it. */
   stepUp: (authSecret: string) => Promise<IdentityRecord | undefined>;
 };
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && a.every((value, i) => value === b[i]);
-}
 
 /** Unlocks the server copy and refuses a public key the private key does not produce. */
 export function openIdentity(record: IdentityRecord, userKEK: Uint8Array, userID: string): HeldIdentity {
