@@ -80,7 +80,7 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT ?,?,?,role,? FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
 					return e
 				}
-				_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),?,?,role,? FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, s.UserID, now, in.TeamID, s.UserID)
+				_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),?,user_id,role,? FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, now, in.TeamID, s.UserID)
 				return e
 			}
 			_, e = tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
