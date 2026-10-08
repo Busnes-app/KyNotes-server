@@ -432,8 +432,9 @@ Self-hosting requirements:
   recovery, and administrative changes.
 - Rate limits for login, pairing, uploads, and notifications.
 
-Administrators may manage users, quotas, backups, and audit access, but cannot
-decrypt user content.
+Administrators use administrator accounts, which are separate from everyday accounts for good: they
+manage users, quotas, teams, backups and audit access, hold no membership, identity, key or device,
+and reach no content route.
 
 ## 11. Verification strategy
 

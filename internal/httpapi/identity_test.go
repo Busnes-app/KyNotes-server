@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
-	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 const pairUser = "usr_pair_test"
@@ -332,12 +331,10 @@ func TestRecoveryAndAdminResetKeepIdentity(t *testing.T) {
 					t.Fatalf("recover=%d %s", got, b)
 				}
 			} else {
-				if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-					t.Fatal(err)
-				}
-				p.stepUp(t)
+				admin := p.addAdmin(t, "server-admin")
+				admin.stepUp(t)
 				body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
-				if got, b := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); got != http.StatusNoContent {
+				if got, b := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); got != http.StatusNoContent {
 					t.Fatalf("admin reset=%d %s", got, b)
 				}
 			}
@@ -379,16 +376,14 @@ func TestRecoveryAndAdminResetKeepIdentity(t *testing.T) {
 func TestAdminResetRevokesSessionsInItsTransaction(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	id := p.createIdentity(t)
-	if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-		t.Fatal(err)
-	}
-	p.stepUp(t)
+	admin := p.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	if _, err := p.db.Exec(`CREATE TRIGGER no_revoke BEFORE UPDATE OF revoked_at ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
 		t.Fatal(err)
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("fedcba9876543210"))
 	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
-	if code, b := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusInternalServerError {
+	if code, b := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusInternalServerError {
 		t.Fatalf("reset with a failing revocation=%d %s", code, b)
 	}
 	var known int
@@ -455,15 +450,7 @@ func TestDirectoryRevocationsSpareIdentity(t *testing.T) {
 			t.Fatalf("%s: live devices=%d identity live=%d", step, live, identity)
 		}
 	}
-	promote := directoryPayload("alice", "alice", 1, true)
-	promote["roles"] = []any{sso.AdminAppRole}
-	if r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "promote", "user.updated", promote); r.Code != 200 {
-		t.Fatalf("promote: %d %s", r.Code, r.Body.String())
-	}
-	check("role change")
-	if _, err := f.db.Exec(`UPDATE devices SET revoked_at='' WHERE user_id=?`, uid); err != nil {
-		t.Fatal(err)
-	}
+	// No role change applies here: an everyday account never takes the administrator grant.
 	if r := sendDirectory(t, f.router, "/sync/events", settings.HMACSecret, "disable", "user.updated", directoryPayload("alice", "alice", 2, false)); r.Code != 200 {
 		t.Fatalf("disable: %d %s", r.Code, r.Body.String())
 	}

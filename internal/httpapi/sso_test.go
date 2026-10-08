@@ -43,7 +43,7 @@ func createAdminUser(t *testing.T, db *sql.DB) (string, string) {
 	userID, _ := ids.Mint("usr")
 	secret, _ := auth.HashAuthSecret(strings.Repeat("a", 64))
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, created_at, updated_at) VALUES(?, 'admin', ?, 'salt', 600000, 'admin', 'active', ?, ?)`, userID, secret, now, now)
+	_, err := db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, created_at, updated_at) VALUES(?, 'admin', ?, 'salt', 600000, 'admin', 'admin', 'active', ?, ?)`, userID, secret, now, now)
 	if err != nil {
 		t.Fatalf("failed to create admin: %v", err)
 	}

@@ -119,7 +119,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 
 		now := time.Now().UTC().Format(time.RFC3339)
-		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'admin', 'active', ?, ?)`,
+		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'admin', 'admin', 'active', ?, ?)`,
 			id, strings.ToLower(username), hash, salt, iterations, now, now)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "failed to create initial admin: "+err.Error())

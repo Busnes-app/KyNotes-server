@@ -398,12 +398,12 @@ func userCommand(args []string) error {
 	if e != nil {
 		return e
 	}
-	role := "user"
+	role, kind := "user", "user"
 	if admin {
-		role = "admin"
+		role, kind = "admin", "admin"
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',1,?,?)`, id, strings.ToLower(username), hash, loginSalt, iterations, recoveryHash, role, now, now)
+	_, e = s.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,account_kind,status,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'active',1,?,?)`, id, strings.ToLower(username), hash, loginSalt, iterations, recoveryHash, role, kind, now, now)
 	if e != nil {
 		return e
 	}

@@ -18,10 +18,7 @@ import (
 
 func reauthFixture(t *testing.T) (*logoutFixture, []*http.Cookie) {
 	f := newLogoutFixture(t)
-	roleCallback(f, "alice", nil, "")
-	if _, err := f.db.Exec(`UPDATE users SET role='admin' WHERE username='alice'`); err != nil {
-		t.Fatal(err)
-	}
+	seedSSOAdmin(f, "alice")
 	login := roleCallback(f, "alice", []string{sso.AdminAppRole}, "")
 	if login.Code != 302 {
 		t.Fatal(login.Body.String())

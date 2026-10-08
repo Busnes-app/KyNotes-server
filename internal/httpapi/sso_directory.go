@@ -278,8 +278,8 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 		}
 		loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
 
-		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?, ?)`,
-			newID, username, dummyHash, loginSalt, role, status, u.ID, issuer, now, now)
+		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?, ?, ?)`,
+			newID, username, dummyHash, loginSalt, role, role, status, u.ID, issuer, now, now)
 		return false, err
 	}
 

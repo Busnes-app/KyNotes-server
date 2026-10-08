@@ -40,28 +40,41 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		s, _ := auth.SessionFromContext(r)
 		var in struct {
-			MetaCiphertext string `json:"metaCiphertext"`
+			OwnerUserID string `json:"ownerUserId"`
 		}
-		// The team has no name until its owner's browser mints its first key and seals one.
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.MetaCiphertext != "" {
+		// The team has no name and no key until its owner's browser opens it.
+		if json.NewDecoder(r.Body).Decode(&in) != nil || ids.Validate("usr", in.OwnerUserID) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
 		teamID, _ := ids.Mint("cnt")
 		membershipID, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
-		if err := dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", s.UserID, 1, []byte{}, 0, now, now); e != nil {
+		err := dbTx(db, func(tx *sql.Tx) error {
+			var ok bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND account_kind='user')`, in.OwnerUserID).Scan(&ok); err != nil {
+				return err
+			}
+			if !ok {
+				return sql.ErrNoRows
+			}
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", in.OwnerUserID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
-			_, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, membershipID, teamID, s.UserID, "owner", now)
-			return e
-		}); err != nil {
+			if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, membershipID, teamID, in.OwnerUserID, "owner", now); e != nil {
+				return e
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "admin.team.create", teamID, in.OwnerUserID, "success", "", RequestID(r))
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "admin.team.create", teamID, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": "", "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
+		writeJSON(w, map[string]any{"id": teamID, "ownerUserId": in.OwnerUserID})
 	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation,shared_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
@@ -167,7 +180,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		id, _ := ids.Mint("usr")
 		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err = db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)`, id, strings.ToLower(strings.TrimSpace(in.Username)), hash, in.LoginSalt, in.Iterations, in.Role, now, now); err != nil {
+		if _, err = db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?)`, id, strings.ToLower(strings.TrimSpace(in.Username)), hash, in.LoginSalt, in.Iterations, in.Role, in.Role, now, now); err != nil {
 			WriteError(w, r, 409, "already_exists", "username already exists")
 			return
 		}

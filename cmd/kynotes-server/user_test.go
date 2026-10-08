@@ -13,6 +13,9 @@ func TestUserAddFlagsOperatorKnownPassword(t *testing.T) {
 	if err := userCommand([]string{"add", "--username", "Op", "--password", "operator-chosen-1", "--config", cfgPath}); err != nil {
 		t.Fatal(err)
 	}
+	if err := userCommand([]string{"add", "--username", "Boss", "--password", "operator-chosen-2", "--admin", "--config", cfgPath}); err != nil {
+		t.Fatal(err)
+	}
 	s, err := storage.Open(filepath.Join(dataDir, "kynotes.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -21,5 +24,11 @@ func TestUserAddFlagsOperatorKnownPassword(t *testing.T) {
 	var known int
 	if err := s.DB().QueryRow(`SELECT password_admin_known FROM users WHERE username='op'`).Scan(&known); err != nil || known != 1 {
 		t.Fatalf("password_admin_known=%d %v", known, err)
+	}
+	for name, want := range map[string]string{"op": "user", "boss": "admin"} {
+		var kind, role string
+		if err := s.DB().QueryRow(`SELECT account_kind,role FROM users WHERE username=?`, name).Scan(&kind, &role); err != nil || kind != want || role != want {
+			t.Fatalf("%s account_kind=%q role=%q %v", name, kind, role, err)
+		}
 	}
 }

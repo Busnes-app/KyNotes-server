@@ -72,6 +72,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   no users exist; otherwise the web UI prompts, or use `user add`);
   maintenance backup refuses to copy a live data directory and restore runs an integrity
   check after replacement.
+- Migration `0026_account_kinds.sql`: `users.account_kind` (`user`/`admin`, fixed) and
+  `memberships.approved`; triggers refuse the admin grant on an everyday account and any membership,
+  owned container or device (identities included) for anything but an existing everyday account, on
+  insert and re-point. Upgrade keeps mixed administrators' content and drops their grant. Every path
+  that creates an administrator sets `account_kind='admin'`. Verify `TestAccountKinds*`,
+  `TestMixedAdminsKeepTheirNotesAndDropAdmin`, `TestAdminCreatesATeamForAnEverydayOwner`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
@@ -164,9 +170,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
-- `POST /api/v1/admin/teams` is the explicit admin team-creation path; it
-  creates the owner membership and records `admin.team.create`. It takes no name
-  (`400` for a non-empty `metaCiphertext`); the owner's browser seals one after the first
+- `POST /api/v1/admin/teams {"ownerUserId"}` is the explicit admin team-creation path; the team
+  belongs to that active everyday account (the administrator gets no membership) and records
+  `admin.team.create` (object = owner). It takes no name; the owner's browser seals one after the first
   key. The admin list carries name ciphertext that administrator pages never decrypt (they show
   only names this browser sealed); it passes through `observeContainers` for the key floors.
 - Team workspaces are child containers linked by `team_id`; their membership

@@ -134,7 +134,7 @@ func createSSOAdmin(tx *sql.Tx, cfg config.Config, want applysetup.Admin, now st
 		return err
 	}
 	username := strings.ToLower(want.Username)
-	if _, err = tx.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, 'admin', 'active', ?, ?, ?, ?)`,
+	if _, err = tx.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, 'admin', 'admin', 'active', ?, ?, ?, ?)`,
 		id, username, hash, auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username), want.Subject, want.Issuer, now, now); err != nil {
 		return err
 	}

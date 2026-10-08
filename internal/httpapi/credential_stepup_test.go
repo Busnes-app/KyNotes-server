@@ -61,10 +61,10 @@ func TestCredentialRoutesRequireStepUp(t *testing.T) {
 	if rr := do("POST", "/api/v1/admin/users", create); rr.Code != 200 {
 		t.Fatalf("create after step-up: %d %s", rr.Code, rr.Body)
 	}
-	var victim string
+	var victim, kind string
 	var known int
-	if err := db.QueryRow(`SELECT id,password_admin_known FROM users WHERE username='mallory'`).Scan(&victim, &known); err != nil || known != 1 {
-		t.Fatalf("admin-created user not flagged: %d %v", known, err)
+	if err := db.QueryRow(`SELECT id,password_admin_known,account_kind FROM users WHERE username='mallory'`).Scan(&victim, &known, &kind); err != nil || known != 1 || kind != "admin" {
+		t.Fatalf("admin-created user not flagged or not an admin account: %d %q %v", known, kind, err)
 	}
 	if rr := do("POST", "/api/v1/admin/users/"+victim+"/password", reset); rr.Code != 204 {
 		t.Fatalf("reset after step-up: %d %s", rr.Code, rr.Body)

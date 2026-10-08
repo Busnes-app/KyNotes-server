@@ -574,6 +574,7 @@ Rules:
 * No `CREATE TABLE IF NOT EXISTS` as a migration strategy. KyPost's own comments
   record why that path required a separate additive-column mechanism; do not
   repeat it.
+* `0026_account_kinds.sql`: account kinds, mixed-account upgrade, approval flag, content triggers.
 
 **SQLite DSN** — frozen:
 
@@ -1030,6 +1031,15 @@ CREATE TABLE idempotency_keys (
 CREATE INDEX idx_idempotency_created ON idempotency_keys(created_at);
 ```
 
+Migration 0026 adds `users.account_kind` (`'user'` everyday or `'admin'` administrator, fixed at
+creation: trigger `account_kind_fixed`) and `memberships.approved` (default 1). `role='admin'` needs an
+admin account (`admin_role_needs_admin_account`); `memberships`, `containers.owner_user_id` and
+`devices` (identities included) need an existing everyday account, on insert and on any re-point
+(`admin_account_holds_no_content`). On upgrade an administrator with a membership (revoked included),
+an identity or an owned container keeps it as an everyday account and loses the grant; other
+administrators become admin accounts and lose their device credentials. Each is audited
+`account.kind_upgrade` (`kind=admin` or `kind=user,admin_dropped=true`).
+
 `audit_events` has **no free-text detail column**. Anything worth recording is
 an enum in `event` or `reason_code`. This is how "audit records must remain
 content-blind" (LOGGING.md) is enforced structurally rather than by discipline.
@@ -1243,7 +1253,7 @@ deliberately every phase).
 |---|---|---|---|
 | GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":""}` → creates container + `owner` membership + `change_seq` 1; `metaCiphertext` must be empty (`400`); the name is sealed after the first key |
-| POST | `/api/v1/admin/teams` | session + CSRF, server admin | `{}` → creates a `team` container + the caller's `owner` membership, audited `admin.team.create`; `metaCiphertext` must be empty (`400`); the owner's browser seals the name after the first key |
+| POST | `/api/v1/admin/teams` | session + CSRF, server admin (step-up from Task 4) | `{"ownerUserId"}` → creates a team owned by that active everyday account, no membership for the caller; 400 malformed, 404 not an active everyday account; audit admin.team.create (object = owner) |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n,"keyGeneration":n}` → §1.11 rules on `meta_version`; `keyGeneration` must equal the current generation of a container that has a key (missing, zero, old or future, or no key yet: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role"}]`; to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
