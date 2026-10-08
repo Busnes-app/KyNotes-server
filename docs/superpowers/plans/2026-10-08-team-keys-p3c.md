@@ -213,7 +213,7 @@ export function confirmCheckCode(requestID: string): CheckCodeConfirmation;
 export function isCheckCodeConfirmation(value: unknown, requestID: string): value is CheckCodeConfirmation;
 
 // storage.ts
-export function identityProtection(): "device-key" | "unprotected";
+export function identityStorage(): "wrapped" | "plain";
 export function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean>; // expected: compare-and-swap (null: no identity held)
 export function loadIdentityRecord(username: string, userID: string): Promise<HeldIdentity | undefined>; // pending (deviceId "") included; throws when unreadable
 export function getIdentityKey(username: string, userID: string): Promise<HeldIdentity | undefined>;    // finished only
@@ -1942,10 +1942,10 @@ git commit -m "server: approve a link after a fresh step-up; the bundle is colle
 
 **Interfaces:**
 - Consumes: `HeldIdentity` (`identity.ts`), `generateIdentity` and `sameBytes` (`teamKeys.ts`).
-- Produces: `identityProtection`, `storeIdentityKey(): Promise<boolean>`, `loadIdentityRecord`, `getIdentityKey` (finished identities only) and `vaultReady`.
+- Produces: `identityStorage`, `storeIdentityKey(): Promise<boolean>`, `loadIdentityRecord`, `getIdentityKey` (finished identities only) and `vaultReady`.
 
 - [ ] **Step 1: Write the failing tests.** In `web/src/storage.test.ts`:
-  - Merge `identityProtection`, `loadIdentityRecord` and `vaultReady` into the existing `./storage` import (line 4). A second import of names it already imports (`clearAllDeviceKeys`, `getIdentityKey`, …) is a duplicate-binding error.
+  - Merge `identityStorage`, `loadIdentityRecord` and `vaultReady` into the existing `./storage` import (line 4). A second import of names it already imports (`clearAllDeviceKeys`, `getIdentityKey`, …) is a duplicate-binding error.
   - Add `afterEach` to the vitest import and `import { generateIdentity } from "./teamKeys";`.
   - Replace the file's `held` fixture (`publicKey` filled with 1s, `privateKey` with 2s) with a real key pair: `const held = { deviceId: "dev_00000000000000000000000000", ...generateIdentity() };`. The new public-key check would otherwise turn four existing `getIdentityKey(...)).toEqual(held)` assertions into `undefined`.
   - Append:
@@ -1982,7 +1982,7 @@ describe("the identity at rest", () => {
 
   it("keeps the private key sealed under a non-extractable device key, never raw", async () => {
     const identity = held();
-    expect(identityProtection()).toBe("device-key");
+    expect(identityStorage()).toBe("wrapped");
     expect(await storeIdentityKey("me", me, identity)).toBe(true);
     const stored = (await vaultRow("me"))!.identity;
     expect(stored.privateKey).toBeUndefined();
@@ -2004,7 +2004,7 @@ describe("the identity at rest", () => {
   it("keeps the raw key on a plain-HTTP origin, where there is no WebCrypto, and says so", async () => {
     vi.stubGlobal("isSecureContext", false);
     const identity = held();
-    expect(identityProtection()).toBe("unprotected");
+    expect(identityStorage()).toBe("plain");
     expect(await storeIdentityKey("me", me, identity)).toBe(true);
     expect((await vaultRow("me"))!.identity.privateKey).toEqual(identity.privateKey);
     expect(await getIdentityKey("me", me)).toEqual(identity);
@@ -2055,7 +2055,7 @@ describe("the identity at rest", () => {
 });
 ```
 
-- [ ] **Step 2: Run them to verify they fail.** Run `npm test --prefix web -- storage`. Expected: FAIL (`identityProtection` is not exported; the raw `privateKey` is stored). Run `npm ci --prefix web` first if `web/node_modules` is missing; the pre-flight showed fake-indexeddb 6.2.5 holds a `CryptoKey`, so a `DataCloneError` would mean a different version is installed.
+- [ ] **Step 2: Run them to verify they fail.** Run `npm test --prefix web -- storage`. Expected: FAIL (`identityStorage` is not exported; the raw `privateKey` is stored). Run `npm ci --prefix web` first if `web/node_modules` is missing; the pre-flight showed fake-indexeddb 6.2.5 holds a `CryptoKey`, so a `DataCloneError` would mean a different version is installed.
 
 - [ ] **Step 3: Implement.** In `storage.ts`, add `import { x25519 } from "@noble/curves/ed25519.js";` and `import { sameBytes } from "./teamKeys";`. Replace the `VaultRecord` identity field and the identity functions:
 
@@ -2072,15 +2072,15 @@ type RawIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; pr
 type VaultIdentity = SealedIdentity | RawIdentity;
 type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
 
-/** "device-key": sealed under a key this browser cannot export. "unprotected": a plain-HTTP origin keeps the raw key. */
-export const identityProtection = (): "device-key" | "unprotected" =>
-  globalThis.isSecureContext === true && typeof globalThis.crypto?.subtle?.generateKey === "function" ? "device-key" : "unprotected";
+/** "wrapped": sealed under a key this browser cannot export. "plain": a plain-HTTP origin keeps the raw key. */
+export const identityStorage = (): "wrapped" | "plain" =>
+  globalThis.isSecureContext === true && typeof globalThis.crypto?.subtle?.generateKey === "function" ? "wrapped" : "plain";
 
 const identityAAD = (userID: string, deviceId: string) => new TextEncoder().encode(`kynotes/device-identity/v1|${userID}|${deviceId}`);
 
 async function sealForDevice(userID: string, identity: HeldIdentity): Promise<VaultIdentity> {
   const base = { userID, deviceId: identity.deviceId, publicKey: identity.publicKey.slice() };
-  if (identityProtection() === "unprotected") return { ...base, privateKey: identity.privateKey.slice() };
+  if (identityStorage() === "plain") return { ...base, privateKey: identity.privateKey.slice() };
   const deviceKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: identityAAD(userID, identity.deviceId) }, deviceKey, identity.privateKey.slice()));
@@ -2123,7 +2123,7 @@ export async function loadIdentityRecord(username: string, userID: string): Prom
   const stored = (await readRecord(username))?.identity;
   if (!stored || stored.userID !== userID) return undefined;
   const held = await openForDevice(stored);
-  if (held && "privateKey" in stored && identityProtection() === "device-key") {
+  if (held && "privateKey" in stored && identityStorage() === "wrapped") {
     // Written raw by an earlier version: sealed now, only while the record still holds that copy.
     const upgraded = await sealForDevice(userID, held).catch(() => undefined);
     if (upgraded) await updateRecord(username, (record) => (record.identity && "privateKey" in record.identity && sameBytes(record.identity.privateKey, stored.privateKey) ? { ...record, identity: upgraded } : undefined));
@@ -2979,7 +2979,7 @@ async function settleIdentity(username: string, userID: string, keys: LoginKeys,
   - In `keyNoticeFor`, the blocked line becomes `` `This notebook is not end-to-end shared yet: ${plan.waitingFor.join(", ")} must first sign in to KyNotes once and set up an encryption key.` ``.
 
 - [ ] **Step 4: Workspace identity state.**
-  - Imports: add `myIdentity` and `putDeviceOnlyIdentity` to the `./api` import list; add `currentCopy, identityStatus, settleSSOIdentity, type IdentityStatus, type IdentityStore` to the `./identity` import; add `identityProtection, loadIdentityRecord, vaultReady` to the `./storage` import; add `import { LinkRequests, LinkThisBrowser } from "./components/DeviceLink";`.
+  - Imports: add `myIdentity` and `putDeviceOnlyIdentity` to the `./api` import list; add `currentCopy, identityStatus, settleSSOIdentity, type IdentityStatus, type IdentityStore` to the `./identity` import; add `identityStorage, loadIdentityRecord, vaultReady` to the `./storage` import; add `import { LinkRequests, LinkThisBrowser } from "./components/DeviceLink";`.
   - Replace the `identityRef`/`heldIdentity` block with:
 
 ```ts
@@ -3048,7 +3048,7 @@ async function settleIdentity(username: string, userID: string, keys: LoginKeys,
   - In `#device`, replace the missing-fingerprint text with `"This browser holds no encryption key for team notebooks. Link it from a browser that does (below)."`, and after the fingerprint paragraph add:
 
 ```tsx
-              {ownFingerprint && <p className="config-muted">{identityProtection() === "device-key" ? "This browser stores it encrypted under a browser key that pages cannot export. Anyone who can read this browser's profile on disk can still recover it: use \"Forget this device\" on shared computers." : "This site is not served over HTTPS, so this browser stores the key unencrypted on disk. Use \"Forget this device\" on shared computers."}</p>}
+              {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped" ? "This browser stores it encrypted under a browser key that pages cannot export. Anyone who can read this browser's profile on disk can still recover it: use \"Forget this device\" on shared computers." : "This site is not served over HTTPS, so this browser stores the key unencrypted on disk. Use \"Forget this device\" on shared computers."}</p>}
               {justLinked && <p role="status">Linked. This browser now holds your encryption key.</p>}
 ```
 
