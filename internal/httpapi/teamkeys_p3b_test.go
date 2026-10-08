@@ -83,3 +83,46 @@ func TestRemovedMemberIsReadmittedByReactivation(t *testing.T) {
 		t.Fatalf("admin add of a live member=%d", code)
 	}
 }
+
+func TestTeamAdminRemovesOnlyAdminsItInvited(t *testing.T) {
+	tm := newTeam(t)
+	peer, other := tm.owner.addUser(t, "peer"), tm.owner.addUser(t, "other")
+	remove := func(by *pairClient, target string) int {
+		code, _ := status(t, by.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+target, nil, true, false))
+		return code
+	}
+	join := func(by *pairClient, u member) {
+		t.Helper()
+		inv, code := invite(t, by, tm.id, u.id) // role admin
+		if code != http.StatusOK {
+			t.Fatalf("invite %s=%d", u.id, code)
+		}
+		if code := accept(t, u.pairClient, inv); code != http.StatusNoContent {
+			t.Fatalf("accept %s=%d", u.id, code)
+		}
+	}
+	join(tm.admin.pairClient, peer)
+	join(tm.owner, other)
+	if code := remove(tm.admin.pairClient, other.id); code != http.StatusForbidden {
+		t.Fatalf("admin removed the owner's invitee: %d", code)
+	}
+	if code := remove(peer.pairClient, tm.admin.id); code != http.StatusForbidden {
+		t.Fatalf("invited admin removed an admin it did not invite: %d", code)
+	}
+	if code := remove(tm.admin.pairClient, peer.id); code != http.StatusNoContent {
+		t.Fatalf("admin could not remove the admin it invited: %d", code)
+	}
+	var audits int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='container.member_remove' AND object_id=? AND actor_user_id=?`, peer.id, tm.admin.id).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("audits=%d %v", audits, err)
+	}
+	// Re-admitted by the owner, the peer is the owner's invitee now.
+	join(tm.owner, peer)
+	var invitedBy string
+	if err := tm.owner.db.QueryRow(`SELECT invited_by FROM memberships WHERE container_id=? AND user_id=?`, tm.id, peer.id).Scan(&invitedBy); err != nil || invitedBy != pairUser {
+		t.Fatalf("invited_by=%q %v", invitedBy, err)
+	}
+	if code := remove(tm.admin.pairClient, peer.id); code != http.StatusForbidden {
+		t.Fatalf("admin removed an admin the owner re-invited: %d", code)
+	}
+}

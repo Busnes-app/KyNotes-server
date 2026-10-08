@@ -106,7 +106,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			if !ok {
 				return sql.ErrNoRows
 			}
-			return admitMemberTx(tx, cid, in.UserID, in.Role, now)
+			return admitMemberTx(tx, cid, in.UserID, in.Role, "", now)
 		}); err != nil {
 			WriteError(w, r, 409, "already_exists", "unable to add member")
 			return

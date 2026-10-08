@@ -67,11 +67,12 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		err := dbTx(db, func(tx *sql.Tx) error {
-			var role, targetRole string
+			var role, targetRole, invitedBy string
 			if tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role) != nil || !isSteward(role) {
 				return errInsufficientRole
 			}
-			if tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, target).Scan(&targetRole) != nil || targetRole == "owner" || (role == "admin" && targetRole == "admin") {
+			// An admin removes another admin only when its own invitation admitted that membership.
+			if tx.QueryRow(`SELECT role,invited_by FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, target).Scan(&targetRole, &invitedBy) != nil || targetRole == "owner" || (role == "admin" && targetRole == "admin" && invitedBy != s.UserID) {
 				return errInsufficientRole
 			}
 			if err := removeMemberTx(tx, cid, target); err != nil {
@@ -185,7 +186,7 @@ func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
 			if steward == 0 {
 				return sql.ErrNoRows
 			}
-			if e := admitMemberTx(tx, cid, s.UserID, role, now); e != nil {
+			if e := admitMemberTx(tx, cid, s.UserID, role, inviter, now); e != nil {
 				return e
 			}
 			return moveInvitationEnvelopesTx(tx, id, s.UserID, now)

@@ -868,6 +868,7 @@ CREATE TABLE memberships (
 );
 CREATE UNIQUE INDEX idx_memberships_container_user ON memberships(container_id, user_id);
 CREATE INDEX idx_memberships_user ON memberships(user_id);
+-- Migration 0023 adds invited_by TEXT NOT NULL DEFAULT '': the inviter of the current membership ('' for owners, server-admin adds and older rows).
 
 CREATE TABLE key_envelopes (
   id             TEXT PRIMARY KEY,
@@ -1609,7 +1610,7 @@ Rules:
   `key_generation`, deletes that member's envelopes and device selections there,
   deletes the pending invitations that member issued in the team, and deletes
   invitation envelopes below the new generations. The removal route re-reads
-  both roles in the transaction: an admin cannot remove an admin or an owner.
+  both roles in the transaction: an admin cannot remove an owner, nor an admin whose current membership it did not invite (`memberships.invited_by`).
   A steward then calls `POST /containers/{id}/key-rotations`. The server never
   sees the key; it enforces that the generation moved and which envelopes exist.
 * **Write gate**: new content (object save, comment create or rewrite,
@@ -1641,9 +1642,8 @@ Rules:
 * **Known limits** (P2): creating a team invitation to a known user ID reveals
   whether that user is active (invitation creation is not rate-limited);
   invitations may be created without envelopes, and the new member cannot
-  write until a steward's sweep supplies them; an admin may invite a peer
-  as admin and then cannot remove them; envelopes of expired, never-accepted
-  invitations persist until the invitation row is deleted.
+  write until a steward's sweep supplies them; envelopes of expired,
+  never-accepted invitations persist until the invitation row is deleted.
 * **Known limit** (P3a): the server sees `authSecret`, so it can derive a
   member's legacy content key and forge a row in a shared container labelled
   below `shared_generation`. The web client labels such rows as not end-to-end
@@ -1668,6 +1668,7 @@ Tests:
 - `TestInvitationsDieWithTheirStewardship`
 - `TestAcceptChecksExpiryAndInviteeInsideItsTransaction`
 - `TestRemovedMemberIsReadmittedByReactivation`
+- `TestTeamAdminRemovesOnlyAdminsItInvited`
 - `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
