@@ -1249,6 +1249,7 @@ deliberately every phase).
 | GET | `/api/v1/me/link-requests` | session | trusted side: live requests of the account's other live sessions, unclaimed or claimed by the caller: `[{"id","commitment","createdAt","expiresAt","claimed","newcomerKey"}]` (`newcomerKey` `""` until revealed) |
 | POST | `/api/v1/me/link-requests/{id}/claim` | session + CSRF | trusted side: `{"approverKey":"<b64 32>"}` → `204`; once; not the newcomer session; newcomer session live |
 | POST | `/api/v1/me/link-requests/{id}/reveal` | session + CSRF | newcomer: `{"newcomerKey":"<b64 32>"}` → `204`; after a claim, once, only the committed key (`400` and the row is deleted otherwise); approver session live |
+| POST | `/api/v1/me/link-requests/{id}/approve` | session + CSRF + user-action step-up | claiming session: `{"bundle":"<b64 61>"}` → `204`; after reveal, once, newcomer session live; `409 password_change_required` while `password_admin_known` (local sessions) |
 | GET | `/api/v1/me/link-requests/{id}` | session | newcomer: `{"state":"pending\|claimed\|revealed\|approved","expiresAt","approverKey"?,"bundle"?}`; an approved row is returned once and deleted in the same transaction |
 | DELETE | `/api/v1/me/link-requests/{id}` | session + CSRF | any session of the account → `204` |
 | GET | `/api/v1/users/{id}/identity` | session | `{"userId","deviceId","publicKey","fingerprint"}` of an active user's live identity, for the user, a co-member of a live container, or a team/project owner/admin holding a pending, unexpired invitation they issued to the user; otherwise a uniform `404` |
@@ -1274,7 +1275,7 @@ deliberately every phase).
 * `POST /auth/password` must carry `identityDeviceId` and `wrappedIdentityKey` (60 bytes) exactly when the user has a password-wrapped (`aes-256-gcm`) identity, and commits it with the new verifier, otherwise `409 identity_rewrap_required`.
 * Recovery and admin password reset delete the identity row (device-only included) in the same transaction and write an audit row. `identity.create` audits `wrap=<alg>,proof=password|sso:<challenge ID>`.
 * Envelopes are insert-only per `(container, recipient, generation)`; a second write is `409 already_exists`. The caller's own identity envelope may be re-wrapped in place; a member that is not owner/admin may not write it first (`403`), so a steward or an accepted invitation supplies it. Recipients must be non-revoked devices or identities of active members (`400`). Owners and admins may write for any member; other members only for their own devices (`403`).
-* Link requests (migration `0024_device_linking.sql`): session-only, one user, TTL 10 minutes, at most 3 live per user (`409 already_exists`), a session's new request replaces its own; claim needs the newcomer session live and refuses the newcomer itself; reveal only by the newcomer, only after a claim, only the committed key (`SHA-256("kynotes/link-commit/v1" ‖ key)`; mismatch deletes the row, `400`); every miss, another user's ID included, is `404`; TTL and liveness are checked in the step's transaction. A local newcomer session is refused while `password_admin_known` (`409 password_change_required`). Creation has its own `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a per-account `link-step` bucket at `ratelimit.login_per_minute`. Every step is audited (`identity.link.request|claim|reveal|cancel|collect`, `.refuse` for a commitment mismatch); a refusal is audited under the step's event with outcome `denied` and the HTTP status as `reason_code`, object ID only when well formed. Collect misses are not audited (polled). Audits never carry keys, commitments or bundles. GC deletes expired rows.
+* Link requests (migration `0024_device_linking.sql`): session-only, one user, TTL 10 minutes, at most 3 live per user (`409 already_exists`), a session's new request replaces its own; claim needs the newcomer session live and refuses the newcomer itself; reveal only by the newcomer, only after a claim, only the committed key (`SHA-256("kynotes/link-commit/v1" ‖ key)`; mismatch deletes the row, `400`); every miss, another user's ID included, is `404`; TTL and liveness are checked in the step's transaction. A local newcomer session is refused while `password_admin_known` (`409 password_change_required`). Creation has its own `link` bucket at `ratelimit.pairing_per_hour`; claim, reveal, approve and cancel share a per-account `link-step` bucket at `ratelimit.login_per_minute`. Every step is audited (`identity.link.request|claim|reveal|cancel|collect`, `.refuse` for a commitment mismatch); a refusal is audited under the step's event with outcome `denied` and the HTTP status as `reason_code`, object ID only when well formed. Collect misses are not audited (polled). Audits never carry keys, commitments or bundles. GC deletes expired rows. Approve only by the claiming session, after a fresh user-action step-up rechecked in the transaction (`RecheckUserActionTx`), while the newcomer session is live, once, with exactly 61 bundle bytes; collect only by the newcomer's own live session, which deletes the row in the same transaction; deleting the identity (recovery, admin reset) deletes the user's link requests in the same transaction.
 * `POST .../key-rotations` compares and increments `key_generation` in one transaction, sets `containers.shared_generation` (migration 0022) on the first rotation, deletes invitation envelopes below the new generation, requires envelopes for the caller and every active member's live identity, and audits `container.key_rotate`.
 
 ### 5.3 Tests
@@ -1346,6 +1347,16 @@ deliberately every phase).
 - `TestAdminKnownPasswordCannotStartALink`
 - `TestLinkCrossAccountList`
 - `TestGCDeletesExpiredLinkRequests`
+- `TestLinkApprovalNeedsStepUpAndIsCollectedOnce`
+- `TestLinkApprovalNeedsTheNewcomerLive`
+- `TestLinkRequestsDieWithTheIdentity`
+- `TestSSOAccountLinksASecondBrowser`
+- `TestLinkApprovalRefusesOutOfOrder`
+- `TestLinkApprovalIsRefusedAfterExpiry`
+- `TestLinkApprovalRefusesAdminKnownPassword`
+- `TestLinkCollectNeedsTheLiveNewcomerSession`
+- `TestAdminResetClearsLinkRequests`
+- `TestLinkCollectIsOnceUnderConcurrency`
 
 ---
 

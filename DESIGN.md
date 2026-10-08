@@ -263,6 +263,8 @@ cannot pick a key to fit the code after seeing the other one. Only then is the i
 sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
 step-up, and collected once. Requests are per user, single use, expire after ten minutes, need a
 live session of that user on both sides, are rate-limited with device pairing and are audited.
+Deleting the identity (recovery or an administrator reset) deletes the account's open link requests
+in the same transaction.
 
 ### Device enrollment and revocation
 

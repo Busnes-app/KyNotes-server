@@ -172,6 +172,10 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 // deleteIdentityTx deletes the user's identity (cascading to its wrapped key and
 // envelopes) when its wrapping password is gone, and audits the deletion.
 func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID string) error {
+	// Open link requests would hand out the identity being deleted.
+	if _, err := tx.Exec(`DELETE FROM link_requests WHERE user_id=?`, userID); err != nil {
+		return err
+	}
 	var deviceID string
 	err := tx.QueryRow(`DELETE FROM devices WHERE user_id=? AND platform='identity' RETURNING id`, userID).Scan(&deviceID)
 	if errors.Is(err, sql.ErrNoRows) {

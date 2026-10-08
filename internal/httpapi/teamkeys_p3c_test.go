@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -816,5 +817,250 @@ func TestLinkCrossAccountList(t *testing.T) {
 	other := trusted.addUser(t, "other")
 	if code, body := status(t, other.do(t, http.MethodGet, "/api/v1/me/link-requests", nil, false, false)); code != http.StatusOK || strings.Contains(body, id) {
 		t.Fatal("another account listed the request", code, body)
+	}
+}
+
+func TestLinkApprovalNeedsStepUpAndIsCollectedOnce(t *testing.T) {
+	trusted, newcomer, id := openLink(t)
+	bundle := b64(bytes.Repeat([]byte{6}, linkBundleBytes))
+	approve := func(p *pairClient, value string, csrf bool) (int, string) {
+		return status(t, p.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(value)+`}`), csrf, false))
+	}
+	if code, body := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 200 || !strings.Contains(body, `"state":"revealed"`) || strings.Contains(body, `"bundle"`) {
+		t.Fatal("before approval", code, body)
+	}
+	if _, err := trusted.db.Exec(`UPDATE sessions SET stepup_at=''`); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := approve(trusted, bundle, true); code != 403 || !strings.Contains(body, "step_up_required") {
+		t.Fatal("approved without a step-up", code, body)
+	}
+	trusted.stepUp(t)
+	newcomer.stepUp(t)
+	if code, _ := approve(newcomer, bundle, true); code != 404 {
+		t.Fatal("approved by a session that did not claim", code)
+	}
+	if code, _ := approve(trusted, b64(bytes.Repeat([]byte{6}, linkBundleBytes-1)), true); code != 400 {
+		t.Fatal("short bundle", code)
+	}
+	if code, _ := approve(trusted, bundle, false); code != 403 {
+		t.Fatal("approved without CSRF", code)
+	}
+	if code, body := approve(trusted, bundle, true); code != 204 {
+		t.Fatal("approve", code, body)
+	}
+	if code, _ := approve(trusted, bundle, true); code != 404 {
+		t.Fatal("approved twice", code)
+	}
+	if code, _ := status(t, trusted.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 404 {
+		t.Fatal("the approver collected", code)
+	}
+	if code, body := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 200 || !strings.Contains(body, `"state":"approved"`) || !strings.Contains(body, bundle) {
+		t.Fatal("collect", code, body)
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 404 {
+		t.Fatal("collected twice", code)
+	}
+	var rows int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests`).Scan(&rows); err != nil || rows != 0 || audited(t, trusted, "identity.link.approve") != 1 || audited(t, trusted, "identity.link.collect") != 1 {
+		t.Fatal("rows or audit", rows, err)
+	}
+	if refused(t, trusted, "identity.link.approve", "403") != 2 || refused(t, trusted, "identity.link.approve", "404") != 2 || refused(t, trusted, "identity.link.approve", "400") != 1 {
+		t.Fatal("approval refusals not audited")
+	}
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	if leak := auditLeaks(t, trusted, commitment, newcomerKey, approverKey, bytes.Repeat([]byte{6}, linkBundleBytes)); leak != "" {
+		t.Fatal("audit carries key material:", leak)
+	}
+}
+
+func TestLinkApprovalNeedsTheNewcomerLive(t *testing.T) {
+	trusted, _, id := openLink(t)
+	trusted.stepUp(t)
+	if _, err := trusted.db.Exec(`UPDATE sessions SET revoked_at='x' WHERE id=(SELECT newcomer_session_id FROM link_requests WHERE id=?)`, id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false)); code != 404 {
+		t.Fatal("sealed for a revoked newcomer session", code)
+	}
+}
+
+func TestLinkRequestsDieWithTheIdentity(t *testing.T) {
+	trusted, _, id := openLink(t)
+	if err := dbTx(trusted.db, func(tx *sql.Tx) error { return deleteIdentityTx(tx, pairUser, pairUser, "") }); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests WHERE id=?`, id).Scan(&rows); err != nil || rows != 0 {
+		t.Fatal("a link request outlived the identity it would carry", rows, err)
+	}
+}
+
+func TestSSOAccountLinksASecondBrowser(t *testing.T) {
+	f := newLogoutFixture(t)
+	first, _ := ssoPerson(f, "bob", "bob-1")
+	second, _ := ssoPerson(f, "bob", "bob-2")
+	if r := ssoDo(f, first, "bob", "PUT", "/api/v1/me/identity", deviceOnlyBody(identityPub)); r.Code != 200 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	commitment, newcomerKey, approverKey := firstLinkVector(t)
+	send := func(cookies []*http.Cookie, method, path, body string) *httptest.ResponseRecorder {
+		req := withCookies(httptest.NewRequest(method, path, strings.NewReader(body)), cookies)
+		req.Header.Set("Content-Type", "application/json")
+		return f.send(req)
+	}
+	created := send(second, "POST", "/api/v1/me/link-requests", `{"commitment":`+quote(b64(commitment))+`}`)
+	var out struct{ ID string }
+	if created.Code != 200 || json.Unmarshal(created.Body.Bytes(), &out) != nil {
+		t.Fatal(created.Code, created.Body.String())
+	}
+	if r := send(first, "POST", linkPath(out.ID, "/claim"), `{"approverKey":`+quote(b64(approverKey))+`}`); r.Code != 204 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	if r := send(second, "POST", linkPath(out.ID, "/reveal"), `{"newcomerKey":`+quote(b64(newcomerKey))+`}`); r.Code != 204 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	body := `{"bundle":` + quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes))) + `}`
+	if r := send(first, "POST", linkPath(out.ID, "/approve"), body); r.Code != 403 || !strings.Contains(r.Body.String(), "sso_step_up_required") {
+		t.Fatal("SSO approval without a KySignOn confirmation", r.Code, r.Body.String())
+	}
+	if r := ssoDo(f, first, "bob", "POST", linkPath(out.ID, "/approve"), body); r.Code != 204 {
+		t.Fatal(r.Code, r.Body.String())
+	}
+	if r := send(second, "GET", linkPath(out.ID, ""), ""); r.Code != 200 || !strings.Contains(r.Body.String(), `"state":"approved"`) {
+		t.Fatal(r.Code, r.Body.String())
+	}
+}
+
+// Approval follows reveal, within the TTL, with exactly one bundle size.
+func TestLinkApprovalRefusesOutOfOrder(t *testing.T) {
+	commitment, _, approverKey := firstLinkVector(t)
+	trusted := newPairClient(t, strings.Repeat("p", 32))
+	trusted.createIdentity(t)
+	newcomer := trusted.secondSession(t)
+	id := createLinkRequest(t, newcomer, commitment)
+	bundle := []byte(`{"bundle":` + quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes))) + `}`)
+	approve := func(body []byte) int {
+		code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), body, true, false))
+		return code
+	}
+	if approve(bundle) != 404 {
+		t.Fatal("approved before a claim")
+	}
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/claim"), []byte(`{"approverKey":`+quote(b64(approverKey))+`}`), true, false)); code != 204 {
+		t.Fatal("claim", code)
+	}
+	if approve(bundle) != 404 {
+		t.Fatal("approved before the newcomer revealed its committed key")
+	}
+	if approve([]byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes+1)))+`}`)) != 400 {
+		t.Fatal("long bundle")
+	}
+	var stored int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests WHERE bundle IS NOT NULL`).Scan(&stored); err != nil || stored != 0 {
+		t.Fatal("a bundle was stored out of order", stored, err)
+	}
+}
+
+func TestLinkApprovalIsRefusedAfterExpiry(t *testing.T) {
+	trusted, _, id := openLink(t)
+	trusted.stepUp(t)
+	if _, err := trusted.db.Exec(`UPDATE link_requests SET expires_at='2000-01-01T00:00:00Z' WHERE id=?`, id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false)); code != 404 {
+		t.Fatal("approved an expired request", code)
+	}
+}
+
+// A password an administrator knows cannot release the identity (P3c review I1).
+func TestLinkApprovalRefusesAdminKnownPassword(t *testing.T) {
+	trusted, _, id := openLink(t)
+	trusted.stepUp(t)
+	if _, err := trusted.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	code, body := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false))
+	if code != 409 || !strings.Contains(body, "password_change_required") || refused(t, trusted, "identity.link.approve", "409") != 1 {
+		t.Fatal("approved with an administrator-known password", code, body)
+	}
+	var stored int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests WHERE bundle IS NOT NULL`).Scan(&stored); err != nil || stored != 0 {
+		t.Fatal("bundle stored", stored, err)
+	}
+}
+
+// Collect needs the newcomer's own live session; a revoked one leaves the bundle undelivered.
+func TestLinkCollectNeedsTheLiveNewcomerSession(t *testing.T) {
+	trusted, newcomer, id := openLink(t)
+	trusted.stepUp(t)
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false)); code != 204 {
+		t.Fatal("approve", code)
+	}
+	other := trusted.secondSession(t)
+	if code, _ := status(t, other.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 404 {
+		t.Fatal("another session of the account collected", code)
+	}
+	if _, err := trusted.db.Exec(`UPDATE sessions SET revoked_at='x' WHERE id=(SELECT newcomer_session_id FROM link_requests WHERE id=?)`, id); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := status(t, newcomer.do(t, http.MethodGet, linkPath(id, ""), nil, false, false)); code != 401 {
+		t.Fatal("collected by a revoked session", code)
+	}
+	if audited(t, trusted, "identity.link.collect") != 0 {
+		t.Fatal("collect audited")
+	}
+}
+
+// Admin reset deletes the identity, and with it every open link request, in one transaction.
+func TestAdminResetClearsLinkRequests(t *testing.T) {
+	trusted, _, _ := openLink(t)
+	if _, err := trusted.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	trusted.stepUp(t)
+	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	if code, b := status(t, trusted.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusNoContent {
+		t.Fatalf("admin reset=%d %s", code, b)
+	}
+	var rows int
+	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatal("a link request survived the reset", rows, err)
+	}
+}
+
+// Concurrent collects of one approved request deliver the bundle exactly once.
+func TestLinkCollectIsOnceUnderConcurrency(t *testing.T) {
+	trusted, newcomer, id := openLink(t)
+	trusted.stepUp(t)
+	if code, _ := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false)); code != 204 {
+		t.Fatal("approve", code)
+	}
+	codes := make(chan int, 8)
+	for i := 0; i < cap(codes); i++ {
+		go func() {
+			req, _ := http.NewRequest(http.MethodGet, newcomer.url+linkPath(id, ""), nil)
+			res, err := newcomer.hc.Do(req)
+			if err != nil {
+				codes <- 0
+				return
+			}
+			res.Body.Close()
+			codes <- res.StatusCode
+		}()
+	}
+	delivered := 0
+	for i := 0; i < cap(codes); i++ {
+		switch <-codes {
+		case 200:
+			delivered++
+		case 404:
+		default:
+			t.Error("unexpected status")
+		}
+	}
+	if delivered != 1 || audited(t, trusted, "identity.link.collect") != 1 {
+		t.Fatal("deliveries", delivered)
 	}
 }

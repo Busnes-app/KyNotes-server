@@ -150,6 +150,7 @@ func LinkRoutes(mux *http.ServeMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/me/link-requests", auth.RequireSession(db, listLinks(db)))
 	mux.Handle("POST /api/v1/me/link-requests/{id}/claim", step("identity.link.claim", claimLink(db)))
 	mux.Handle("POST /api/v1/me/link-requests/{id}/reveal", step("identity.link.reveal", revealLink(db)))
+	mux.Handle("POST /api/v1/me/link-requests/{id}/approve", step("identity.link.approve", auth.RequireUserActionStepUp(db, approveLink(db))))
 	mux.Handle("DELETE /api/v1/me/link-requests/{id}", step("identity.link.cancel", cancelLink(db)))
 	// Polled every two seconds: its misses are not audited (nothing changes; unbounded rows otherwise).
 	mux.Handle("GET /api/v1/me/link-requests/{id}", auth.RequireSession(db, collectLink(db)))
@@ -311,6 +312,32 @@ func cancelLink(db *sql.DB) http.Handler {
 				return errLinkGone
 			}
 			return audit(tx, r, s, "identity.link.cancel", id, "success", "")
+		}) {
+			return
+		}
+		w.WriteHeader(204)
+	})
+}
+
+// approveLink stores the bundle once, from the session that claimed the request, after a fresh
+// step-up (an administrator-known password is refused in the recheck), while the newcomer session is
+// still live and only after the newcomer revealed its committed key.
+func approveLink(db *sql.DB) http.Handler {
+	return linkHandler(func(w http.ResponseWriter, r *http.Request, s auth.Session, id string) {
+		bundle, ok := readField(w, r, "bundle", linkBundleBytes)
+		if !ok {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		if !linkTx(w, r, db, s, auth.RecheckUserActionTx, func(tx *sql.Tx, now time.Time) error {
+			res, err := tx.Exec(`UPDATE link_requests SET bundle=?5 WHERE id=?2 AND user_id=?3 AND approver_session_id=?4 AND expires_at>?1 AND newcomer_key IS NOT NULL AND bundle IS NULL`+liveNewcomer, now.Format(time.RFC3339), id, s.UserID, s.ID, bundle)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n != 1 {
+				return errLinkGone
+			}
+			return audit(tx, r, s, "identity.link.approve", id, "success", "")
 		}) {
 			return
 		}
