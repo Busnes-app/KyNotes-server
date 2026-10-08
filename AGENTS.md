@@ -78,6 +78,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   insert and re-point. Upgrade keeps mixed administrators' content and drops their grant. Every path
   that creates an administrator sets `account_kind='admin'`. Verify `TestAccountKinds*`,
   `TestMixedAdminsKeepTheirNotesAndDropAdmin`, `TestAdminCreatesATeamForAnEverydayOwner`.
+- Account kinds in `internal/auth` (default-deny): `RequireSession`, `RequireEither` and device
+  credentials admit everyday accounts only (`403 admin_account`); `RequireAdmin`/`RequireStepUp` admit
+  admin accounts only; `RequireAccount` (session, logout, logout-all, password change, step-ups) admits
+  both; `RequireEveryday` serves only `GET /me/identity`. A password session on a password someone else
+  set (`password_admin_known`) gets `409 password_change_required` everywhere but those account routes
+  and the identity read. A new route needs a class: `internal/httpapi/account_kinds_test.go` drives every
+  `"METHOD /path"` literal with both kinds and fenced sessions, and refuses any non-literal registration
+  not on its allowlist. Verify `TestEveryRouteRefusesTheOtherKind`, `TestEveryAccountRouteServesBothKindsUnfenced`,
+  `TestNoRouteHidesFromTheInventory`, `TestPasswordChangeIsForcedAtFirstSignIn`,
+  `TestAdminAccountsCannotPairDevices`, `TestKindGatesHoldWithoutTheTriggers`, `TestRefuseSessionKeepsKindsApart`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
@@ -262,8 +272,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
   The login dummy verifier retries a failed mint; it must never cache or use an empty hash.
-- Backup/recovery mutations, `POST /api/v1/admin/users` and
-  `POST /api/v1/admin/users/{id}/password` use `auth.RequireStepUp`, so a stolen admin
+- Backup/recovery mutations, `POST /api/v1/admin/users`,
+  `POST /api/v1/admin/users/{id}/password` and the SSO settings mutations (`POST /admin/sso`,
+  `/admin/sso/pair`, verify `TestAdminSSOAndPairing`) use `auth.RequireStepUp`, so a stolen admin
   cookie cannot mint local credentials. Local sessions re-prove their
   derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
@@ -369,7 +380,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   wrapped identity in one transaction bound to the hash they verified; a change in between gets
   401, no cookie, no step-up and no wrapped key (`Test*RejectsConcurrentPasswordChange`).
   `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
-  recovery) makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
+  recovery) fences the session (account kinds bullet) and, inside identity actions, makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
   invitation keys) answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
   set the flag. `/setup` accepts only `authSecret`. A password change needs no content warning

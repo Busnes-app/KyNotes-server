@@ -355,12 +355,13 @@ user data.
 | `sso_sign_in_required` | 409 | a local session asked for something only a KySignOn confirmation can authorize (changing an administrator-set password on an SSO-linked account); no `challenge`: sign in with KySignOn and retry |
 | `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; carries its `challenge` ID; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
+| `admin_account` | 403 | an administrator account reached a content route |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
 | `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a content write or name change without `X-Kynotes-Key-Scheme: shared-v2` (`this notebook uses shared keys: reload the page`) |
 | `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
-| `password_change_required` | 409 | an administrator knows the password; the user must change it before a local step-up can create an identity, write envelopes, rotate keys or send invitation keys |
+| `password_change_required` | 409 | a password session on a password someone else set reached any route other than session, logout, logout-all, password change, step-up or `GET /me/identity`; P5's identity fence still applies inside identity actions |
 | `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
 | `pairing_token_used` | 409 | pairing nonce already redeemed |
 | `gone` | 410 | upload session expired or object hard-deleted |
@@ -383,17 +384,17 @@ probing for object existence across accounts.
 | Route class | Session | Device credential | Step-up |
 |---|---|---|---|
 | Login, login-params, recovery | none | none | — |
+| Account (session, logout, logout-all, password, step-up, OIDC step-up) | required, either kind | rejected | — |
 | Device list, revoke, pairing-token mint | required | rejected | fresh session (< 5 min since login) for mint and revoke |
 | Device registration (redeem pairing token) | none | none (mints one) | pairing token |
 | Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required | rejected | CSRF + fresh step-up (`RequireUserActionStepUp`): local `stepup_at` within `StepUpWindow`, or an SSO KySignOn grant bound to this request (user scope); rechecked in the write transaction |
 | Envelope read (`GET .../envelopes`) | either | either | a device may read only envelopes sealed for **itself** |
 | Container/object/attachment sync | either | either | — |
-| Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
+| Admin (quota, GC, backup) | required, an admin account with role `admin` | rejected | admin step-up (`RequireStepUp`) for credential, team, backup and SSO settings mutations (`POST /admin/sso`, `/admin/sso/pair`) |
 | Own identity (`GET`/`PUT /me/identity`) | required | rejected | `PUT`: CSRF + fresh step-up as above; local sessions create `aes-256-gcm`, SSO sessions `none` (device-only) |
 | Device link relay (`/me/link-requests…`) | required | rejected | CSRF on mutations; approve: fresh step-up (`RequireUserActionStepUp`), rechecked in the transaction |
 
-"Fresh session" = `now - session.created_at < 5 * time.Minute`, else `403
-forbidden` with message `re-authentication required`.
+Content route classes admit everyday accounts only (`403 admin_account`); admin routes admit admin accounts only.
 
 ### 1.9 Configuration contract
 
@@ -1187,11 +1188,14 @@ Recovery, when it succeeds, does all of this in one transaction:
 
 ### 4.3 Middleware semantics
 
-* `RequireSession` — resolves the cookie, hashes it, looks up by `token_hash`,
+* `RequireAccount` — resolves the cookie, hashes it, looks up by `token_hash`,
   rejects when `revoked_at != ""`, `now > expires_at`, or `now >
   hard_expires_at`. Slides `expires_at` only when it has moved by at least
   `sessionSlideGranularity`. Loads the user and rejects when `status !=
-  "active"`.
+  "active"`. Either kind; only the account routes (§1.8) use it.
+* `RequireSession` — `RequireAccount`, then refuses an admin account (`403 admin_account`) and a password
+  session on a password someone else set (`409 password_change_required`). Every content route.
+* `RequireEveryday` — `RequireAccount` plus the kind check, without the password fence; only `GET /me/identity`.
 * `RequireDevice` — §1.5 headers; resolves the device, checks lockout **after**
   resolving the device ID to a real row (resolving first is what stops an
   anonymous caller from minting lockout entries for invented IDs), verifies the
@@ -1199,9 +1203,11 @@ Recovery, when it succeeds, does all of this in one transaction:
   *correct* secret on a revoked device or disabled account calls
   `cancelAttempt`, not a bare return — the strike goes back, so a legitimate
   client is not backed off forever for a condition it cannot fix by retrying.
-* `RequireEither` — tries device headers first, then session; never both.
-* `RequireFresh` — §1.8.
-* `RequireAdmin` — session with `users.role = "admin"`.
+* `RequireEither` — tries device headers first, then session (with `RequireSession`'s checks); never both.
+  Device credentials of admin accounts never resolve (`RequireDevice` too), and registration refuses
+  an admin account's pairing token.
+* `RequireAdmin` — `RequireAccount`, then an admin account (`403 forbidden`), the password fence, and
+  `users.role = "admin"` (for SSO sessions also the verified app-admin ceiling).
 
 ### 4.4 Tests
 

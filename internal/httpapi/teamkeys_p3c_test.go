@@ -819,7 +819,8 @@ func TestAdminKnownPasswordCannotStartALink(t *testing.T) {
 	}
 	newcomer := trusted.secondSession(t)
 	code, body := status(t, newcomer.do(t, http.MethodPost, "/api/v1/me/link-requests", []byte(`{"commitment":`+quote(b64(commitment))+`}`), true, false))
-	if code != http.StatusConflict || !strings.Contains(body, "password_change_required") || refused(t, trusted, "identity.link.request", "409") != 1 {
+	// The session fence answers before the handler, so no link refusal is audited.
+	if code != http.StatusConflict || !strings.Contains(body, "password_change_required") || refused(t, trusted, "identity.link.request", "409") != 0 {
 		t.Fatal("admin-known password started a link", code, body)
 	}
 }
@@ -1001,7 +1002,8 @@ func TestLinkApprovalRefusesAdminKnownPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, body := status(t, trusted.do(t, http.MethodPost, linkPath(id, "/approve"), []byte(`{"bundle":`+quote(b64(bytes.Repeat([]byte{6}, linkBundleBytes)))+`}`), true, false))
-	if code != 409 || !strings.Contains(body, "password_change_required") || refused(t, trusted, "identity.link.approve", "409") != 1 {
+	// The session fence answers before the handler, so no link refusal is audited.
+	if code != 409 || !strings.Contains(body, "password_change_required") || refused(t, trusted, "identity.link.approve", "409") != 0 {
 		t.Fatal("approved with an administrator-known password", code, body)
 	}
 	var stored int
@@ -1162,11 +1164,12 @@ func TestAdminKnownPasswordChangeNeedsKySignOn(t *testing.T) {
 // and audits how many (final review I1).
 func TestPasswordChangeRevokesOtherSessions(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
+	admin := p.secondSession(t)
+	// Paired before the flag: a flagged session reaches no pairing route until its own change.
+	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{6}, 32))
 	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
 		t.Fatal(err)
 	}
-	admin := p.secondSession(t)
-	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{6}, 32))
 	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
 	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)); code != http.StatusNoContent {
 		t.Fatalf("own change: %d %s", code, body)

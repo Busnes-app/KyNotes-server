@@ -183,21 +183,37 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	defer mockKySignOn.Close()
 
 	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
-
-	// Call POST /api/v1/admin/sso/pair
-	pairBody := map[string]string{
-		"issuerUrl":    mockKySignOn.URL,
-		"pairingToken": "valid-pairing-token",
+	send := func(path string, body []byte) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", path, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", sess.CSRF)
+		req.AddCookie(sessionCookie)
+		req.AddCookie(csrfCookie)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
 	}
-	pairJSON, _ := json.Marshal(pairBody)
-	req := httptest.NewRequest("POST", "/api/v1/admin/sso/pair", bytes.NewReader(pairJSON))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-CSRF-Token", sess.CSRF)
-	req.AddCookie(sessionCookie)
-	req.AddCookie(csrfCookie)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	pairJSON, _ := json.Marshal(map[string]string{"issuerUrl": mockKySignOn.URL, "pairingToken": "valid-pairing-token"})
+	settingsJSON, _ := json.Marshal(sso.SSOSettings{Enabled: true, IssuerURL: "https://attacker.example", HMACSecret: strings.Repeat("x", 32)})
 
+	// SSO settings decide who may sign in as whom: an admin cookie alone cannot change them.
+	for _, tc := range []struct {
+		path string
+		body []byte
+	}{{"/api/v1/admin/sso/pair", pairJSON}, {"/api/admin/sso/pair", pairJSON}, {"/api/v1/admin/sso", settingsJSON}, {"/api/admin/sso", settingsJSON}} {
+		if rec := send(tc.path, tc.body); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "step_up_required") {
+			t.Fatalf("%s without step-up: %d %s", tc.path, rec.Code, rec.Body.String())
+		}
+	}
+	var audits int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event IN ('admin.sso_update','admin.sso_pair')`).Scan(&audits); err != nil || audits != 0 || sso.NewStore(db).Load().Enabled {
+		t.Fatal("SSO settings changed without step-up", audits, err)
+	}
+	if rec := send("/api/v1/auth/step-up", []byte(`{"authSecret":"`+strings.Repeat("a", 64)+`"}`)); rec.Code != http.StatusNoContent {
+		t.Fatalf("step-up: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := send("/api/v1/admin/sso/pair", pairJSON)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 from admin sso pair, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -222,6 +238,9 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	_ = json.NewDecoder(getRec.Body).Decode(&ssoSettings)
 	if !ssoSettings.Enabled || ssoSettings.IssuerURL != mockKySignOn.URL || ssoSettings.HMACSecret != "shared-hmac-secret-xyz" {
 		t.Fatalf("unexpected sso settings in admin response: %+v", ssoSettings)
+	}
+	if rec := send("/api/v1/admin/sso", settingsJSON); rec.Code != http.StatusOK {
+		t.Fatalf("settings save after step-up: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

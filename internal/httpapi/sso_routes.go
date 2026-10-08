@@ -136,8 +136,8 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		http.Redirect(w, r, authURL.String(), http.StatusFound)
 	}
-	mux.Handle("POST /api/v1/auth/oidc/step-up", auth.RequireSession(db, http.HandlerFunc(handleOIDCFlow)))
-	mux.Handle("GET /api/v1/auth/oidc/step-up/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/auth/oidc/step-up", auth.RequireAccount(db, http.HandlerFunc(handleOIDCFlow)))
+	mux.Handle("GET /api/v1/auth/oidc/step-up/{id}", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		session, _ := auth.SessionFromContext(r)
 		var verified bool
@@ -148,7 +148,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 		}
 		writeJSON(w, map[string]bool{"verified": verified})
 	})))
-	mux.Handle("DELETE /api/v1/auth/oidc/step-up/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("DELETE /api/v1/auth/oidc/step-up/{id}", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "CSRF validation failed")
 			return

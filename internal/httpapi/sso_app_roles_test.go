@@ -117,7 +117,7 @@ func TestSSOAppRolesRequireExplicitTokenAndAccountPermission(t *testing.T) {
 		t.Fatal("local account admin denied")
 	}
 	// An administrator account holds no device credential.
-	if res := f.register(f.pairing(local.Result().Cookies())); res.Code == 200 {
+	if res := f.send(withCookies(httptest.NewRequest("POST", "/api/v1/devices/pairing-token", nil), local.Result().Cookies())); res.Code != 403 || errorCode(t, res.Body.String()) != "admin_account" {
 		t.Fatalf("local device pairing: %d %s", res.Code, res.Body.String())
 	}
 

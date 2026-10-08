@@ -344,7 +344,8 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		mux.Handle("GET /api/v1/admin/sso", handleGetSSO)
 		mux.Handle("GET /api/admin/sso", handleGetSSO)
 
-		handlePostSSO := auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Changing who may sign in as whom is a one-way door: admin step-up (decision 5 interim).
+		handlePostSSO := auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if auth.CheckCSRF(r) != nil {
 				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 				return
@@ -365,7 +366,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		mux.Handle("POST /api/v1/admin/sso", handlePostSSO)
 		mux.Handle("POST /api/admin/sso", handlePostSSO)
 
-		handlePairSSO := auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlePairSSO := auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if auth.CheckCSRF(r) != nil {
 				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 				return

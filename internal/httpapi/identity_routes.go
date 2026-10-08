@@ -123,7 +123,7 @@ func loadIdentity(db interface {
 }
 
 func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
-	mux.Handle("GET /api/v1/me/identity", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /api/v1/me/identity", auth.RequireEveryday(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		identity, err := loadIdentity(db, s.UserID, false)
 		if err != nil {

@@ -229,7 +229,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("POST /api/v1/auth/login", handleLogin)
 	mux.HandleFunc("POST /api/auth/login", handleLogin)
 
-	handleSession := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handleSession := auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		var username string
 		_ = db.QueryRow(`SELECT username FROM users WHERE id=?`, s.UserID).Scan(&username)
@@ -239,12 +239,12 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 
-		writeJSON(w, map[string]any{"sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
+		writeJSON(w, map[string]any{"sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	}))
 	mux.Handle("GET /api/v1/auth/session", handleSession)
 	mux.Handle("GET /api/auth/session", handleSession)
 
-	handleLogout := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handleLogout := auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -427,8 +427,8 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, changePassword))
-	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/auth/password", auth.RequireAccount(db, changePassword))
+	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -447,7 +447,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	// Step-up re-proves the login secret for this session. The browser derives
 	// it from the typed password exactly as at login; the server never sees
 	// the password.
-	mux.Handle("POST /api/v1/auth/step-up", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/auth/step-up", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return

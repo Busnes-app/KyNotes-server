@@ -3129,7 +3129,7 @@ function AdminTeams({ users, username, userID, onCreateTeam, knownNames }: { use
   );
 }
 
-function AdminSSO() {
+function AdminSSO({ username }: { username: string }) {
   const [settings, setSettings] = useState<SSOSettings | null>(null);
   const [pairingToken, setPairingToken] = useState("");
   const [pairingIssuer, setPairingIssuer] = useState("");
@@ -3178,6 +3178,7 @@ function AdminSSO() {
   return (
     <section id="sso" className="config-card">
       <h2>Single Sign-On (KySignOn / OIDC)</h2>
+      <ConfirmPassword username={username} what="Single sign-on changes" />
       <p className="config-muted">
         Connect KyNotes to KySignOn Server for one-click single sign-on and automated user directory replication.
       </p>
@@ -3488,7 +3489,7 @@ function SettingsView({
                 {status ? (status.ready ? "OK" : "failed") : "checking…"}
               </p>
             </section>
-            <AdminSSO />
+            <AdminSSO username={username} />
  <AdminBackup username={username} />
             <section id="users" className="config-card">
               <h2>Users</h2>
