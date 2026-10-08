@@ -205,24 +205,18 @@ local sessions, a KySignOn confirmation of the exact request for SSO sessions. A
 the write transaction checks them again. Object saves also recheck the writer's
 role there; comment and attachment writes recheck only the gate.
 
-The web client seals every container's content with its container key and never with the login-derived key: a container that was never shared is read-only until its owner's browser mints its first key, at creation or on its first open (team keys P5), and only once the owner's identity is recoverable (a password copy or a recovery-code copy exists). A row at or above `sharedGeneration` opens only with
-its own generation's key; rows below it, and rows of a never-shared container, use the
-legacy login-derived key; a missing or malformed generation gets no key, so it
-fails closed. Rows below `sharedGeneration` are sealed with their author's legacy key, which the server can derive, so
-it can forge one labelled below `sharedGeneration`. The client labels such rows "not end-to-end verified"
-and re-seals one under the container key only when the user edits or moves that row, or ticks it in the
-per-notebook review of items written before sharing (each row is
-opened with the reader's own key, its content is shown, and exactly the content shown is sealed), never
-as a side effect of opening, autosave, another move or a conflict copy. Each browser then stops opening that container's legacy rows (a per-device floor flag): after
-the review, on the user's "Stop opening pre-sharing items", or by itself when the server lists none that
-the user's key opens. Only the user's "Show pre-sharing items again" undoes it, behind a warning, and
-it stops auto-close for that notebook. Entries the browser queued or cached itself are not affected. The client never writes
-legacy ciphertext into a shared container. A member without the current key
-cannot change anything there: pages, sections, groups, moves, deletes, comments,
-attachments and conflict copies are disabled and their handlers refuse, so no
+The web client seals and opens every container's content only with its container keys; no content key
+derives from the login secret. A notebook gets its first key when it is created (team keys P5; a
+notebook whose first key was never minted is read-only until its owner's next open mints it, and only
+once the owner's identity is recoverable: a password copy or a recovery-code copy exists). A row opens
+only with the key of its own generation, at or above the container's first keyed generation
+(`sharedGeneration`); a missing, malformed or older generation gets no key, so it
+fails closed. A member without the current key
+cannot change anything there: pages, sections, groups, moves, deletes,
+comments, attachments and conflict copies are disabled and their handlers refuse, so no
 empty object is created. Edits already in progress when the key went missing
-wait in the encrypted local queue at generation 0, are never uploaded at that
-generation, and are resealed under the current key when keys arrive; they are sealed with a key derived from the identity (HKDF label `kynotes/waiting/v1`), so a password change leaves them readable; older ones sealed with the login key are re-sealed by a password change in the same browser. Every content write and name change carries `X-Kynotes-Key-Scheme: shared-v2`; a tab from an older build is refused and told to reload. A container meta `PATCH` must carry
+wait in the encrypted local queue at generation 0, sealed with a key derived from the identity (HKDF label `kynotes/waiting/v1`), are never
+uploaded at that generation, and are resealed under the current key when keys arrive. Every content write and name change carries `X-Kynotes-Key-Scheme: shared-v2`; a tab from an older build is refused and told to reload. A container meta `PATCH` must carry
 `keyGeneration` equal to the current generation; a missing, zero, old or future
 value is refused inside the transaction with `409 already_exists`, so a stale
 tab cannot seal a name under a retired key. The same transaction checks the
@@ -245,7 +239,7 @@ keeps, add-only per container, the highest `sharedGeneration` and
 `keyGeneration` the server ever reported; key choices use the higher shared
 generation, and a lower report pauses writes ("The server reported an older key
 state for this notebook than this device has seen"), so a server cannot roll a
-shared notebook back to the login key or an older generation. This applies to
+shared notebook back to an older generation. This applies to
 every container. Relabelling a notebook as personal or team changes nothing, because `kind` and `teamId` never decide keys. A team's first key is minted for every member with an identity; members without one are wrapped by a later sweep.
 
 Attachments use authenticated encryption. Deterministic/convergent

@@ -1,12 +1,12 @@
 # Sub-project T: shared team keys (design draft)
 
-Status: approved direction 2026-10-07 (C → B → T → A list); delivered in phases P1–P5, one PR each. Source of truth read: origin/master at 1410db2.
+Status: approved direction 2026-10-07 (C → B → T → A list); delivered in phases P1–P5, one PR each. Source of truth read: origin/master at 1410db2. Legacy login-derived content key removed 2026-10-08 (user decision, see §9).
 
 ## 0. Current state and findings
 
 - **Every content key comes from `authSecret`.** `web/src/crypto.ts` `deriveObjectKeyBytes(authSecret, containerID, info)` (HKDF, salt = container ID) keys the container meta (`kynotes/container-meta/v1`), objects and pages (`kynotes/object/v1`), attachment bytes (also `kynotes/object/v1`), attachment metadata (`kynotes/attachment-meta/v1`) and comments (`kynotes/comment/v1`). Sealed share links already use a random per-link key (`encryptSharePayload`), so they are fine.
-- **Finding F1 (security). The server sees `authSecret`.** It is the login verifier. `POST /auth/login`, `/auth/step-up`, `/setup` and `/admin/users` all send it, and `admin_routes.go` `POST /admin/users` has the admin's browser derive it from a password the admin picked. So a malicious server, or the admin who created an account, can derive every content key today. The new key hierarchy must not hang off `authSecret`.
-- **Finding F2. Changing a password orphans all content.** `POST /auth/password` and recovery replace the salt, so every derived key changes. The UI says "Existing encrypted notes may require the device re-key flow", but no such flow exists.
+- **Finding F1 (security). The server sees `authSecret`.** It is the login verifier. `POST /auth/login`, `/auth/step-up`, `/setup` and `/admin/users` all send it, and `admin_routes.go` `POST /admin/users` has the admin's browser derive it from a password the admin picked. So a malicious server, or the admin who created an account, can derive every content key today. The new key hierarchy must not hang off `authSecret`. (closed: no content key derives from `authSecret` since the 2026-10-08 removal)
+- **Finding F2. Changing a password orphans all content.** `POST /auth/password` and recovery replace the salt, so every derived key changes. The UI says "Existing encrypted notes may require the device re-key flow", but no such flow exists. (closed: no content key derives from `authSecret` since the 2026-10-08 removal)
 - **The envelope routes exist but the web client never calls them.** They are `GET`/`PUT /containers/{id}/envelopes` in `internal/httpapi/device_routes.go`. `PUT` is limited to owner/admin, checks freshness with `session.CreatedAt < 5 min` (not `StepUpAt`), and uses `INSERT OR REPLACE`. Rows are keyed per **device** (`key_envelopes.device_id` is a foreign key to `devices`). The web browser is not a device.
 - **The save gate.** `object_routes.go`, `upload_routes.go` and the comment route refuse writes when any non-revoked device of any member lacks an envelope at the current generation. Web users have no device rows, so the gate passes trivially today. A single paired phone that never received an envelope would block every save in that container. The gate also ignores `device_containers` selection.
 - **Membership changes move no keys.** Member removal (`collab_routes.go`) bumps `key_generation` on the team and its child workspaces and deletes the removed user's envelopes. Admin member removal (`admin_routes.go`) does neither. Invitations and accepts move no keys. Child workspaces copy team memberships when created and when an invitation is accepted.
@@ -67,10 +67,10 @@ The AAD binding stops a malicious server from replaying an envelope into a diffe
 
 ## 2. Container content keys
 
-- `CK[container, generation]` is 32 random bytes, minted per container per generation. The purpose subkeys keep the current derivation with only the input key changed: `HKDF(ikm = CK, salt = containerID, info = <existing label>)`. Ciphertext layout (`iv || ct+tag`) and labels stay as they are, so `encryptNote`, `decryptObject`, `encryptAttachment` and the other helpers keep their shape. Their first argument becomes a `KeyRef` (a CK, or a legacy `authSecret`) instead of a string.
+- `CK[container, generation]` is 32 random bytes, minted per container per generation. The purpose subkeys keep the current derivation with only the input key changed: `HKDF(ikm = CK, salt = containerID, info = <existing label>)`. Ciphertext layout (`iv || ct+tag`) and labels stay as they are, so `encryptNote`, `decryptObject`, `encryptAttachment` and the other helpers keep their shape. Their first argument becomes a `KeyRef` (a CK, or the identity's waiting key for local copies) instead of a string.
 - **Covered by CK:** container meta, objects and pages (including CanvasPage bodies, which reach the server only through `encryptNote` in `main.tsx`), conflict copies (normal object saves), comments, attachment bytes, attachment metadata and previews, local IndexedDB caches and pending saves, and `X-Kynotes-Routing-Ciphertext`.
 - **Share links:** keep the dedicated random per-link key. Content is decrypted with CK and re-sealed under a fresh key, so links never reveal CK.
-- **Choosing a key on read:** the client takes the row's `keyGeneration` (required; a row without one is unreadable) and the container's `sharedGeneration`. A row at or above a non-zero `sharedGeneration` opens only with `CK[keyGeneration]`; if the keyring lacks it, the row waits for keys. A row below `sharedGeneration`, or any row of a never-shared container (`sharedGeneration = 0`), opens only with the legacy key derived from the reader's own `authSecret`. No other generation's CK is ever tried, so a row labelled at or above `sharedGeneration` cannot be downgraded to the legacy key, and a removed member's older CK cannot stand in for a newer generation. A row labelled below `sharedGeneration` still opens with the legacy key, which the server can derive (§6, read downgrade). Once this device has closed legacy reads for a container (P4), no server row there opens with the legacy key; entries this browser queued or cached itself still do (`localReadKeys`).
+- **Choosing a key on read:** the client takes the row's `keyGeneration` (required) and the container's `sharedGeneration` (its first keyed generation; the higher of the server's report and this device's floor). A row opens only with `CK[keyGeneration]`, and only when `keyGeneration ≥ sharedGeneration > 0`. Nothing else is tried: no other generation's key and no login-derived key. A waiting edit this browser stored (generation 0) opens only with its waiting key.
 - **Scope: personal workbooks too (recommended), in a later phase.** Using one code path everywhere fixes F2, enables phone pairing (the frozen design intends per-device envelopes for every container), and removes the dependency on `authSecret`. Teams ship first because that is the user-visible bug. Personal workbooks follow once identity recovery is proven. (P5 as built: every notebook, see below.)
 
 ## 3. Membership flows
@@ -108,26 +108,12 @@ This single routine covers admin-added members, invitees, members whose identity
 
 ## 4. Migration of existing data
 
-The migration is lazy, idempotent and never destructive.
-
-1. **Enabling shared keys on a container.** The first steward to open it calls `key-rotations` (generation g → g+1, a new `CK`). Every existing row remains at generation ≤ g and is treated as legacy.
-2. **Re-encrypting after a review.** Each member reviews, once per notebook and browser, the legacy rows its own login key opens, and re-seals only the ones it ticks (P4 as built: no background pass, because a re-sealed forgery could never again be told from verified content). For each ticked row:
-   - **Object:** re-save the current version at the current generation with `baseVersion = current`. This is a normal new version. Older versions keep their legacy ciphertext and history stays readable only to their author, which is documented.
-   - **Comment (author only):** new route `PUT /comments/{id}` with `{bodyCiphertext, keyGeneration}`, restricted to the author.
-   - **Attachment:** re-encrypt the bytes and metadata and upload them as a new attachment. The object payload's references are updated in the same save. The old blob is released to GC. Pages pointing at the old attachment are re-saved to point at the new one before the old one is detached.
-   - **Container meta:** a `PATCH` by whoever can decrypt it.
-   - **Pending queue and caches:** decrypt with the key that works and re-encrypt at the current generation before retrying. Today a queued legacy save would loop on `409 key rotation incomplete`.
-3. **Idempotence.** A row whose current version is already at a shared generation is skipped. Version conflicts use the existing `version_conflict` path. Re-running the pass is a no-op.
-4. **Content that no current member can decrypt** (written by another member under their own derived key) can only be migrated by its author, through the same pass on their next open.
-   - Add `object_versions.author_user_id` (new migration, default `''`, filled on new writes) so the UI can show "Encrypted by <username>, waiting for them to open this workspace" and so the pass can be targeted. Comments already carry `author_user_id`.
-   - If the author has been removed or deleted, the content stays opaque. Owners may delete it, but nothing is deleted automatically.
-5. **Personal workbooks** (P5): the owner's browser mints the first key on the first open after the upgrade, and the P4 review migrates the rows. It is not a background pass: a background pass would launder a row the server forged with the derivable login key.
-6. **Teams created by an admin (admin owns them today).** That admin account is the only one that can decrypt the existing team name. Sub-project A should run the migration once from the admin's browser (mint, wrap, re-encrypt meta) and then transfer ownership. The alternative is to let the new owner rename the team and accept the opaque old name.
+Superseded 2026-10-08. KyNotes was never live, so nothing is migrated: every container is keyed at creation (`createNamed`), the server refuses content, names and envelopes before the first key, and rows sealed with a login key by development builds never open. Browsers drop their local cache, queue and pending uploads once (IndexedDB v6).
 
 ## 5. Changes required
 
 **Server**
-- Migration `0021_identity_keys.sql` (P1: `user_identities`, `users.password_admin_known`); P2 adds `invitation_envelopes`, `author_user_id` and `containers.shared_generation` as `0022`; P3b adds `memberships.invited_by` as `0023`; P3c adds `sso_stepup.scope` and `link_requests` as `0024`; P4 adds no migration, only the read-only `GET /containers/{id}/legacy`; P5 adds `0025_identity_recovery.sql` (the recovery-code copy on `user_identities`):
+- Migration `0021_identity_keys.sql` (P1: `user_identities`, `users.password_admin_known`); P2 adds `invitation_envelopes`, `author_user_id` and `containers.shared_generation` as `0022`; P3b adds `memberships.invited_by` as `0023`; P3c adds `sso_stepup.scope` and `link_requests` as `0024`; P4's read-only `GET /containers/{id}/legacy` was removed with the legacy key; P5 adds `0025_identity_recovery.sql` (the recovery-code copy on `user_identities`):
   - `user_identities(user_id PK, device_id UNIQUE → devices, wrapped_private_key BLOB, wrap_alg, created_at, updated_at)`.
   - `invitation_envelopes(invitation_id, container_id, device_id, key_generation, alg, envelope)`, one per container.
   - `object_versions.author_user_id`.
@@ -138,7 +124,6 @@ The migration is lazy, idempotent and never destructive.
   - The wrapped private key is delivered only in responses that just verified the password: the local `POST /auth/login` and `POST /auth/step-up` success bodies carry `identity` (with `wrapAlg` and `wrappedPrivateKey`, `no-store`) when one exists. A session cookie alone must not yield an offline-guessing target. SSO sessions never receive it.
   - `GET /users/{id}/identity`: device ID, public key and fingerprint of an active user, for the user, a co-member of a live container, and a team or project owner or admin holding a pending invitation they issued to the user; a uniform 404 otherwise.
   - `POST /containers/{id}/key-rotations`.
-  - `PUT /comments/{id}`.
   - Invitation create and accept accept and move envelopes. Create with envelopes needs local-password step-up, rechecked in its transaction; create without envelopes stays session-only. Accept needs no step-up: it only moves envelopes the steward authorized at insertion.
   - `POST /auth/password` takes `wrappedIdentityKey` and `identityDeviceId` (both or neither). The re-wrap updates only that identity in the password's transaction; a missing, stale or mismatched identity returns 409 `identity_rewrap_required` and changes nothing. It sets `password_admin_known=0`, clears every session's step-up window (an old-password proof must not authorize a wrap under the new one) and shares the step-up lockout.
   - Recovery and admin password reset remove only the password copy (`identity.password_wrap.delete`, P5); only the user's own reset deletes an identity (`identity.reset`).
@@ -146,7 +131,7 @@ The migration is lazy, idempotent and never destructive.
   - Envelope `PUT` freshness uses `RequireStepUp` (`StepUpAt`) instead of session age.
   - Owner or admin may write for any member. **Any member may write envelopes for their own devices and identity**, so a viewer can pair a phone.
   - `INSERT OR REPLACE` becomes a plain insert at an existing generation. Writing for a recipient that already has an envelope at that generation returns 409, except for the user's own identity. This stops two stewards from splitting a generation across different keys.
-  - **The save gate becomes "the writer's own identity has an envelope at the current generation".** The current "every device of every member" rule blocks a whole team while one new member waits for keys, and it ignores device selection.
+  - **The save gate:** a container with a key (`shared_generation > 0`), `X-Kynotes-Key-Scheme: shared-v2`, the current generation, and the writer's own identity envelope at it. Containers without a key take no content, name or envelope.
   - Admin member removal performs the rotation bump. `POST /admin/teams` takes `ownerUserId` (sub-project A).
 - **Frozen-contract changes** (DESIGN.md §Encryption and §Teams, plus IMPLEMENTATION_PLAN §5 and §13, updated in the same change):
   - The user identity key is represented as a device row.
@@ -160,14 +145,14 @@ The migration is lazy, idempotent and never destructive.
 - `crypto.ts`: X25519 keypair generation; `wrapEnvelope` and `unwrapEnvelope`; `deriveUserKEK` (shares the PBKDF2 pass with `deriveAuthSecret` and returns both); identity wrap and unwrap; helpers keyed by `KeyRef`.
 - New `keyring.ts`: per-container map from generation to CK, a loader (envelopes, then unwrap), the steward sweep and the migration pass.
 - `api.ts`: the new routes plus `containerEnvelopes`.
-- `storage.ts`: the keys-vault record gains `identityPrivateKey` alongside `authSecret` (still needed for legacy decryption). A new `ck` store is optional. Prefer re-unwrapping per session so "Forget this device" stays a single delete.
+- `storage.ts`: the keys-vault record gains `identityPrivateKey` alongside `authSecret` (the device key used for silent step-up). A new `ck` store is optional. Prefer re-unwrapping per session so "Forget this device" stays a single delete.
 - `main.tsx`: replace about 30 `auth.authSecret` call sites with `keyFor(containerID, generation)`; add the key-wait and opaque-author states; add the steward prompts; admin teams UI.
 - `CanvasPage.tsx` is untouched because it never imports crypto.
 - Mobile clients are unaffected apart from receiving real envelopes.
 
 ## 6. Threat model notes
 
-- **Plaintext keys:** the server stores wrapped identity keys and envelopes only. `userKEK` and CK never leave browsers. This closes F1 for migrated content. Legacy content remains derivable from `authSecret` until it is re-encrypted.
+- **Plaintext keys:** the server stores wrapped identity keys and envelopes only. `userKEK` and CK never leave browsers. No content key derives from `authSecret`, so F1 is closed for all content.
 - **Public-key substitution by a malicious server:** it could return its own key from `GET /users/{id}/identity` and receive the next CK.
   - Mitigation now: the client pins (trust on first use) each colleague's identity public key in IndexedDB the first time it wraps for them or accepts an envelope from them, comparing decoded 32-byte keys. Wrapping for a changed key throws until the user explicitly confirms the new fingerprint; wrapping for oneself only ever targets the browser's own identity. Each user can see their own fingerprint in Settings and compare it out of band. When pins cannot be stored (no IndexedDB vault record), the UI must say so.
   - Pins are lost with "Forget this device", and first contact is blind: a key the server substitutes before the first pin is trusted.
@@ -175,8 +160,7 @@ The migration is lazy, idempotent and never destructive.
 - **Envelope replay or swapping** is blocked by the AAD binding (container, generation, recipient, sender).
 - **Forged envelopes:** without sender authentication a server could seal its own CK to every member and read what they write. Envelope v2 binds the sender's identity key, and recipients accept an envelope only when its sender is (a) themselves, (b) a current owner or admin of the container whose key matches the pin (first contact pins it), or (c) an identity already pinned on this device, and only for a generation below this device's high-water mark. The mark is the highest generation this device itself accepted from its own identity or a current steward, kept per container in the vault record; it only rises, is never taken from the server (a server could inflate `keyGeneration`), and when absent rule (c) is off. Rule (c) keeps history readable after the steward who wrapped it is removed or demoted. A changed steward key is refused and surfaced. The first key accepted for a (container, generation) wins: the device stores a SHA-256 digest of every accepted key beside the mark (add-only), so a different key for that generation, in the same response, later in the session or after a reload, is reported as a conflict and never used.
 - **Pins never expire and are never rewritten from server data.** They are added only on first contact (wrap or accepted envelope) and replaced only after the user confirms a changed fingerprint (`storeConfirmedPin` accepts only a `PinConfirmation` that `confirmFingerprintChange` registered, checked by `isPinConfirmation`); storing pins merges and never overwrites an existing entry, and compares in the same IndexedDB transaction: a proposal that names a member already pinned to a different key (a concurrent pass won) writes nothing and reports the member, and that pass stops before any envelope is uploaded; the next pass goes through the changed-key confirmation. Keys, digests and the mark are trusted only against stored pins: a stopped pass re-opens against them and keeps nothing a refused first-contact sender sealed. A removed member's pin stays, which is what rule (c) relies on.
-- **Sharing-state rollback:** a server could report a shared notebook as never shared, or report an older `keyGeneration`, so that writers fall back to the login key it can derive, or seal under a generation a removed member still holds. Each device persists, per container and add-only beside the key mark, the highest `sharedGeneration` and `keyGeneration` it has seen, before using them. Every key choice uses `max(server, stored)` for `sharedGeneration` (`guardContainer`), and a server report lower than either stored value pauses all writes for that container with a notice; the legacy key is never selected and nothing is written below the stored generation. The floor applies to every container, personal ones included: `kind` and `teamId` are server claims, so a seen-shared container reported as personal gets no key either. Forget-this-device clears this memory with the pins.
-- **Read downgrade (closed per device in P4):** rows at or above `sharedGeneration` open only with their own generation's CK (§2). Rows below it open with the legacy key, which the server can derive (F1), until this device closes legacy reads for that container. A device closes after its user reviewed and shared their pre-sharing rows, or by itself when the server lists none that the user's key opens, or on the user's "Stop opening pre-sharing items". The closure only rises (add-only floor, also broadcast to other tabs); the one way back is the user's own "Show pre-sharing items again", behind a warning. While closed, no server row of that container opens with the legacy key, so a forged pre-sharing row is never shown. A server can delay closure only by presenting rows the user's key opens; they show labelled, in the review, and closing by hand needs nothing from the server. A device that never closes, or reopens, keeps the P3a behaviour: such rows are labelled "written before this notebook was shared; not end-to-end verified".
+- **Sharing-state rollback:** a server could report a shared notebook as never shared, or report an older `keyGeneration`, so that writers seal under a generation a removed member still holds. Each device persists, per container and add-only beside the key mark, the highest `sharedGeneration` and `keyGeneration` it has seen, before using them. Every key choice uses `max(server, stored)` for `sharedGeneration` (`guardContainer`), and a server report lower than either stored value pauses all writes for that container with a notice; nothing is written below the stored generation. The floor applies to every container, personal ones included: `kind` and `teamId` are server claims, so a seen-shared container reported as personal gets no key either. Forget-this-device clears this memory with the pins.
 - **Residual: fake members.** A malicious server can add an invented member with an owner role and its own identity key; that member's envelopes are first-contact and are pinned. The attack is visible as a new member and a "new key holder" notice with a new fingerprint, not silent. Full prevention needs a signed membership log (future).
 - **Removed members** keep the keys for generations before their removal and any plaintext they already downloaded. Rotation is forward-only, which is the documented limit.
 - **Insider owner or admin** can wrap a wrong or different key for some members. The insert-only rule plus a client-side check that the key decrypts current meta catches accidental splits. A malicious insider is out of scope.
@@ -211,7 +195,7 @@ Each phase can ship on its own.
   10. Directory deactivation and SSO role changes revoke sessions and paired devices, never the identity row.
   11. Stopgap: content keys still derive from the password, so the password-change form warns that existing notes become unreadable and requires an explicit acknowledgement.
 
-**P2. Server rule changes.** Rotate route, insert-only envelopes, member-self writes, step-up freshness, the new save gate, the admin removal bump, `author_user_id`, invitation envelopes, `PUT /comments/{id}`, DESIGN.md and plan updates.
+**P2. Server rule changes.** Rotate route, insert-only envelopes, member-self writes, step-up freshness, the new save gate, the admin removal bump, `author_user_id`, invitation envelopes, DESIGN.md and plan updates.
 - Tests:
   - Named Go tests for each rule.
   - Update `TestNewContentRefusedUntilRotationEnvelopesExist` to the new gate.
@@ -237,32 +221,32 @@ Each phase can ship on its own.
 
   Known limits left for later phases: creating a team invitation to a known user ID reveals whether the user is active (rate-limit invitation creation); invitations without envelopes leave the new member unable to write until the sweep runs, and no route adds envelopes to an existing invitation; a removed member keeps a revoked membership row, so re-inviting them ends in 409; an admin may invite a peer as admin and then cannot remove them; invitation expiry is not rechecked inside the accept transaction; envelopes of expired, never-accepted invitations persist until the invitation row is deleted. P3b resolves all but the first two; the liveness signal is now rate-limited.
 
-**P3. Team keys in the web client.** Keyring, `KeyRef` refactor, steward sweep, invitation wrapping, key-wait UI, TOFU pins. New team content is shared. Legacy content is read with the legacy key, shared content with its own generation's key.
+**P3. Team keys in the web client.** Keyring, `KeyRef` refactor, steward sweep, invitation wrapping, key-wait UI, TOFU pins. New team content is shared. Content is read only with its own generation's key (superseded 2026-10-08, §9).
 - Tests:
   - Unit tests for keyring selection.
   - Playwright run with three real browser contexts (owner, editor, newcomer): create, invite, read each other's pages, comments and attachments; remove one member and confirm they cannot read new content while remaining members can read all of it.
 
 **P3 decomposition (2026-10-07).** P3 ships as three stacked PRs, each usable on its own. The order keeps SSO-only users from ever being locked out: no container is shared while any member lacks an identity, and identities for SSO users (P3c) arrive before anything relaxes that.
 
-- **P3a. Shared team keys for password users** (plan: `docs/superpowers/plans/2026-10-07-team-keys-p3a.md`). `KeyRef` refactor of `crypto.ts`; `keyring.ts` (envelopes to generation keys, write key, exact-generation read key, steward sweep plan); `keyService.ts` (mint through rotation, history backfill, one retry on a lost race); TOFU pins with local fingerprints in the vault record; all `main.tsx` content call sites; read-only "waiting for keys" state; re-keying of queued saves, uploads and comments after a rotation; immediate re-mint after a removal. Server: containers report `sharedGeneration`; shared containers refuse writes without `X-Kynotes-Key-Scheme: shared-v1` (stale tabs); envelope `PUT` may backfill any shared generation that already has envelopes and never mints one. Resolves the P2-carried limits: stale legacy tabs (header plus client re-key), identity-less members (first mint blocked with a named explanation; later additions read only), removal (empty generation re-minted by rotation only). Depends on P2. Personal notebooks stay legacy.
+- **P3a. Shared team keys for password users** (plan: `docs/superpowers/plans/2026-10-07-team-keys-p3a.md`). `KeyRef` refactor of `crypto.ts`; `keyring.ts` (envelopes to generation keys, write key, exact-generation read key, steward sweep plan); `keyService.ts` (mint through rotation, history backfill, one retry on a lost race); TOFU pins with local fingerprints in the vault record; all `main.tsx` content call sites; read-only "waiting for keys" state; re-keying of queued saves, uploads and comments after a rotation; immediate re-mint after a removal. Server: containers report `sharedGeneration`; every content write carries `X-Kynotes-Key-Scheme: shared-v2` (stale tabs are refused; was `shared-v1` on shared containers only); envelope `PUT` may backfill any shared generation that already has envelopes and never mints one. Resolves the P2-carried limits: stale legacy tabs (header plus client re-key), identity-less members (first mint blocked with a named explanation; later additions read only), removal (empty generation re-minted by rotation only). Depends on P2. Personal notebooks were keyed in P5 and the legacy key was removed on 2026-10-08 (§9).
 - **P3b. Invitations, membership key status and P2 invitation limits.** The web client gets an invitation accept flow (there is none today) and wraps at invite time for invitees whose identity it can see (`invitation_envelopes`; as built, the team container only, see P3b ruling 8), falling back to the sweep. Team member rows show key status (has key, waiting, no identity), and waiting members can ask a steward. Pin management in Settings lists pinned colleagues with fingerprints and re-trusts a changed key outside the wrap prompt. Server: rate-limit invitation creation, recheck expiry inside accept, let a removed member be re-invited (reactivate the revoked membership row instead of 409), delete envelopes of expired invitations, and let a team admin remove an admin it invited. Depends on P3a (keyring, sweep, pins) (plan: `docs/superpowers/plans/2026-10-07-team-keys-p3b.md`).
 - **P3c. Device linking and identities for SSO users (§8)** (plan: `docs/superpowers/plans/2026-10-08-team-keys-p3c.md`). Every trusted browser keeps its identity sealed under a non-extractable WebCrypto AES-GCM key in the same vault record (secure contexts; plain `http://` LAN origins keep the raw copy and Settings says so; this is not at-rest protection, §6). A browser without the identity creates a one-time X25519 key and posts a commitment to it; a trusted browser of the same user claims the request with its own one-time key; the newcomer then reveals its key. Both screens derive a six-digit check code from both keys; the approver types the code shown on the newcomer's screen, and only then is the identity private key sealed to the newcomer. Server relay (migration `0024_device_linking.sql`, session-only, CSRF, `no-store`, ciphertext only, audited): `POST /api/v1/me/link-requests` (newcomer posts the commitment; 10-minute TTL, at most three live per user), `GET /api/v1/me/link-requests` (trusted session lists requests), `POST …/{id}/claim` (approver key), `POST …/{id}/reveal` (newcomer key, checked against the commitment), `POST …/{id}/approve` (user-action step-up; stores the sealed bundle once), `POST …/{id}/collect` (newcomer polls; returns the bundle once and deletes the row), `DELETE …/{id}`. The bundle has its own format (`kynotes/link/v1`, AAD binding user, request, identity row and both one-time keys); the newcomer commits to its key before the approver's key exists. SSO-only users create their first identity from an SSO session after an action-bound SSO step-up, with no server-wrapped copy until P5's recovery code (`wrap_alg` marks it); envelope writes and rotations then accept the SSO action-bound step-up so SSO stewards can share keys. With that, the P3a "blocked" explanation points users to linking instead of password sign-in. Device recipients accepting their own user's identity as a sender is deferred to P5 with phone linking. Depends on P3a; P5 adds the recovery code. QR codes need a renderer dependency and are deferred; the short code carries the same information. Known limits (server, 2026-10-08): recovery and an administrator password reset delete a device-only identity too, with its envelopes (superseded in P5: resets keep the identity); until P5 that is the loss path for an SSO user with no trusted browser, who then creates a new identity that stewards re-share to (owners see it as a changed key). While `password_admin_known` is set, local password step-ups refuse every identity action (`409 password_change_required`), so a password an administrator knows never acts for a device-only identity. Changing that password on an account with a KySignOn subject needs a KySignOn confirmation, so the administrator cannot lift the fence; a local-only account has no second proof, and whoever set its password acts as the user until the user changes it (accepted residual). A local session is refused with `409 sso_sign_in_required`. If SSO is later unconfigured, an SSO-linked account cannot change an administrator-set password until an operator restores SSO or clears the account's SSO link. `identity.create` audits the wrap and the proof (`proof=sso:<challenge ID>`), so an IdP-created first identity is traceable (decision 4); owners see a first SSO identity only as a first-contact pin.
 
 **P3a as built.** Resolved ambiguities:
-  1. Reads are not trial decryption. A row at or above `sharedGeneration` opens only with its own generation's container key; rows below it, and personal containers, use the legacy key. A missing or malformed generation gets no key and fails closed.
+  1. Reads are not trial decryption. A row at or above `sharedGeneration` opens only with its own generation's container key; rows below it, and personal containers, use the legacy key. A missing or malformed generation gets no key and fails closed. (superseded 2026-10-08, §9)
   2. Envelopes are v2 and sender-authenticated. A browser accepts a key only from its own identity, from a current owner or admin that matches its pin, or from a pinned identity for a generation below the device's high-water mark. The first key per generation wins; an accepted key's SHA-256 is stored add-only on the device, and a different key for that generation is a refused conflict.
   3. Pins are trust-on-first-use and add-only. Replacing a pin requires an explicit confirmation showing both fingerprints; a decline is remembered for the session, per member and key.
   4. Container meta `PATCH` carries `keyGeneration`. On a shared container the server refuses a missing, zero, old or future generation with `409 already_exists`, inside the transaction. This amends a frozen route; DESIGN.md and IMPLEMENTATION_PLAN.md changed with it.
   5. `GET /api/v1/objects/{id}/conflicts` returns `keyGeneration` for each conflict copy, so a client opens it with the right key.
   6. Edits made while keys are missing wait in the local encrypted queue at generation 0. They are never uploaded at generation 0 and are resealed under the current key when keys arrive.
   7. Notebook names load through the same read-only key pass, which never prompts or wraps.
-  8. Stale legacy tabs are refused by `X-Kynotes-Key-Scheme: shared-v1` on shared containers; envelope `PUT` backfills existing shared generations and never mints one.
+  8. Stale legacy tabs are refused by `X-Kynotes-Key-Scheme: shared-v1` on shared containers; envelope `PUT` backfills existing shared generations and never mints one. (superseded 2026-10-08, §9)
 
   Known limits and parked items:
   - Steward work (mint, backfill, re-mint) runs when a steward with a local password session opens the notebook or removes a member, or when an SSO steward clicks "Share keys".
   - `loadContainers` fetches envelopes per shared container, and a steward's open fetches one identity per member. `ponytail:` upgrade path: a batch route.
   - N2: a key pass runs on every 15 s drain while edits wait for keys.
-  - N3: generation-0 edits become unreadable after a password change made before keys arrive. P5 moves to identity-keyed storage. Resolved in P5 for edits waiting under an identity.
+  - N3: generation-0 edits become unreadable after a password change made before keys arrive. P5 moves to identity-keyed storage. Resolved in P5 for edits waiting under an identity. Resolved by §9: no login-key copies remain.
 
 **P3b as built.** Resolved ambiguities:
   1. An invitee finds an invitation through a one-time link, `#/invite/<id>/<token>`; no route is added. The app stashes the link in `sessionStorage` (it survives one sign-on round trip) and removes it from the address bar, including when it is pasted into an already-open tab. The token goes only in the accept body. `history.replaceState` clears only this tab's history entry; the browser's global history may still hold the link until the user clears it. The server binds the invitation to the invitee's account, so a leaked link is useless to anyone else.
@@ -276,7 +260,7 @@ Each phase can ship on its own.
   9. Asking a steward has no server route. The waiting banner copies a request naming the owners and admins, with the member's fingerprint and the notebook link, to send out of band.
   10. Member key status is computed in the browser from server data, so it is informational. `openKeyring` and the pins decide trust.
   11. Colleague names (member rows, trust prompts, the keys card) go through `displayName` (`userId · name`). Settings lists pinned colleagues with fingerprints; a changed key is re-trusted only by re-fetching the key and storing it with a compare-and-swap against the "Was" key shown, through `confirmFingerprintChange` and `storeConfirmedPin`.
-  12. Unsent edits (N1): queued edits are bound to the account. An unstamped edit is stamped once the user's own legacy key proves it is theirs. Team-key-only edits with an unknown owner are export-only and are never drained or discarded. Settings lists nothing when the notebook list cannot be fetched. Export is decrypted in the browser and saved as a plaintext file, marked as unencrypted. The drain uploads only the current account's edits.
+  12. Unsent edits (N1): queued edits are bound to the account. An unstamped edit is stamped once the user's own legacy key proves it is theirs. Team-key-only edits with an unknown owner are export-only and are never drained or discarded. Settings lists nothing when the notebook list cannot be fetched. Export is decrypted in the browser and saved as a plaintext file, marked as unencrypted. The drain uploads only the current account's edits. (superseded 2026-10-08, §9)
   13. A `loadGate` ticket per `selectContainer` call lets only the newest load finish; comparing notebook IDs let two loads of one notebook both believe they were current.
   14. Non-admins have no directory, so Settings shows the user's own ID for owners to invite.
   15. Re-invited members receive history like any newcomer: re-inviting is an explicit owner decision, and the sweep wraps every generation it holds, including those minted while they were away.
@@ -335,57 +319,15 @@ Each phase can ship on its own.
   - "Forget this device" keeps the encrypted save queue; unsent edits stay until sent or discarded under Unsent edits.
   - Decisions awaiting Yoshi before merge: (1) keep the raw identity on plain HTTP. **Awaits Yoshi:** this is not the most secure default; refusing to keep an identity on non-secure origins is (the no-IndexedDB path already does that). The interim keeps it raw only so http LAN installs do not regress; (2) add a self-service identity reset before P5 (none exists; resolved in P5: the reset ships with the recovery code); (3) keep the device-key layer, approved in §8 but not at-rest protection; (4) accept that an IdP operator can create an SSO account's first identity.
 
-**P4 as built.** Resolved ambiguities:
-  1. Closure is per device and per notebook (`KeyFloor.closed`), not a steward marker: a login-derived row opens only for its author (and the server), so the decision is the reader's, and a withheld marker would add nothing against the attacker in question.
-  2. No migration: `0025` is unused. The only server change is the read-only `GET /containers/{id}/legacy`.
-  3. The route is a hint. It lists rows below `shared_generation` for any live member (session only), answers the same 404 for an unknown and a foreign container, 500 on a storage error, sends `no-store`, caps each kind at 1000 and sets `complete:false` beyond. It shares the `link_poll_per_minute` bucket size, in its own per-account bucket (`ponytail:` upgrade: a `legacy_per_minute` key). Comments and conflicts are scanned without an index (`ponytail:` upgrade: indexes).
-  4. Migration is an explicit review, never a background pass, so a forgery planted earlier cannot be laundered under the CK without the user seeing it.
-  5. The review opens each listed row only with the key the read rule picks (`readKeys`), and is bound to the sharing floor it covered. It is incomplete if any fetch fails or any row has no valid generation.
-  6. Nothing is pre-ticked. Share is disabled until something is ticked and asks to confirm how many unticked items will be hidden.
-  7. A tick vouches for the content shown. For each item the dialog shows, as plain text, every string the payload holds (page and comment text, link targets, table cells, field values) and every attachment reference with the reviewed copy's name, type and size; raster images are previewed and every attachment offers "Save a copy to check", a local download of exactly the reviewed bytes. It does not render pages as the editor would. Every item is labelled "not end-to-end verified". A ticked page that uses a reviewed attachment left unticked blocks Share ("Tick it too"), so no shared page points at a copy only the login key opens.
-  8. The approval is branded, single use, minted only by the dialog, and bound to user, container, floor and a review `reviewLegacy` produced. It carries a frozen copy of what was shown and re-seals only ticked rows from it, never a later read.
-  9. Detach and resolve run only after the matching re-seal succeeded; attachments get a new copy and pages are re-pointed before the old copy is detached.
-  10. A comment that opens with the user's key but names another author is refused and counted, never offered.
-  11. Closing happens only when the review was complete, everything succeeded, the floor is unchanged and the user confirmed the hidden count. An attachment this user's key opens but that has no generation or no page leaves the review incomplete; it is never counted as another author's. `blockedBy` lists only pages whose reviewed text references a shared attachment; "Tick these too" is a click inside the dialog.
-  12. Auto-close needs a successful, complete `/legacy` response listing nothing of this user's, `sharedGeneration` above 0, an unchanged floor and no persisted reopen mark, which `closeLegacyStored` checks again in the transaction that closes. It closes the tabs only once storage kept it: a browser that cannot keep a closure (no IndexedDB) never closes by itself. A 429, a 500, a network error or `complete:false` never closes.
-  13. "Stop opening pre-sharing items" closes by hand with a confirm and needs no server response. It shows while the check runs, whenever the notebook carries a reopen mark or shows rows read with the login key, whatever the server lists; a closed notebook always shows "Show pre-sharing items again". Without IndexedDB, Stop closes for the session only.
-  14. Entries this browser wrote itself (owner-stamped queue entries, cache entries, pending uploads) keep opening through `localReadKeys`. The cache never holds server bytes.
-  15. A malformed closure value counts as closed. The closure and reopen mark have single writers: in storage only `closeLegacyStored` and `reopenLegacy` write them (`storeKeyState` keeps the stored values in its transaction, so a key pass that read them before a reopen cannot close again or clear the mark); in memory only a tab's first load of the stored floor, `closeFloorIn` and a peer's close message raise it, and `adoptStored` lowers it. A missing vault record is created on demand, without a device key.
-  16. "Show pre-sharing items again" is minted only from its confirm, which warns that the server could have written any of those items. It is single use, bound to user and container, and persists a reopen mark that blocks auto-close in every tab and survives reload. Stop, or a completed confirmed share, clears the mark. Other tabs learn of it by re-reading storage.
-  17. `setClosureReader` is called at sign-in so a tab can re-read this user's stored closure; other tabs reload their open notebook when a closure rises.
-  18. The admin team list and container-name reads go through `readKeys`, so a shared team's name never opens with the login key once closed.
-  19. Rows of removed or departed authors stay opaque and counted; nothing is deleted automatically.
-  20. A viewer, or a demoted author, cannot re-save; the server refuses, the review reports the failure and nothing closes.
-  21. A version conflict during a re-seal keeps the notebook open and the conflict record.
-
-  Decisions awaiting Yoshi before merge:
-  - (1) Per-device closure instead of a container-wide steward marker; a member who never reviews keeps opening labelled rows.
-  - (2) Auto-close trusts the server's list: a lying server can make a device close before its author reviewed, hiding that author's unreviewed rows there. The recovery is "Show pre-sharing items again" (it creates the vault record if the browser has none); "Forget this device" is not needed. A browser without IndexedDB never auto-closes, so it has nothing to recover.
-
-  Known limits:
-  - A member who never reviews keeps opening (labelled) pre-sharing rows on that browser.
-  - Closure is per browser; a newly linked or reset browser closes on its own first check.
-  - A forged row can be sealed if the user ticks it; the defence is the shown content plus the "not end-to-end verified" label.
-  - Rows of removed authors stay opaque and listed in a count; there is no UI to delete them.
-  - Viewers cannot share their pre-sharing rows; they can only stop opening them.
-  - Closing hides unticked rows on that browser until the user reopens them.
-  - Tabs still running a pre-P4 bundle ignore the closure entirely and keep opening legacy rows until reloaded. Their key-memory writes rebuild the stored state without `closed` or the reopen mark, so during an upgrade they can erase a closure or a reopen on that browser; the next check closes again where auto-close allows it.
-  - A migration that dies between attaching a new attachment copy and detaching the old one uploads it again on the next run (`ponytail:` in `migration.ts`).
-  - Until a notebook closes, every open of it re-reads every listed page (other authors' included, one request each) and downloads and holds every listed attachment of this user in memory (`ponytail:` markers in `migration.ts`).
-  - Ticking vouches for what the dialog shows: every string of the payload as plain text and each attachment's name, type and size, with a local copy of non-image bytes to check outside the browser. Formatting, canvas ink strokes and numbers are not shown, and "Select all" vouches for every item at once.
-  - Cached copies of the user's own pages that this browser wrote (an explicit edit or move) stay readable after closure, labelled. They are local (`localReadKeys`), not server rows.
-  - Detaching a replaced attachment while another tab saves the page with the old reference can leave that reference pointing at an attachment the GC removes.
-  - Comment authorship stays a server claim: ciphertext binds no author, before or after a re-seal.
-  - The attach, detach and conflict-resolve routes check membership only, not role (pre-existing; P4 calls them only after its own role-checked writes succeed).
-  - Administrator-owned teams wait for sub-project A.
+**P4 as built.** Removed 2026-10-08 (§9): the review, closure, reopen and labels no longer exist, and its two pending decisions and every known limit went with them.
 
 **P5 as built.** Resolved ambiguities:
-  1. The login key never seals anything new, for every notebook. `kind` is a server claim, so the only enforceable rule is uniform: `writeKey` returns no key while a notebook has never been shared. The login key only reads legacy rows and proves ownership of this browser's own unstamped entries.
-  2. Personal notebooks are migrated by the P4 review, not a background pass: the owner's first open after the upgrade mints the key (a notebook with no key yet is read-only), and the review, approval, re-seal and closure are P4's, with "seal" wording for personal notebooks too.
+  1. The login key never seals or opens content (§9).
+  2. Personal notebooks are keyed at creation; there is nothing to migrate (§9).
   3. A team never waits for identity-less members: `planSweep` has no `blocked` plan; it mints for keyed members, and a member without an identity is wrapped once they create one.
   4. A first key waits for a recoverable identity (a password copy or a recovery-code copy); a re-mint never waits. `planSweep` returns `unrecoverable` and writes nothing. No key module reads `kind` or `teamId` (structure test).
-  5. Waiting edits seal with `waitingKey` (HKDF-SHA256 over the identity private key, info `kynotes/waiting/v1`), so a password change or "Forget this device" no longer strands them (N3 fixed). A password change re-seals pre-P5 queued edits onto it; on a browser with no identity a local-only re-seal under the new login key is the `ponytail:` limit.
-  6. A password change warns, with an acknowledgement, only while `legacyAtRisk` counts notebooks that are never-shared or still open on this browser; `PASSWORD_CHANGE_NOTE` always warns, without a count, that unsealed items die with the password.
+  5. Waiting edits seal with `waitingKey` (HKDF-SHA256 over the identity private key, info `kynotes/waiting/v1`), so a password change or "Forget this device" no longer strands them (N3 fixed).
+  6. A password change needs no content warning: container keys are wrapped to the identity, whose password copy the change re-wraps.
   7. The recovery code has 128 random bits in 28 Crockford base32 symbols (seven groups of four) and a 10-bit checksum (about 1023 in 1024 typos caught before any request); parsing folds NFKC, case, `I`/`L`/`O`.
   8. The copy is `salt(16) ‖ nonce(12) ‖ AES-256-GCM(KEK, …)` (76 bytes) with `KEK = PBKDF2-HMAC-SHA256(secret, "kynotes/recovery-kek/v1" ‖ salt, 600000, 32)`; the client takes iterations, label and lengths from its own constants, never from the server. Vectors: `testdata/protocol/recovery_vectors.json`, generated by `internal/teamkeys`.
   9. The AAD binds the label, the user ID and the identity public key; opening also requires the opened key to produce the listed public key.
@@ -405,14 +347,11 @@ Each phase can ship on its own.
   - (2) D-P5-2: the stricter "never password-wrap an identity after a reset" option, which would narrow §8's password unlock path, is not built; P5 follows §8.
 
   Known limits:
-  - A never-shared notebook (the owner has not opened it since the upgrade, or its first key waits for a recovery code) is read-only, and its rows read with the login key are not labelled until it has a key.
   - A browser that cannot keep an identity (no IndexedDB) cannot edit any notebook.
   - The reset loses personal notebooks even when a browser still holds the old key (`ponytail:` identity rotation in `recovery.ts`).
   - An administrator cannot cut a stolen browser's identity off; the user's reset does.
   - An administrator reset or account recovery removes the password copy; an account without a recovery code then depends on its browsers until its user changes the password (not for KySignOn-linked accounts).
   - An SSO account confirms twice at setup (identity, then code) (`ponytail:` send the copy with the create).
-  - Edits queued before the upgrade under a password since changed in another browser still never open (N3 for old entries); pending uploads are not re-sealed on a password change.
-  - The password change warning counts notebooks, not items, and counts a notebook this browser has not checked since it was minted; `legacyAtRisk` counts a notebook closed by Stop as safe.
   - Plain-HTTP origins keep a restored identity raw, as for linking (P3c decision 1).
   - Replacing a recovery code cuts the old code off only on the live server: database backups and snapshots keep the old copy, which the old code opens to the current identity. Only a reset cuts it off; after a leak, reset the identity.
   - Anyone who passes the account's step-up (an IdP operator for an SSO account; whoever set a local-only account's password, after taking it over) can replace the copy and void the user's code, or reset the identity. Both are audited; Settings shows the code date.
@@ -421,26 +360,18 @@ Each phase can ship on its own.
   - A reset loses team notebooks whose keys no other owner or admin holds, and edits waiting under the old identity.
   - After a reset elsewhere, a browser still holding the old key must use "Forget this device" before it can link or restore (`OTHER_COPY`).
   - An account on an administrator-set password has no identity and cannot write any notebook until its user changes the password; an SSO account needs a recovery code before its personal notebooks get keys. The "set by an administrator" banner shows only after a sign-in in the current page load.
-  - P4 decision (2) (auto-close trusts the server's list) now covers personal notebooks: a lying server can hide all of a user's pre-key personal items on their first open until "Show older items again".
-  - A personal notebook with more than 1000 listed rows of one kind is never complete (`/legacy` cap), so it never closes by review; and until it closes every open downloads every listed attachment (P4 `ponytail:` limits, now hit by every personal notebook).
   - Device pairing (`POST /devices/pairing-token`) needs no step-up, so a stolen cookie can pair a credential; the reset cuts such a device off but nothing prevents the pairing (pre-existing follow-up, outside P5).
 
-**P4. Lazy team migration and admin separation hook.** Re-encryption pass, then refusal of legacy-key reads in shared containers (closes the §6 read-downgrade residual), opaque-author UI, admin-owned team migration (with sub-project A). (plan: `docs/superpowers/plans/2026-10-08-team-keys-p4.md`)
-- Tests:
-  - Fixture database with legacy rows from two authors.
-  - Running the pass twice gives an identical state.
-  - Per-row checks that the owner keeps access.
-  - Pending-queue re-encryption.
+**P4. Lazy team migration and admin separation hook.** Dropped 2026-10-08 (§9): there is no legacy content to migrate. Admin-owned team naming moved to `createNamed` in P5.
 
-**P5. Personal workbooks and recovery.** Mint CK for personal containers and migrate them. Optionally wrap the identity under a client-side recovery code so recovery preserves data. Phone pairing UI. (plan: `docs/superpowers/plans/2026-10-08-team-keys-p5.md`). Phone pairing, QR codes and the device-recipient sender rule move to a later phase.
+**P5. Personal workbooks and recovery.** Mint CK for personal containers. Optionally wrap the identity under a client-side recovery code so recovery preserves data. Phone pairing UI. (plan: `docs/superpowers/plans/2026-10-08-team-keys-p5.md`). Phone pairing, QR codes and the device-recipient sender rule move to a later phase. (see §9)
 - Tests:
   - Content survives a password change.
   - Admin reset produces the documented loss path.
   - Cross-browser recovery.
 
 **Risks**
-- Mixed-version clients during P3 and P4. Old clients write legacy ciphertext at a shared generation and get a 409 from the new gate, which is acceptable.
-- Attachment re-upload cost for large containers. Throttle the pass and make it resumable.
+- Mixed-version clients. Old clients send no `shared-v2` header and get a 409 from the gate, which is acceptable.
 - Members who never log in again leave content opaque indefinitely.
 - An X25519 fallback performance regression on low-end devices. noble is about 1 ms per operation, which is acceptable.
 - Missing a single `authSecret` call site in `main.tsx`. Grep-gate this in CI.
@@ -465,3 +396,27 @@ Users who sign in only through KyIdentity have no KyNotes password. Every user, 
 5. **Loss.** With no trusted device left, the recovery code restores the identity. With neither, the identity is reset, team owners re-share team keys automatically through the steward sweep, and only that user's personal notebooks are lost.
 
 Phasing: device linking ships with P3, before any SSO user needs team keys. The recovery code ships with P5, together with personal notebooks. Password users keep the password unwrap path from P1 (P5, awaiting Yoshi: not after an administrator reset, account recovery or the user's own reset; D-P5-2) and can also link devices.
+
+## 9. Decision 2026-10-08: no legacy login-derived content key (owner-approved)
+
+KyNotes has never been live, so breaking changes are allowed. Every notebook, personal and team, uses only container keys from the moment it is created; the login-derived key (`HKDF(authSecret, containerID)`) never reads or writes content. Plan: `docs/superpowers/plans/2026-10-08-team-keys-remove-legacy.md`.
+
+As built. Resolved ambiguities:
+  1. `sharedGeneration` stays and means the first keyed generation (0: no key yet, nothing can be written). A container is created at generation 1 with no key; its first rotation makes generation 2 its first key.
+  2. The server refuses content writes, names, envelopes, invitation envelopes and uploads for a container without a key, and creation takes no name (`400`). The device gate for never-rotated containers is gone.
+  3. `X-Kynotes-Key-Scheme` stays at `shared-v2`, required on every content write and name change, so tabs from builds that read with the login key are refused.
+  4. `GET /containers/{id}/legacy` and `PUT /comments/{id}` are removed; `author_user_id` and attach/detach stay.
+  5. No migration is added or edited.
+  6. The browser's cache, queue and pending uploads are dropped once (IndexedDB v6); queue entries always carry their owner.
+  7. `readKeys` returns only the container key of the row's generation; `ownCopyKeys` adds the waiting key for this browser's own waiting copies only.
+  8. `KeyRef` is branded; only `keyring.ts` mints content keys (`contentKeys.test.ts`).
+  9. A password change needs no content warning.
+  10. The SSO master-password prompt stays; it now only creates the vault record (follow-up: remove it).
+  11. Administrator pages never decrypt team names.
+  12. The probe holds a password-wrapped identity and keys its notebook at creation.
+  13. Stored closures from older builds are ignored and dropped on the next write.
+  14. The name re-seal after a re-mint compares only with container keys.
+
+  Decisions that disappeared: P4 (1) per-device closure; P4 (2) auto-close trusts the server's list. Residuals that disappeared: §6 read downgrade (and forged pre-sharing rows), every P4 known limit, the P5 limits inherited from P4.
+
+  Known limits: development databases keep rows sealed with a login key, which never open; development browsers lose unsent local edits once at the upgrade.

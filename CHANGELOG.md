@@ -2,23 +2,25 @@
 
 ## Unreleased
 
+- Notebooks are keyed only by their own encryption keys, from the moment they are created; no notebook
+  content is ever sealed or opened with a key derived from your password (KyNotes was never released, so
+  this is not a migration). The server refuses to store content, a name, an envelope or an upload for a
+  notebook until its first key exists, and creating a notebook no longer accepts a name. Every write now
+  carries `X-Kynotes-Key-Scheme: shared-v2`. `GET /api/v1/containers/{id}/legacy` and
+  `PUT /api/v1/comments/{id}` are removed. Development data: rows written by earlier builds with a
+  password-derived key no longer open (start from a fresh data directory), and each browser clears its
+  local note cache, unsent-edit queue and pending uploads once on its first load of this version
+  (IndexedDB v6), so development browsers lose unsent local edits once. `kynotes-probe` now creates a
+  password-wrapped encryption key for its account and keys its notebook before writing.
 - Team keys phase 5: personal notebooks now get their own encryption keys, like team notebooks, so the
   server can no longer read them and changing your password no longer makes them unreadable. Each
-  notebook gets its key when you create it or first open it after this update. You then review and seal
-  your older items, as in team notebooks. A one-time recovery code, shown once in your browser, gets your
+  notebook gets its key when you create it. A one-time recovery code, shown once in your browser, gets your
   key back on a new browser when no other browser has it; the server keeps only a copy it cannot open.
   An administrator password reset no longer deletes your encryption key. If you lose every browser and
   the code, Settings can reset your key, and your personal notebooks are lost. Writing now needs your
   encryption key on that browser: accounts still on an administrator-set password change it first, and
   single sign-on accounts save a recovery code before their personal notebooks get keys. Database
   migration 0025.
-- Team keys phase 4: a shared notebook now offers to share the pages, comments, attachments and
-  conflicting versions you wrote before it was shared. You read them and tick the ones you recognise;
-  exactly what you read is sealed with the notebook's key so every member can read it. Afterwards, and on any browser where
-  none of them is left, KyNotes stops opening items written before sharing in that notebook, so a
-  server can no longer slip in a page it forged with your old key. "Stop opening pre-sharing items"
-  does this at once, and "Show pre-sharing items again" (with a warning) undoes it on that browser.
-  No database migration.
 - Team keys phase 3c: link a new browser to your account from one you already use. Both screens
   show a six-digit check code; you type the code from the new browser into the one you already use,
   and your encryption key moves only after you confirm it matches on both. KyNotes relays it
@@ -46,9 +48,6 @@
   invitations' keys are cleaned up. Refused accepts and admin adds are audited. Migration `0023`
   adds `memberships.invited_by`. The browser's local note cache and save queue are now kept per
   account, so two accounts signed in on one browser never overwrite or read each other's unsent edits.
-  **Reload open KyNotes tabs after updating:** the first tab on the new version upgrades the browser's
-  local store, and a tab still running the old version can no longer open it, so its edits cannot be
-  kept on the device (cached or queued) until it is reloaded.
 - Team keys phase 3a: team notebooks are shared end to end. When an owner or admin opens a team
   notebook whose members all have encryption keys, their browser creates the notebook key and
   shares it; members added later get the notebook's history; removing a member replaces the key
@@ -56,15 +55,14 @@
   wait on the device and are saved under the new key when it arrives. Keys are accepted only from
   an authenticated sender. Browsers remember colleagues' key fingerprints and ask before trusting
   a changed one (Settings shows your own). Single sign-on-only accounts cannot hold keys yet, so a
-  team that includes one stays unshared, and the owner sees who is missing. Browser tabs opened
-  before this release must be reloaded to write to a shared notebook (`409 already_exists`).
+  team that includes one stays unshared, and the owner sees who is missing.
   `GET /api/v1/containers` reports `sharedGeneration`; `PATCH /api/v1/containers/{id}` takes
   `keyGeneration` (required on a shared notebook, `409 already_exists` unless current); conflict
   listings report `keyGeneration`.
 - Team keys phase 2 (server rules): `POST /api/v1/containers/{id}/key-rotations`, insert-only
   envelopes (own identity re-wrap only), member-self envelope writes, envelope writes and rotations
   behind a local password step-up (SSO sessions refused), the identity-based save gate for rotated
-  containers (migration 0022), invitation envelopes, `PUT /api/v1/comments/{id}` and
+  containers (migration 0022), invitation envelopes and
   `GET /api/v1/users/{id}/identity`. `DELETE /api/v1/admin/teams/{id}/members/{userID}` now
   rotates like owner removal and answers `404 not_found` for a user who is not an active
   non-owner member (it answered 204 before). `kynotes-probe` keeps a random device key in the user
@@ -73,11 +71,10 @@
   login or `/setup` and wrapped under a key derived from the password (migration 0021). Password
   change now re-wraps it; a web bundle from before this release cannot change the password of a
   user who has an identity (`409 identity_rewrap_required`): reload to get the current bundle.
-  Recovery and administrator password reset delete the identity. SSO-only users get none yet.
+  SSO-only users get none yet.
   Accounts whose password an administrator or operator set (admin create or reset,
   `BOOTSTRAP_ADMIN_*`, `user add`) get their identity only after their own password change.
-  Changing the password still makes existing notes unreadable; the form now says so and requires
-  an explicit acknowledgement. `POST /api/v1/setup` no longer accepts a plaintext `password`
+  `POST /api/v1/setup` no longer accepts a plaintext `password`
   (send `authSecret`), and password change shares the step-up lockout.
 - `apply-setup --file BUNDLE` configures SSO, SSO-bound admins and backups on a running server
   through the local admin socket `<data_dir>/admin.sock` (mode 0600). It is create-only and
