@@ -61,7 +61,7 @@ import {
 import { currentCopy, identityStatus, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
-import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
+import { copyableConflicts, keysAllowed, legacyKeys, legacyRow, localReadKeys, memberKeyStatus, movesLabelledSubpage, NO_FLOOR, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, writeKey, type Keyring, type MemberKey, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
@@ -688,6 +688,11 @@ function Workspace({
     const floor = floorFor(container);
     return floor ? readKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
   };
+  /** Keys for an entry this browser stored itself (cache, queue): readKeys without the legacy closure, which guards server rows. */
+  const localReadKeysFor = (container: Container, generation: number | undefined) => {
+    const floor = floorFor(container);
+    return floor ? localReadKeys(container, ringsRef.current[container.id] ?? noKeys, legacy, generation, floor) : [];
+  };
   const legacyRowFor = (container: Container, generation: number | undefined) => legacyRow(container, generation, floorFor(container) ?? NO_FLOOR);
   const writeKeyFor = (container: ReportedContainer) => {
     const floor = floorFor(container);
@@ -889,7 +894,9 @@ function Workspace({
       let name = namesRef.current[container.id];
       if (name) {
         // Older keys, legacy included, are tried only to compare with the name already shown.
-        if ((await opened([legacy, ...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
+        // A closed device never tries the login key (in practice it is only needed at the first mint).
+        const floor = floorFor(container);
+        if ((await opened([...(floor ? legacyKeys(floor, legacy) : []), ...ring.values()])) !== name) return [current, "This notebook's name changed while its keys were shared. Rename it so every member can read it."];
       } else {
         // Not shown (the list could not open it: a re-mint another browser deferred). Only container
         // keys this browser accepted may supply it, newest first; the forgeable legacy key may not.
@@ -1272,13 +1279,14 @@ function Workspace({
           const cached = await getNote(auth.user.id, change.id, ownsCached);
           // A cache entry without its generation cannot be read in a shared container: use the server copy.
           const useCache = Boolean(cached && cached.version >= object.version && (container.sharedGeneration === 0 || cached.keyGeneration !== undefined));
-          const payload = await openFirst(readKeysFor(container, useCache ? cached!.keyGeneration : object.keyGeneration), (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
+          const keys = useCache ? localReadKeysFor(container, cached!.keyGeneration) : readKeysFor(container, object.keyGeneration);
+          const payload = await openFirst(keys, (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString(), useCache ? cached!.keyGeneration : object.keyGeneration);
         } catch {
           const cached = await getNote(auth.user.id, change.id, ownsCached);
           if (cached) {
             try {
-              add(change.id, await openFirst(readKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
+              add(change.id, await openFirst(localReadKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt, cached.keyGeneration);
             } catch {
               /* Ignore an invalid local draft. */
             }
@@ -1817,7 +1825,7 @@ function Workspace({
     const cached = await getNote(auth.user.id, id, ownsCached).catch(() => undefined);
     if (!cached) return undefined;
     const containerID = selected.id;
-    const payload = await openFirst(readKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
+    const payload = await openFirst(localReadKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
@@ -2844,7 +2852,7 @@ function Workspace({
             userID={auth.user.id}
             legacyKey={legacy}
             colleagueNames={colleagueNames.current}
-            teamKeys={(item) => { const container = items.find((entry) => entry.id === item.containerID); return container ? readKeysFor(container, item.keyGeneration) : []; }}
+            teamKeys={(item) => { const container = items.find((entry) => entry.id === item.containerID); return container ? localReadKeysFor(container, item.keyGeneration) : []; }}
             onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
@@ -3079,11 +3087,12 @@ function AdminTeams({ users, authSecret, username, userID }: { users: AdminUser[
       for (const entry of nextTeams) {
         if (!entry.metaCiphertext) continue;
         try {
-          nextNames[entry.id] = (
-            await decryptContainerMeta(legacy, entry.id, fromBase64(entry.metaCiphertext))
-          ).name;
+          // Only a team this device has never seen shared is named with the login key; a shared one has no key here.
+          const floor = floorOf(entry.id);
+          const keys = floor && entry.keyGeneration !== undefined ? readKeys({ sharedGeneration: entry.sharedGeneration ?? 0 }, new Map(), legacy, entry.keyGeneration, floor) : [];
+          nextNames[entry.id] = (await openFirst(keys, (key) => decryptContainerMeta(key, entry.id, fromBase64(entry.metaCiphertext!)))).name;
         } catch {
-          /* Metadata encrypted by another account remains opaque. */
+          /* Shared teams, and names sealed by another account, stay unnamed here. */
         }
       }
       setTeams(nextTeams);

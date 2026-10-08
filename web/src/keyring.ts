@@ -42,10 +42,14 @@ export type KeyState = KeyFloor & { mark: number; digests: Record<number, string
  */
 export type KeyFloor = { shared?: number; generation?: number; closed?: number };
 
-/** A stored or relayed closure as a number: anything but a positive safe integer is no closure. */
+/**
+ * The one closure decision (legacyKeys reads it too): undefined or 0 is open, a positive safe
+ * integer is that closure, and anything else is malformed and fails closed, as 1.
+ */
 export const closedOf = (floor: KeyFloor | undefined): number => {
   const closed = floor?.closed;
-  return Number.isSafeInteger(closed) && closed! > 0 ? closed! : 0;
+  if (closed === undefined || closed === 0) return 0;
+  return Number.isSafeInteger(closed) && closed > 0 ? closed : 1;
 };
 
 /** Unused confirmations; consuming one removes it, so a kept object never reopens twice. */
@@ -221,7 +225,7 @@ export function localKey(container: KeyedContainer, ring: Keyring, legacy: KeyRe
  * The login-derived key for a legacy row, or none once this device closed legacy reads for the
  * container: the server can derive that key, so after the closure no server row opens with it.
  */
-export const legacyKeys = (floor: KeyFloor, legacy: KeyRef): KeyRef[] => (floor.closed === undefined || floor.closed === 0 ? [legacy] : []);
+export const legacyKeys = (floor: KeyFloor, legacy: KeyRef): KeyRef[] => (closedOf(floor) === 0 ? [legacy] : []);
 
 /**
  * The one key a server row may be read with. Rows at or above sharedGeneration open only with

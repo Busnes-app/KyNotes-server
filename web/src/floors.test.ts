@@ -117,6 +117,17 @@ describe("floors across tabs", () => {
   });
 
 
+  it("a malformed stored closure is read as closed, so adopting it never reopens", async () => {
+    vi.stubGlobal("BroadcastChannel", FakeChannel);
+    const a = await tab();
+    a.raiseFloorIn(cnt, { shared: 2, generation: 2, closed: 2 });
+    for (const bad of [NaN, "x", -1, 1.5, null] as unknown as number[]) {
+      a.setClosureReader(async () => ({ shared: 2, generation: 2, closed: bad }));
+      await a.reopenFloorIn(cnt);
+      expect(a.floorOf(cnt)?.closed).toBeGreaterThan(0);
+    }
+  });
+
   it("a storage read begun before a closure never lowers that closure when it lands", async () => {
     vi.stubGlobal("BroadcastChannel", FakeChannel);
     const a = await tab();

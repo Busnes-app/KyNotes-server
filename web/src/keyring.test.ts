@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { confirmReopenLegacy, consumeReopenConfirmation, legacyKeys, copyableConflicts, guardContainer, isReopenConfirmation, localReadKeys, mergeFloor, ReopenConfirmation, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
+import { closedOf, confirmReopenLegacy, consumeReopenConfirmation, legacyKeys, copyableConflicts, guardContainer, isReopenConfirmation, localReadKeys, mergeFloor, ReopenConfirmation, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -308,6 +308,27 @@ describe("main.tsx key wiring", () => {
     expect(main.match(/legacyKeyRef\(/g)).toHaveLength(2);
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*(?:auth\.)?authSecret\b/);
   });
+
+  it("opens server rows with the login key only through readKeys", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    // The two bare uses check this browser's own cache (ownsCached) and queue (the drain stamp).
+    expect(main.match(/decrypt\w*\(legacy\b/g)).toEqual(["decryptObject(legacy", "decryptObject(legacy"]);
+    // No hand-built key list puts the login key beside container keys.
+    expect(main).not.toMatch(/\[legacy,/);
+  });
+
+  it("uses the local exception only for entries this browser sealed itself", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    // localReadKeysFor opens only cache and queue entries, never a server row's generation.
+    const local = [...main.matchAll(/localReadKeysFor\(\w+, ([\w.!]+)\)/g)].map((match) => match[1]);
+    expect(main.match(/localReadKeysFor\(/g)).toHaveLength(local.length);
+    expect(local).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
+    expect(new Set(local)).toEqual(new Set(["cached!.keyGeneration", "cached.keyGeneration", "item.keyGeneration"]));
+    // The cache holds only ciphertext this browser just sealed from its own edit, never a server read.
+    const writes = main.match(/putNote\([^]*?\}\)/g)!;
+    expect(writes).toHaveLength(3);
+    for (const write of writes) expect(write).toMatch(/payload: (?:encrypted|await encryptNote\(write\.key)/);
+  });
 });
 
 describe("legacyRow", () => {
@@ -463,13 +484,27 @@ describe("reopening legacy reads", () => {
     expect(isReopenConfirmation(real, me, cnt)).toBe(false);
   });
 
-  it("treats a malformed closure as no change, never as open", () => {
+  it("treats a malformed closure as closed, never as open", () => {
     for (const bad of [NaN, "x", -1, 1.5, Infinity, null, {}] as unknown as number[]) {
       expect(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: bad }).closed).toBe(2);
-      expect(mergeFloor({ shared: 2 }, { shared: 2, closed: bad })).not.toHaveProperty("closed");
+      expect(legacyKeys(mergeFloor({ shared: 2 }, { shared: 2, closed: bad }), legacy)).toEqual([]);
       expect(legacyKeys({ closed: bad }, legacy)).toEqual([]); // a malformed value in hand fails closed
     }
     expect(legacyKeys(mergeFloor({ shared: 2, closed: 2 }, { shared: 2, closed: NaN }), legacy)).toEqual([]);
+  });
+
+  it("closedOf and legacyKeys make one closure decision", () => {
+    for (const closed of [undefined, 0, 1, 2, 2 ** 53, NaN, "x", -1, 1.5, Infinity, null, {}, "0", false] as unknown as number[]) {
+      const floor: KeyFloor = { closed };
+      expect(legacyKeys(floor, legacy).length === 1).toBe(closedOf(floor) === 0);
+    }
+    expect(closedOf({})).toBe(0);
+    expect(closedOf({ closed: 0 })).toBe(0);
+    expect(closedOf({ closed: 3 })).toBe(3);
+    expect(closedOf({ closed: NaN })).toBeGreaterThan(0);
+    // One decision, not two that happen to agree today.
+    const source = import.meta.glob<string>("./keyring.ts", { query: "?raw", import: "default", eager: true })["./keyring.ts"];
+    expect(source).toMatch(/export const legacyKeys = [^\n]*=> \(closedOf\(floor\) === 0 \?/);
   });
 
   it("mints a reopen confirmation only from the user's \"Show pre-sharing items again\" confirm", () => {
