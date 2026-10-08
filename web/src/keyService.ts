@@ -145,7 +145,8 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     try {
       outcome = await pass(attempt, latest);
     } finally {
-      if (latest.saved) keyStateSaved = await store.saveKeyState(latest.saved.containerID, latest.saved.known);
+      // A failing save never hides the pass's own error; it reads as keyStateSaved false.
+      if (latest.saved) keyStateSaved = await store.saveKeyState(latest.saved.containerID, latest.saved.known).catch(() => false);
     }
     if (outcome !== "retry") return { ...outcome, keyStateSaved };
   }
