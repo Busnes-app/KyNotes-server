@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { copyableConflicts, guardContainer, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { copyableConflicts, guardContainer, memberKeyStatus, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
 
@@ -397,5 +397,20 @@ describe("server-claimed kind never decides keys", () => {
     expect(keysAllowed({ id: cnt, kind: "workbook", keyGeneration: 1, sharedGeneration: 0 }, {})).toBe(true);
     expect(keysAllowed({ id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 }, seen)).toBe(true);
     expect(keysAllowed({ id: cnt, kind: "workbook", teamId: "cnt_t", keyGeneration: 2, sharedGeneration: 2 }, seen)).toBe(true);
+  });
+});
+
+describe("memberKeyStatus", () => {
+  const owner = person("owner", "b", "owner"), editor = person("editor", "c"), newcomer = person("newcomer", "d");
+  const bare: MemberKey = { userId: `usr_${"e".repeat(26)}`, username: "sso", role: "viewer" };
+  const row = (member: MemberKey, generation: number): Envelope => ({ deviceId: member.identity!.deviceId, keyGeneration: generation, alg: "x", envelope: "" });
+
+  it("reports has key, waiting and no identity against the current generation only", () => {
+    const status = memberKeyStatus({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, [owner.member, editor.member, newcomer.member, bare], [row(owner.member, 3), row(editor.member, 3), row(newcomer.member, 2)]);
+    expect(status).toEqual({ [owner.member.userId]: "has-key", [editor.member.userId]: "has-key", [newcomer.member.userId]: "waiting", [bare.userId]: "no-identity" });
+  });
+
+  it("in a never-shared notebook, names only members without an identity", () => {
+    expect(memberKeyStatus({ id: cnt, keyGeneration: 1, sharedGeneration: 0 }, [owner.member, bare], [])).toEqual({ [bare.userId]: "no-identity" });
   });
 });

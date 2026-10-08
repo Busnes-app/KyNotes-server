@@ -1,11 +1,11 @@
 import "fake-indexeddb/auto";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { sha256 } from "./fallbackCrypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
-import { mergeFloor, newContainerKey, readKeys, sealFor, writeKey, type Envelope, type KeyFloor, type KeyState, type Member } from "./keyring";
-import { syncContainerKeys, type KeyAPI, type PinStore } from "./keyService";
+import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
+import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type KeyAPI, type PinStore } from "./keyService";
 import { displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
 import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
@@ -502,5 +502,141 @@ describe("a mint the server accepted", () => {
     state.generation += 1;
     vi.mocked(api.rotate).mockClear();
     await check(api, store, owner, { id: cnt, keyGeneration: 3, sharedGeneration: 2 }, 4, 2);
+  });
+});
+
+describe("key status from a sync", () => {
+  it("reports members and the envelopes after its own writes", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor"), newcomer = user("newcomer", "d", "editor");
+    const { state, api } = server([owner, editor]);
+    const ownerStore = memoryStore();
+    const minted = await syncContainerKeys(api, cnt, as(owner), ownerStore, never);
+    expect(memberKeyStatus(minted.container, minted.members, minted.envelopes)).toEqual({ [owner.member.userId]: "has-key", [editor.member.userId]: "has-key" });
+    state.members.push(newcomer);
+    const seen = await syncContainerKeys(api, cnt, as(editor), memoryStore(), never);
+    expect(memberKeyStatus(seen.container, seen.members, seen.envelopes)[newcomer.member.userId]).toBe("waiting");
+    const wrapped = await syncContainerKeys(api, cnt, as(owner), ownerStore, never);
+    expect(wrapped.plan.kind).toBe("wrap");
+    expect(memberKeyStatus(wrapped.container, wrapped.members, wrapped.envelopes)[newcomer.member.userId]).toBe("has-key");
+  });
+});
+
+describe("inviteWithKeys", () => {
+  const team: ReportedContainer = { id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 };
+  const teamKey = newContainerKey();
+  const target = { container: team, ring: new Map([[2, teamKey]]) as Keyring };
+  const owner = user("owner", "e", "owner"), invitee = user("invitee", "f", "editor");
+  const invited: Member = { ...invitee.member, role: "editor" };
+  const inviteAPI = (visible = true, refuseKeys = false) => {
+    const calls: Array<{ envelopes: InvitationEnvelope[] }> = [];
+    const api: InviteAPI = {
+      userIdentity: async (id) => (visible && id === invitee.member.userId ? invitee.public : undefined),
+      stepUp: vi.fn(async () => {}),
+      invite: vi.fn(async (_cid: string, _id: string, _role: string, envelopes: InvitationEnvelope[]) => {
+        if (refuseKeys && envelopes.length) throw conflict();
+        calls.push({ envelopes });
+        return { id: `inv_${"g".repeat(26)}`, token: "t".repeat(43), expiresAt: "2026-10-08T00:00:00Z" };
+      }),
+    };
+    return { api, calls };
+  };
+
+  it("seals the team's current key for a visible invitee, pinned and stepped up first", async () => {
+    const { api, calls } = inviteAPI();
+    const store = memoryStore();
+    const result = await inviteWithKeys(api, target, invited, as(owner), store, never);
+    expect(result.keys).toBe("sealed");
+    expect(result.recipient?.identity?.publicKey).toBe(invitee.public!.publicKey);
+    expect(calls[0].envelopes.map((row) => [row.containerId, row.keyGeneration, row.deviceId])).toEqual([[team.id, 2, invitee.held!.deviceId]]);
+    expect(store.get()).toEqual({ [invitee.member.userId]: invitee.public!.publicKey });
+    const sent = (api.invite as Mock).mock.invocationCallOrder[0];
+    expect(store.addFresh.mock.invocationCallOrder[0]).toBeLessThan(sent);
+    expect((api.stepUp as Mock).mock.invocationCallOrder[0]).toBeLessThan(sent);
+    // The invitee opens the key as one a current steward sent.
+    const steward = { ...owner.member, identity: { deviceId: owner.public!.deviceId, publicKey: owner.public!.publicKey } };
+    const opened = openKeyring({ containerID: team.id, envelopes: calls[0].envelopes, me: { ...invitee.held!, userId: invitee.member.userId }, members: [steward], pins: {}, known: { mark: 0, digests: {} } });
+    expect(opened.ring.get(team.keyGeneration)).toEqual(teamKey);
+  });
+
+  it("invites without keys when it cannot see the invitee, cannot wrap, or holds no current key", async () => {
+    const cases: Array<[boolean, Caller, typeof target, InviteKeys]> = [
+      [false, as(owner), target, "no-identity"],
+      [true, as(owner, false), target, "cannot-wrap"],
+      [true, { userId: owner.member.userId, canWrap: true }, target, "cannot-wrap"],
+      [true, as(owner), { container: team, ring: new Map([[1, teamKey]]) }, "no-keys"],
+      [true, as(owner), { container: { ...team, keyGeneration: 1, sharedGeneration: 0 }, ring: new Map([[1, teamKey]]) }, "no-keys"],
+    ];
+    for (const [visible, caller, given, keys] of cases) {
+      const { api, calls } = inviteAPI(visible);
+      expect((await inviteWithKeys(api, given, invited, caller, memoryStore(), never)).keys).toBe(keys);
+      expect(calls).toEqual([{ envelopes: [] }]);
+      expect(api.stepUp).not.toHaveBeenCalled();
+    }
+  });
+
+  it("sends no keys for a team this device saw at a later sharing state, or saw shared and now reported personal", async () => {
+    const cases: Array<[ReportedContainer, KeyFloor]> = [
+      [team, { shared: 2, generation: 3 }], // the server rolled the generation back
+      [{ ...team, kind: "workbook" }, { shared: 2, generation: 2 }], // relabelled personal, no teamId
+    ];
+    for (const [container, floor] of cases) {
+      const { api, calls } = inviteAPI();
+      expect((await inviteWithKeys(api, { container, ring: target.ring }, invited, as(owner), memoryStore({}, { mark: 0, digests: {}, ...floor }), never)).keys).toBe("rollback");
+      expect(calls).toEqual([{ envelopes: [] }]);
+      expect(api.stepUp).not.toHaveBeenCalled();
+    }
+  });
+
+  it("also honours this tab's in-memory floor when storage lags behind it", async () => {
+    const { api, calls } = inviteAPI();
+    // The stored floor never caught up (a failed save); the tab saw generation 3.
+    expect((await inviteWithKeys(api, { ...target, floor: { shared: 2, generation: 3 } }, invited, as(owner), memoryStore(), never)).keys).toBe("rollback");
+    expect(calls).toEqual([{ envelopes: [] }]);
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the step-up fails", async () => {
+    const { api, calls } = inviteAPI();
+    (api.stepUp as Mock).mockRejectedValueOnce(new Error("step-up refused"));
+    await expect(inviteWithKeys(api, target, invited, as(owner), memoryStore(), never)).rejects.toThrow("step-up refused");
+    expect(calls).toEqual([]);
+  });
+
+  it("asks before sealing for a changed invitee key; a decline sends no keys", async () => {
+    const stale = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+    const store = memoryStore({ [invitee.member.userId]: stale });
+    const declined = inviteAPI();
+    const ask = vi.fn(() => false);
+    expect((await inviteWithKeys(declined.api, target, invited, as(owner), store, ask)).keys).toBe("untrusted");
+    expect(ask).toHaveBeenCalledWith([{ member: expect.objectContaining({ userId: invitee.member.userId }), pinned: stale }]);
+    expect(declined.calls).toEqual([{ envelopes: [] }]);
+    expect(store.get()[invitee.member.userId]).toBe(stale);
+    const confirmed = inviteAPI();
+    expect((await inviteWithKeys(confirmed.api, target, invited, as(owner), store, () => true)).keys).toBe("sealed");
+    expect(store.confirm).toHaveBeenCalledTimes(1);
+    expect(store.get()[invitee.member.userId]).toBe(invitee.public!.publicKey);
+    expect(confirmed.calls[0].envelopes).toHaveLength(1);
+  });
+
+  it("never sends keys whose recipient pin this device could not keep", async () => {
+    const { api, calls } = inviteAPI();
+    expect((await inviteWithKeys(api, target, invited, as(owner), memoryStore({}, undefined, false), never)).keys).toBe("pins-unsaved");
+    expect(calls).toEqual([{ envelopes: [] }]);
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("sends no keys when another pass pinned a different key for the invitee first", async () => {
+    const { api, calls } = inviteAPI();
+    // storePins compares in its own transaction: the first-seen pin lost to a concurrent pass.
+    const store = { ...memoryStore(), addFresh: vi.fn(async (): Promise<PinsStored> => ({ ok: false, conflicts: [invitee.member.userId] })) };
+    expect((await inviteWithKeys(api, target, invited, as(owner), store, never)).keys).toBe("untrusted");
+    expect(calls).toEqual([{ envelopes: [] }]);
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("falls back to an invitation without keys when a generation moved meanwhile", async () => {
+    const { api, calls } = inviteAPI(true, true);
+    expect((await inviteWithKeys(api, target, invited, as(owner), memoryStore(), never)).keys).toBe("moved");
+    expect(calls).toEqual([{ envelopes: [] }]);
   });
 });

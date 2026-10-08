@@ -284,3 +284,20 @@ export function sealFor(member: MemberKey, containerID: string, generation: numb
 
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */
 export const newContainerKey = (): Uint8Array => randomBytes(32);
+
+export type MemberKeyStatus = "has-key" | "waiting" | "no-identity";
+
+/**
+ * What each member holds, for the member list. Shared notebooks: the current generation's key
+ * (has-key), an identity waiting for a steward (waiting), or no identity to wrap for. A
+ * never-shared notebook lists only members without an identity, who block its first key.
+ * Built from server data: it informs and never decides trust.
+ */
+export function memberKeyStatus(container: KeyedContainer, members: MemberKey[], envelopes: Envelope[]): Record<string, MemberKeyStatus> {
+  const held = new Set(envelopes.filter((row) => row.keyGeneration === container.keyGeneration).map((row) => row.deviceId));
+  return Object.fromEntries(members.flatMap((member): Array<[string, MemberKeyStatus]> => {
+    if (!member.identity) return [[member.userId, "no-identity"]];
+    if (container.sharedGeneration === 0) return [];
+    return [[member.userId, held.has(member.identity.deviceId) ? "has-key" : "waiting"]];
+  }));
+}
