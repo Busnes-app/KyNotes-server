@@ -212,3 +212,55 @@ func TestUnkeyedContainerTakesNoInvitationEnvelope(t *testing.T) {
 		t.Fatalf("accept installed %d envelopes without a key: %v", installed, err)
 	}
 }
+
+// An upload session belongs to the user who opened it: another member of the same container
+// cannot send its chunks or finalize it, and the owner's session is left as it was.
+func TestAnotherMemberCannotTouchAnUploadSession(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	owner, other := tm.editor, tm.admin
+	open := func(kind string, chunk bool) string {
+		code, body := status(t, owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", []byte(`{"declaredBytes":4,"kind":`+quote(kind)+`}`), true, false))
+		var up struct {
+			ID string `json:"uploadId"`
+		}
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &up) != nil {
+			t.Fatalf("upload create=%d %s", code, body)
+		}
+		if chunk {
+			if code, body := owner.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+up.ID, map[string]string{"X-Kynotes-Chunk-Index": "0", keySchemeHeader: keySchemeShared}, []byte("abcd"), func() {}); code != http.StatusOK {
+				t.Fatalf("owner chunk=%d %s", code, body)
+			}
+		}
+		return up.ID
+	}
+	empty, attachment, preview := open("attachment", false), open("attachment", true), open("preview", true)
+	for name, send := range map[string]func() (int, string){
+		"chunk": func() (int, string) {
+			return other.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+empty, map[string]string{"X-Kynotes-Chunk-Index": "0", keySchemeHeader: keySchemeShared}, []byte("wxyz"), func() {})
+		},
+		"finalize": func() (int, string) {
+			return status(t, other.do(t, http.MethodPost, "/api/v1/uploads/"+attachment+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":2}`), true, false))
+		},
+		"preview finalize": func() (int, string) {
+			return status(t, other.do(t, http.MethodPost, "/api/v1/uploads/"+preview+"/finalize", []byte(`{}`), true, false))
+		},
+	} {
+		if code, body := send(); code != http.StatusNotFound {
+			t.Fatalf("%s on another user's session=%d %s", name, code, body)
+		}
+	}
+	for id, want := range map[string]int64{empty: 0, attachment: 4, preview: 4} {
+		var received int64
+		var state, digest string
+		if err := owner.db.QueryRow(`SELECT received_bytes,status,finalized_digest FROM upload_sessions WHERE id=?`, id).Scan(&received, &state, &digest); err != nil || received != want || state != "pending" || digest != "" {
+			t.Fatalf("session %s changed: received=%d status=%q digest=%q err=%v", id, received, state, digest, err)
+		}
+	}
+	if code := owner.attach(t, tm.id, 2); code != http.StatusOK {
+		t.Fatalf("owner still uploads=%d", code)
+	}
+	if code, body := status(t, owner.do(t, http.MethodPost, "/api/v1/uploads/"+attachment+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":2}`), true, false)); code != http.StatusOK {
+		t.Fatalf("owner finalize=%d %s", code, body)
+	}
+}
