@@ -61,7 +61,7 @@ import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabell
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
-import { clearStashedInvite, inviteLink, keyRequestText, stashInviteLink, stashedInvite, takeInviteLink } from "./invitations";
+import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, sessionStore, takeInviteLink } from "./invitations";
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
@@ -714,7 +714,7 @@ function Workspace({
   const [keyMembers, setKeyMembers] = useState<{ containerID: string; members: MemberKey[]; status: Record<string, MemberKeyStatus> } | undefined>(undefined);
   // Usernames seen in key passes this session, for Settings' colleague keys.
   const colleagueNames = useRef<Record<string, string>>({});
-  const [invitation, setInvitation] = useState(() => { try { return stashedInvite(sessionStorage); } catch { return undefined; } });
+  const [invitation, setInvitation] = useState(() => pendingInvite(sessionStore()));
   const namesRef = useRef(names);
   namesRef.current = names;
   // Changed colleague keys declined this session, by member and exact key: not asked again.
@@ -1018,7 +1018,7 @@ function Workspace({
   useEffect(() => {
     const follow = () => void (async () => {
       // A pasted invitation link: out of the address bar, into the banner.
-      const link = takeInviteLink(location, history, sessionStorage);
+      const link = takeInviteLink(location, history, sessionStore());
       if (link) { setInvitation(link); return; }
       const route = parseRoute(location.hash);
       const container = items.find((item) => item.id === route.container);
@@ -2231,23 +2231,29 @@ function Workspace({
   }
   function dropInvitation() {
     setInvitation(undefined);
-    try { clearStashedInvite(sessionStorage); } catch { /* nothing kept */ }
+    dropInvite(sessionStore());
   }
   async function joinTeam() {
     const link = invitation;
     if (!link) return;
-    // Hidden now so a second click cannot accept twice; the stash is cleared once accept settles.
+    // Hidden now so a second click cannot accept twice; kept only if the failure may pass.
     setInvitation(undefined);
     try {
       await acceptInvitation(link.id, link.token);
+      dropInvitation();
       setError("You joined the team.");
     } catch (error) {
-      const code = error instanceof APIRequestError ? error.code : undefined;
-      setError(code === "not_found"
-        ? "This invitation is no longer valid: it expired, was already used, is for another account, or its sender can no longer invite."
-        : code === "already_exists" ? "You are already a member of this team." : error instanceof Error ? error.message : "Unable to join the team");
-    } finally {
-      dropInvitation();
+      const api = error instanceof APIRequestError ? error : undefined;
+      const message = error instanceof Error ? error.message : "Unable to join the team";
+      if (finalRefusal(api?.status)) {
+        dropInvitation();
+        setError(api?.code === "not_found"
+          ? "This invitation is no longer valid: it expired, was already used, is for another account, or its sender can no longer invite."
+          : api?.code === "already_exists" ? "You are already a member of this team." : message);
+      } else {
+        setInvitation(link);
+        setError(`Could not join the team: ${message}. The invitation is kept; choose Join team to try again.`);
+      }
     }
     await loadContainers();
   }
@@ -3487,7 +3493,7 @@ function SettingsView({
 }
 
 // An invitation link opens the app at #/invite/…: keep it in this tab for after sign-in, out of the address bar.
-try { stashInviteLink(location, history, sessionStorage); } catch { /* session storage disabled: the link cannot be kept */ }
+takeInviteLink(location, history, sessionStore());
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

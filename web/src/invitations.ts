@@ -13,44 +13,45 @@ export function parseInviteLink(hash: string): InviteLink | undefined {
   return match ? { id: match[1], token: match[2] } : undefined;
 }
 
-/**
- * Moves an invitation link out of the address bar and this tab's session-history entry into its
- * session storage, so it survives a sign-in that leaves the page (single sign-on). True when there
- * was one. The address bar is cleared even when storage throws (the error still propagates).
- */
-export function stashInviteLink(location: Pick<Location, "hash" | "pathname">, history: Pick<History, "replaceState">, storage: Pick<Storage, "setItem">): boolean {
-  const link = parseInviteLink(location.hash);
-  if (!link) return false;
-  try {
-    storage.setItem(KEY, JSON.stringify(link));
-  } finally {
-    history.replaceState(null, "", location.pathname);
-  }
-  return true;
+// The link as taken at load or hashchange, for this page load: session storage may refuse it.
+let pageInvite: InviteLink | undefined;
+
+/** sessionStorage, or undefined where the browser refuses access to it. */
+export function sessionStore(): Storage | undefined {
+  try { return globalThis.sessionStorage; } catch { return undefined; }
 }
 
 /**
- * An invitation link opened in a tab already running KyNotes (hashchange): stashed like a fresh
- * load, and returned so this page can offer it even when session storage refuses it.
+ * Moves an invitation link out of the address bar and this tab's session-history entry into its
+ * session storage, so it survives a sign-in that leaves the page (single sign-on), and into memory,
+ * so this page load keeps it even when storage is refused. Returns it, or undefined when there is none.
  */
-export function takeInviteLink(location: Pick<Location, "hash" | "pathname">, history: Pick<History, "replaceState">, storage: Pick<Storage, "setItem">): InviteLink | undefined {
+export function takeInviteLink(location: Pick<Location, "hash" | "pathname">, history: Pick<History, "replaceState">, storage: Pick<Storage, "setItem"> | undefined): InviteLink | undefined {
   const link = parseInviteLink(location.hash);
   if (!link) return undefined;
-  try { stashInviteLink(location, history, storage); } catch { /* kept for this page only */ }
+  pageInvite = link;
+  try { storage?.setItem(KEY, JSON.stringify(link)); } catch { /* kept in memory for this page load */ }
+  history.replaceState(null, "", location.pathname);
   return link;
 }
 
-/** The stashed invitation, re-validated: storage is not trusted to hold what was written. */
-export function stashedInvite(storage: Pick<Storage, "getItem">): InviteLink | undefined {
+/** The pending invitation: the stashed one, re-validated (storage is not trusted to hold what was written), else this page load's. */
+export function pendingInvite(storage: Pick<Storage, "getItem"> | undefined): InviteLink | undefined {
   try {
-    const value = JSON.parse(storage.getItem(KEY) ?? "null") as Partial<InviteLink> | null;
-    return value ? parseInviteLink(`#/invite/${value.id}/${value.token}`) : undefined;
-  } catch {
-    return undefined;
-  }
+    const value = JSON.parse(storage?.getItem(KEY) ?? "null") as Partial<InviteLink> | null;
+    const stashed = value ? parseInviteLink(`#/invite/${value.id}/${value.token}`) : undefined;
+    if (stashed) return stashed;
+  } catch { /* an unreadable stash is no invitation */ }
+  return pageInvite;
 }
 
-export const clearStashedInvite = (storage: Pick<Storage, "removeItem">) => storage.removeItem(KEY);
+export function dropInvite(storage: Pick<Storage, "removeItem"> | undefined) {
+  pageInvite = undefined;
+  try { storage?.removeItem(KEY); } catch { /* nothing kept */ }
+}
+
+/** A definitive answer to an accept (gone, refused, already a member); anything else (network, 5xx, 429) may be retried. */
+export const finalRefusal = (status: number | undefined) => status === 403 || status === 404 || status === 409 || status === 410;
 
 /** What a member waiting for keys sends an owner or admin, out of band. */
 export function keyRequestText(input: { notebook: string; stewards: string[]; fingerprint: string; link: string }): string {

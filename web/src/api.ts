@@ -22,7 +22,7 @@ export type Change = { id: string; kind: string; changeSeq: number; deleted: boo
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
 
 type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
-export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }
+export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; status?: number; constructor(message: string, detail: APIError, status?: number) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; this.status = status; } }
 
 /** Marks writes from a bundle that seals shared containers with their container key; the server refuses shared-container writes without it. */
 export const KEY_SCHEME = "shared-v1";
@@ -58,7 +58,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (!response.ok) {
     let detail: APIError = {};
     try { detail = await response.json() as APIError; } catch { /* opaque server error */ }
-    throw new APIRequestError(detail.error?.message ?? `Request failed (${response.status})`, detail);
+    throw new APIRequestError(detail.error?.message ?? `Request failed (${response.status})`, detail, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
