@@ -457,7 +457,8 @@ func (p *client) login() error {
 	}
 	var session struct {
 		User struct {
-			ID string `json:"id"`
+			ID          string `json:"id"`
+			AccountKind string `json:"accountKind"`
 		} `json:"user"`
 		Identity *struct {
 			DeviceID          string `json:"deviceId"`
@@ -469,6 +470,9 @@ func (p *client) login() error {
 		return err
 	}
 	p.userID = session.User.ID
+	if session.User.AccountKind != "user" {
+		return errAdminAccount
+	}
 	p.identityKey, p.identityDevice = nil, ""
 	if session.Identity == nil || session.Identity.WrapAlg != "aes-256-gcm" {
 		return nil // none yet, or no password copy: identity() decides
@@ -492,6 +496,7 @@ func (p *client) login() error {
 	return nil
 }
 
+var errAdminAccount = errors.New("the probe account is an administrator account, which cannot open notes; use an everyday account (user add without --admin)")
 var errInvalidCredentials = errors.New("login: invalid credentials")
 
 func requireStatus(res *http.Response, code int) error {

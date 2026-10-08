@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/app"
@@ -320,12 +321,16 @@ func checkCommand(kind string, args []string) error {
 	}
 	return storage.Consistency(s.DB(), b)
 }
+
+// An account is an administrator account or an everyday account, never both.
+var errUserAddUsage = errors.New("usage: user add --username <name> [--password <pass>] [--admin | --everyday]  (default --everyday; --admin creates an administrator account, which cannot open notes)")
+
 func userCommand(args []string) error {
 	if len(args) < 1 || args[0] != "add" {
-		return fmt.Errorf("usage: user add --username <name> [--password <pass>] [--admin]")
+		return errUserAddUsage
 	}
 	var username, password string
-	admin := false
+	admin, everyday := false, false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--username":
@@ -342,7 +347,12 @@ func userCommand(args []string) error {
 			i++
 		case "--admin":
 			admin = true
+		case "--everyday":
+			everyday = true
 		}
+	}
+	if admin && everyday {
+		return errUserAddUsage
 	}
 	if strings.TrimSpace(username) == "" {
 		return fmt.Errorf("username required")

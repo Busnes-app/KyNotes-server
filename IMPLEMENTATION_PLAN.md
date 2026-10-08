@@ -1168,9 +1168,10 @@ the test hook can never silently become production.
 | Method | Path | Credential | Body → Response |
 |---|---|---|---|
 | POST | `/api/v1/auth/login-params` | none | `{"username":"..."}` → `{"loginSalt":"<b64>","iterations":600000}` |
-| POST | `/api/v1/auth/login` | none | `{"username":"...","authSecret":"<hex64>"}` → sets cookies, `{"user":{"id":"usr_...","role":"user"}}`, plus `"identity":{deviceId,publicKey,fingerprint,wrapAlg,wrappedPrivateKey}` (`no-store`) when one exists |
+| POST | `/api/v1/setup` | none | `{"admin":{"username","authSecret","loginSalt","iterations"},"everyday":{…}}` → creates the administrator account and the everyday account in one transaction, both unflagged (the person at setup chose both passwords), audit `setup.initialized`, and a session for the administrator: `{"ok":true,"user":{"id","role":"admin","accountKind":"admin","username"},"everyday":{"id","username"},…}`; `400` for the old body, a missing account or equal usernames; `403 setup_completed` once any account exists (checked inside the transaction) |
+| POST | `/api/v1/auth/login` | none | `{"username":"...","authSecret":"<hex64>"}` → sets cookies, `{"user":{"id":"usr_...","role":"user","accountKind":"user"},"passwordChangeRequired":false}`, plus `"identity":{deviceId,publicKey,fingerprint,wrapAlg,wrappedPrivateKey}` (`no-store`) when an everyday account has one (administrator accounts never) |
 | POST | `/api/v1/auth/step-up` | session + CSRF | `{"authSecret"}` → `204`, or `200 {"identity":{...}}` (as login) for a local session whose user has an identity; shares the per-user/IP lockout with `POST /auth/password` |
-| GET | `/api/v1/auth/session` | session | → `{"user":{...},"expiresAt":"...","hardExpiresAt":"..."}` |
+| GET | `/api/v1/auth/session` | session | → `{"user":{"id","role","username","accountKind"},"passwordChangeRequired":bool,"sso":bool,"expiresAt":"...","hardExpiresAt":"..."}` |
 | POST | `/api/v1/auth/logout` | session + CSRF | → `204`, clears both cookies, revokes the row |
 | POST | `/api/v1/auth/logout-all` | session + CSRF + fresh | → `204`, revokes every session for the user |
 | POST | `/api/v1/auth/recover` | none | `{"username","recoveryCode","newAuthSecret","newLoginSalt","iterations","newRecoveryCode"}` → `204` |

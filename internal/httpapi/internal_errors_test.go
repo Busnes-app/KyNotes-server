@@ -38,7 +38,7 @@ func TestDatabaseErrorsNeverReachTheClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/setup", strings.NewReader(`{"username":"admin","authSecret":"`+strings.Repeat("a", 64)+`"}`)))
+	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/setup", bytes.NewReader(setupBody("admin", "owner"))))
 	check("setup", rec)
 
 	f := newLogoutFixture(t)

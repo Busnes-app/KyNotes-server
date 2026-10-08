@@ -68,8 +68,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
 - `internal/app` owns the `.kynotes.lock` data-directory lock and first-run
-  admin bootstrap (`BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the admin only when
-  no users exist; otherwise the web UI prompts, or use `user add`);
+  bootstrap: only when no users exist, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the administrator
+  account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS` the everyday account (different
+  usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, or use
+  `user add [--admin | --everyday]` (default everyday, flagged). Start-up logs `no_active_admin` with the
+  CLI remedy in the message when accounts exist but no active administrator account does (`WarnWithoutAdmin`,
+  `TestServeWarnsWithoutAdmin`). The probe refuses an administrator account at login;
   maintenance backup refuses to copy a live data directory and restore runs an integrity
   check after replacement.
 - Migration `0026_account_kinds.sql`: `users.account_kind` (`user`/`admin`, fixed) and

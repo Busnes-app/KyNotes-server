@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -255,7 +256,7 @@ func TestAdminAccountsCannotPairDevices(t *testing.T) {
 func TestKindGatesHoldWithoutTheTriggers(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	admin := p.addAdmin(t, "server-admin")
-	for _, q := range []string{`DROP TRIGGER users_admin_role_update`, `DROP TRIGGER devices_everyday_only`} {
+	for _, q := range []string{`DROP TRIGGER users_admin_role_update`, `DROP TRIGGER devices_everyday_only`, `DROP TRIGGER user_identities_everyday_only`} {
 		if _, err := p.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
@@ -282,5 +283,86 @@ func TestKindGatesHoldWithoutTheTriggers(t *testing.T) {
 	}
 	if code, _ := status(t, admin.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusUnauthorized {
 		t.Fatalf("an administrator account's device credential authenticated: %d", code)
+	}
+	// Login never hands an administrator account a wrapped identity.
+	for _, q := range []string{
+		`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES('dev_adminidentity',?,'pk','fp2','identity:00','identity','now')`,
+		`INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,'dev_adminidentity',x'00','aes-256-gcm','now','now')`,
+	} {
+		if _, err := p.db.Exec(q, admin.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, body = status(t, admin.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"server-admin","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false))
+	if code != http.StatusOK || strings.Contains(body, "identity") {
+		t.Fatalf("administrator login: %d %s", code, body)
+	}
+}
+func setupBody(admin, everyday string) []byte {
+	account := func(name, fill string) string {
+		return `{"username":` + quote(name) + `,"authSecret":"` + strings.Repeat(fill, 64) + `","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000}`
+	}
+	return []byte(`{"admin":` + account(admin, "a") + `,"everyday":` + account(everyday, "b") + `}`)
+}
+
+func TestSetupCreatesBothAccounts(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	mux := http.NewServeMux()
+	AuthRoutes(mux, db, cfg)
+	post := func(body []byte) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/v1/setup", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	for name, body := range map[string][]byte{
+		"old shape":          []byte(`{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `"}`),
+		"same username":      setupBody("owner", "Owner"),
+		"plaintext password": []byte(`{"admin":{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `","loginSalt":"x","iterations":100000,"password":"hunter2"},"everyday":{"username":"owner","authSecret":"` + strings.Repeat("b", 64) + `","loginSalt":"x","iterations":100000}}`),
+		"no everyday":        []byte(`{"admin":{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `","loginSalt":"x","iterations":100000}}`),
+	} {
+		if rec := post(body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s=%d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	var users int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&users); err != nil || users != 0 {
+		t.Fatal("a refused setup created accounts", users, err)
+	}
+	rec := post(setupBody("admin", "owner"))
+	var out struct {
+		User struct{ ID, AccountKind string } `json:"user"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil || out.User.AccountKind != "admin" {
+		t.Fatalf("setup=%d %s", rec.Code, rec.Body.String())
+	}
+	for name, want := range map[string]string{"admin": "admin|admin|0", "owner": "user|user|0"} {
+		var kind, role string
+		var flagged int
+		if err := db.QueryRow(`SELECT account_kind,role,password_admin_known FROM users WHERE username=?`, name).Scan(&kind, &role, &flagged); err != nil || kind+"|"+role+"|"+strconv.Itoa(flagged) != want {
+			t.Fatalf("%s: %s|%s|%d %v", name, kind, role, flagged, err)
+		}
+	}
+	if rec := post(setupBody("admin2", "owner2")); rec.Code != http.StatusForbidden {
+		t.Fatalf("second setup=%d", rec.Code)
+	}
+}
+
+func TestLoginReportsKindAndChangeFlag(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	admin := p.addAdmin(t, "server-admin")
+	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, admin.id); err != nil {
+		t.Fatal(err)
+	}
+	res := admin.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"server-admin","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)
+	code, body := status(t, res)
+	var out struct {
+		User                   struct{ AccountKind string } `json:"user"`
+		PasswordChangeRequired bool                         `json:"passwordChangeRequired"`
+		Identity               any                          `json:"identity"`
+	}
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &out) != nil || out.User.AccountKind != "admin" || !out.PasswordChangeRequired || out.Identity != nil {
+		t.Fatalf("login=%d %s", code, body)
 	}
 }
