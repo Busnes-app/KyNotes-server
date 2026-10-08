@@ -100,4 +100,11 @@ describe("outbound structure", () => {
     const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer|approveLinkRequest|collectLinkRequest)\b/;
     expect(Object.entries(sources).filter(([, text]) => raw.test(text)).map(([name]) => name)).toEqual([]);
   });
+
+  it("never lets a failed local cache write stop an edit from being sent", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    // A rejected cacheWrite is captured (cacheMiss) and reported; the send runs regardless.
+    expect(main).not.toMatch(/await cacheWrite\(/);
+    expect(main.match(/await cacheMiss\(/g)).toHaveLength(2);
+  });
 });

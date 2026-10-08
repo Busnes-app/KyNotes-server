@@ -170,6 +170,7 @@ type QueueEntry = { note: Note; container: Container };
 const ROLLBACK = "The server reported an older key state for this notebook than this device has seen; writes are paused.";
 const UNVERIFIED = "Written before this notebook was shared; not end-to-end verified.";
 const UNVERIFIED_SIDE_EFFECT = "A page, section or group written before this notebook was shared is not end-to-end verified, so it was not changed as part of another change. Edit or move it directly to share it.";
+const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
 const UNVERIFIED_SUBPAGES = "This page has subpages written before this notebook was shared, which are not end-to-end verified. Move or edit those subpages on their own first.";
 const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
 const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
@@ -878,6 +879,8 @@ function Workspace({
     cacheChain.current = run.catch(() => {});
     return run;
   };
+  /** The cache write's failure, if any: it never blocks the send, and the caller reports the missing local copy. */
+  const cacheMiss = (write: () => Promise<unknown>) => cacheWrite(write).then(() => false, () => true);
   const [query, setQuery] = useState("");
   const [commitToastAt, setCommitToastAt] = useState<number | null>(null);
   const [, setCommitToastTick] = useState(0);
@@ -1506,7 +1509,7 @@ function Workspace({
       const encrypted = await encryptNote(write.key, selected.id, notePayload(note));
       const savedAt = new Date().toISOString();
       const containerID = selected.id;
-      await cacheWrite(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
+      const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
         await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id });
@@ -1523,6 +1526,7 @@ function Workspace({
         const saved = { ...note, version: result.version, updatedAt: savedAt };
         setLastSavedAt(savedAt);
         setSyncStatus("saved");
+        if (uncached) setError(UNCACHED);
         // Edits or a move may have landed while the request was in flight:
         // carry only the version forward, never the sent content.
         patchNotes((value) => carrySaved(value, saved.id, saved));
@@ -1700,7 +1704,7 @@ function Workspace({
     const encrypted = await encryptNote(write.key, selected.id, payload);
     const updatedAt = new Date().toISOString();
     const containerID = selected.id;
-    await cacheWrite(() => putNote(auth.user.id, { id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
+    const uncached = await cacheMiss(() => putNote(auth.user.id, { id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
     if (write.generation === WAITING_GENERATION) {
       await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id });
       setSyncStatus("local");
@@ -1712,6 +1716,7 @@ function Workspace({
       await clearQueuedSave(auth.user.id, id);
       markLegacy([id], false);
       carryDuringLoad(id, { version: result.version, updatedAt });
+      if (uncached) setError(UNCACHED);
       return result.version;
     } catch (error) {
       if (error instanceof APIRequestError && error.code === "version_conflict") {
