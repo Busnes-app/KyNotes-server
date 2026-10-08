@@ -172,6 +172,30 @@ export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: asy
 export const containerEnvelopes = (containerID: string) => request<Envelope[]>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`);
 export const putEnvelopes = (containerID: string, envelopes: Envelope[]) => request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`, { method: "PUT", body: JSON.stringify({ envelopes }) });
 export const rotateKeys = (containerID: string, expectedGeneration: number, envelopes: Envelope[]) => request<{ keyGeneration: number }>(`/api/v1/containers/${encodeURIComponent(containerID)}/key-rotations`, { method: "POST", body: JSON.stringify({ expectedGeneration, envelopes }) });
+/** A shared notebook's rows below its sharing generation, as the server lists them: a hint for the review (migration.ts), never proof. */
+export type LegacyRows = {
+  complete: boolean;
+  objects: Array<{ id: string; version: number; keyGeneration?: number }>;
+  comments: Array<{ id: string; objectId: string; authorUserId: string; bodyCiphertext: string; keyGeneration?: number }>;
+  attachments: Array<{ id: string; objectIds: string[]; bytes: number; metadataCiphertext: string; keyGeneration?: number }>;
+  conflicts: Array<{ id: string; objectId: string; keyGeneration?: number; createdAt: string }>;
+};
+const wireID = /^[a-z]{3}_[0-9a-hjkmnp-tv-z]{26}$/;
+const isID = (value: unknown): value is string => typeof value === "string" && wireID.test(value);
+export async function legacyRows(containerID: string): Promise<LegacyRows> {
+  const rows = await request<Partial<Record<keyof LegacyRows, unknown>>>(`/api/v1/containers/${encodeURIComponent(containerID)}/legacy`);
+  // Server data: rows whose IDs or ciphertext fields are malformed are dropped here, before any key or URL sees them.
+  const list = <T extends { keyGeneration?: unknown }>(value: unknown, valid: (row: Record<string, unknown>) => boolean) =>
+    withGeneration((Array.isArray(value) ? value : []).filter((row): row is T => typeof row === "object" && row !== null && valid(row as Record<string, unknown>)));
+  return {
+    complete: rows.complete === true,
+    objects: list(rows.objects, (row) => isID(row.id)),
+    comments: list(rows.comments, (row) => isID(row.id) && isID(row.objectId) && isID(row.authorUserId) && typeof row.bodyCiphertext === "string"),
+    attachments: list<LegacyRows["attachments"][number]>(rows.attachments, (row) => isID(row.id) && typeof row.metadataCiphertext === "string")
+      .map((row) => ({ ...row, objectIds: Array.isArray(row.objectIds) ? row.objectIds.filter(isID) : [] })),
+    conflicts: list(rows.conflicts, (row) => isID(row.id) && isID(row.objectId)),
+  } as LegacyRows;
+}
 /** A colleague's public identity; undefined when they have none or the server will not show it. */
 export async function userIdentity(userID: string): Promise<PublicIdentity | undefined> {
   try { return await request<PublicIdentity>(`/api/v1/users/${encodeURIComponent(userID)}/identity`); }
@@ -189,6 +213,8 @@ export const acceptInvitation = (id: string, token: string) => request<void>(`/a
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const comments = (objectID: string): Promise<Comment[]> => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`).then(withGeneration);
 export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }
+/** Re-seals the caller's own comment at keyGeneration (server: author only). Only outbound.ts sendCommentRewrite calls this. */
+export function rewriteComment(commentID: string, bodyCiphertext: string, keyGeneration: number) { return request<void>(`/api/v1/comments/${encodeURIComponent(commentID)}`, { method: "PUT", body: JSON.stringify({ bodyCiphertext, keyGeneration }) }); }
 
 export async function changes(containerID: string, since = 0) {
   return request<{ changes: Change[]; nextCursor: string; hasMore: boolean }>(
@@ -233,6 +259,7 @@ export const deleteUpload = (uploadID: string) => request<void>(`/api/v1/uploads
 export function uploadChunk(uploadID: string, index: number, bytes: Uint8Array) { return request<{ receivedBytes: number; nextChunk: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}`, { method: "PATCH", body: bytes as unknown as BodyInit, headers: { "Content-Type": "application/octet-stream", "X-Kynotes-Chunk-Index": String(index) } }); }
 export function finalizeUpload(uploadID: string, metadataCiphertext: string, keyGeneration: number) { return request<{ attachmentId: string; digest: string; bytes: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}/finalize`, { method: "POST", body: JSON.stringify({ metadataCiphertext, keyGeneration }) }); }
 export function attachToObject(objectID: string, attachmentID: string, objectVersion: number) { return request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`, { method: "POST", body: JSON.stringify({ attachmentId: attachmentID, objectVersion }) }); }
+export function detachAttachment(objectID: string, attachmentID: string) { return request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments/${encodeURIComponent(attachmentID)}`, { method: "DELETE" }); }
 export const objectAttachments = (objectID: string) => request<Array<{ id: string; bytes: number; metadataCiphertext: string; keyGeneration?: number }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/attachments`).then(withGeneration);
 export async function downloadAttachment(attachmentID: string) { const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error("Unable to download attachment"); return new Uint8Array(await response.arrayBuffer()); }
 
