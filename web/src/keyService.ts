@@ -70,10 +70,24 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     if (known.shared !== prior.shared || known.generation !== prior.generation) await store.saveKeyState(container.id, known).catch(() => false);
     const envelopes = await api.envelopes(container.id);
     const members: MemberKey[] = await Promise.all((await api.members(container.id)).map(async (member) => ({ ...member, identity: member.userId === caller.userId && own ? own : await api.userIdentity(member.userId) })));
-    const open = (pins: Pins, rows: Envelope[], ring?: Keyring): OpenedKeyring => {
-      const opened = openKeyring({ containerID: container.id, envelopes: rows, me, members, pins, known, held: ring ?? held });
+    // An open is speculative while it holds first-contact pins this device has not stored: its keys,
+    // digests and mark are used and saved only once those pins are persisted (trusted).
+    const open = (pins: Pins, rows: Envelope[], ring?: Keyring): OpenedKeyring =>
+      openKeyring({ containerID: container.id, envelopes: rows, me, members, pins, known, held: ring ?? held });
+    const trusted = (opened: OpenedKeyring): OpenedKeyring => {
       latest.saved = { containerID: container.id, known: raiseFloor(opened.known, container) };
       return opened;
+    };
+    /**
+     * After a pin write failed or was refused: re-open against the pins actually stored. If that
+     * still needs a first-contact pin, nothing new is adopted: the keys held before this pass, and
+     * this device's prior key memory, which is not re-saved.
+     */
+    const persistedOnly = async (): Promise<OpenedKeyring> => {
+      const again = open(await store.load(), envelopes);
+      if (!again.fresh.length) return trusted(again);
+      latest.saved = undefined;
+      return { ...again, ring: new Map(held ?? []), fresh: [], conflicts: [], known };
     };
     /** A conflict means another pass pinned a different key first: stop; the next pass asks about it. */
     const pinFailure = (stored: PinsStored): KeySync["plan"] | undefined => {
@@ -94,20 +108,28 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     let pins = await store.load();
     let opened = open(pins, envelopes);
     // Reads only: nothing is pinned, wrapped or minted against a rolled-back server.
-    if (rollback) return { container, changed: [], conflicts: opened.conflicts, known: latest.saved!.known, fresh: [], ring: opened.ring, plan: { kind: "rollback" }, minted: false };
+    if (rollback) {
+      const safe = opened.fresh.length ? await persistedOnly() : trusted(opened);
+      return { container, changed: [], conflicts: safe.conflicts, known: raiseFloor(safe.known, container), fresh: [], ring: safe.ring, plan: { kind: "rollback" }, minted: false };
+    }
     let sweep = plan(opened);
     const changed: PinChange[] = [];
     const result = (rest: Omit<Pass, "container" | "changed" | "conflicts" | "known" | "fresh">, fresh: MemberKey[], last = opened): Pass =>
-      ({ container, changed, conflicts: last.conflicts, known: last.known, fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), ...rest });
+      ({ container, changed, conflicts: last.conflicts, known: raiseFloor(last.known, container), fresh: uniqueBy([...carried, ...fresh], (member) => member.userId), ...rest });
+    /** A pass that stops on a pin it could not keep returns only what the stored pins vouch for. */
+    const stopped = async (plan: KeySync["plan"], fresh: MemberKey[]): Promise<Pass> => {
+      const safe = await persistedOnly();
+      return result({ ring: safe.ring, plan, minted: false }, fresh, safe);
+    };
     // Each confirmation pins the member's current key, so a re-opened ring or re-planned sweep can only add new members.
     for (;;) {
       const pending = uniqueBy([...opened.changed, ...comparePins(pins, targets(sweep)).changed], (change) => change.member.userId);
       if (!pending.length) break;
       changed.push(...pending);
-      if ((await confirmChanged(pending)) !== true) return result({ ring: opened.ring, plan: { kind: "untrusted", members: pending.map((change) => change.member.username) }, minted: false }, []);
+      if ((await confirmChanged(pending)) !== true) return stopped({ kind: "untrusted", members: pending.map((change) => change.member.username) }, []);
       for (const change of pending) {
         const confirmation = confirmFingerprintChange(pins, change.member);
-        if (!(await store.confirm(confirmation))) return result({ ring: opened.ring, plan: { kind: "pins-unsaved" }, minted: false }, []);
+        if (!(await store.confirm(confirmation))) return stopped({ kind: "pins-unsaved" }, []);
         pins = confirmation.pins;
       }
       opened = open(pins, envelopes);
@@ -115,7 +137,9 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     }
     const fresh = [...opened.fresh];
     const firstContact = opened.fresh.length ? pinFailure(await store.addFresh(opened.pins)) : undefined;
-    if (firstContact) return result({ ring: opened.ring, plan: firstContact, minted: false }, []);
+    // A refused first pin: the keys its sender sealed are never returned, adopted or remembered.
+    if (firstContact) return stopped(firstContact, []);
+    trusted(opened);
     if (sweep.kind === "idle" || sweep.kind === "blocked") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
@@ -135,7 +159,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     }
     // A pin another pass stored meanwhile wins: the sealed rows are discarded, never uploaded.
     const sealedFor = fresh.length > opened.fresh.length ? pinFailure(await store.addFresh(pins)) : undefined;
-    if (sealedFor) return result({ ring: opened.ring, plan: sealedFor, minted: false }, opened.fresh);
+    if (sealedFor) return stopped(sealedFor, opened.fresh);
     try {
       await api.stepUp();
       if (sweep.kind === "mint") {
@@ -151,14 +175,15 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       return "retry";
     }
     if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
-    const after = open(pins, await api.envelopes(container.id), opened.ring);
+    const after = trusted(open(pins, await api.envelopes(container.id), opened.ring));
     return result({ ring: after.ring, plan: sweep, minted: true }, fresh, after);
   };
 
   for (let attempt = 0; ; attempt += 1) {
     const latest: Latest = {};
     let outcome: Pass | "retry";
-    let keyStateSaved = false;
+    // Nothing to save (a stopped pass keeps the prior memory) is not a failure.
+    let keyStateSaved = true;
     try {
       outcome = await pass(attempt, latest);
     } finally {

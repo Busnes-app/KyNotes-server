@@ -1,4 +1,6 @@
 import "fake-indexeddb/auto";
+import { bytesToHex } from "@noble/ciphers/utils.js";
+import { sha256 } from "./fallbackCrypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { base64, legacyKeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
@@ -374,5 +376,48 @@ describe("conflicting first pins", () => {
     const confirm = vi.fn(() => false);
     expect((await syncContainerKeys(api, cnt, as(owner), vault(owner), confirm)).plan).toEqual({ kind: "untrusted", members: ["editor"] });
     expect(confirm).toHaveBeenCalledOnce();
+  });
+});
+
+describe("keys from a refused first-contact sender", () => {
+  beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+
+  it("are never returned, remembered or accepted later when a concurrent pass pinned another key", async () => {
+    const owner = user("owner", "b", "owner"), forged = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    expect(forged.public!.deviceId).toBe(owner.public!.deviceId); // the server swaps only the key
+    const view = (sender: User, key: Uint8Array): KeyAPI => {
+      const envelope = sealFor({ ...editor.member, identity: editor.public }, cnt, 2, key, { ...sender.held!, userId: owner.member.userId }, {}).envelope;
+      return {
+        container: async () => ({ id: cnt, keyGeneration: 2, sharedGeneration: 2 }),
+        envelopes: async () => [envelope],
+        members: async () => [owner.member, editor.member],
+        userIdentity: async (id) => (id === owner.member.userId ? sender.public : editor.public),
+        stepUp: vi.fn(async () => {}), putEnvelopes: vi.fn(async () => {}), rotate: vi.fn(async () => ({ keyGeneration: 2 })),
+      };
+    };
+    const real = newContainerKey(), substituted = newContainerKey();
+    const views = [view(owner, real), view(forged, substituted)];
+    // Both passes read the empty pins before either stores its first-contact pin.
+    let arrived = 0;
+    let release!: () => void;
+    const together = new Promise<void>((resolve) => { release = resolve; });
+    const racing = views.map((api): KeyAPI => ({ ...api, members: async (id) => { arrived += 1; if (arrived === 2) release(); await together; return api.members(id); } }));
+    const results = await Promise.all(racing.map((api) => syncContainerKeys(api, cnt, as(editor), vault(editor), never)));
+    const loser = results.findIndex((result) => result.plan.kind === "untrusted");
+    expect(loser).toBeGreaterThanOrEqual(0);
+    const winner = 1 - loser;
+    const keys = [real, substituted];
+    expect(results[winner].ring.get(2)).toEqual(keys[winner]);
+    // The loser returns no key for the generation, so nothing could be written with it.
+    expect(results[loser].ring.get(2)).toBeUndefined();
+    expect(writeKey(results[loser].container, results[loser].ring, login, results[loser].known)).toBeUndefined();
+    // Only the winner's key digest is remembered.
+    const stored = await getKeyState("me", editor.member.userId, cnt);
+    expect(stored.digests[2]).toBe(bytesToHex(sha256(keys[winner])));
+    // After a reload, a fresh pass that sees the losing key again still refuses it.
+    const again = await syncContainerKeys(views[loser], cnt, as(editor), vault(editor), never);
+    expect(again.plan).toEqual({ kind: "untrusted", members: ["owner"] });
+    expect(again.ring.get(2)).toBeUndefined();
+    expect((await getKeyState("me", editor.member.userId, cnt)).digests[2]).toBe(bytesToHex(sha256(keys[winner])));
   });
 });

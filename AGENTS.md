@@ -421,7 +421,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `keysAllowed` refuses keys for a seen-shared container reported personal, and they may add a key pass
   (`needsKeyPass`) but never skip one.
   `storePins` is atomic and returns `{ ok: false, conflicts }` for a member pinned to another key; the
-  pass then stops before upload (plan `untrusted`).
+  pass then stops before upload (plan `untrusted`). A pass that stops on a pin it could not keep
+  (declined, unsaved or conflicting) re-opens against the stored pins (`persistedOnly`) and returns, and
+  saves key memory from, only that; if a first-contact pin is still unstored it returns the previously
+  held ring and saves nothing, so a refused sender's key is never adopted or remembered.
   Server: containers report `sharedGeneration`; shared containers refuse writes without
   `X-Kynotes-Key-Scheme: shared-v1`; meta `PATCH` must carry the current `keyGeneration` and checks role
   and `baseVersion` in its transaction; conflict
