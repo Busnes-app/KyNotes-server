@@ -8,12 +8,31 @@ import { mergeFloor, type KeyFloor } from "./keyring";
 let floors: Readonly<Record<string, KeyFloor>> = {};
 const listeners = new Set<() => void>();
 const changed = () => { for (const listener of listeners) listener(); };
+const merge = (containerID: string, floor: KeyFloor) => {
+  floors = { ...floors, [containerID]: mergeFloor(floors[containerID], floor) };
+  changed();
+};
+
+/**
+ * Other tabs of this origin hear every raise: numbers only, nothing secret. A message is a server
+ * claim relayed by a peer: validated here, merged add-only, and only into a floor this tab already
+ * holds, so a forged one can at most raise a floor (denial of service, never a key).
+ */
+const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("kynotes-floors");
+const containerIDPattern = /^cnt_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
+const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+if (channel) channel.onmessage = (event: MessageEvent) => {
+  const { containerID, shared, generation } = (event.data ?? {}) as Record<string, unknown>;
+  if (typeof containerID !== "string" || !containerIDPattern.test(containerID) || !count(shared) || !count(generation)) return;
+  if (floors[containerID]) merge(containerID, { shared, generation });
+};
 
 /** undefined: not loaded in this tab, so no key. */
 export const floorOf = (containerID: string): KeyFloor | undefined => floors[containerID];
 export function raiseFloorIn(containerID: string, floor: KeyFloor): void {
-  floors = { ...floors, [containerID]: mergeFloor(floors[containerID], floor) };
-  changed();
+  merge(containerID, floor);
+  const { shared = 0, generation = 0 } = floors[containerID];
+  channel?.postMessage({ containerID, shared, generation });
 }
 /** loaded false (storage unreadable): only a floor this tab already holds may rise; unknown stays unknown. */
 export function publishFloor(containerID: string, floor: KeyFloor, loaded: boolean): void {

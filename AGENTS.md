@@ -423,7 +423,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   raises the stored and in-memory floor before the row is used, and `observe.test.ts` fails if
   `main.tsx` imports a raw container fetcher; the in-memory floor is one tab-wide store
   (`web/src/floors.ts`, add-only, cleared on sign-out) that every component and key decision reads at
-  decision time, with no per-component floor map, and `syncContainerKeys` raises it through `onFloor` before any
+  decision time, with no per-component floor map; each raise is broadcast on the `kynotes-floors`
+  BroadcastChannel (`{containerID, shared, generation}`, numbers only) and other tabs merge it add-only
+  into a floor they already hold after validating the ID pattern and non-negative safe integers, and `syncContainerKeys` raises it through `onFloor` before any
   envelope fetch and again the moment `rotate` succeeds; the post-mint ring opens from the accepted
   rows, never a re-fetch, so a pass that later throws still pauses writes), and a lower report is plan
   `rollback`: writes paused, never the login key. `kind`/`teamId` are server claims for layout only:
