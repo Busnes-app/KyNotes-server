@@ -186,7 +186,6 @@ Overflow was measured in the page (`documentElement.scrollWidth` against the vie
 ### Open items
 
 - Key-wait now disables "Create a note" and every other change in the notebook (sections, groups, page moves and deletes, comments, attachments, conflict copies). The e2e checks New page and New section or group are disabled; the rest were not re-captured.
-- The "not verified" labels on rows written before a notebook was shared (page list, page banner, section and group tabs, comments, attachments) were not captured: no scripted fixture produces such a row.
 - The newcomer's waiting notebook shows the fallback label `Notebook <id>` until keys arrive, as designed: the name is sealed with the container key.
 
 ### Screenshots
@@ -199,3 +198,16 @@ Overflow was measured in the page (`documentElement.scrollWidth` against the vie
 | ![Key wait mobile light](docs/team-keys-wait-light-mobile.png) | ![Key wait mobile dark](docs/team-keys-wait-dark-mobile.png) |
 | ![Fingerprint desktop light](docs/team-keys-fingerprint-light-desktop.png) | ![Fingerprint desktop dark](docs/team-keys-fingerprint-dark-desktop.png) |
 | ![Fingerprint mobile light](docs/team-keys-fingerprint-light-mobile.png) | ![Fingerprint mobile dark](docs/team-keys-fingerprint-dark-mobile.png) |
+
+### Rendered labels and notices (P3a)
+
+Same scratch server and Chromium; two separate browser contexts (owner, member). Scripted states, none faked in the DOM: the owner creates a team with a member who never signed in and sees the "not end-to-end shared yet" notice; writes a parent page and an indented subpage under the legacy key; the member signs in with a password (identity created); the owner reopens, the first key is minted, and "Shared this notebook's name with members" and the "Not verified" labels render. A move of the legacy parent (Alt+ArrowDown with a verified sibling below) shows the subpage refusal. Busnes Light and Dark via emulated OS scheme, 1280x900 and 390x844, device scale 1. File pattern `docs/team-keys-p3a-label-<state>-<light|dark>-<desktop|mobile>.png`; the `page-label` mobile files are full-page, the `list-labels` files are mobile only with the page list scrolled to its end.
+
+| State | Files | Result |
+| --- | --- | --- |
+| Unshared notice | `unshared-notice-*` | Pass; wraps in the list header, no horizontal overflow |
+| Shared notice (fingerprint plus name shared) | `shared-notice-*` | Pass; wraps, no overflow |
+| "Not verified" row labels, banner "Written before this notebook was shared; not end-to-end verified." | `page-label-*`, `list-labels-*-mobile` | Pass; legible in both themes. At 390 px the labelled rows sit below the fold of the 280 px page list (see below) |
+| Subpage refusal toast | `move-refused-*` | Pass; text legible. On mobile it covers the notice text; on desktop it stacks over the commit toast |
+
+Findings, not fixed here: at 390 px the notebook notice fills most of the 280 px `.note-list` (`web/src/styles.css:66`), so the labelled rows need an inner scroll to be seen; `.toast` (`web/src/styles.css:65`) is fixed at the same corner as `.commit-toast`, so an error toast overlaps it.
