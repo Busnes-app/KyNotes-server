@@ -164,6 +164,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
+		resetReason := ""
 		err = dbTx(db, func(tx *sql.Tx) error {
 			// Recovery or a password change may have committed since the middleware ran.
 			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
@@ -178,14 +179,32 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 				if current != *in.ExpectedDeviceID {
 					return errRecoveryMoved
 				}
-				// Whoever held the old identity in another browser keeps no session of this account.
-				revoked, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=? AND id<>? AND revoked_at=''`, now, s.UserID, s.ID)
+				// Whoever held the old identity keeps nothing: other sessions and device credentials end here,
+				// as on a password change.
+				sessions, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=? AND id<>? AND revoked_at=''`, now, s.UserID, s.ID)
 				if err != nil {
 					return err
 				}
-				n, _ := revoked.RowsAffected()
-				if err := deleteIdentityTx(tx, s.UserID, s.UserID, RequestID(r), fmt.Sprintf("sessions_revoked=%d", n)); err != nil {
+				devices, err := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, now, s.UserID)
+				if err != nil {
 					return err
+				}
+				if _, err := tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, s.UserID); err != nil {
+					return err
+				}
+				ns, _ := sessions.RowsAffected()
+				nd, _ := devices.RowsAffected()
+				revoked := fmt.Sprintf("sessions_revoked=%d,devices_revoked=%d", ns, nd)
+				oldFingerprint, err := deleteIdentityTx(tx, s.UserID, s.UserID, RequestID(r), revoked)
+				if err != nil {
+					return err
+				}
+				// The old key may sit in a stolen browser: resetting to it cuts nothing off.
+				if oldFingerprint == fingerprint {
+					return errIdentityExists
+				}
+				if oldFingerprint == "" {
+					resetReason = "," + revoked // no identity.reset row carries the counts
 				}
 			}
 			var taken int
@@ -208,7 +227,7 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 				proof = "proof=sso:" + r.Header.Get("X-Kynotes-Step-Up")
 			}
 			if in.Replace {
-				proof += ",reset"
+				proof += ",reset" + resetReason
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.create", "", deviceID, "success", "wrap="+in.WrapAlg+","+proof, RequestID(r))
 		})
@@ -283,8 +302,12 @@ func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
 				return errRecoveryMoved
 			}
 			now := time.Now().UTC().Format(time.RFC3339)
-			if _, err := tx.Exec(`UPDATE user_identities SET recovery_id=?,recovery_alg=?,recovery_wrapped_key=?,recovery_updated_at=?,updated_at=? WHERE user_id=? AND recovery_id=?`, next, in.WrapAlg, wrapped, now, now, s.UserID, current); err != nil {
+			res, err := tx.Exec(`UPDATE user_identities SET recovery_id=?,recovery_alg=?,recovery_wrapped_key=?,recovery_updated_at=?,updated_at=? WHERE user_id=? AND recovery_id=?`, next, in.WrapAlg, wrapped, now, now, s.UserID, current)
+			if err != nil {
 				return err
+			}
+			if n, _ := res.RowsAffected(); n != 1 {
+				return errRecoveryMoved
 			}
 			reason := "created"
 			if current != "" {
@@ -354,20 +377,21 @@ func writeIdentityError(w http.ResponseWriter, r *http.Request, err error) bool 
 }
 
 // deleteIdentityTx is the self-service reset: it deletes the user's identity, which cascades to its
-// envelopes and both copies, and its link requests, and audits identity.reset with reason.
-func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID, reason string) error {
+// envelopes and both copies, and its link requests, and audits identity.reset with reason. It returns
+// the deleted identity's fingerprint, "" when there was none.
+func deleteIdentityTx(tx *sql.Tx, userID, actor, requestID, reason string) (string, error) {
 	if _, err := tx.Exec(`DELETE FROM link_requests WHERE user_id=?`, userID); err != nil {
-		return err
+		return "", err
 	}
-	var deviceID string
-	err := tx.QueryRow(`DELETE FROM devices WHERE user_id=? AND platform='identity' RETURNING id`, userID).Scan(&deviceID)
+	var deviceID, fingerprint string
+	err := tx.QueryRow(`DELETE FROM devices WHERE user_id=? AND platform='identity' RETURNING id,fingerprint`, userID).Scan(&deviceID, &fingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return "", nil
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	return storage.RecordAuditOutcomeTx(tx, actor, "identity.reset", "", deviceID, "success", reason, requestID)
+	return fingerprint, storage.RecordAuditOutcomeTx(tx, actor, "identity.reset", "", deviceID, "success", reason, requestID)
 }
 
 // stripPasswordWrapTx serves account recovery and an administrator password reset: whoever sets the

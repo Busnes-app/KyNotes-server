@@ -899,7 +899,7 @@ func TestLinkApprovalNeedsTheNewcomerLive(t *testing.T) {
 
 func TestLinkRequestsDieWithTheIdentity(t *testing.T) {
 	trusted, _, id := openLink(t)
-	if err := dbTx(trusted.db, func(tx *sql.Tx) error { return deleteIdentityTx(tx, pairUser, pairUser, "", "") }); err != nil {
+	if err := dbTx(trusted.db, func(tx *sql.Tx) error { _, err := deleteIdentityTx(tx, pairUser, pairUser, "", ""); return err }); err != nil {
 		t.Fatal(err)
 	}
 	var rows int

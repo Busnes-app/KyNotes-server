@@ -197,8 +197,8 @@ func TestIdentityRecoveryRefusedWhileAnAdministratorKnowsThePassword(t *testing.
 func TestIdentityRecoveryIsRateLimitedPerAccount(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	id := p.createIdentity(t)
-	p.setRecovery(t, id, "", recoveryCopy) // one of the 20 an hour (config.Defaults pairing_per_hour)
-	for i := 0; i < 19; i++ {
+	p.setRecovery(t, id, "", recoveryCopy) // create and set: two of the 20 an hour (config.Defaults pairing_per_hour)
+	for i := 0; i < 18; i++ {
 		if _, code, _ := p.fetchRecovery(t); code != http.StatusOK {
 			t.Fatal("fetch", i, code)
 		}
@@ -288,6 +288,15 @@ func TestIdentityResetReplacesTheIdentityAndEveryKeyItHeld(t *testing.T) {
 	if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_00000000000000000000000000','cnt_00000000000000000000000000',?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01',?)`, old, now); err != nil {
 		t.Fatal(err)
 	}
+	// A paired device credential (mintable with a session alone) and its envelope; with the clash
+	// fixture below, two device credentials are revoked.
+	p.deviceID, p.deviceSecret, _ = p.register(t, p.mintToken(t), bytes.Repeat([]byte{5}, 32))
+	if _, err := p.db.Exec(`INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_phone0000000000000000000000','cnt_00000000000000000000000000',?,1,'x25519-hkdf-sha256-chacha20poly1305',x'01',?)`, p.deviceID, now); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := status(t, p.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusOK {
+		t.Fatal("paired device before the reset", code)
+	}
 	commitment, _, _ := firstLinkVector(t)
 	other := p.secondSession(t)
 	createLinkRequest(t, other, commitment)
@@ -344,8 +353,12 @@ func TestIdentityResetReplacesTheIdentityAndEveryKeyItHeld(t *testing.T) {
 	if code, out := put(resetBody(clash, expecting(old)+resetRecovery+b64s(recoveryCopy)+`"}`)); code != http.StatusConflict || !strings.Contains(out, "identity_exists") {
 		t.Fatal("clashing reset", code, out)
 	}
+	// Resetting to the old identity's own key would leave a stolen browser holding it.
+	if code, out := put(resetBody(identityPub, expecting(old)+resetRecovery+b64s(recoveryCopy)+`"}`)); code != http.StatusConflict || !strings.Contains(out, "identity_exists") {
+		t.Fatal("reset to the old key", code, out)
+	}
 	var kept int
-	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM user_identities WHERE device_id=?)+(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?)+(SELECT COUNT(*) FROM sessions WHERE revoked_at='')`, old, old).Scan(&kept); err != nil || kept != 4 {
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM user_identities WHERE device_id=?)+(SELECT COUNT(*) FROM key_envelopes WHERE device_id=?)+(SELECT COUNT(*) FROM sessions WHERE revoked_at='')+(SELECT COUNT(*) FROM devices WHERE id=? AND revoked_at='')`, old, old, p.deviceID).Scan(&kept); err != nil || kept != 5 {
 		t.Fatal("a failed reset committed part of its work", kept, err)
 	}
 	code, out := put(valid)
@@ -356,6 +369,9 @@ func TestIdentityResetReplacesTheIdentityAndEveryKeyItHeld(t *testing.T) {
 	// The same request again names an identity that is gone: refused, the new one stays.
 	if code, _ := put(valid); code != http.StatusConflict {
 		t.Fatal("a repeated reset replaced the new identity", code)
+	}
+	if code, _ := status(t, p.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusUnauthorized {
+		t.Fatal("a paired device credential survived the reset", code)
 	}
 	var oldRows, envelopes, links int
 	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM devices WHERE id=?),(SELECT COUNT(*) FROM key_envelopes),(SELECT COUNT(*) FROM link_requests)`, old).Scan(&oldRows, &envelopes, &links); err != nil || oldRows+envelopes+links != 0 {
@@ -378,7 +394,7 @@ func TestIdentityResetReplacesTheIdentityAndEveryKeyItHeld(t *testing.T) {
 		t.Fatal("the resetting session ended", code)
 	}
 	var reset, createdAudit int
-	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM audit_events WHERE event='identity.reset' AND object_id=? AND reason_code='sessions_revoked=1'),(SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset')`, old, created.DeviceID).Scan(&reset, &createdAudit); err != nil || reset != 1 || createdAudit != 1 {
+	if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM audit_events WHERE event='identity.reset' AND object_id=? AND reason_code='sessions_revoked=1,devices_revoked=2'),(SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset')`, old, created.DeviceID).Scan(&reset, &createdAudit); err != nil || reset != 1 || createdAudit != 1 {
 		t.Fatal("audits", reset, createdAudit, err)
 	}
 }
@@ -407,5 +423,51 @@ func TestSSOResetStaysDeviceOnly(t *testing.T) {
 	var wrapped []byte
 	if err := f.db.QueryRow(`SELECT wrap_alg,wrapped_private_key,recovery_id FROM user_identities WHERE user_id=?`, bob).Scan(&alg, &wrapped, &rid); err != nil || alg != deviceOnlyWrapAlg || len(wrapped) != 0 || rid == "" {
 		t.Fatal("after SSO reset", alg, len(wrapped), rid, err)
+	}
+}
+
+// With no identity before, the create row carries what the reset revoked.
+func TestIdentityResetWithoutAnIdentityAuditsRevocations(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	p.secondSession(t)
+	p.stepUp(t)
+	code, out := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", resetBody(identityPub, expecting("")+resetRecovery+b64s(recoveryCopy)+`"}`), true, false))
+	var created struct{ DeviceID string }
+	if code != http.StatusOK || json.Unmarshal([]byte(out), &created) != nil {
+		t.Fatal("reset with no identity", code, out)
+	}
+	var n int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.create' AND object_id=? AND reason_code='wrap=aes-256-gcm,proof=password,reset,sessions_revoked=1,devices_revoked=0'`, created.DeviceID).Scan(&n); err != nil || n != 1 {
+		t.Fatal("create audit without the revoked counts", n, err)
+	}
+}
+
+// A compare-and-swap UPDATE that touches no row is a conflict, never a success with an unstored ID.
+func TestIdentityRecoverySetChecksRowsAffected(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	if _, err := p.db.Exec(`CREATE TRIGGER skip_recovery BEFORE UPDATE OF recovery_id ON user_identities BEGIN SELECT RAISE(IGNORE); END`); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := p.setRecovery(t, id, "", recoveryCopy); code != http.StatusConflict {
+		t.Fatal("an unapplied set answered", code)
+	}
+	var audited int
+	if err := p.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event='identity.recovery.set'`).Scan(&audited); err != nil || audited != 0 {
+		t.Fatal("an unapplied set was audited", audited, err)
+	}
+}
+
+// Identity create and reset share the per-account recovery bucket.
+func TestIdentityResetIsRateLimitedPerAccount(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	for i := 0; i < 20; i++ {
+		if code, _ := status(t, p.do(t, http.MethodPut, "/api/v1/me/identity", []byte(`{}`), true, false)); code == http.StatusTooManyRequests {
+			t.Fatal("limited early", i)
+		}
+	}
+	res := p.do(t, http.MethodPut, "/api/v1/me/identity", []byte(`{}`), true, false)
+	if code, _ := status(t, res); code != http.StatusTooManyRequests || res.Header.Get("Retry-After") != "180" {
+		t.Fatal("21st identity write in an hour", code)
 	}
 }

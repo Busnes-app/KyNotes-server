@@ -174,7 +174,8 @@ new password. Only the user deletes an identity: the self-service reset, behind 
 user-action step-up and a compare-and-swap on the identity the browser saw, swaps
 it in one transaction for a new one with a new recovery copy (and, for a password
 session, a new password copy, as on a first identity), deletes the old envelopes,
-copies and link requests, and revokes the account's other sessions. Personal
+copies and link requests, and revokes the account's other sessions and paired
+device credentials with their envelopes. It refuses the old identity's own key. Personal
 notebooks are then lost, and stewards re-share team keys. An SSO session creates a
 device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
 request; no password copy exists on the server, and other

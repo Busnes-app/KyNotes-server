@@ -286,12 +286,15 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=1,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
 				return err
 			}
+			// The old password's sessions end with the reset, or the reset does not commit.
+			if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
+				return err
+			}
 			return stripPasswordWrapTx(tx, r.PathValue("id"), s.UserID, RequestID(r))
 		}); err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"))
 		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})))

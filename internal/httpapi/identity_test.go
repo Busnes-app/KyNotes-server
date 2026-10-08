@@ -393,6 +393,29 @@ func TestRecoveryAndAdminResetKeepIdentity(t *testing.T) {
 	}
 }
 
+// The administrator reset and its session revocation commit together or not at all.
+func TestAdminResetRevokesSessionsInItsTransaction(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	id := p.createIdentity(t)
+	if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	p.stepUp(t)
+	if _, err := p.db.Exec(`CREATE TRIGGER no_revoke BEFORE UPDATE OF revoked_at ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	salt := base64.StdEncoding.EncodeToString([]byte("fedcba9876543210"))
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	if code, b := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusInternalServerError {
+		t.Fatalf("reset with a failing revocation=%d %s", code, b)
+	}
+	var known int
+	var alg string
+	if err := p.db.QueryRow(`SELECT u.password_admin_known,i.wrap_alg FROM users u JOIN user_identities i ON i.user_id=u.id WHERE u.id=? AND i.device_id=?`, pairUser, id).Scan(&known, &alg); err != nil || known != 0 || alg != identityWrapAlg {
+		t.Fatal("the reset committed without revoking sessions", known, alg, err)
+	}
+}
+
 func TestLoginIdentityErrorMintsNoSession(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	if _, err := p.db.Exec(`ALTER TABLE user_identities RENAME TO user_identities_gone`); err != nil {
