@@ -5,7 +5,8 @@ import { generateIdentity, IDENTITY_WRAP_ALG, sameBytes, unwrapIdentity, wrapIde
 export type IdentityRecord = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg: string; wrappedPrivateKey: string };
 /** wrapAlg of an identity created from a single sign-on session: no server copy (P5 adds a recovery code). */
 export const DEVICE_ONLY_WRAP = "none";
-export type PublicIdentity = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg?: string };
+/** passwordCopy "addable": a reset stripped the password copy; the user's own password change may re-add it. */
+export type PublicIdentity = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg?: string; recoveryId?: string; recoverySetAt?: string; passwordCopy?: string };
 export type IdentityUpload = { publicKey: string; wrapAlg: string; wrappedPrivateKey: string };
 export type HeldIdentity = Identity & { deviceId: string };
 export type IdentityAPI = {
@@ -59,7 +60,11 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
 export async function rewrapIdentity(api: Pick<IdentityAPI, "myIdentity" | "stepUp">, userID: string, current: LoginKeys, newKEK: Uint8Array, cached: HeldIdentity | undefined): Promise<{ identity: HeldIdentity; identityDeviceId: string; wrappedIdentityKey: string } | undefined> {
   const live = await api.myIdentity();
   if (!live) return undefined;
-  if (live.wrapAlg === DEVICE_ONLY_WRAP) return undefined; // nothing on the server is wrapped under the password
+  if (live.wrapAlg === DEVICE_ONLY_WRAP) {
+    // A reset stripped the password copy: re-add it from the copy this browser holds (the server binds it to live.deviceId).
+    const holds = live.passwordCopy === "addable" && cached?.deviceId === live.deviceId && sameBytes(cached.publicKey, fromBase64(live.publicKey));
+    return holds ? { identity: cached, identityDeviceId: cached.deviceId, wrappedIdentityKey: base64(wrapIdentity(newKEK, cached.privateKey, userID)) } : undefined;
+  }
   const record = await api.stepUp(current.authSecret);
   const identity = record ? openIdentity(record, current.userKEK, userID)
     : cached && cached.deviceId === live.deviceId && sameBytes(cached.publicKey, fromBase64(live.publicKey)) ? cached
@@ -121,6 +126,13 @@ export async function settlePasswordIdentity(api: IdentityAPI, store: IdentitySt
   const identity = await ensureIdentity(api, userID, keys, fromLogin);
   return identity ? store.save(identity, before ?? null) : false;
 }
+
+/**
+ * The account's key outlives every browser: the server holds a password copy or a recovery-code copy.
+ * A notebook's first key waits for this (keyring.ts planSweep), so no notebook becomes lost with a browser.
+ */
+export const recoverable = (live: PublicIdentity | undefined): boolean =>
+  Boolean(live && (live.wrapAlg === IDENTITY_WRAP_ALG || live.recoveryId));
 
 const holdsLive = (local: HeldIdentity | undefined, live: PublicIdentity) => local !== undefined && sameBytes(local.publicKey, fromBase64(live.publicKey));
 

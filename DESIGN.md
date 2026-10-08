@@ -170,7 +170,8 @@ generation's key. A password change
 re-wraps the identity in the same transaction. Recovery and administrator
 password resets remove only its password copy and write an audit row: another
 browser or the recovery code still restores it, and nothing re-wraps it under the
-new password. Only the user deletes an identity: the self-service reset, behind a
+new password until the user's own password change re-adds the copy from a browser
+that holds the identity (not on an account linked to KySignOn). Only the user deletes an identity: the self-service reset, behind a
 user-action step-up and a compare-and-swap on the identity the browser saw, swaps
 it in one transaction for a new one with a new recovery copy (and, for a password
 session, a new password copy, as on a first identity), deletes the old envelopes,

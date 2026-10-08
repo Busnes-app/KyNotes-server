@@ -51,6 +51,11 @@ func decodeWrappedIdentity(value string) ([]byte, bool) {
 	return wrapped, err == nil && len(wrapped) == wrappedIdentityBytes
 }
 
+// passwordCopyAddableSQL (over user_identities i) is true when the user's own password change may
+// re-add a password copy: a reset stripped it. An account with a KySignOn subject never qualifies,
+// since its device-only identity may never have had one.
+const passwordCopyAddableSQL = `(i.wrap_alg='none' AND NOT EXISTS(SELECT 1 FROM users u WHERE u.id=i.user_id AND u.sso_subject<>''))`
+
 // loadIdentity returns nil when the user has none. The wrapped private key is an
 // offline password-guessing target, so only responses that just verified the
 // password (local login and step-up) may ask for it; a session cookie never can.
@@ -59,8 +64,9 @@ func loadIdentity(db interface {
 }, userID string, withWrapped bool) (map[string]string, error) {
 	var deviceID, publicKey, fingerprint, alg, created, updated, recoveryID, recoveryAt string
 	var wrapped []byte
+	var addable bool
 	// The recovery-code copy is never selected here: only the fetch route returns it.
-	err := db.QueryRow(`SELECT i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at,i.recovery_id,i.recovery_updated_at FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, userID).Scan(&deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated, &recoveryID, &recoveryAt)
+	err := db.QueryRow(`SELECT i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at,i.recovery_id,i.recovery_updated_at,`+passwordCopyAddableSQL+` FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, userID).Scan(&deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated, &recoveryID, &recoveryAt, &addable)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -68,6 +74,9 @@ func loadIdentity(db interface {
 		return nil, err
 	}
 	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "wrapAlg": alg, "createdAt": created, "updatedAt": updated, "recoveryId": recoveryID, "recoverySetAt": recoveryAt}
+	if addable {
+		out["passwordCopy"] = "addable"
+	}
 	if withWrapped {
 		out["wrappedPrivateKey"] = base64.StdEncoding.EncodeToString(wrapped)
 	}

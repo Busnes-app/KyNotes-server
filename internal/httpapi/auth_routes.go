@@ -358,7 +358,8 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=? AND wrap_alg=?`, s.UserID, identityWrapAlg).Scan(&identities); err != nil {
 				return err
 			}
-			if (identities == 1) != (wrapped != nil) {
+			// An old client must not orphan a password copy; a new one may only re-add a stripped one (below).
+			if identities == 1 && wrapped == nil {
 				return errIdentityRewrap
 			}
 			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=0,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
@@ -387,12 +388,20 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 				return nil
 			}
 			// Bound to the identity the client unwrapped, so a concurrent re-create is not overwritten.
-			res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=? AND wrap_alg=?`, wrapped, now, s.UserID, in.IdentityDeviceID, identityWrapAlg)
+			// Re-wrap the password copy, or re-add the one a reset stripped.
+			guard := `i.wrap_alg='` + identityWrapAlg + `'`
+			if identities == 0 {
+				guard = passwordCopyAddableSQL
+			}
+			res, err := tx.Exec(`UPDATE user_identities AS i SET wrapped_private_key=?,wrap_alg=?,updated_at=? WHERE i.user_id=? AND i.device_id=? AND `+guard, wrapped, identityWrapAlg, now, s.UserID, in.IdentityDeviceID)
 			if err != nil {
 				return err
 			}
 			if n, _ := res.RowsAffected(); n != 1 {
 				return errIdentityRewrap
+			}
+			if identities == 0 {
+				return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.password_wrap.create", "", in.IdentityDeviceID, "success", "password_change", RequestID(r))
 			}
 			return nil
 		})

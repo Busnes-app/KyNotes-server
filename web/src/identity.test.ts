@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { base64, type LoginKeys } from "./crypto";
-import { currentCopy, DEVICE_ONLY_WRAP, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
+import { currentCopy, DEVICE_ONLY_WRAP, recoverable, ensureIdentity, identityStatus, openIdentity, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, type HeldIdentity, type IdentityAPI, type IdentityRecord, type IdentityStore, type IdentityUpload } from "./identity";
 import { generateIdentity } from "./teamKeys";
 
 const userID = "usr_0123456789abcdefghjkmnpqrs";
@@ -366,5 +366,38 @@ describe("which identity this browser may use", () => {
     expect(currentCopy(mine, publicOf(heldOf()))).toBeUndefined();
     expect(currentCopy(mine, undefined)).toBeUndefined();
     expect(currentCopy(heldOf(""), "unreachable")).toBeUndefined();
+  });
+});
+
+describe("recoverable", () => {
+  it("is true only with a password copy or a recovery-code copy on the server", () => {
+    const base = { deviceId: "dev", publicKey: "", fingerprint: "" };
+    expect(recoverable(undefined)).toBe(false);
+    expect(recoverable({ ...base, wrapAlg: "aes-256-gcm" })).toBe(true);
+    expect(recoverable({ ...base, wrapAlg: "none" })).toBe(false);
+    expect(recoverable({ ...base, wrapAlg: "none", recoveryId: "" })).toBe(false);
+    expect(recoverable({ ...base, wrapAlg: "none", recoveryId: "rcv_1" })).toBe(true);
+  });
+});
+
+describe("password copy after a reset stripped it", () => {
+  const stripped = (held: HeldIdentity, passwordCopy?: string) => ({ myIdentity: vi.fn(async () => ({ ...publicOf(held), wrapAlg: DEVICE_ONLY_WRAP, passwordCopy })), stepUp: vi.fn() });
+
+  it("is re-added from the copy this browser holds, bound to the listed identity", async () => {
+    const mine = heldOf();
+    const api = stripped(mine, "addable");
+    const payload = (await rewrapIdentity(api, userID, keys(1), keys(2).userKEK, mine))!;
+    expect(payload.identityDeviceId).toBe(mine.deviceId);
+    const record = { ...publicOf(mine), wrapAlg: "aes-256-gcm", wrappedPrivateKey: payload.wrappedIdentityKey };
+    expect(bytesToHex(openIdentity(record, keys(2).userKEK, userID).privateKey)).toBe(bytesToHex(mine.privateKey));
+    expect(api.stepUp).not.toHaveBeenCalled();
+  });
+
+  it("is not added when the server does not offer it, or this browser holds another copy or none", async () => {
+    const mine = heldOf();
+    expect(await rewrapIdentity(stripped(mine), userID, keys(1), keys(2).userKEK, mine)).toBeUndefined();
+    expect(await rewrapIdentity(stripped(mine, "addable"), userID, keys(1), keys(2).userKEK, undefined)).toBeUndefined();
+    expect(await rewrapIdentity(stripped(mine, "addable"), userID, keys(1), keys(2).userKEK, heldOf())).toBeUndefined();
+    expect(await rewrapIdentity(stripped(mine, "addable"), userID, keys(1), keys(2).userKEK, { ...mine, deviceId: `dev_${"z".repeat(26)}` })).toBeUndefined();
   });
 });

@@ -251,8 +251,12 @@ func TestDeviceOnlyIdentityIsNeverWrappedByAPassword(t *testing.T) {
 	if err := p.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='identity.create'`).Scan(&reason); err != nil || reason != "wrap=aes-256-gcm,proof=password" {
 		t.Fatalf("identity.create reason %q: %v", reason, err)
 	}
-	// As if created from a single sign-on session: no server copy.
+	// As if created from a single sign-on session: no server copy, on an account linked to KySignOn
+	// (without a subject, a 'none' identity is one a reset stripped; see TestPasswordChangeReaddsAStrippedPasswordCopy).
 	if _, err := p.db.Exec(`UPDATE user_identities SET wrap_alg='none',wrapped_private_key=X'' WHERE user_id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`UPDATE users SET sso_subject='sub-1' WHERE id=?`, pairUser); err != nil {
 		t.Fatal(err)
 	}
 	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)); code != 200 || !strings.Contains(body, `"wrapAlg":"none"`) || strings.Contains(body, base64.StdEncoding.EncodeToString(identityWrapped)) {
