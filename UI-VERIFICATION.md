@@ -201,6 +201,8 @@ Overflow was measured in the page (`documentElement.scrollWidth` against the vie
 
 ### Rendered labels and notices (P3a)
 
+Superseded (team-keys spec §9, 2026-10-08): the login-key rows, their "Not verified" labels and the "not end-to-end shared yet" notice no longer exist; every notebook is keyed at creation. Kept as a record of that build.
+
 Same scratch server and Chromium; two separate browser contexts (owner, member). Scripted states, none faked in the DOM: the owner creates a team with a member who never signed in and sees the "not end-to-end shared yet" notice; writes a parent page and an indented subpage under the legacy key; the member signs in with a password (identity created); the owner reopens, the first key is minted, and "Shared this notebook's name with members" and the "Not verified" labels render. A move of the legacy parent (Alt+ArrowDown with a verified sibling below) shows the subpage refusal. Busnes Light and Dark via emulated OS scheme, 1280x900 and 390x844, device scale 1. File pattern `docs/team-keys-p3a-label-<state>-<light|dark>-<desktop|mobile>.png`; the `page-label` mobile files are full-page, the `list-labels` files are mobile only with the page list scrolled to its end.
 
 | State | Files | Result |
@@ -263,6 +265,8 @@ Findings, not fixed here:
 
 ## Team keys P4 (2026-10-08)
 
+Superseded (team-keys spec §9, 2026-10-08): the review dialog, closure, reopen and `/legacy` route below were removed with the legacy login-derived key. The `team-keys-p4-*` files show a build that no longer exists.
+
 Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle at the P4 head). The captures come from the e2e itself: `KYNOTES_E2E_SHOTS=<absolute docs path> npm run e2e --prefix web` shoots each state at the moment the run reaches it, with the state scrolled into view. The only stubs are the malicious-server routes the e2e already uses (a page sealed with the editor's login key and labelled below sharing, and a `/legacy` answer of 500); nothing was set in the DOM. Each state was shot in Busnes Light and Dark (`emulateMedia` colorScheme) at 1280x900 and 390x844 as `docs/team-keys-p4-<state>-<light|dark>-<desktop|mobile>.png`, two animation frames after each resize. The run asserts `documentElement.scrollWidth` is at most the viewport width.
 
 | State | Files | Result |
@@ -279,3 +283,24 @@ Findings, not fixed here:
 
 - At 1280 px the banner sits in the 235 px list column: "Review and share…" is a small inline button while "Stop opening pre-sharing items" wraps to two lines below it, so the two actions differ in size and weight.
 - "Show pre-sharing items again" is a quiet button in the small monospace status line and reads as plain text.
+
+## Team keys P5 (2026-10-08)
+
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle with the legacy key removed). The captures come from the e2e itself: `KYNOTES_E2E_SHOTS=<absolute docs path> npm run e2e --prefix web` shoots each state when the run reaches it, the named card scrolled into view, in Busnes Light and Dark (`emulateMedia` colorScheme) at 1280x900 and 390x844, two animation frames after each resize. Files: `docs/team-keys-p5-<state>-<light|dark>-<desktop|mobile>.png`. The run asserts `documentElement.scrollWidth` is at most the viewport width; every shot measured exactly the viewport. The codes shown belong to a throwaway server.
+
+| State | Files | Result |
+| --- | --- | --- |
+| New personal notebook, keyed at creation, with its first page and the "Save a recovery code" banner | `keyed-*` | Pass; no "Not verified" label or review banner. At 390 px the commit toast covers the first page row |
+| Recovery code shown once: intro, the code, keep/last warnings, Print, Download, I saved it | `recovery-code-*` | Pass; at 390 px the code wraps after its fourth group and "I saved it" wraps below Print and Download |
+| Type-back: "Type group N of 7 from your saved copy", code hidden, Show the code again, Save recovery code | `recovery-type-back-*` | Pass |
+| Fresh browser after an administrator reset: "Use a recovery code" beside "Link this browser" | `restore-*` | Pass; Restore disabled while the field is empty |
+| Restored browser reading the team notebook | `restored-*` | Pass |
+| Reset dialog: held-key status, the full loss list, Export unsent edits first, Type RESET, Your password, Cancel, Continue (disabled) | `reset-dialog-*` | Pass |
+| The new code a reset shows | `reset-code-*` | Pass; same layout as `recovery-code-*` |
+
+Not captured as screenshots: the "Notebook name" prompt and the administrator reset alert are native dialogs; the e2e matches each one's full text. Refusal states (typo, wrong code, a copy for another key, wrong reset password) are asserted by text, not shot.
+
+Findings, not fixed here:
+
+- After a successful restore, Settings shows "Linked. This browser now holds your encryption key." (`main.tsx` `justLinked`): the restore card and its "Restored. …" status unmount once the key is held, so the user reads link copy after a restore.
+- The team member list shows "Add person" and "Remove" to members who are not stewards (the restored editor's `restored-*` shot). Present before P5; this run did not check what the server answers.

@@ -492,7 +492,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   sends nothing; the honest link needs the typed code, keeps the collected bundle unopened until the
   newcomer's "Codes match", stores the same identity sealed and non-extractable, refuses a second collect,
   opens the team with one fingerprint; a cache that refuses writes still sends with the no-local-copy text;
-  Forget asks with its exact text and empties the vault. Every browser dialog must
+  Forget asks with its exact text and empties the vault. P5 steps: an administrator reset keeps the key and
+  the user's own reset (typed RESET, password step-up, its response lost after commit) replaces it, after
+  which the old key opens no re-shared envelope; a new personal notebook is keyed at creation and no request
+  body opens with the login key; a login-key page a server slips in never shows; a recovery code's type-back
+  group changes when it is shown again; a waiting-key edit survives a password change and is sent; a fresh
+  browser restores with the code (typo refused before any request, wrong code and a copy for another key
+  refused, no link request, code in no storage or URL); a v5 local database is dropped at v6. No browser
+  ever requests a `/legacy` path. Every browser dialog must
   be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
