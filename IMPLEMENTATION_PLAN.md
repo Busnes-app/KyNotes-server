@@ -1640,11 +1640,12 @@ Rules:
   The server-admin add route admits the same way (`admitMemberTx`).
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
-* **Known limits** (P2): creating a team invitation to a known user ID reveals
-  whether that user is active, at most `ratelimit.invitation_per_hour` times an
-  hour per account; invitations may be created without envelopes, and the new
-  member cannot write until a steward's sweep supplies them; envelopes of
-  expired, never-accepted invitations persist until the invitation row is deleted.
+* **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
+  user ID reveals whether that user is active, at most
+  `ratelimit.invitation_per_hour` times an hour per account; invitations may be
+  created without envelopes, and the new member cannot write until a steward's
+  sweep supplies them; envelopes of an expired invitation remain until the next
+  GC run.
 * **Known limit** (P3a): the server sees `authSecret`, so it can derive a
   member's legacy content key and forge a row in a shared container labelled
   below `shared_generation`. The web client labels such rows as not end-to-end
@@ -1671,6 +1672,7 @@ Tests:
 - `TestRemovedMemberIsReadmittedByReactivation`
 - `TestTeamAdminRemovesOnlyAdminsItInvited`
 - `TestInvitationCreationIsRateLimitedPerCaller`
+- `TestGCDeletesEnvelopesOfExpiredInvitations`
 - `TestCommentRewriteIsAuthorOnly`
 - `TestRemovedMemberCannotReadNewGenerationContent`
 - `TestRemovedMemberRetainsNoServerSideAccessAtAll`
