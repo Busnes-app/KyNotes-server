@@ -1345,7 +1345,7 @@ function Workspace({
     }
   }
   async function newNote() {
-    if (!selected) return;
+    if (!selected || keyWait) return;
     setBusy(true);
     try {
       // Before createObject: an exhausted order key must not leave an empty object behind.
@@ -2527,7 +2527,7 @@ function Workspace({
                   only.
                 </p>
                 {selected && (
-                  <button onClick={() => void newNote()}>Create a note</button>
+                  <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
                 )}
               </div>
             )}
