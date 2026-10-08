@@ -14,6 +14,9 @@
   invitations' keys are cleaned up. Refused accepts and admin adds are audited. Migration `0023`
   adds `memberships.invited_by`. The browser's local note cache and save queue are now kept per
   account, so two accounts signed in on one browser never overwrite or read each other's unsent edits.
+  **Reload open KyNotes tabs after updating:** the first tab on the new version upgrades the browser's
+  local store, and a tab still running the old version can no longer open it, so its edits cannot be
+  kept on the device (cached or queued) until it is reloaded.
 - Team keys phase 3a: team notebooks are shared end to end. When an owner or admin opens a team
   notebook whose members all have encryption keys, their browser creates the notebook key and
   shares it; members added later get the notebook's history; removing a member replaces the key
