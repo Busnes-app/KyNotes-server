@@ -356,6 +356,7 @@ user data.
 | `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; carries its `challenge` ID; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
 | `admin_account` | 403 | an administrator account reached a content route |
+| `account_kind_mismatch` | 409 | the administrator grant was asked for an everyday account |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
@@ -1264,7 +1265,12 @@ deliberately every phase).
 |---|---|---|---|
 | GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":""}` → creates container + `owner` membership + `change_seq` 1; `metaCiphertext` must be empty (`400`); the name is sealed after the first key |
-| POST | `/api/v1/admin/teams` | session + CSRF, server admin (step-up from Task 4) | `{"ownerUserId"}` → creates a team owned by that active everyday account, no membership for the caller; 400 malformed, 404 not an active everyday account; audit admin.team.create (object = owner) |
+| POST | `/api/v1/admin/teams` | session + CSRF, server admin + step-up | `{"ownerUserId"}` → creates a team owned by that active everyday account, no membership for the caller; 400 malformed, 404 not an active everyday account; audit admin.team.create (object = owner) |
+| GET | `/api/v1/admin/teams` | session, server admin | `[{"id","ownerUserId","ownerUsername","memberCount","keyed","named"}]`; no name ciphertext: administrator pages hold no team keys |
+| POST | `/api/v1/admin/teams/{id}/members` | session + CSRF, server admin + step-up | `{"userId","role"}`: an active everyday account, role `editor`, `commenter` or `viewer` only (`400` for a steward role: only a steward's invitation makes a team admin); `404` unknown team or not an active everyday account; `409` live member; `approved=0` from Task 5 |
+| POST | `/api/v1/admin/users` | session + CSRF, server admin + step-up | `{"username","authSecret","loginSalt","iterations","accountKind":"user"\|"admin"}` → `{"id"}`; role and kind both from `accountKind`, flagged (`password_admin_known=1`); audit `admin.user.create` reason `kind=<kind>` |
+| PATCH | `/api/v1/admin/users/{id}` | session + CSRF, server admin | `{"role","status","quotaBytes"}`; `404` unknown; `409 account_kind_mismatch` for `role:"admin"` on an everyday account |
+| GET | `/api/v1/admin/users` | session, server admin | rows carry `accountKind` |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n,"keyGeneration":n}` → §1.11 rules on `meta_version`; `keyGeneration` must equal the current generation of a container that has a key (missing, zero, old or future, or no key yet: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role"}]`; to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |

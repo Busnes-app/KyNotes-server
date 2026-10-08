@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,7 +32,7 @@ func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, re
 // AdminRoutes exposes metadata-only administration. It never returns secrets,
 // ciphertext, request bodies, or raw process logs.
 func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
-	mux.Handle("POST /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/admin/teams", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -77,7 +76,9 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		writeJSON(w, map[string]any{"id": teamID, "ownerUserId": in.OwnerUserID})
 	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation,shared_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
+		// Administrator pages hold no team keys, so they get no name ciphertext either.
+		rows, err := db.Query(`SELECT c.id,c.owner_user_id,u.username,(SELECT COUNT(*) FROM memberships m WHERE m.container_id=c.id AND m.revoked_at=''),c.shared_generation>0,c.meta_version>0
+ FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.kind='team' AND c.deleted_at='' ORDER BY c.id`)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -85,24 +86,30 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		defer rows.Close()
 		out := []map[string]any{}
 		for rows.Next() {
-			var id, kind, owner string
-			var meta []byte
-			var metaVersion, changeSeq, keyGeneration, sharedGeneration int64
-			if rows.Scan(&id, &kind, &owner, &meta, &metaVersion, &changeSeq, &keyGeneration, &sharedGeneration) != nil {
+			var id, owner, username string
+			var members int64
+			var keyed, named bool
+			if rows.Scan(&id, &owner, &username, &members, &keyed, &named) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			out = append(out, map[string]any{"id": id, "kind": kind, "ownerUserId": owner, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": metaVersion, "changeSeq": changeSeq, "keyGeneration": keyGeneration, "sharedGeneration": sharedGeneration})
+			out = append(out, map[string]any{"id": id, "ownerUserId": owner, "ownerUsername": username, "memberCount": members, "keyed": keyed, "named": named})
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))
-	mux.Handle("POST /api/v1/admin/teams/{id}/members", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/admin/teams/{id}/members", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
 		}
+		// No steward role: an administrator-added team admin could approve itself, invite, remove members or
+		// rotate in a key it generated. Only a steward's invitation makes a team admin.
 		var in struct{ UserID, Role string }
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.UserID == "" || (in.Role != "admin" && in.Role != "editor" && in.Role != "commenter" && in.Role != "viewer") {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.UserID == "" || (in.Role != "editor" && in.Role != "commenter" && in.Role != "viewer") {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -115,7 +122,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		err := dbTx(db, func(tx *sql.Tx) error {
 			var ok bool
-			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, cid, in.UserID).Scan(&ok); err != nil {
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active' AND account_kind='user')`, cid, in.UserID).Scan(&ok); err != nil {
 				return err
 			}
 			if !ok {
@@ -167,9 +174,9 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		var in struct {
 			Username, AuthSecret, LoginSalt string
 			Iterations                      int
-			Role                            string `json:"role"`
+			AccountKind                     string `json:"accountKind"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.AuthSecret) != 64 || in.LoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 || (in.Role != "user" && in.Role != "admin") {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.AuthSecret) != 64 || in.LoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 || (in.AccountKind != auth.KindEveryday && in.AccountKind != auth.KindAdmin) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -180,12 +187,12 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		id, _ := ids.Mint("usr")
 		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err = db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?)`, id, strings.ToLower(strings.TrimSpace(in.Username)), hash, in.LoginSalt, in.Iterations, in.Role, in.Role, now, now); err != nil {
+		if _, err = db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,password_admin_known,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?)`, id, strings.ToLower(strings.TrimSpace(in.Username)), hash, in.LoginSalt, in.Iterations, in.AccountKind, in.AccountKind, now, now); err != nil {
 			WriteError(w, r, 409, "already_exists", "username already exists")
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		recordAudit(db, s.UserID, "admin.user.create", "", id, r.Header.Get("X-Request-Id"))
+		recordAuditOutcome(db, s.UserID, "admin.user.create", "", id, "success", "kind="+in.AccountKind, r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]string{"id": id})
 	})))
 	mux.Handle("GET /api/v1/admin/settings", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +222,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/admin/users", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query(`SELECT id,username,role,status,quota_bytes,created_at FROM users ORDER BY username`)
+		rows, err := db.Query(`SELECT id,username,role,account_kind,status,quota_bytes,created_at FROM users ORDER BY username`)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -223,13 +230,13 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		defer rows.Close()
 		out := []map[string]any{}
 		for rows.Next() {
-			var id, username, role, status, created string
+			var id, username, role, kind, status, created string
 			var quota int64
-			if rows.Scan(&id, &username, &role, &status, &quota, &created) != nil {
+			if rows.Scan(&id, &username, &role, &kind, &status, &quota, &created) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			out = append(out, map[string]any{"id": id, "username": username, "role": role, "status": status, "quotaBytes": quota, "createdAt": created})
+			out = append(out, map[string]any{"id": id, "username": username, "role": role, "accountKind": kind, "status": status, "quotaBytes": quota, "createdAt": created})
 		}
 		writeJSON(w, out)
 	})))
@@ -257,6 +264,18 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		if in.QuotaBytes == nil || *in.QuotaBytes < 0 {
 			WriteError(w, r, 400, "invalid_request", "invalid quota")
+			return
+		}
+		var kind string
+		if err := db.QueryRow(`SELECT account_kind FROM users WHERE id=?`, id).Scan(&kind); errors.Is(err, sql.ErrNoRows) {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		} else if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		if in.Role == "admin" && kind != auth.KindAdmin {
+			WriteError(w, r, 409, "account_kind_mismatch", "everyday accounts cannot hold administrator access; create a separate administrator account")
 			return
 		}
 		s, _ := auth.SessionFromContext(r)

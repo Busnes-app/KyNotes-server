@@ -186,11 +186,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
-- `POST /api/v1/admin/teams {"ownerUserId"}` is the explicit admin team-creation path; the team
-  belongs to that active everyday account (the administrator gets no membership) and records
+- `POST /api/v1/admin/teams {"ownerUserId"}` (admin step-up) is the explicit admin team-creation path; the
+  team belongs to that active everyday account (the administrator gets no membership) and records
   `admin.team.create` (object = owner). It takes no name; the owner's browser seals one after the first
-  key. The admin list carries name ciphertext that administrator pages never decrypt (they show
-  only names this browser sealed); it passes through `observeContainers` for the key floors.
+  key. `GET /admin/teams` carries no name ciphertext. The admin member add (step-up) takes an active everyday
+  account as `editor`, `commenter` or `viewer` only. `POST /admin/users` takes `accountKind`; `PATCH` refuses
+  the grant on an everyday account (`409 account_kind_mismatch`). Verify `TestAdminUserRoutesKeepKindsApart`,
+  `TestAdminTeamAccessNeedsStepUpAndListsNoNames`.
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed

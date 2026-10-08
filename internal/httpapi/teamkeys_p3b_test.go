@@ -68,6 +68,7 @@ func TestRemovedMemberIsReadmittedByReactivation(t *testing.T) {
 		t.Fatalf("remove viewer=%d %s", code, out)
 	}
 	admin := tm.owner.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	add := func() int {
 		code, _ := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+tm.id+"/members", []byte(`{"userId":`+quote(tm.viewer.id)+`,"role":"commenter"}`), true, false))
 		return code
@@ -215,6 +216,7 @@ func TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly(t *testing.T)
 		t.Fatalf("live=%d", n)
 	}
 	admin := tm.owner.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	post := func(cid, uid string) int {
 		code, _ := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
 		return code
@@ -235,6 +237,7 @@ func TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly(t *testing.T)
 func TestAdminAddMapsOnlyConflictsTo409(t *testing.T) {
 	tm := newTeam(t)
 	admin := tm.owner.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	post := func(cid, uid string) int {
 		code, _ := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
 		return code

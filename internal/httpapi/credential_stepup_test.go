@@ -38,7 +38,7 @@ func TestCredentialRoutesRequireStepUp(t *testing.T) {
 		mux.ServeHTTP(rr, req)
 		return rr
 	}
-	create := `{"username":"mallory","authSecret":"` + strings.Repeat("c", 64) + `","loginSalt":"salt","iterations":600000,"role":"admin"}`
+	create := `{"username":"mallory","authSecret":"` + strings.Repeat("c", 64) + `","loginSalt":"salt","iterations":600000,"accountKind":"admin"}`
 	reset := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"salt","iterations":600000}`
 
 	if rr := do("POST", "/api/v1/admin/users", create); rr.Code != 403 || !strings.Contains(rr.Body.String(), "step_up_required") {
