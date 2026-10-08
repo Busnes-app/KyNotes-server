@@ -727,6 +727,8 @@ function Workspace({
   const identityRef = useRef<HeldIdentity | undefined>(undefined);
   // Seals edits waiting for a key (N3): set with the identity copy, so a password change never strands them.
   const waitingRef = useRef<KeyRef | undefined>(undefined);
+  // Mirrors waitingRef for rendering, so Unsent edits re-checks once the identity loads.
+  const [waitingHeld, setWaitingHeld] = useState(false);
   // The account's identity as the server lists it: recoverable() gates a notebook's first key, and Settings
   // shows the code state. null: checked, none (M5: key passes do not refetch; refreshIdentity re-checks
   // after an identity is created, restored or linked). undefined: not checked yet.
@@ -741,6 +743,7 @@ function Workspace({
       const live = local ? await myIdentity().catch(() => "unreachable" as const) : undefined;
       identityRef.current = currentCopy(local, live);
       waitingRef.current = identityRef.current && waitingKey(identityRef.current);
+      setWaitingHeld(Boolean(waitingRef.current));
     }
     return identityRef.current;
   }
@@ -2847,7 +2850,7 @@ function Workspace({
             onIdentityChanged={() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }}
             onReset={(next) => { void retireWaitingEdits(next).catch(() => undefined).finally(() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }); }}
             resetUnfinished={resetUnfinished}
-            waitingHeld={Boolean(waitingRef.current)}
+            waitingHeld={waitingHeld}
             createTeam={createTeam}
             knownNames={names}
           />
@@ -3027,7 +3030,7 @@ function AdminUserActions({
         iterations: 600000,
       });
       onReset();
-      alert("Password reset. All existing sessions were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.");
+      alert("Password reset. All existing sessions and paired device credentials were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.");
     } catch (error) {
       alert(
         error instanceof Error ? error.message : "Unable to reset password",
