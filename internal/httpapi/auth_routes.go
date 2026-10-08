@@ -43,7 +43,7 @@ func dummyVerifier() (string, error) {
 	return dummyHash, nil
 }
 
-func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
+func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("GET /api/v1/theme", func(w http.ResponseWriter, r *http.Request) {
 		var theme string
 		if db.QueryRow(`SELECT value FROM server_settings WHERE key='default_theme'`).Scan(&theme) != nil {

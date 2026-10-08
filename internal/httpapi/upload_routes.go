@@ -20,7 +20,7 @@ import (
 // ponytail: one process-wide upload lock; upgrade to per-upload locks if concurrent upload throughput matters.
 var uploadMu sync.Mutex
 
-func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg config.Config) {
+func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.Config) {
 	mux.Handle("GET /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		if ids.Validate("ups", r.PathValue("id")) != nil {

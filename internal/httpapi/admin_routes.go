@@ -32,7 +32,7 @@ func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, re
 
 // AdminRoutes exposes metadata-only administration. It never returns secrets,
 // ciphertext, request bodies, or raw process logs.
-func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
+func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 	mux.Handle("POST /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -349,18 +349,19 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 				WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 				return
 			}
-			var in sso.SSOSettings
-			if json.NewDecoder(r.Body).Decode(&in) != nil {
+			var body struct {
+				sso.SSOSettings
+				ClearClientSecret bool `json:"clearClientSecret"`
+				ClearHMACSecret   bool `json:"clearHmacSecret"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil {
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return
 			}
-			// Secrets are write-only: an empty field keeps the stored one.
-			current := ssoStore.Load()
-			if in.ClientSecret == "" {
-				in.ClientSecret = current.ClientSecret
-			}
-			if in.HMACSecret == "" {
-				in.HMACSecret = current.HMACSecret
+			in, problem := mergeSSOSecrets(body.SSOSettings, ssoStore.Load(), body.ClearClientSecret, body.ClearHMACSecret)
+			if problem != "" {
+				WriteError(w, r, 400, "invalid_request", problem)
+				return
 			}
 			if err := ssoStore.Save(in); err != nil {
 				WriteError(w, r, 500, "internal", "failed to save SSO settings")
@@ -399,7 +400,12 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 
 			resp, err := sso.PairWithKySignOn(r.Context(), in.IssuerURL, in.PairingToken, callbackURL)
 			if err != nil {
-				WriteError(w, r, http.StatusBadRequest, "pairing_failed", err.Error())
+				message := "KySignOn pairing failed"
+				var refused sso.PairingRefusedError
+				if errors.As(err, &refused) {
+					message = fmt.Sprintf("KySignOn refused the pairing (status %d)", refused.Status)
+				}
+				writeLogged(w, r, http.StatusBadRequest, "pairing_failed", message, "admin.sso_pair", err)
 				return
 			}
 
@@ -436,4 +442,30 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 func ssoView(s sso.SSOSettings) map[string]any {
 	return map[string]any{"enabled": s.Enabled, "issuerUrl": s.IssuerURL, "clientId": s.ClientID, "redirectUri": s.RedirectURI,
 		"autoProvision": s.AutoProvision, "clientSecretSet": s.ClientSecret != "", "hmacSecretSet": s.HMACSecret != ""}
+}
+
+// mergeSSOSecrets applies the write-only rule to a save. An empty secret field keeps the stored secret
+// only while it still goes to the same place: the client secret to the same issuer and client, the
+// directory HMAC secret to the same issuer. Otherwise the admin sends a new one or clears it explicitly.
+// A non-empty problem is the 400 message.
+func mergeSSOSecrets(in, current sso.SSOSettings, clearClient, clearHMAC bool) (sso.SSOSettings, string) {
+	sameIssuer := strings.TrimRight(in.IssuerURL, "/") == strings.TrimRight(current.IssuerURL, "/")
+	keep := func(secret *string, stored string, clear, sameTarget bool, name string) string {
+		switch {
+		case clear && *secret != "":
+			return "send a new " + name + " or clear it, not both"
+		case clear:
+			return ""
+		case *secret != "" || stored == "":
+			return ""
+		case !sameTarget:
+			return "the identity provider changed: send a new " + name + " or clear it"
+		}
+		*secret = stored
+		return ""
+	}
+	if p := keep(&in.ClientSecret, current.ClientSecret, clearClient, sameIssuer && in.ClientID == current.ClientID, "client secret"); p != "" {
+		return in, p
+	}
+	return in, keep(&in.HMACSecret, current.HMACSecret, clearHMAC, sameIssuer, "directory secret")
 }

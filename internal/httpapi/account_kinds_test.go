@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -21,6 +20,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -31,6 +31,8 @@ var accountRoutes = map[string]bool{
 	"POST /api/v1/auth/oidc/step-up": true, "GET /api/v1/auth/oidc/step-up/{id}": true, "DELETE /api/v1/auth/oidc/step-up/{id}": true,
 }
 var publicRoutes = map[string]bool{
+	"GET /healthz": true, "GET /livez": true, "GET /readyz": true,
+	"POST /api/v1/sync/events": true, "POST /api/sync/events": true, "POST /sync/events": true, // HMAC-signed directory sync
 	"GET /api/v1/theme": true, "GET /api/theme": true, "GET /api/v1/setup": true, "GET /api/setup": true, "POST /api/v1/setup": true, "POST /api/setup": true,
 	"POST /api/v1/auth/login-params": true, "POST /api/auth/login-params": true, "POST /api/v1/auth/login": true, "POST /api/auth/login": true,
 	"POST /api/v1/auth/recover": true, "GET /api/v1/auth/sso-config": true, "GET /api/auth/sso-config": true,
@@ -43,35 +45,50 @@ var publicRoutes = map[string]bool{
 // Device-credential routes: a session of either kind gets 401.
 var deviceRoutes = map[string]bool{"GET /api/v1/sync/pending": true, "POST /api/v1/push/registrations": true}
 
-// routeLiterals finds every "METHOD /path" string literal in the package's non-test sources.
-func routeLiterals(t *testing.T) []string {
+// Patterns that are not driven: the catch-alls, which answer 405/404 or serve the static bundle.
+var catchAllRoutes = map[string]bool{"/api/v1/": true, "/api/": true, "/": true}
+
+// servedRoutes is every pattern the network router registers, read from the router itself.
+func servedRoutes(t *testing.T) []string {
 	t.Helper()
-	files, err := filepath.Glob("*.go")
+	cfg := config.Defaults()
+	cfg.DataDir = t.TempDir()
+	cfg.Backup.Dir = t.TempDir()
+	st, err := storage.Open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile(`"((?:GET|POST|PUT|PATCH|DELETE|HEAD) /[^" ]*)"`)
-	seen := map[string]bool{}
-	var out []string
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
+	t.Cleanup(func() { st.Close() })
+	blobs, err := blobstore.New(cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, _, _ := buildRoutes(func() bool { return true }, st.DB(), blobs, cfg, backup.New(cfg, st, "test"), sso.NewStore(st.DB()))
+	return mux.patterns
+}
+
+var routeShape = regexp.MustCompile(`^(GET|HEAD|POST|PUT|PATCH|DELETE) /[^ ]*$`)
+
+// Every registered pattern names a method and a host-less path, or is an allowlisted catch-all, and
+// every entry of the class tables is registered (so the tables cannot rot).
+func TestEveryServedRouteIsClassified(t *testing.T) {
+	served := map[string]bool{}
+	for _, route := range servedRoutes(t) {
+		served[route] = true
+		if !catchAllRoutes[route] && !routeShape.MatchString(route) {
+			t.Errorf("%q: register routes as \"METHOD /path\" (no host, a standard method) so TestEveryRouteRefusesTheOtherKind can drive them", route)
 		}
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, m := range pattern.FindAllStringSubmatch(string(b), -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				out = append(out, m[1])
+	}
+	if len(served) < 100 {
+		t.Fatalf("only %d routes recorded", len(served))
+	}
+	for _, table := range []map[string]bool{catchAllRoutes, publicRoutes, accountRoutes, deviceRoutes} {
+		for route := range table {
+			if !served[route] {
+				t.Errorf("%s is classified but not registered", route)
 			}
 		}
 	}
-	if len(out) < 60 {
-		t.Fatalf("found only %d routes; the pattern no longer matches the registrations", len(out))
-	}
-	return out
 }
 
 var pathParam = regexp.MustCompile(`\{[^}]+\}`)
@@ -113,12 +130,12 @@ const fenceExempt = "GET /api/v1/me/identity"
 // in use; a route added with the wrong middleware fails here.
 func TestEveryRouteRefusesTheOtherKind(t *testing.T) {
 	everyday, admin, fencedEveryday, fencedAdmin := kindsServer(t)
-	for _, route := range routeLiterals(t) {
-		method, path, _ := strings.Cut(route, " ")
-		// admin.sock routes (/v1/…) and non-API pages are not on this surface.
-		if !strings.HasPrefix(path, "/api/") || publicRoutes[route] || accountRoutes[route] {
+	for _, route := range servedRoutes(t) {
+		// TestEveryServedRouteIsClassified fails on any other shape.
+		if catchAllRoutes[route] || publicRoutes[route] || accountRoutes[route] || !routeShape.MatchString(route) {
 			continue
 		}
+		method, path, _ := strings.Cut(route, " ")
 		path = pathParam.ReplaceAllString(path, "x")
 		isAdmin := strings.HasPrefix(path, "/api/v1/admin/") || strings.HasPrefix(path, "/api/admin/")
 		caller, want, wantCode := admin, http.StatusForbidden, "admin_account"
@@ -176,37 +193,6 @@ func TestAccountRoutesServeBothKinds(t *testing.T) {
 	}
 	if code, body := status(t, p.do(t, http.MethodGet, "/api/v1/containers", nil, false, false)); code != http.StatusOK {
 		t.Fatalf("containers=%d %s", code, body)
-	}
-}
-
-// Every Handle/HandleFunc whose pattern is not a string literal is invisible to routeLiterals.
-// Only these are allowed: their call sites pass literals, or they are HMAC/socket routes.
-var dynamicRoutes = map[string]bool{
-	"backup_routes.go:path":             true, // mutation("POST /api/v1/admin/backup/…") call sites are literals
-	"sso_directory.go:\"POST \"+path":   true, // sync/events aliases: HMAC-authenticated, public by design
-	"apply_setup.go:\"POST /v1/\"+name": true, // admin Unix socket, not on the network router
-}
-
-func TestNoRouteHidesFromTheInventory(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A pattern built by concatenation, or held in a variable (checked with grep -P on 93b2565: exactly the three above).
-	call := regexp.MustCompile(`\.Handle(?:Func)?\(\s*("[^"]*"\s*\+[^,]*|[^"\s][^,]*),`)
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, m := range call.FindAllStringSubmatch(string(b), -1) {
-			if !dynamicRoutes[f+":"+strings.TrimSpace(m[1])] {
-				t.Errorf("%s registers %s: use a \"METHOD /path\" literal so TestEveryRouteRefusesTheOtherKind sees it, or list it here with a reason", f, m[1])
-			}
-		}
 	}
 }
 

@@ -3256,7 +3256,19 @@ function AdminSSO({ username }: { username: string }) {
             placeholder={settings.clientSecretSet ? "Leave empty to keep the current secret" : ""}
           />
         </label>
+        {settings.clientSecretSet && (
+          <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <input type="checkbox" checked={settings.clearClientSecret ?? false} onChange={(e) => setSettings({ ...settings, clearClientSecret: e.target.checked })} />
+            <span>Remove the client secret</span>
+          </label>
+        )}
         <p className="config-muted">Directory sync secret: {settings.hmacSecretSet ? "set" : "not set"}</p>
+        {settings.hmacSecretSet && (
+          <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <input type="checkbox" checked={settings.clearHmacSecret ?? false} onChange={(e) => setSettings({ ...settings, clearHmacSecret: e.target.checked })} />
+            <span>Remove the directory sync secret (turns directory sync off)</span>
+          </label>
+        )}
         <label className="field">
           <span>Custom Redirect URI (Optional override)</span>
           <input

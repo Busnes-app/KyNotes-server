@@ -48,7 +48,7 @@ func currentCommitReceipt(db *sql.DB, objectID string, version int64) string {
 	return commitReceipt(objectID, digest, version, bytes, generation, baseVersion, changeSeq)
 }
 
-func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max int64) {
+func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 	mux.Handle("GET /api/v1/objects/{id}/conflicts", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		if ids.Validate("obj", r.PathValue("id")) != nil {

@@ -64,7 +64,7 @@ func (u directoryUser) localRole() string {
 	return "user"
 }
 
-func registerDirectorySync(mux *http.ServeMux, db *sql.DB, cfg config.Config, settings *sso.Store) {
+func registerDirectorySync(mux RouteMux, db *sql.DB, cfg config.Config, settings *sso.Store) {
 	verify := syncauth.Middleware(func(r *http.Request) ([]byte, error) {
 		return []byte(r.Context().Value(syncSettingsKey{}).(sso.SSOSettings).HMACSecret), nil
 	}, syncauth.Options{}, cfg.Server.MaxRequestBytes, nil)

@@ -59,6 +59,13 @@ func TestAccountKindsHoldTheirInvariants(t *testing.T) {
 	mustFail(t, db, "admin_account_holds_no_content", `UPDATE containers SET owner_user_id='usr_admin' WHERE id='cnt_plain'`)
 	mustFail(t, db, "admin_account_holds_no_content", `UPDATE memberships SET user_id='usr_admin' WHERE id='mem_plain'`)
 	mustFail(t, db, "admin_account_holds_no_content", `UPDATE devices SET user_id='usr_admin' WHERE id='dev_plain'`)
+	// An identity row belongs to the everyday account that owns its device: never to an admin account.
+	ident := `INSERT INTO user_identities(user_id,device_id,wrapped_private_key,wrap_alg,created_at,updated_at) VALUES(?,?,x'00','aes-256-gcm','now','now')`
+	mustFail(t, db, "admin_account_holds_no_content", ident, "usr_admin", "dev_plain")
+	if _, err := db.Exec(ident, "usr_plain", "dev_plain"); err != nil {
+		t.Fatal("an everyday identity must still be stored", err)
+	}
+	mustFail(t, db, "admin_account_holds_no_content", `UPDATE user_identities SET user_id='usr_admin' WHERE user_id='usr_plain'`)
 	// Fail closed: an unknown account holds nothing either, even where foreign keys are off (openBefore's raw connection).
 	mustFail(t, db, "admin_account_holds_no_content", `INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_ghost','workbook','usr_ghost','now','now')`)
 	var approved int

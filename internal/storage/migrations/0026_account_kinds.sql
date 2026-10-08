@@ -40,3 +40,9 @@ CREATE TRIGGER devices_everyday_only BEFORE INSERT ON devices
  WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
 CREATE TRIGGER devices_everyday_only_update BEFORE UPDATE OF user_id ON devices
  WHEN NOT EXISTS(SELECT 1 FROM users WHERE id=NEW.user_id AND account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+-- An identity (its password and recovery copies are columns of the same row) belongs to the everyday
+-- account that owns its identity device.
+CREATE TRIGGER user_identities_everyday_only BEFORE INSERT ON user_identities
+ WHEN NOT EXISTS(SELECT 1 FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=NEW.device_id AND d.user_id=NEW.user_id AND u.account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;
+CREATE TRIGGER user_identities_everyday_only_update BEFORE UPDATE OF user_id,device_id ON user_identities
+ WHEN NOT EXISTS(SELECT 1 FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=NEW.device_id AND d.user_id=NEW.user_id AND u.account_kind='user') BEGIN SELECT RAISE(ABORT,'admin_account_holds_no_content'); END;

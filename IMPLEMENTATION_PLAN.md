@@ -395,6 +395,10 @@ probing for object existence across accounts.
 | Device link relay (`/me/link-requests…`) | required | rejected | CSRF on mutations; approve: fresh step-up (`RequireUserActionStepUp`), rechecked in the transaction |
 
 Content route classes admit everyday accounts only (`403 admin_account`); admin routes admit admin accounts only.
+Every pattern the network router registers is recorded as it is registered (`internal/httpapi`
+`recordingMux`, filled by `buildRoutes`); the inventory test fails on a pattern without a standard
+method or with a host, and drives every other one with both kinds and with fenced sessions, so a route
+cannot be added unclassified.
 
 ### 1.9 Configuration contract
 
@@ -1150,7 +1154,7 @@ internal/auth/hash.go          # HashAuthSecret, VerifyAuthSecret, kdf slot sema
 internal/auth/session.go       # mint, resolve, slide, revoke, sweep
 internal/auth/lockout.go       # failureLockout: tryAttempt, cancelAttempt, recordSuccess, sweep, shed
 internal/auth/recovery.go
-internal/auth/middleware.go    # RequireSession, RequireDevice, RequireEither, RequireFresh, RequireAdmin
+internal/auth/middleware.go    # RequireAccount, RequireSession, RequireEveryday, RequireDevice, RequireEither, RequireAdmin, RequireStepUp
 internal/httpapi/auth_routes.go
 internal/storage/migrations/0002_auth.sql   # only if Phase 3 needs a column 0001 lacks
 ```

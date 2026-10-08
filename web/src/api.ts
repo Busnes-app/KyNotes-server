@@ -92,16 +92,19 @@ export async function login(username: string, authSecret: string) {
   });
 }
 
-/** Secrets are write-only: the server reports only whether each is set, and an empty field keeps it. */
+/** Secrets are write-only: the server reports only whether each is set. An empty field keeps it for the
+ * same issuer and client; after a change the server asks for a new one or an explicit clear. */
 export type SSOSettings = {
   enabled: boolean;
   issuerUrl: string;
   clientId: string;
   clientSecret?: string;
   clientSecretSet?: boolean;
+  clearClientSecret?: boolean;
   redirectUri?: string;
   autoProvision: boolean;
   hmacSecretSet?: boolean;
+  clearHmacSecret?: boolean;
 };
 
 export const ssoConfig = () => request<{ enabled: boolean; issuerUrl: string; clientId: string }>("/api/v1/auth/sso-config");

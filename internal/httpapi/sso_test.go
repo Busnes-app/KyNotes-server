@@ -213,6 +213,21 @@ func TestAdminSSOAndPairing(t *testing.T) {
 		t.Fatalf("step-up: %d %s", rec.Code, rec.Body.String())
 	}
 
+	// A refused or unreachable pairing answers a fixed message: never the remote body or a dial error.
+	dead := httptest.NewServer(http.NotFoundHandler())
+	dead.Close()
+	for _, tc := range []struct{ issuer, token, want string }{
+		{mockKySignOn.URL, "bad", "KySignOn refused the pairing (status 400)"},
+		{dead.URL, "valid-pairing-token", "KySignOn pairing failed"},
+	} {
+		body, _ := json.Marshal(map[string]string{"issuerUrl": tc.issuer, "pairingToken": tc.token})
+		rec := send("/api/v1/admin/sso/pair", body)
+		var e ErrorBody
+		if rec.Code != http.StatusBadRequest || json.Unmarshal(rec.Body.Bytes(), &e) != nil || e.Error.Message != tc.want || strings.Contains(rec.Body.String(), "invalid_token") || strings.Contains(rec.Body.String(), "127.0.0.1") {
+			t.Fatalf("pairing with %s: %d %s", tc.token, rec.Code, rec.Body.String())
+		}
+	}
+
 	rec := send("/api/v1/admin/sso/pair", pairJSON)
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "shared-hmac-secret-xyz") {
 		t.Fatalf("admin sso pair: %d %s", rec.Code, rec.Body.String())
@@ -262,6 +277,23 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	if kept := sso.NewStore(db).Load(); kept.ClientSecret != strings.Repeat("c", 32) || kept.HMACSecret != strings.Repeat("x", 32) {
 		t.Fatalf("an empty field replaced a secret: %+v", kept)
 	}
+	// A kept secret never follows the settings to another provider or client; clearing is explicit.
+	for _, body := range []string{
+		`{"enabled":true,"issuerUrl":"https://other.example","clientId":"kynotes"}`,
+		`{"enabled":true,"issuerUrl":"https://issuer.example","clientId":"another"}`,
+		`{"enabled":true,"issuerUrl":"https://issuer.example","clientId":"kynotes","clientSecret":"new","clearClientSecret":true}`,
+	} {
+		if rec := send("/api/v1/admin/sso", []byte(body)); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if kept := sso.NewStore(db).Load(); kept.IssuerURL != "https://issuer.example" || kept.ClientSecret != strings.Repeat("c", 32) {
+		t.Fatalf("a refused save changed the settings: %+v", kept)
+	}
+	if rec := send("/api/v1/admin/sso", []byte(`{"enabled":true,"issuerUrl":"https://other.example","clientId":"kynotes","clearClientSecret":true,"clearHmacSecret":true}`)); rec.Code != http.StatusOK {
+		t.Fatalf("clear both: %d %s", rec.Code, rec.Body.String())
+	}
+	get(map[string]any{"issuerUrl": "https://other.example", "hmacSecretSet": false, "clientSecretSet": false})
 	var audits2 int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE reason_code LIKE '%xxxx%' OR reason_code LIKE '%cccc%' OR object_id LIKE '%xxxx%' OR object_id LIKE '%cccc%' OR object_id LIKE '%shared-hmac%'`).Scan(&audits2); err != nil || audits2 != 0 {
 		t.Fatal("an audit row carries a secret", audits2, err)

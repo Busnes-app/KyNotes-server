@@ -74,8 +74,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   check after replacement.
 - Migration `0026_account_kinds.sql`: `users.account_kind` (`user`/`admin`, fixed) and
   `memberships.approved`; triggers refuse the admin grant on an everyday account and any membership,
-  owned container or device (identities included) for anything but an existing everyday account, on
-  insert and re-point. Upgrade keeps mixed administrators' content and drops their grant. Every path
+  owned container, device or `user_identities` row (whose device must be the same everyday account's)
+  for anything but an existing everyday account, on insert and re-point. Upgrade keeps mixed administrators' content and drops their grant. Every path
   that creates an administrator sets `account_kind='admin'`. Verify `TestAccountKinds*`,
   `TestMixedAdminsKeepTheirNotesAndDropAdmin`, `TestAdminCreatesATeamForAnEverydayOwner`.
 - Account kinds in `internal/auth` (default-deny): `RequireSession`, `RequireEither` and device
@@ -83,10 +83,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   admin accounts only; `RequireAccount` (session, logout, logout-all, password change, step-ups) admits
   both; `RequireEveryday` serves only `GET /me/identity`. A password session on a password someone else
   set (`password_admin_known`) gets `409 password_change_required` everywhere but those account routes
-  and the identity read. A new route needs a class: `internal/httpapi/account_kinds_test.go` drives every
-  `"METHOD /path"` literal with both kinds and fenced sessions, and refuses any non-literal registration
-  not on its allowlist. Verify `TestEveryRouteRefusesTheOtherKind`, `TestEveryAccountRouteServesBothKindsUnfenced`,
-  `TestNoRouteHidesFromTheInventory`, `TestPasswordChangeIsForcedAtFirstSignIn`,
+  and the identity read. A new route needs a class: route functions register on `RouteMux`, `buildRoutes`
+  records every pattern actually registered, and `internal/httpapi/account_kinds_test.go` fails on any
+  pattern without a standard method or with a host (catch-alls `/`, `/api/`, `/api/v1/` excepted) and
+  drives every other one, API or not, with both kinds and fenced sessions; public, account and device
+  routes are listed there. Verify `TestEveryServedRouteIsClassified`, `TestEveryRouteRefusesTheOtherKind`,
+  `TestEveryAccountRouteServesBothKindsUnfenced`, `TestPasswordChangeIsForcedAtFirstSignIn`,
   `TestAdminAccountsCannotPairDevices`, `TestKindGatesHoldWithoutTheTriggers`, `TestRefuseSessionKeepsKindsApart`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
@@ -276,9 +278,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `POST /api/v1/admin/users/{id}/password` and the SSO settings mutations (`POST /admin/sso`,
   `/admin/sso/pair`, verify `TestAdminSSOAndPairing`) use `auth.RequireStepUp`, so a stolen admin
   cookie cannot mint local credentials. The SSO client and directory HMAC secrets are write-only:
-  admin responses carry only `clientSecretSet`/`hmacSecretSet` (`ssoView`), and an empty field on save
-  keeps the stored secret. Database errors reach clients only as `500 internal`; `writeInternal` logs
-  the detail (`TestDatabaseErrorsNeverReachTheClient`). Local sessions re-prove their
+  admin responses carry only `clientSecretSet`/`hmacSecretSet` (`ssoView`); an empty field on save keeps
+  the stored secret only for the same issuer (and client, for the client secret), otherwise a new one or
+  `clearClientSecret`/`clearHmacSecret` is required (`mergeSSOSecrets`). Database, transport and remote
+  errors reach clients only as fixed messages; `writeLogged` logs the detail (OIDC login/callback,
+  KySignOn pairing: status code only). Verify `TestDatabaseErrorsNeverReachTheClient`,
+  `TestProviderErrorsNeverReachTheClient`, `TestMergeSSOSecretsKeepsOnlyForTheSameTarget`. Local sessions re-prove their
   derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
   with fresh signed auth_time and ordinary assurance through the existing PKCE callback.

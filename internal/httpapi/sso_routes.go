@@ -33,7 +33,7 @@ func requestHost(r *http.Request) string {
 }
 
 // SSORoutes registers OIDC SSO and directory sync endpoints.
-func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
+func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
 	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
 	registerSSOLogout(mux, db, ssoStore, cfg)
 	handleSSOConfig := func(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +88,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		disc, err := sso.DiscoverEndpoints(r.Context(), settings.IssuerURL)
 		if err != nil {
-			WriteError(w, r, http.StatusBadGateway, "discovery_failed", "failed to discover OIDC endpoints: "+err.Error())
+			writeLogged(w, r, http.StatusBadGateway, "discovery_failed", "identity provider unreachable", "sso.discovery", err)
 			return
 		}
 
@@ -216,7 +216,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		disc, err := sso.DiscoverEndpoints(r.Context(), settings.IssuerURL)
 		if err != nil {
-			WriteError(w, r, http.StatusBadGateway, "discovery_failed", "failed to discover OIDC endpoints: "+err.Error())
+			writeLogged(w, r, http.StatusBadGateway, "discovery_failed", "identity provider unreachable", "sso.discovery", err)
 			return
 		}
 
@@ -224,7 +224,7 @@ func SSORoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config, ssoStore *sso.
 
 		tok, err := sso.ExchangeCode(r.Context(), disc.TokenEndpoint, settings.ClientID, settings.ClientSecret, code, redirectURI, codeVerifier)
 		if err != nil {
-			WriteError(w, r, http.StatusBadGateway, "exchange_failed", "failed to exchange token: "+err.Error())
+			writeLogged(w, r, http.StatusBadGateway, "exchange_failed", "identity provider refused the sign-in", "sso.exchange", err)
 			return
 		}
 

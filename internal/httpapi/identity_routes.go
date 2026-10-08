@@ -122,7 +122,7 @@ func loadIdentity(db interface {
 	return out, nil
 }
 
-func IdentityRoutes(mux *http.ServeMux, db *sql.DB) {
+func IdentityRoutes(mux RouteMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/me/identity", auth.RequireEveryday(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		identity, err := loadIdentity(db, s.UserID, false)

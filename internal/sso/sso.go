@@ -486,7 +486,7 @@ func PairWithKySignOn(ctx context.Context, issuerURL, pairingToken, callbackURL 
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("pairing failed (%d): %s", resp.StatusCode, string(bodyBytes))
+		return nil, PairingRefusedError{Status: resp.StatusCode}
 	}
 
 	var pairResp SystemPairingResponse
@@ -495,6 +495,14 @@ func PairWithKySignOn(ctx context.Context, issuerURL, pairingToken, callbackURL 
 	}
 
 	return &pairResp, nil
+}
+
+// PairingRefusedError: KySignOn answered the pairing with a non-200 status. Its body is never
+// carried: whatever the named issuer answers must not reach the caller.
+type PairingRefusedError struct{ Status int }
+
+func (e PairingRefusedError) Error() string {
+	return fmt.Sprintf("pairing refused: status %d", e.Status)
 }
 
 // AdminAppRole cannot be confused with the sender's legacy global admin/user roles.

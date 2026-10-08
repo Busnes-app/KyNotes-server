@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
+func DeviceRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	mux.Handle("GET /api/v1/devices/{id}/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		id := r.PathValue("id")

@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func CollabRoutes(mux *http.ServeMux, db *sql.DB) {
+func CollabRoutes(mux RouteMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers/{id}/members", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		cid := r.PathValue("id")

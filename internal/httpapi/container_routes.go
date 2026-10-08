@@ -15,7 +15,7 @@ import (
 
 var errDeleteReauth = errors.New("re-authentication required")
 
-func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
+func ContainerRoutes(mux RouteMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		device, isDevice := auth.DeviceFromContext(r)
