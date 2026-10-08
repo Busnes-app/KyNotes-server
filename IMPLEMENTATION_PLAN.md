@@ -1691,6 +1691,7 @@ Rules:
   The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` from the parent membership.
 * **Comment rewrite**: `PUT /comments/{id}` `{"bodyCiphertext","keyGeneration"}`
   is author-only (`403` otherwise) and passes the write gate.
+* **Legacy review**: `GET /containers/{id}/legacy` lists rows below `shared_generation` for any live member; it is a hint, not proof, and the server stores no closure state (team keys P4).
 * **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
   user ID reveals whether that user is active, at most
   `ratelimit.invitation_per_hour` times an hour per account; invitations may be
@@ -1700,8 +1701,10 @@ Rules:
 * **Known limit** (P3a): the server sees `authSecret`, so it can derive a
   member's legacy content key and forge a row in a shared container labelled
   below `shared_generation`. The web client labels such rows as not end-to-end
-  verified and re-seals one only on an explicit edit or move; P4 migrates legacy
-  rows and then refuses legacy reads in shared containers.
+  verified and re-seals one only on an explicit edit, move or ticked review item.
+  P4 closes this per browser: after the review, on "Stop opening pre-sharing items", or
+  when the server lists none of the user's, the browser opens no server row of that
+  notebook with the login key; "Show pre-sharing items again" is the user's way back.
 * Presence is in-memory only, never persisted, TTL 60 seconds, and contains only
   `{userId, containerId, since}`. On restart it is empty. That is correct.
 

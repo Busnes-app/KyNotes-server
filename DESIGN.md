@@ -195,13 +195,15 @@ The web client seals a team container's content with its container key once
 the container is shared. A row at or above `sharedGeneration` opens only with
 its own generation's key; rows below it, and personal containers, use the
 legacy login-derived key; a missing or malformed generation gets no key, so it
-fails closed. Rows below `sharedGeneration` are a known residual until P4: the
-server sees `authSecret`, so it can derive the legacy key and forge a row
-labelled below `sharedGeneration`. The client labels such rows "not end-to-end
-verified" and re-seals one under the container key only when the user edits or
-moves that row, never as a side effect of opening, autosave, another move or a
-conflict copy (legacy conflict versions are not copied). P4 migrates legacy rows
-and then refuses legacy reads in shared containers. The client never writes
+fails closed. Rows below `sharedGeneration` are sealed with their author's legacy key, which the server can derive, so
+it can forge one labelled below `sharedGeneration`. The client labels such rows "not end-to-end verified"
+and re-seals one under the container key only when the user edits or moves that row, or ticks it in the
+per-notebook review of items written before sharing (`GET /containers/{id}/legacy`, a hint; each row is
+opened with the reader's own key, its content is shown, and exactly the content shown is sealed), never
+as a side effect of opening, autosave, another move or a conflict copy. Each browser then stops opening that container's legacy rows (a per-device floor flag): after
+the review, on the user's "Stop opening pre-sharing items", or by itself when the server lists none that
+the user's key opens. Only the user's "Show pre-sharing items again" undoes it, behind a warning, and
+it stops auto-close for that notebook. Entries the browser queued or cached itself are not affected. The client never writes
 legacy ciphertext into a shared container. A member without the current key
 cannot change anything there: pages, sections, groups, moves, deletes, comments,
 attachments and conflict copies are disabled and their handlers refuse, so no

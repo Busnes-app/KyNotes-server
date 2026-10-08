@@ -339,6 +339,7 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		// A never-shared container (shared 0) matches no row: key_generation is at least 1.
+		// ponytail: comments and conflicts are scanned with no index on (container_id, key_generation). Upgrade: add indexes.
 		kinds := []struct {
 			name, query string
 			scan        func(*sql.Rows) (map[string]any, error)

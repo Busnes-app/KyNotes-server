@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Team keys phase 4: a shared notebook now offers to share the pages, comments, attachments and
+  conflicting versions you wrote before it was shared. You read them and tick the ones you recognise;
+  exactly what you read is sealed with the notebook's key so every member can read it. Afterwards, and on any browser where
+  none of them is left, KyNotes stops opening items written before sharing in that notebook, so a
+  server can no longer slip in a page it forged with your old key. "Stop opening pre-sharing items"
+  does this at once, and "Show pre-sharing items again" (with a warning) undoes it on that browser.
+  No database migration.
 - Team keys phase 3c: link a new browser to your account from one you already use. Both screens
   show a six-digit check code; you type the code from the new browser into the one you already use,
   and your encryption key moves only after you confirm it matches on both. KyNotes relays it
