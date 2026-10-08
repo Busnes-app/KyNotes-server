@@ -149,3 +149,28 @@ describe("workspace keys after P5", () => {
   });
 });
 
+describe("recovery code wiring (P5 Task 8)", () => {
+  it("offers restore beside linking, the code card to a held browser, and reset to any account with a key", () => {
+    expect(main).toContain('{identityState === "link" && <RecoveryRestore ');
+    expect(main.indexOf("<RecoveryRestore ")).toBeGreaterThan(main.indexOf('{identityState === "link" && <LinkThisBrowser '));
+    expect(main).toContain('{identityState === "held" && <RecoverySetup ');
+    // A password session types its password for the reset; an SSO session confirms with KySignOn.
+    expect(main).toContain("password={sso ? undefined : passwordReset(username)}");
+    expect(main).toContain("exportWaiting={exportWaiting}");
+  });
+
+  it("re-reads the identity and runs a key pass after a link, restore, reset or saved code", () => {
+    expect(main).toContain("onIdentityChanged={() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }}");
+    expect(main).not.toMatch(/onLinked\(identity\)/);
+    // The first SSO browser is shown its code right away.
+    expect(main).toContain('if (settled.kind === "held") { setRecoveryPrompt(true); setView("settings"); }');
+    expect(main).toContain("{identityState === \"held\" && live && !live.recoveryId && <div className=\"conflict-banner\" role=\"status\">{RECOVERY_MISSING}");
+  });
+
+  it("tells users and administrators that a reset keeps the key and the recovery code restores it", () => {
+    expect(main).toMatch(/const FORGET_DEVICE = "[^"]*enter your recovery code[^"]*KySignOn have no password copy/);
+    expect(main).toMatch(/alert\("Password reset\.[^"]*keeps its encryption key[^"]*recovery code[^"]*KySignOn gets no password copy back/);
+    expect(main).not.toMatch(/encryption identity was deleted|an administrator reset removes it/);
+  });
+});
+

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { decryptObject, type KeyRef } from "../crypto";
+import { downloadFile } from "../download";
 import { openFirst, type KeyState } from "../keyring";
 import { listContainers } from "../observe";
 import { deleteNote, getKeyState, ownerUnknownNotes, pendingSaves, replaceQueuedSave, storeKeyState, type CachedNote, type PendingSave } from "../storage";
@@ -38,12 +39,7 @@ export function UnsentEdits({ legacyKey, username, userID, teamKeys }: { legacyK
       alert("None of these edits can be opened in this browser: they are sealed with a notebook key it no longer holds.");
       return;
     }
-    const url = URL.createObjectURL(new Blob([file.json], { type: "application/json" }));
-    const link = document.createElement("a");
-    link.href = url; link.download = "kynotes-unsent-edits.json";
-    document.body.append(link); link.click(); link.remove();
-    // Revoked after the download has started; revoking in the same tick can cancel it.
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloadFile("kynotes-unsent-edits.json", file.json, "application/json");
     if (file.unreadable) alert(`${file.unreadable} edit(s) are sealed with a notebook key this browser no longer holds and were left out.`);
   }
   async function discard() {

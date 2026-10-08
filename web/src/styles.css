@@ -377,3 +377,12 @@ body { color: var(--ink-strong); background: var(--bg); }
 .legacy-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .legacy-banner button { white-space: nowrap; }
 .legacy-highlight { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.recovery-code { display: block; font: 600 1.25rem/1.6 var(--ky-font-mono, monospace); letter-spacing: 0.08em; user-select: all; overflow-wrap: anywhere; padding: 0.75rem; border: 1px solid var(--line); border-radius: 8px; }
+.recovery-step { display: grid; gap: 0.75rem; min-width: 0; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+@media print {
+  body.print-recovery * { visibility: hidden; }
+  body.print-recovery .recovery-sheet, body.print-recovery .recovery-sheet * { visibility: visible; }
+  body.print-recovery .recovery-sheet { position: absolute; inset: 0; }
+  body.print-recovery .recovery-actions { display: none; }
+}

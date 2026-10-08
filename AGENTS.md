@@ -420,6 +420,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   whose mint or naming failed is deleted). Waiting copy follows the member list, never `kind`
   (`web/src/keyNotices.ts`). A password change moves every queued login-key entry onto the waiting key
   (`resealWaitingEdits`) and asks for an acknowledgement only while `legacyAtRisk` counts notebooks.
+  `web/src/components/RecoveryCode.tsx` is the only UI that shows, uploads, restores or resets a recovery
+  code: shown once (print or download on a click, never the clipboard, URL or storage), type-back of a
+  random group, autofill opt-outs on every code field, restore beside "Link this browser", and a reset
+  that lists its losses, offers the unsent-edit export, needs RESET typed and, for password sessions,
+  the password (step-up and new password copy). Verify `RecoveryCode.test.tsx` and `legacyWiring.test.ts`.
   `main.tsx` reaches the login key only through
   `legacyKeyRef` (two call sites, test-gated) and writes shared containers only with the current key; with
   keys missing every mutation handler returns on `readOnlyForKeys()` and its control is disabled (no empty

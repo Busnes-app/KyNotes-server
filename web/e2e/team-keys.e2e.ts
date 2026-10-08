@@ -548,7 +548,7 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
 const LINK_BANNER = /This browser does not hold your encryption key/;
 const LINK_ENDED = "This link request ended: it was cancelled on the other browser or expired. Start again.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
-const FORGET = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. If no other browser holds a key you created with single sign-on, that key is lost. Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+const FORGET = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 const linkCode = (id: string) => id.slice(-6).toUpperCase();
 
 /** Starts a link on the newcomer's Settings card; returns the request ID the server issued. */

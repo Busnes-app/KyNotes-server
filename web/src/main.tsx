@@ -1,5 +1,8 @@
 import { AdminBackup } from "./components/AdminBackup";
 import { ConfirmPassword } from "./components/ConfirmPassword";
+import { IdentityReset, RECOVERY_MISSING, RecoveryRestore, RecoverySetup } from "./components/RecoveryCode";
+import { downloadFile } from "./download";
+import { exportUnsent } from "./stuckEdits";
 import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -197,7 +200,12 @@ function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
   if (state === "create") return sso ? " Set up your encryption key from the notebook list." : " Sign in with your password to create it.";
   return "";
 }
-const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. If no other browser holds a key you created with single sign-on, that key is lost. Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+/** A password session's reset: its typed password gives the step-up and the new key's password copy (recovery.ts resetIdentity). */
+const passwordReset = (username: string) => ({
+  derive: async (password: string) => { const params = await loginParams(username); return deriveLoginKeys(password, params.loginSalt, params.iterations); },
+  stepUp: (authSecret: string) => stepUp(authSecret),
+});
 const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
 const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
   "cannot-wrap": "The invitation carries no keys: this browser cannot share keys at invitation time (it holds no encryption key, or you signed in with single sign-on). A team owner's browser shares them after the person joins.",
@@ -771,6 +779,8 @@ function Workspace({
   // after an identity is created, restored or linked). undefined: not checked yet.
   const liveRef = useRef<PublicIdentity | null | undefined>(undefined);
   const [live, setLive] = useState<PublicIdentity | null>();
+  // Settings opens the recovery code card right after an SSO key set-up.
+  const [recoveryPrompt, setRecoveryPrompt] = useState(false);
   /** The vault copy, used only while the server lists it as this account's identity (or cannot be reached). */
   async function heldIdentity() {
     if (!identityRef.current) {
@@ -801,6 +811,8 @@ function Workspace({
     setIdentityRefusal(undefined);
     try {
       const settled = await settleSSOIdentity({ myIdentity, putDeviceOnlyIdentity }, identityStore, replace);
+      // The first browser shows the recovery code right away (§8 item 1).
+      if (settled.kind === "held") { setRecoveryPrompt(true); setView("settings"); }
       if (settled.kind === "unsaved") setIdentityRefusal({ message: "This browser cannot keep an encryption key (site storage is blocked or unavailable), so none was created." });
       await refreshIdentity();
     } catch (err) {
@@ -2689,10 +2701,11 @@ function Workspace({
                     onShare={shareLegacy} onStop={async () => { if ((await stopLegacy(selected)) === "closed") setError(LEGACY_CLOSED); }} onReopen={(confirmation) => reopenLegacyReads(selected, confirmation)} />
                 )}
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with KySignOn)</button></div>}
-                {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks stay locked here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
-                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so team owners can share notebooks with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+                {identityState === "link" && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
+                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
                 {!auth.sso && identityState === "create" && <div className="conflict-banner" role="status">{ADMIN_PASSWORD_FIRST} <button onClick={() => setView("settings")}>Change password</button></div>}
-                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (an administrator reset removes it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+                {identityState === "held" && live && !live.recoveryId && <div className="conflict-banner" role="status">{RECOVERY_MISSING} <button onClick={() => setView("settings")}>Create recovery code</button></div>}
                 <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
                 {invitation && (
                   <div className="conflict-banner" role="status">
@@ -3003,7 +3016,9 @@ function Workspace({
             heldIdentity={heldIdentity}
             identityStore={identityStore}
             stepUp={keyAPI.stepUp}
-            onLinked={() => void refreshIdentity().catch(() => undefined)}
+            live={live}
+            recoveryPrompt={recoveryPrompt}
+            onIdentityChanged={() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }}
             createTeam={createTeam}
             knownNames={names}
             waiting={() => waitingRef.current}
@@ -3203,7 +3218,7 @@ function AdminUserActions({
         iterations: 600000,
       });
       onReset();
-      alert("Password reset. All existing sessions were revoked. The account's encryption identity was deleted; it is recreated at the user's next sign-in.");
+      alert("Password reset. All existing sessions were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.");
     } catch (error) {
       alert(
         error instanceof Error ? error.message : "Unable to reset password",
@@ -3488,7 +3503,9 @@ function SettingsView({
   heldIdentity,
   identityStore,
   stepUp,
-  onLinked,
+  onIdentityChanged,
+  live,
+  recoveryPrompt,
 }: {
   admin: boolean;
   authSecret: string;
@@ -3513,7 +3530,10 @@ function SettingsView({
   heldIdentity: () => Promise<HeldIdentity | undefined>;
   identityStore: IdentityStore;
   stepUp: () => Promise<void>;
-  onLinked: (identity?: HeldIdentity) => void;
+  /** A link, restore, reset or new identity: re-reads the identity, the waiting key and the code state, then runs a key pass. */
+  onIdentityChanged: () => void;
+  live: PublicIdentity | null | undefined;
+  recoveryPrompt: boolean;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
   const [status, setStatus] = useState<{
@@ -3524,6 +3544,14 @@ function SettingsView({
   const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
   const [ownFingerprint, setOwnFingerprint] = useState("");
   const [justLinked, setJustLinked] = useState(false);
+  /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
+  async function exportWaiting(): Promise<number> {
+    const queued = (await pendingSaves()).filter((item) => item.owner === userID);
+    if (!queued.length) return 0;
+    const file = await exportUnsent(queued, (item) => openFirst([legacyKey, ...teamKeys(item)], (key) => decryptObject(key, item.containerID, item.payload)));
+    downloadFile("kynotes-unsent-edits.json", file.json, "application/json");
+    return queued.length - file.unreadable;
+  }
   useEffect(() => {
     // From this browser's own copy of the key, so the server cannot show a different one.
     void getIdentityKey(username, userID)
@@ -3614,7 +3642,7 @@ function SettingsView({
               <button onClick={() => applyTheme(theme)}>Apply theme</button>
             </section>
             <div id="password">
-              <PasswordSettings username={username} userID={userID} onAuthSecret={onAuthSecret} waiting={waiting} atRisk={atRisk} onIdentityCreated={() => onLinked()} />
+              <PasswordSettings username={username} userID={userID} onAuthSecret={onAuthSecret} waiting={waiting} atRisk={atRisk} onIdentityCreated={onIdentityChanged} />
             </div>
             <section id="device" className="config-card">
               <h2>Trusted Device & SSO</h2>
@@ -3643,10 +3671,13 @@ function SettingsView({
                 </button>
               )}
             </section>
-            {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={(identity) => { setJustLinked(true); onLinked(identity); }} />}
+            {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
+            {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked(true); onIdentityChanged(); }} />}
+            {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked(true); onIdentityChanged(); }} />}
             {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
             <PinnedKeys username={username} userID={userID} names={colleagueNames} />
             <UnsentEdits legacyKey={legacyKey} username={username} userID={userID} teamKeys={teamKeys} />
+            {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onIdentityChanged} password={sso ? undefined : passwordReset(username)} />}
           </>
         )}
         {admin && (
