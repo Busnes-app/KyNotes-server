@@ -292,7 +292,7 @@ export function LinkRequests({ userID, held, stepUp }: { userID: string; held: (
         <>
           <label className="field">
             <span>Check code shown on the other browser</span>
-            <input className="check-code-input" value={typed} onChange={(event) => setTyped(event.currentTarget.value)} inputMode="numeric" autoComplete="one-time-code" spellCheck={false} />
+            <input className="check-code-input" value={typed} onChange={(event) => setTyped(event.currentTarget.value)} inputMode="numeric" autoComplete="off" spellCheck={false} data-1p-ignore data-lpignore="true" />
           </label>
           <p className="config-muted">Type it from the other browser's screen. If that browser shows no code, or this one does not accept it, choose Codes differ.</p>
           <div className="link-actions">

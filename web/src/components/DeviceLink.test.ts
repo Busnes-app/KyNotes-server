@@ -16,6 +16,9 @@ describe("link screens", () => {
     // The approver neither shows its own code nor offers a "Codes match" click.
     expect(screen).not.toMatch(/active\??\.code\}/);
     expect(screen).not.toContain("Codes match — send key");
+    // Nothing may fill the code for the user: no OTP autofill, no password-manager fill.
+    expect(screen).not.toContain("one-time-code");
+    expect(screen).toMatch(/value=\{typed\}.*autoComplete="off"/);
   });
 
   it("mints the newcomer's confirmation in one place, from the code it shows", () => {
