@@ -2245,7 +2245,7 @@ function Workspace({
     } catch (error) {
       const api = error instanceof APIRequestError ? error : undefined;
       const message = error instanceof Error ? error.message : "Unable to join the team";
-      if (finalRefusal(api?.status)) {
+      if (finalRefusal(api?.status, api?.code)) {
         dropInvitation();
         setError(api?.code === "not_found"
           ? "This invitation is no longer valid: it expired, was already used, is for another account, or its sender can no longer invite."

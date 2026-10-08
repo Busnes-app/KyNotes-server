@@ -50,8 +50,13 @@ export function dropInvite(storage: Pick<Storage, "removeItem"> | undefined) {
   try { storage?.removeItem(KEY); } catch { /* nothing kept */ }
 }
 
-/** A definitive answer to an accept (gone, refused, already a member); anything else (network, 5xx, 429) may be retried. */
-export const finalRefusal = (status: number | undefined) => status === 403 || status === 404 || status === 409 || status === 410;
+/**
+ * A definitive answer to an accept: the invitation is gone (404 not_found, 410) or the account is
+ * already a member (409 already_exists). Anything else may pass and keeps it: network, 5xx, 429,
+ * and every 403 (csrf_failed, an expired session).
+ */
+export const finalRefusal = (status: number | undefined, code: string | undefined) =>
+  (status === 404 && code === "not_found") || (status === 409 && code === "already_exists") || status === 410;
 
 /** What a member waiting for keys sends an owner or admin, out of band. */
 export function keyRequestText(input: { notebook: string; stewards: string[]; fingerprint: string; link: string }): string {

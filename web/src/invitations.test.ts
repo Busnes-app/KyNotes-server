@@ -66,9 +66,10 @@ describe("invitation links", () => {
     expect(pendingInvite(storage)).toBeUndefined();
   });
 
-  it("drops an invitation only on a definitive refusal; network errors, 5xx and 429 keep it for a retry", () => {
-    for (const status of [403, 404, 409, 410]) expect(finalRefusal(status)).toBe(true);
-    for (const status of [undefined, 429, 500, 502, 503]) expect(finalRefusal(status)).toBe(false);
+  it("drops an invitation only on a definitive refusal; network errors, 5xx, 429 and any 403 keep it for a retry", () => {
+    for (const [status, code] of [[404, "not_found"], [409, "already_exists"], [410, "gone"]] as const) expect(finalRefusal(status, code)).toBe(true);
+    const retryable: Array<[number | undefined, string | undefined]> = [[undefined, undefined], [429, "rate_limited"], [500, "internal"], [502, undefined], [503, undefined], [403, "csrf_failed"], [403, "forbidden"], [403, "step_up_required"], [401, "unauthenticated"], [409, "version_conflict"], [404, undefined]];
+    for (const [status, code] of retryable) expect(finalRefusal(status, code)).toBe(false);
   });
 
   it("writes a key request that names the stewards and carries the fingerprint and link", () => {

@@ -494,8 +494,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   envelopes of expired invitations; the container list is 500, never a partial 200. Web: one-time links
   `#/invite/<id>/<token>` (`web/src/invitations.ts`) are stashed in session storage (in memory for the page
   load when storage is refused) and cleared from the address bar, also in an open tab; the token goes only
-  in the accept body; a failed accept drops the invitation only on 403/404/409/410 and otherwise keeps it
-  for a retry; `replaceState` clears only this
+  in the accept body; a failed accept drops the invitation only on 404 `not_found`, 409 `already_exists` or
+  410 and otherwise (any 403 included) keeps it for a retry; `replaceState` clears only this
   tab's history. `inviteWithKeys` (`keyService.ts`) seals only the chosen team's current key (never
   children picked by `teamId`), gated by `keysAllowed` against this device's loaded floor and an accepted
   key matching the stored digest, for a visible invitee; a changed pin needs confirmation (stored
