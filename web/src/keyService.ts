@@ -28,7 +28,8 @@ export type PinStore = {
   loadKeyState: (containerID: string) => Promise<KeyState>;
   saveKeyState: (containerID: string, state: KeyState) => Promise<boolean>;
 };
-export type Caller = { userId: string; identity?: HeldIdentity; canWrap: boolean };
+/** recoverable: the account's identity has a password or recovery-code copy on the server (identity.ts recoverable); a first key waits for it. */
+export type Caller = { userId: string; identity?: HeldIdentity; canWrap: boolean; recoverable: boolean };
 /**
  * plan: "untrusted" the user declined a changed colleague key, or another pass pinned a
  * different key first; "pins-unsaved" this device could not keep a pin; "rollback" the server
@@ -111,12 +112,12 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     // planSweep itself is idle for a caller who is not a steward with an identity.
     const plan = (opened: OpenedKeyring): SweepPlan => {
       if (!me) return { kind: "idle" };
-      const next = planSweep({ container, me: caller.userId, members, envelopes, ring: opened.ring });
+      const next = planSweep({ container, me: caller.userId, members, envelopes, ring: opened.ring, recoverable: caller.recoverable });
       const grants = next.kind === "wrap" ? next.grants.filter((grant) => !opened.conflicts.includes(grant.generation)) : [];
       const work: SweepPlan = next.kind !== "wrap" ? next : grants.length ? { kind: "wrap", grants } : { kind: "idle" };
-      // A caller that may not wrap only reports the work; a blocked first key writes nothing, so it is still explained.
+      // A caller that may not wrap only reports the work; a refused first key writes nothing, so it is still explained.
       deferred = !caller.canWrap && (work.kind === "mint" || work.kind === "wrap");
-      return caller.canWrap || work.kind === "blocked" ? work : { kind: "idle" };
+      return caller.canWrap || work.kind === "unrecoverable" ? work : { kind: "idle" };
     };
     const targets = (next: SweepPlan): MemberKey[] => (next.kind === "mint" ? next.recipients : next.kind === "wrap" ? next.grants.map((grant) => grant.member) : []).filter((member) => member.userId !== caller.userId);
 
@@ -156,7 +157,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     // A refused first pin: the keys its sender sealed are never returned, adopted or remembered.
     if (firstContact) return stopped(firstContact, []);
     trusted(opened);
-    if (sweep.kind === "idle" || sweep.kind === "blocked") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
+    if (sweep.kind === "idle" || sweep.kind === "unrecoverable") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
     pins = opened.pins;

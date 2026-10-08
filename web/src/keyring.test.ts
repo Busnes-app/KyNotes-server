@@ -572,3 +572,27 @@ describe("reopening legacy reads", () => {
     expect(naming({ "./x.ts": 'import { confirmReopenLegacy as yes } from "./keyring"; yes(u, c);', "./components/LegacyReview.tsx": 'import { confirmReopenLegacy as ok } from "../keyring";' })).toEqual(["./x.ts", "./components/LegacyReview.tsx"]);
   });
 });
+
+describe("key decisions read no server claim about kind", () => {
+  const sources = import.meta.glob<string>(["./keyring.ts", "./keyService.ts", "./drain.ts", "./outbound.ts", "./floors.ts", "./observe.ts", "./migration.ts", "./recovery.ts", "./identity.ts"], { query: "?raw", import: "default", eager: true });
+  const code = (source: string) => source.replace(/\/\*[^]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+  it("no key module compares kind or reads teamId", () => {
+    for (const [file, source] of Object.entries(sources)) {
+      // Property reads only: ReportedContainer still declares teamId as a layout field.
+      expect(code(source), file).not.toMatch(/\.teamId\b|\.kind\s*[!=]==?\s*["'](?:team|workbook|project|personal)["']/);
+    }
+  });
+
+  it("main.tsx gives every notebook a key pass and decides keys without kind", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    expect(main).not.toMatch(/needsKeyPass/);
+    for (const start of ["  const writeKeyFor", "  const readKeysFor", "  const localReadKeysFor", "  const localKeyFor", "  async function syncKeys(", "  async function sendable("]) {
+      const from = main.indexOf(start);
+      expect(from, start).toBeGreaterThan(-1);
+      const rest = main.slice(from + start.length);
+      // plan.kind and similar discriminants are fine; a container's kind or teamId is not.
+      expect(code(start + rest.slice(0, rest.search(/\n {2}(?:async function|function|const) /))), start).not.toMatch(/\.teamId\b|\.kind\s*[!=]==?\s*["'](?:team|workbook|project|personal)["']/);
+    }
+  });
+});

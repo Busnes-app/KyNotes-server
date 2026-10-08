@@ -70,7 +70,7 @@ const memoryStore = (initial: Pins = {}, known: KeyState = { mark: 0, digests: {
   } satisfies PinStore & Record<string, unknown>;
 };
 const shown = (u: User) => displayName(u.member.username, u.member.userId);
-const as = (u: User, canWrap = true) => ({ userId: u.member.userId, identity: u.held, canWrap });
+const as = (u: User, canWrap = true, recoverable = true) => ({ userId: u.member.userId, identity: u.held, canWrap, recoverable });
 const never = () => false;
 
 describe("syncContainerKeys", () => {
@@ -91,13 +91,27 @@ describe("syncContainerKeys", () => {
     expect(state.envelopes).toHaveLength(2);
   });
 
-  it("does not share a never-shared container while a member has no identity", async () => {
+  it("mints for keyed members even while one has no identity; that member is wrapped later", async () => {
     const owner = user("owner", "b", "owner"), sso = user("sso", "c", "editor", false);
-    const { api } = server([owner, sso]);
+    const { state, api } = server([owner, sso]);
     const result = await syncContainerKeys(api, cnt, as(owner), memoryStore(), never);
-    expect(result.plan).toEqual({ kind: "blocked", waitingFor: [shown(sso)] });
+    expect(result.minted).toBe(true);
+    expect(state.envelopes.map((row) => row.deviceId)).toEqual([owner.held!.deviceId]);
+  });
+
+  it("waits for a recoverable identity before a first key, never before a re-mint", async () => {
+    const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
+    const { state, api } = server([owner, editor]);
+    const store = memoryStore();
+    const waiting = await syncContainerKeys(api, cnt, as(owner, true, false), store, never);
+    expect(waiting.plan).toEqual({ kind: "unrecoverable" });
     expect(api.rotate).not.toHaveBeenCalled();
     expect(api.stepUp).not.toHaveBeenCalled();
+    // A caller that may not wrap still hears why; nothing is offered as "share keys".
+    expect((await syncContainerKeys(api, cnt, as(owner, false, false), store, never)).plan).toEqual({ kind: "unrecoverable" });
+    await syncContainerKeys(api, cnt, as(owner), store, never);
+    state.generation += 1; // a removal: the new generation has no envelopes
+    expect((await syncContainerKeys(api, cnt, as(owner, true, false), store, never)).minted).toBe(true);
   });
 
   it("re-mints after a removal and wraps history for a newcomer", async () => {
@@ -491,7 +505,8 @@ describe("a pass that fails after raising the floor", () => {
     };
     let memory: KeyFloor = { shared: prior.shared, generation: prior.generation };
     const ring = new Map([[2, newContainerKey()]]);
-    expect(writeKey(old, ring, memory)).toBeDefined();
+    // A never-shared notebook has no write key even before (the login key never seals).
+    expect(writeKey(old, ring, memory)).toEqual(old.sharedGeneration ? { key: ring.get(2), generation: 2 } : undefined);
     await expect(syncContainerKeys(api, cnt, as(editor), memoryStore({}, prior), never, ring, (id, floor) => { expect(id).toBe(cnt); memory = mergeFloor(memory, floor); })).rejects.toThrow("offline");
     expect(memory).toMatchObject({ generation: 3, shared: raised.sharedGeneration });
     // The open notebook still holds the old container: nothing may be written under its key or the login key.
@@ -589,7 +604,7 @@ describe("inviteWithKeys", () => {
     const cases: Array<[boolean, Caller, typeof target, InviteKeys]> = [
       [false, as(owner), target, "no-identity"],
       [true, as(owner, false), target, "cannot-wrap"],
-      [true, { userId: owner.member.userId, canWrap: true }, target, "cannot-wrap"],
+      [true, { userId: owner.member.userId, canWrap: true, recoverable: true }, target, "cannot-wrap"],
       [true, as(owner), { container: team, ring: new Map([[1, teamKey]]), floor: {} }, "no-keys"],
       [true, as(owner), { container: { ...team, keyGeneration: 1, sharedGeneration: 0 }, ring: new Map([[1, teamKey]]), floor: {} }, "no-keys"],
       // The tab has not loaded this notebook's floor yet.
@@ -610,17 +625,15 @@ describe("inviteWithKeys", () => {
     expect(calls).toEqual([{ envelopes: [] }]);
   });
 
-  it("sends no keys for a team this device saw at a later sharing state, or saw shared and now reported personal", async () => {
-    const cases: Array<[ReportedContainer, KeyFloor]> = [
-      [team, { shared: 2, generation: 3 }], // the server rolled the generation back
-      [{ ...team, kind: "workbook" }, { shared: 2, generation: 2 }], // relabelled personal, no teamId
-    ];
-    for (const [container, floor] of cases) {
-      const { api, calls } = inviteAPI();
-      expect((await inviteWithKeys(api, { container, ring: target.ring, floor: {} }, invited, as(owner), memoryStore({}, { ...known, ...floor }), never)).keys).toBe("rollback");
-      expect(calls).toEqual([{ envelopes: [] }]);
-      expect(api.stepUp).not.toHaveBeenCalled();
-    }
+  it("sends no keys for a team this device saw at a later sharing state; relabelling it personal changes nothing", async () => {
+    const { api, calls } = inviteAPI();
+    // The server rolled the generation back.
+    expect((await inviteWithKeys(api, { container: team, ring: target.ring, floor: {} }, invited, as(owner), memoryStore({}, { ...known, shared: 2, generation: 3 }), never)).keys).toBe("rollback");
+    expect(calls).toEqual([{ envelopes: [] }]);
+    expect(api.stepUp).not.toHaveBeenCalled();
+    // Relabelled personal, no teamId, same generations: kind decides nothing, so the keys are sealed as for the team.
+    const relabelled = inviteAPI();
+    expect((await inviteWithKeys(relabelled.api, { container: { ...team, kind: "workbook" }, ring: target.ring, floor: {} }, invited, as(owner), memoryStore({}, { ...known, shared: 2, generation: 2 }), never)).keys).toBe("sealed");
   });
 
   it("also honours this tab's in-memory floor when storage lags behind it", async () => {
@@ -777,11 +790,13 @@ describe("a steward who shares only on request (single sign-on)", () => {
     expect(stopped.deferred).toBe(false);
   });
 
-  it("still explains a first key that waits for a member without an identity", async () => {
+  it("defers a first key for a caller that may not wrap, even while a member has no identity; nothing is written", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor", false);
     const { api } = server([owner, editor]);
     const result = await syncContainerKeys(api, cnt, as(owner, false), memoryStore(), never);
-    expect(result.plan).toEqual({ kind: "blocked", waitingFor: [shown(editor)] });
-    expect(result.deferred).toBe(false);
+    expect(result.plan).toEqual({ kind: "idle" });
+    expect(result.deferred).toBe(true);
+    expect(result.minted).toBe(false);
+    expect(api.rotate).not.toHaveBeenCalled();
   });
 });
