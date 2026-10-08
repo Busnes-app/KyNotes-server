@@ -1,6 +1,8 @@
+import { x25519 } from "@noble/curves/ed25519.js";
 import type { HeldIdentity } from "./identity";
 import type { KeyState } from "./keyring";
 import { isPinConfirmation, sameKey, type PinConfirmation, type Pins } from "./pins";
+import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
@@ -248,36 +250,88 @@ export async function getDeviceKey(username: string): Promise<string | undefined
   return result?.authSecret;
 }
 
-type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: HeldIdentity & { userID: string }; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
+/**
+ * The identity as the vault keeps it. Secure contexts: the private key sealed (AES-256-GCM, AAD
+ * kynotes/device-identity/v1|<userID>|<deviceId>) under deviceKey, a non-extractable WebCrypto key
+ * kept in the same record, so "Forget this device" stays one delete. This only keeps the raw key out
+ * of the record's plain values: it is not at-rest protection (the browser writes deviceKey's bytes
+ * to the same profile) and page script can call decrypt. Plain-HTTP origins have no WebCrypto and
+ * keep the raw key, as before. deviceId "" marks an identity created here that the server has not
+ * confirmed yet (settleSSOIdentity).
+ */
+type SealedIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; sealed: Uint8Array; deviceKey: CryptoKey };
+type RawIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey: Uint8Array };
+type VaultIdentity = SealedIdentity | RawIdentity;
+type VaultRecord = { username: string; authSecret: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> } };
 
-/** Adds the unwrapped identity to an existing vault record, so "Forget this device" stays one delete. */
-export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("keys", "readwrite");
-    const store = transaction.objectStore("keys");
-    const read = store.get(username);
-    read.onsuccess = () => {
-      const record = read.result as VaultRecord | undefined;
-      if (record) store.put({ ...record, identity: { ...identity, userID } });
-    };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-  });
-  db.close();
+/** "device-key": sealed under a key this browser cannot export. "unprotected": a plain-HTTP origin keeps the raw key. */
+export const identityProtection = (): "device-key" | "unprotected" =>
+  globalThis.isSecureContext === true && typeof globalThis.crypto?.subtle?.generateKey === "function" ? "device-key" : "unprotected";
+
+const identityAAD = (userID: string, deviceId: string) => new TextEncoder().encode(`kynotes/device-identity/v1|${userID}|${deviceId}`);
+
+async function sealForDevice(userID: string, identity: HeldIdentity): Promise<VaultIdentity> {
+  const base = { userID, deviceId: identity.deviceId, publicKey: identity.publicKey.slice() };
+  if (identityProtection() === "unprotected") return { ...base, privateKey: identity.privateKey.slice() };
+  const deviceKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const body = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: identityAAD(userID, identity.deviceId) }, deviceKey, identity.privateKey.slice()));
+  const sealed = new Uint8Array(12 + body.length);
+  sealed.set(iv);
+  sealed.set(body, 12);
+  return { ...base, sealed, deviceKey };
 }
 
+/** The held identity, or undefined when the copy does not open or is not its public key's. */
+async function openForDevice(stored: VaultIdentity): Promise<HeldIdentity | undefined> {
+  try {
+    const privateKey = "privateKey" in stored ? stored.privateKey
+      : new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: identityAAD(stored.userID, stored.deviceId) }, stored.deviceKey, stored.sealed.slice(12)));
+    return sameBytes(x25519.getPublicKey(privateKey), stored.publicKey) ? { deviceId: stored.deviceId, publicKey: stored.publicKey, privateKey } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the record holds expected for userID (null: holds none), compared by public key. */
+const holds = (record: VaultRecord, userID: string, expected: HeldIdentity | null) => {
+  const current = record.identity?.userID === userID ? record.identity : undefined;
+  return expected === null ? !current : current !== undefined && sameBytes(current.publicKey, expected.publicKey);
+};
+
+/**
+ * Keeps the identity in the existing vault record. expected makes it a compare-and-swap inside one
+ * IndexedDB transaction (sealing happens before it, because WebCrypto awaits would end the
+ * transaction): another tab's key is never overwritten. False: nothing was kept (no record, no
+ * IndexedDB, or the record no longer holds expected).
+ */
+export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean> {
+  const stored = await sealForDevice(userID, identity).catch(() => undefined);
+  return stored ? updateRecord(username, (record) => (expected === undefined || holds(record, userID, expected) ? { ...record, identity: stored } : undefined)) : false;
+}
+
+/** This browser's identity for userID, a pending one (deviceId "") included. Throws when the vault cannot be read. */
+export async function loadIdentityRecord(username: string, userID: string): Promise<HeldIdentity | undefined> {
+  const stored = (await readRecord(username))?.identity;
+  if (!stored || stored.userID !== userID) return undefined;
+  const held = await openForDevice(stored);
+  if (held && "privateKey" in stored && identityProtection() === "device-key") {
+    // Written raw by an earlier version: sealed now, only while the record still holds that copy.
+    const upgraded = await sealForDevice(userID, held).catch(() => undefined);
+    if (upgraded) await updateRecord(username, (record) => (record.identity && "privateKey" in record.identity && sameBytes(record.identity.privateKey, stored.privateKey) ? { ...record, identity: upgraded } : undefined));
+  }
+  return held;
+}
+
+/** The identity this browser may use: a finished one only. */
 export async function getIdentityKey(username: string, userID: string): Promise<HeldIdentity | undefined> {
-  const db = await openDatabase();
-  const record = await new Promise<VaultRecord | undefined>((resolve, reject) => {
-    const request = db.transaction("keys").objectStore("keys").get(username);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
-  if (record?.identity?.userID !== userID) return undefined;
-  const { deviceId, publicKey, privateKey } = record.identity;
-  return { deviceId, publicKey, privateKey };
+  const held = await loadIdentityRecord(username, userID);
+  return held?.deviceId ? held : undefined;
+}
+
+/** True when this browser can keep an identity: IndexedDB opens and the signed-in account has a vault record. */
+export async function vaultReady(username: string): Promise<boolean> {
+  try { return Boolean(await readRecord(username)); } catch { return false; }
 }
 
 async function readRecord(username: string): Promise<VaultRecord | undefined> {
