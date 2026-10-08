@@ -37,11 +37,11 @@ describe("queued save drain", () => {
     }
   });
 
-  it("re-seals this browser's own legacy and waiting edits after the closure", async () => {
+  it("re-seals this browser's own legacy and waiting edits", async () => {
     const key = newContainerKey();
     const ring = new Map([[2, key]]);
     const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
-    const closed: KeyFloor = { shared: 2, generation: 2, closed: 2 };
+    const closed: KeyFloor = { shared: 2, generation: 2 };
     for (const keyGeneration of [1, 0]) {
       const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", keyGeneration, owner: "usr_me", payload: await encryptNote(login, cnt, { title: "mine", body: `queued at ${keyGeneration}` }) };
       const upload = vi.fn<(save: PendingSave) => void>();
@@ -52,22 +52,11 @@ describe("queued save drain", () => {
     }
   });
 
-  it("keeps an unstamped queue entry closed: only an owner stamp marks it as this browser's", async () => {
-    const ring = new Map([[2, newContainerKey()]]);
-    const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
-    const item: PendingSave = { id: "obj", containerID: cnt, version: 1, updatedAt: "t", keyGeneration: 1, payload: await encryptNote(login, cnt, { title: "x", body: "y" }) };
-    const upload = vi.fn<(save: PendingSave) => void>();
-    await expect(drain(item, container, { shared: 2, generation: 2, closed: 2 }, ring, upload)).rejects.toThrow("no content key");
-    expect(upload).not.toHaveBeenCalled();
-    // Open: the same entry still re-seals (the drain stamps it first in practice).
-    expect(await drain(item, container, { shared: 2, generation: 2 }, ring, upload)).toBeDefined();
-  });
-
-  it("re-seals this browser's own legacy pending upload after the closure", async () => {
+  it("re-seals this browser's own legacy pending upload", async () => {
     const key = newContainerKey();
     const ring = new Map([[2, key]]);
     const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
-    const floor: KeyFloor = { shared: 2, generation: 2, closed: 2 };
+    const floor: KeyFloor = { shared: 2, generation: 2 };
     const file = { name: "a.png", type: "image/png", size: 2 };
     const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: 1, chunkBytes: 2, nextChunk: 0, payload: await encryptAttachment(login, cnt, new Uint8Array([1, 2])), metadataCiphertext: base64(await encryptAttachmentMetadata(login, cnt, file)), ...file };
     const step = await attachmentStep(job, container, floor, writeKey(container, ring, floor), ring, login);
@@ -127,12 +116,10 @@ describe("pending upload provenance", () => {
     // sealUpload stores what it just sealed; the chunk loop only advances nextChunk on that job.
     expect(main.match(/\bputUpload\([^;]*;/g)).toEqual(["putUpload(job);", "putUpload({ ...job, nextChunk });"]);
     expect(main).toMatch(/const sealed = await sealAttachment\(write, container\.id, plaintext, file\);\n.*\n\s*const job = \{[^}]*\.\.\.sealed,/);
-    // sealUpload's plaintext: the user's picked file, a re-seal of this browser's own pending upload, or the
-    // bytes the user reviewed and ticked (migrateLegacy hands the approval's copy to uploadAttachment).
+    // sealUpload's plaintext: the user's picked file, or a re-seal of this browser's own pending upload.
     const plaintexts = [...main.matchAll(/\bsealUpload\(\w+, [\w.]+, [\w.]+, ([^,]+?), /g)].map((match) => match[1]);
     expect(main.match(/\bsealUpload\(/g)).toHaveLength(plaintexts.length + 1); // + its definition
-    expect(plaintexts.sort()).toEqual(["new Uint8Array(await file.arrayBuffer())", "plaintext", "plaintext"]);
+    expect(plaintexts.sort()).toEqual(["new Uint8Array(await file.arrayBuffer())", "plaintext"]);
     expect(main).toMatch(/resealUpload\(job, container, step\.plaintext, step\.file\)/);
-    expect(main).toContain("uploadAttachment: async (objectID, objectVersion, plaintext, file) => (await uploadPending(await sealUpload(container, objectID, objectVersion, plaintext, file))).id,");
   });
 });

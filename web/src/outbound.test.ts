@@ -4,7 +4,7 @@ import { attachmentStep, sealAttachment } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
 import { keysAllowed, newContainerKey, writeKey, type ReportedContainer } from "./keyring";
 import { confirmCheckCode, confirmTypedCheckCode, discardLinkKey, newLinkKey } from "./linking";
-import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendCommentRewrite, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
+import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
 import type { PendingUpload } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -94,26 +94,13 @@ describe("outbound ciphertext gate", () => {
     expect(() => collectLinkBundle({ ...newLinkKey() }, id)).toThrow(/ended/);
     expect(fetches).toHaveBeenCalledOnce();
   });
-
-  it("sends a comment re-seal only at the current write generation", async () => {
-    raiseFloorIn(cnt, { shared: 2, generation: 2 });
-    ring.set(2, newContainerKey());
-    // Sealed at a legacy generation, or at an older one: refused before any request.
-    for (const generation of [0, 1]) expect(() => sendCommentRewrite({ container: shared, generation }, `cmt_${"a".repeat(26)}`, "AA==")).toThrow(KeysWaitingError);
-    expect(fetches).not.toHaveBeenCalled();
-    fetches.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await sendCommentRewrite({ container: shared, generation: 2 }, `cmt_${"a".repeat(26)}`, "AA==");
-    const [path, init] = fetches.mock.calls[0] as unknown as [string, RequestInit];
-    expect(path).toBe(`/api/v1/comments/cmt_${"a".repeat(26)}`);
-    expect(JSON.parse(String(init.body))).toEqual({ bodyCiphertext: "AA==", keyGeneration: 2 });
-  });
 });
 
 describe("outbound structure", () => {
   it("only outbound.ts reaches the ciphertext upload API functions", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./api.ts", "!./outbound.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toContain("./main.tsx");
-    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|rewriteComment|updateContainer|approveLinkRequest|collectLinkRequest)\b/;
+    const raw = /\b(saveObject|uploadChunk|finalizeUpload|createUpload|createComment|updateContainer|approveLinkRequest|collectLinkRequest)\b/;
     expect(Object.entries(sources).filter(([, text]) => raw.test(text)).map(([name]) => name)).toEqual([]);
   });
 

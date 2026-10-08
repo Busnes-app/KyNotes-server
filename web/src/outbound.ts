@@ -1,4 +1,4 @@
-import { approveLinkRequest, collectLinkRequest, createComment, createUpload, finalizeUpload, rewriteComment, saveObject, updateContainer, uploadChunk, type LinkState } from "./api";
+import { approveLinkRequest, collectLinkRequest, createComment, createUpload, finalizeUpload, saveObject, updateContainer, uploadChunk, type LinkState } from "./api";
 import { base64 } from "./crypto";
 import { queuedSaveStep } from "./drain";
 import { floorOf } from "./floors";
@@ -45,10 +45,6 @@ export const sendContainerName = (sealed: Sealed, metaCiphertext: string, baseVe
 export const sendComment = (sealed: Sealed, objectID: string, bodyCiphertext: string) => {
   sendCiphertext(sealed);
   return createComment(objectID, bodyCiphertext, sealed.generation);
-};
-export const sendCommentRewrite = (sealed: Sealed, commentID: string, bodyCiphertext: string) => {
-  sendCiphertext(sealed);
-  return rewriteComment(commentID, bodyCiphertext, sealed.generation);
 };
 export const sendUploadStart = (sealed: Sealed, declaredBytes: number, expectedDigest: string) => {
   sendCiphertext(sealed);

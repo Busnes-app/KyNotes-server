@@ -27,57 +27,14 @@ export type Me = HeldIdentity & { userId: string };
  */
 export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; changed: PinChange[]; conflicts: number[]; known: KeyState };
 /**
- * What this device remembers per container: the highest generation it accepted from
- * itself or a current steward, and the SHA-256 (hex) of every key it accepted, so a
- * different key for a known generation is refused even after a reload. shared and
- * generation are the highest sharedGeneration and keyGeneration the server ever reported
- * (KeyFloor); all of it only rises.
+ * What this device remembers per container: the highest generation it accepted from itself or a
+ * current steward, the SHA-256 (hex) of every key it accepted (a different key for a known
+ * generation is refused even after a reload), and the floor. All of it only rises.
  */
-/** reopened: the user chose "Show pre-sharing items again" here (storage.ts reopenLegacy); nothing closes by itself until a user close clears it. */
-export type KeyState = KeyFloor & { mark: number; digests: Record<number, string>; reopened?: true };
-/**
- * The highest sharedGeneration and keyGeneration this device has seen for a container; absent is 0.
- * closed: the shared generation at which this device stopped opening the container's legacy rows
- * with the login key (observe.ts closeLegacy); absent or 0 is open. All three only rise, except
- * that the user may reopen closed (storage.ts reopenLegacy, with a ReopenConfirmation).
- */
-export type KeyFloor = { shared?: number; generation?: number; closed?: number };
+export type KeyState = KeyFloor & { mark: number; digests: Record<number, string> };
+/** The highest sharedGeneration and keyGeneration this device has seen for a container; absent is 0. Only rises. */
+export type KeyFloor = { shared?: number; generation?: number };
 
-/**
- * The one closure decision (legacyKeys reads it too): undefined or 0 is open, a positive safe
- * integer is that closure, and anything else is malformed and fails closed, as 1.
- */
-export const closedOf = (floor: KeyFloor | undefined): number => {
-  const closed = floor?.closed;
-  if (closed === undefined || closed === 0) return 0;
-  return Number.isSafeInteger(closed) && closed > 0 ? closed : 1;
-};
-
-/** Unused confirmations; consuming one removes it, so a kept object never reopens twice. */
-const reopenConfirmations = new WeakSet<ReopenConfirmation>();
-let mintReopen: (userID: string, containerID: string) => ReopenConfirmation;
-/** Proof one user confirmed "Show pre-sharing items again" for one container; only confirmReopenLegacy makes one. */
-export class ReopenConfirmation {
-  private declare readonly brand: true; // nominal: look-alike objects do not type-check
-  static {
-    mintReopen = (userID, containerID) => {
-      // Frozen: a holder cannot re-target it at another user or container.
-      const confirmation = new ReopenConfirmation(userID, containerID);
-      Object.freeze(confirmation);
-      reopenConfirmations.add(confirmation);
-      return confirmation;
-    };
-  }
-  private constructor(readonly userID: string, readonly containerID: string) {}
-}
-/** Call only from the user's own confirm of "Show pre-sharing items again" (LegacyReview; keyring.test.ts checks the callers). */
-export const confirmReopenLegacy = (userID: string, containerID: string): ReopenConfirmation => mintReopen(userID, containerID);
-export const isReopenConfirmation = (value: unknown, userID: string, containerID: string): value is ReopenConfirmation =>
-  typeof value === "object" && value !== null && reopenConfirmations.has(value as ReopenConfirmation) &&
-  (value as ReopenConfirmation).userID === userID && (value as ReopenConfirmation).containerID === containerID;
-/** Single use: true once for an unused confirmation of this user and container, false ever after. */
-export const consumeReopenConfirmation = (value: unknown, userID: string, containerID: string): boolean =>
-  isReopenConfirmation(value, userID, containerID) && reopenConfirmations.delete(value);
 /** For containers this device never tracks (a container this tab has not loaded a floor for). */
 export const NO_FLOOR: KeyFloor = {};
 
@@ -85,12 +42,9 @@ export const NO_FLOOR: KeyFloor = {};
 export const raiseFloor = <T extends KeyFloor>(floor: T, container: KeyedContainer): T =>
   ({ ...floor, shared: Math.max(floor.shared ?? 0, container.sharedGeneration), generation: Math.max(floor.generation ?? 0, container.keyGeneration) });
 
-/** Add-only merge of a floor into this device's in-memory one: no field ever falls, and a malformed closure keeps the old one. */
-export const mergeFloor = <T extends KeyFloor>(floor: KeyFloor | undefined, next: T): T => {
-  const { closed: _, ...rest } = next;
-  const closed = Math.max(closedOf(floor), closedOf(next));
-  return { ...rest, shared: Math.max(floor?.shared ?? 0, next.shared ?? 0), generation: Math.max(floor?.generation ?? 0, next.generation ?? 0), ...(closed ? { closed } : {}) } as T;
-};
+/** Add-only merge of a floor into this device's in-memory one: no field ever falls. Only the two generations survive. */
+export const mergeFloor = <T extends KeyFloor>(floor: KeyFloor | undefined, next: T): T =>
+  ({ shared: Math.max(floor?.shared ?? 0, next.shared ?? 0), generation: Math.max(floor?.generation ?? 0, next.generation ?? 0) }) as T;
 
 /**
  * The one choke point for a server-reported container: sharing state never goes backwards on
@@ -228,35 +182,24 @@ export const waitingKey = (identity: Pick<Identity, "privateKey">): KeyRef =>
   hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1"));
 
 /**
- * The login-derived key for a legacy row, or none once this device closed legacy reads for the
- * container: the server can derive that key, so after the closure no server row opens with it.
- */
-export const legacyKeys = (floor: KeyFloor, legacy: KeyRef): KeyRef[] => (closedOf(floor) === 0 ? [legacy] : []);
-
-/**
  * The one key a server row may be read with. Rows at or above sharedGeneration open only with
  * their own generation's CK, so neither a relabelled legacy row nor a removed member's older CK
- * can stand in for a newer generation. Older rows, and never-shared containers, use the login key
- * until this device closes legacy reads (legacyKeys). Callers label such rows (legacyRow) and
- * re-seal them only on an explicit edit, move or review (migration.ts).
+ * can stand in for a newer generation. Older rows, and never-shared containers, use the login key.
+ * Callers label such rows (legacyRow) and re-seal them only on an explicit edit or move.
  */
 export function readKeys(container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor): KeyRef[] {
   // A never-shared container has only the legacy key, so a row without a generation (old cache) still reads.
-  if (sharedFloor(container, floor) === 0) return legacyKeys(floor, legacy);
+  if (sharedFloor(container, floor) === 0) return [legacy];
   // The same decision labels the row, so a row read with the legacy key is always labelled.
-  if (legacyRow(container, generation, floor)) return legacyKeys(floor, legacy);
+  if (legacyRow(container, generation, floor)) return [legacy];
   if (generation === undefined || !Number.isInteger(generation)) return [];
   const key = ring.get(generation);
   return key ? [key] : [];
 }
 
-/**
- * readKeys for an entry this browser wrote to IndexedDB itself (queued saves, pending uploads, cached
- * copies). The server cannot write those, so the closure, which guards server rows, does not apply, and
- * a waiting entry may try the identity's waiting key before the login key (older entries).
- */
+/** readKeys for an entry this browser wrote to IndexedDB itself; a waiting entry may try the identity's waiting key first. */
 export const localReadKeys = (container: Pick<KeyedContainer, "sharedGeneration">, ring: Keyring, legacy: KeyRef, generation: number | undefined, floor: KeyFloor, waiting?: KeyRef): KeyRef[] => {
-  const keys = readKeys(container, ring, legacy, generation, { ...floor, closed: 0 });
+  const keys = readKeys(container, ring, legacy, generation, floor);
   return generation === WAITING_GENERATION && waiting ? [waiting, ...keys] : keys;
 };
 

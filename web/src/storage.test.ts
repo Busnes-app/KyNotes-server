@@ -1,13 +1,10 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, closeLegacyStored, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, reopenLegacy, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
-import { confirmReopenLegacy, ReopenConfirmation, type KeyState } from "./keyring";
-import { clearFloors, raiseFloorIn } from "./floors";
-import { mayAutoClose } from "./migration";
-import { closeLegacy } from "./observe";
+import type { KeyState } from "./keyring";
 import type { CachedNote, PendingSave } from "./storage";
 
 const shared = indexedDB;
@@ -149,89 +146,19 @@ describe("pin and key-mark writes never downgrade", () => {
     expect(await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 0, generation: 1 })).toBe(true);
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ shared: 2, generation: 3 });
   });
-  it("keeps the legacy closure add-only, and only closeLegacyStored raises it", async () => {
+  it("key memory keeps only generations, mark and digests", async () => {
     await storeDeviceKey("alice", "a".repeat(64));
-    // A key-memory write never sets a closure, whatever it carries.
-    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 2, closed: 2 });
-    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("closed");
-    expect(await closeLegacyStored("alice", userID, cnt, 2, false)).toBe("closed");
-    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3 });
-    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 2, generation: 3, closed: 0 });
-    expect(await closeLegacyStored("alice", userID, cnt, 1, false)).toBe("closed");
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2, generation: 3 });
+    await storeKeyState("alice", "usr_0123456789abcdefghjkmnpqrs", cnt, { mark: 2, digests: { 2: "aa" }, shared: 2, generation: 2, closed: 2, reopened: true } as KeyState);
+    expect(await getKeyState("alice", "usr_0123456789abcdefghjkmnpqrs", cnt)).toEqual({ mark: 2, digests: { 2: "aa" }, shared: 2, generation: 2 });
   });
 
-  it("lowers the legacy closure only through a reopen confirmation for that container", async () => {
+  it("ignores a closure and reopen mark an older build stored, and drops them on the next write", async () => {
     await storeDeviceKey("alice", "a".repeat(64));
-    await storeKeyState("alice", userID, cnt, { mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
-    await closeLegacyStored("alice", userID, cnt, 2, false);
-    const otherUser = "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz";
-    for (const forged of [{ userID, containerID: cnt }, Object.create(ReopenConfirmation.prototype), confirmReopenLegacy(userID, `cnt_${"b".repeat(26)}`), confirmReopenLegacy(otherUser, cnt), undefined])
-      expect(await reopenLegacy("alice", userID, cnt, forged as ReopenConfirmation)).toBe(false);
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
-    const confirmed = confirmReopenLegacy(userID, cnt);
-    expect(await reopenLegacy("alice", userID, cnt, confirmed)).toBe(true);
-    // Back to the pre-closure state, marked reopened; the rest of the key memory is untouched.
-    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3, reopened: true });
-    // Closing again sticks, and the kept confirmation cannot reopen a second time.
-    await closeLegacyStored("alice", userID, cnt, 2, false);
-    expect(await reopenLegacy("alice", userID, cnt, confirmed)).toBe(false);
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
-  });
-
-  it("keeps a reopen across reloads, tabs and key-memory writes; only a user's close clears it (I1, M1)", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
-    const tab = () => mayAutoClose(() => getKeyState("alice", userID, cnt)); // what any tab's check reads, after any reload
-    await closeLegacyStored("alice", userID, cnt, 2, false);
-    expect(await reopenLegacy("alice", userID, cnt, confirmReopenLegacy(userID, cnt))).toBe(true);
-    expect(await tab()).toBe(false);
-    // Key passes and observed floors keep the mark, even one carrying a stale closure; a write cannot set it.
-    await storeKeyState("alice", userID, cnt, { mark: 2, digests: { 2: "d2" }, shared: 2, generation: 3, closed: 2 });
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ reopened: true, generation: 3 });
-    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("closed");
-    // An automatic close is refused in the closing transaction, even after a check that read no mark (M1).
-    expect(await closeLegacyStored("alice", userID, cnt, 2, true)).toBe("reopened");
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ reopened: true });
-    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("closed");
-    // "Stop opening pre-sharing items" (closeLegacy) clears it.
-    clearFloors();
-    raiseFloorIn(cnt, { shared: 2, generation: 3 });
-    expect(await closeLegacy({ close: (id, closed, auto) => closeLegacyStored("alice", userID, id, closed, auto) }, cnt)).toBe("closed");
-    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("reopened");
-    expect(await tab()).toBe(true);
-    clearFloors();
-    await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, reopened: true } as KeyState);
-    expect(await getKeyState("alice", userID, cnt)).not.toHaveProperty("reopened");
-    expect(await mayAutoClose(() => Promise.reject(new Error("IndexedDB")))).toBe(false);
-  });
-
-  it("closes and reopens on a browser with no vault record by creating one that holds no device key (I4)", async () => {
-    expect(await getDeviceKey("alice")).toBeUndefined();
-    expect(await closeLegacyStored("alice", userID, cnt, 2, true)).toBe("closed");
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ closed: 2 });
-    expect(await reopenLegacy("alice", userID, cnt, confirmReopenLegacy(userID, cnt))).toBe(true);
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ reopened: true });
-    expect(await closeLegacyStored("alice", userID, cnt, 2, true)).toBe("reopened");
-    // The record it made is not a device key: no quick sign-in, and no identity is kept in it.
-    expect(await getDeviceKey("alice")).toBeUndefined();
-    expect(await vaultReady("alice")).toBe(false);
-    expect(await storeIdentityKey("alice", userID, held)).toBe(false);
-    // A later sign-in adds the device key beside the closure state.
-    await storeDeviceKey("alice", "a".repeat(64));
-    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ reopened: true });
-    expect(await vaultReady("alice")).toBe(true);
-  });
-
-  it("never closes by itself where IndexedDB is unusable (I4)", async () => {
-    const real = globalThis.indexedDB;
-    vi.stubGlobal("indexedDB", undefined);
-    try {
-      expect(await closeLegacyStored("alice", userID, cnt, 2, true)).toBe("unsaved");
-      expect(await reopenLegacy("alice", userID, cnt, confirmReopenLegacy(userID, cnt))).toBe(false);
-      expect(await mayAutoClose(() => getKeyState("alice", userID, cnt))).toBe(false);
-    } finally {
-      vi.stubGlobal("indexedDB", real);
-    }
+    const row = await vaultRow("alice");
+    await putVaultRow({ ...row, keyStates: { userID, byContainer: { [cnt]: { mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3, closed: 2, reopened: true } } } });
+    expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
+    await storeKeyState("alice", userID, cnt, { mark: 1, digests: {} });
+    expect((await vaultRow("alice"))?.keyStates.byContainer[cnt]).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
   });
 });
 
