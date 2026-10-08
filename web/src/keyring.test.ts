@@ -425,6 +425,13 @@ describe("key floors", () => {
     const merged = mergeFloor({ shared: 2, generation: 3, closed: 2 } as KeyFloor, { shared: 2, generation: 4 });
     expect(merged).toEqual({ shared: 2, generation: 4 });
   });
+
+  it("drops a stale field on either side: a merge holds only shared and generation", () => {
+    const stale = { shared: 3, generation: 5, closed: 2, reopened: true } as KeyFloor;
+    for (const merged of [mergeFloor({ shared: 2, generation: 4 }, stale), mergeFloor(stale, stale), mergeFloor(undefined, stale)])
+      expect(Object.keys(merged).sort()).toEqual(["generation", "shared"]);
+    expect(mergeFloor({ shared: 2, generation: 4 }, stale)).toEqual({ shared: 3, generation: 5 });
+  });
 });
 
 describe("key decisions read no server claim about kind", () => {
