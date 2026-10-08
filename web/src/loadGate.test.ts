@@ -23,6 +23,8 @@ describe("main.tsx load wiring", () => {
   it("decides superseded loads by ticket, never by notebook ID", () => {
     const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
     expect(main).toMatch(/loads\.begin\(\)/);
+    // The key pass of a superseded load opens no fingerprint prompt and sets no error.
+    expect(main).toMatch(/syncKeys\(container, false, superseded\)\.catch\(\(error\) => \{\n\s+if \(!superseded\(\)\) setError/);
     expect(main).not.toMatch(/loadingContainerID\.current !== container\.id/);
     expect(main).not.toMatch(/if \(loadingContainerID\.current === container\.id\)/);
   });

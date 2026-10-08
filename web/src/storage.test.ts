@@ -99,6 +99,12 @@ describe("pin and key-mark writes never downgrade", () => {
     const forged = Object.assign(Object.create(PinConfirmation.prototype), { userId: "usr_b", key: key(9), pins: {} });
     expect(await storeConfirmedPin("alice", userID, forged)).toBe(false);
     expect((await getPins("alice", userID)).usr_b).toBe(key(7));
+    // With an expected previous pin, the replacement happens only while that pin is still stored.
+    const next = { ...member, identity: { deviceId: "dev", publicKey: key(10) } };
+    expect(await storeConfirmedPin("alice", userID, confirmFingerprintChange({}, next), key(6))).toBe(false);
+    expect((await getPins("alice", userID)).usr_b).toBe(key(7));
+    expect(await storeConfirmedPin("alice", userID, confirmFingerprintChange({}, next), key(7))).toBe(true);
+    expect((await getPins("alice", userID)).usr_b).toBe(key(10));
   });
   it("keeps the highest key mark and first key digests per container, and reports when it cannot", async () => {
     expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: {} })).toBe(false);

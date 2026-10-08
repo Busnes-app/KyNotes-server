@@ -5,7 +5,8 @@ const databaseName = "kynotes-web";
 const storeName = "notes";
 
 export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
-export type PendingSave = CachedNote;
+/** owner: the user ID that queued it; absent on entries queued before stamping. */
+export type PendingSave = CachedNote & { owner?: string };
 export type PendingUpload = { uploadId: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -212,7 +213,8 @@ async function readRecord(username: string): Promise<VaultRecord | undefined> {
 }
 
 /** Read-modify-write of an existing vault record in one transaction. False: nothing kept (no record, no IndexedDB). */
-async function updateRecord(username: string, change: (record: VaultRecord) => VaultRecord): Promise<boolean> {
+/** change returning undefined leaves the record as it is, and the result is false. */
+async function updateRecord(username: string, change: (record: VaultRecord) => VaultRecord | undefined): Promise<boolean> {
   try {
     const db = await openDatabase();
     const kept = await new Promise<boolean>((resolve, reject) => {
@@ -222,7 +224,8 @@ async function updateRecord(username: string, change: (record: VaultRecord) => V
       const read = store.get(username);
       read.onsuccess = () => {
         const record = read.result as VaultRecord | undefined;
-        if (record) { found = true; store.put(change(record)); }
+        const next = record && change(record);
+        if (next) { found = true; store.put(next); }
       };
       transaction.oncomplete = () => resolve(found);
       transaction.onerror = () => reject(transaction.error);
@@ -277,10 +280,18 @@ export async function storePins(username: string, userID: string, keys: Pins): P
   }
 }
 
-/** Replaces one pin; only a confirmFingerprintChange result is accepted. */
-export async function storeConfirmedPin(username: string, userID: string, confirmation: PinConfirmation): Promise<boolean> {
+/**
+ * Replaces one pin; only a confirmFingerprintChange result is accepted. With expected, only while
+ * the stored pin is still that key (the "was" the user saw), checked in the same transaction.
+ */
+export async function storeConfirmedPin(username: string, userID: string, confirmation: PinConfirmation, expected?: string): Promise<boolean> {
   if (!isPinConfirmation(confirmation)) return false;
-  return updateRecord(username, (record) => ({ ...record, pins: { userID, keys: { ...pinsOf(record, userID), [confirmation.userId]: confirmation.key } } }));
+  return updateRecord(username, (record) => {
+    const keys = pinsOf(record, userID);
+    const stored = keys[confirmation.userId];
+    if (expected !== undefined && (stored === undefined || !sameKey(stored, expected))) return undefined;
+    return { ...record, pins: { userID, keys: { ...keys, [confirmation.userId]: confirmation.key } } };
+  });
 }
 
 const statesOf = (record: VaultRecord, userID: string): Record<string, KeyState> => (record.keyStates?.userID === userID ? record.keyStates.byContainer : {});

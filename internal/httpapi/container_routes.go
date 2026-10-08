@@ -33,8 +33,16 @@ func ContainerRoutes(mux *http.ServeMux, db *sql.DB) {
 			var id, kind, teamID string
 			var meta []byte
 			var version, seq, generation, shared int64
-			_ = rows.Scan(&id, &kind, &teamID, &meta, &version, &seq, &generation, &shared)
+			if e := rows.Scan(&id, &kind, &teamID, &meta, &version, &seq, &generation, &shared); e != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 			out = append(out, map[string]any{"id": id, "kind": kind, "teamId": teamID, "metaCiphertext": base64.StdEncoding.EncodeToString(meta), "metaVersion": version, "changeSeq": seq, "keyGeneration": generation, "sharedGeneration": shared})
+		}
+		// A 200 is the complete list: clients treat a notebook missing from it as lost.
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))

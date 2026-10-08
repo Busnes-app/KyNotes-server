@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { userIdentity } from "../api";
 import type { PublicIdentity } from "../identity";
+import { loadGate } from "../loadGate";
 import { confirmFingerprintChange, fingerprint, pinLabel, pinRows, retrustMessage, retrustTarget, type PinRow } from "../pins";
 import { getPins, storeConfirmedPin } from "../storage";
 
@@ -18,19 +19,23 @@ export function PinnedKeys({ username, userID, names }: { username: string; user
   const [rows, setRows] = useState<Shown[] | undefined>(undefined);
   const [problem, setProblem] = useState("");
   const nameOf = (row: Shown) => names[row.userId] ?? row.userId;
+  // The newest load wins: a slower earlier one, or one for the previous account, writes nothing.
+  const loads = useMemo(loadGate, []);
   async function load() {
+    const { superseded } = loads.begin();
     try {
       const pins = await getPins(username, userID);
       // ponytail: one identity request per pin. Upgrade: a batch identity route.
       const seen: Record<string, PublicIdentity | undefined> = Object.fromEntries(await Promise.all(Object.keys(pins).map(async (id) => [id, await userIdentity(id).catch(() => undefined)] as const)));
       const current = Object.fromEntries(Object.entries(seen).map(([id, identity]) => [id, identity?.publicKey]));
-      setRows(await Promise.all(pinRows(pins, current).map(async (row) => ({
+      const shown = await Promise.all(pinRows(pins, current).map(async (row) => ({
         ...row,
         pinnedPrint: await print(row.pinned),
         currentPrint: row.current === undefined ? undefined : await print(row.current),
-      }))));
+      })));
+      if (!superseded()) setRows(shown);
     } catch {
-      setProblem("This browser could not read the colleague keys it saved.");
+      if (!superseded()) setProblem("This browser could not read the colleague keys it saved.");
     }
   }
   useEffect(() => { void load(); }, [username, userID]);
@@ -46,9 +51,11 @@ export function PinnedKeys({ username, userID, names }: { username: string; user
     if (!confirm(retrustMessage({ userId: row.userId, name: nameOf(row), newPrint: row.currentPrint, oldPrint: row.pinnedPrint }))) return;
     try {
       const confirmation = confirmFingerprintChange(await getPins(username, userID), target);
-      if (!(await storeConfirmedPin(username, userID, confirmation))) throw new Error("not stored");
+      // Only while the stored pin is still the "Was" key shown.
+      if (!(await storeConfirmedPin(username, userID, confirmation, row.pinned))) throw new Error("not stored");
     } catch {
-      setProblem("This browser could not save the new key. Allow site storage and try again.");
+      setProblem("The new key was not saved: the saved key changed meanwhile, or this browser cannot store it. Check the keys shown now.");
+      await load();
       return;
     }
     setProblem("");

@@ -762,15 +762,16 @@ function Workspace({
   /**
    * Loads this browser's keys for a team container and, as its owner or admin, shares them.
    * Returns it at its current generation. A background pass never opens a dialog: a changed
-   * colleague key is only reported until the user opens the notebook.
+   * colleague key is only reported until the user opens the notebook. A superseded load's pass
+   * (the user moved on) is treated as background from then on.
    */
-  async function syncKeys(container: Container, background = false): Promise<Container> {
+  async function syncKeys(container: Container, background = false, superseded: () => boolean = () => false): Promise<Container> {
     // Every container's floor is loaded first. Personal notebooks keep the login key until P5,
     // unless the server or this device says shared.
     await ensureFloor(container);
     if (!needsKeyPass(container)) return container;
     return serialized(container.id, async () => {
-      const confirmChanged = background ? () => false : confirmChangedKeys(container.id);
+      const confirmChanged = background ? () => false : (changes: PinChange[]) => !superseded() && confirmChangedKeys(container.id)(changes);
       const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
       putRing(container.id, result.ring);
       raiseFloorIn(container.id, result.known);
@@ -780,7 +781,7 @@ function Workspace({
       if (result.minted) [next, renamed] = await resealName(next);
       // Pins a failed save did not keep are not announced.
       const fresh = [...(unannounced.current[container.id] ?? []), ...(result.plan.kind === "pins-unsaved" ? [] : result.fresh)];
-      if ((loadingContainerID.current ?? selectedRef.current?.id) === container.id) {
+      if (!superseded() && (loadingContainerID.current ?? selectedRef.current?.id) === container.id) {
         delete unannounced.current[container.id];
         setKeyNotice([await keyNoticeFor(result, fresh, !background), renamed].filter(Boolean).join(" "));
       } else {
@@ -1243,8 +1244,8 @@ function Workspace({
     setKeyNotice("");
     try {
       // Keys first: an owner may mint or re-mint here, and reads need the current generation.
-      const keyed = await syncKeys(container).catch((error) => {
-        setError(error instanceof Error ? `Unable to share this notebook's keys: ${error.message}` : "Unable to share this notebook's keys");
+      const keyed = await syncKeys(container, false, superseded).catch((error) => {
+        if (!superseded()) setError(error instanceof Error ? `Unable to share this notebook's keys: ${error.message}` : "Unable to share this notebook's keys");
         return container;
       });
       if (superseded()) return [];
@@ -1477,7 +1478,7 @@ function Workspace({
       await cacheWrite(() => putNote({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
-        await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation });
+        await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id });
         setSyncStatus("local");
         setError("Saved on this device only. It is sent once a team owner shares this notebook's keys; until then, do not clear this browser's data.");
         return note;
@@ -1512,7 +1513,7 @@ function Workspace({
           setSyncStatus("attention");
           setError("This note changed on another device. Your encrypted draft is preserved locally; review the conflict before saving again.");
         } else {
-          await queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation });
+          await queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id });
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
@@ -1659,7 +1660,7 @@ function Workspace({
     const containerID = selected.id;
     await cacheWrite(() => putNote({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
     if (write.generation === WAITING_GENERATION) {
-      await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation });
+      await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id });
       setSyncStatus("local");
       setError("Saved on this device only. It is sent once a team owner shares this notebook's keys; until then, do not clear this browser's data.");
       return null;
@@ -1676,7 +1677,7 @@ function Workspace({
         setSyncStatus("attention");
         setError("This item changed on another device. Reopen the notebook before changing it again.");
       } else {
-        await queueSave({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation });
+        await queueSave({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id });
         syncChannel.current?.postMessage({ type: "queued", id });
         setSyncStatus("local");
         if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
