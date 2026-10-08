@@ -78,9 +78,9 @@ const clean = (text: string) => {
   const chars = [...text.replace(unsafe, " ").replace(/\s+/g, " ").trim()];
   return chars.length > 64 ? `${chars.slice(0, 63).join("")}…` : chars.join("");
 };
-/** A server-supplied name for trust prompts and key notices: one plain line, tied to the user ID. */
+/** A server-supplied name for trust prompts and key notices: the user ID first, so a name cannot pose as it. */
 export function displayName(username: string, userId: string): string {
-  return `${clean(username) || "(no name)"} (${clean(userId)})`;
+  return `${clean(userId)} · ${clean(username) || "(no name)"}`;
 }
 
 /** Computed locally from the key, never taken from the server: SHA-256, hex in groups of four. */

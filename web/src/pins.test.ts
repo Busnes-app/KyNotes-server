@@ -44,11 +44,17 @@ describe("displayName", () => {
   it("keeps a spoofed fingerprint line and bidi override out of trust prompts", () => {
     const spoof = "mallory\n\nalice: 1a2b 3c4d (was 1a2b 3c4d)\u2028bob\u202Eevil\u2066x\u0085";
     const shown = displayName(spoof, id);
-    expect(shown).toBe(`mallory alice: 1a2b 3c4d (was 1a2b 3c4d) bob evil x (${id})`);
+    expect(shown).toBe(`${id} · mallory alice: 1a2b 3c4d (was 1a2b 3c4d) bob evil x`);
     expect(shown).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/);
   });
   it("caps the name and tags the user ID", () => {
-    expect(displayName("a".repeat(200), id)).toBe(`${"a".repeat(63)}… (${id})`);
-    expect(displayName("\u202E\n", "usr\nx")).toBe("(no name) (usr x)");
+    expect(displayName("a".repeat(200), id)).toBe(`${id} · ${"a".repeat(63)}…`);
+    expect(displayName("\u202E\n", "usr\nx")).toBe("usr x · (no name)");
+  });
+  it("puts the real ID before a name that fakes one", () => {
+    const fake = `usr_${"a".repeat(26)}`;
+    const shown = displayName(`Alice (${fake})`, id);
+    expect(shown).toBe(`${id} · Alice (${fake})`);
+    expect(shown.startsWith(`${id} · `)).toBe(true);
   });
 });
