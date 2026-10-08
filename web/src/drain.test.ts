@@ -54,7 +54,7 @@ describe("queued save drain", () => {
     const container = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
     const floor: KeyFloor = { shared: 2, generation: 2 };
     const file = { name: "a.png", type: "image/png", size: 2 };
-    const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 2, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, new Uint8Array([1, 2])), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
+    const job: PendingUpload = { uploadId: "upl", owner: "usr_me", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 2, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, new Uint8Array([1, 2])), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
     const step = await attachmentStep(job, container, floor, writeKey(container, ring, floor), ring, waiting);
     expect(step).toMatchObject({ kind: "reseal", file });
     if (step.kind === "reseal") expect(step.plaintext).toEqual(new Uint8Array([1, 2]));

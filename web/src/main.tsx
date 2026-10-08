@@ -914,7 +914,7 @@ function Workspace({
       const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
       const result = await sendContainerName({ container: latest, generation: write.generation }, encoded, latest.metaVersion);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
-      // Visible on purpose: a name read with a key the server can derive now reaches every member (spec §6).
+      // Visible on purpose: members see the name re-sealed under the new key.
       return [{ ...current, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq }, others ? `Sealed this notebook's name with its key: ${name}.` : ""];
     } catch {
       return [container, others ? "This notebook's name could not be shared with its members yet. Rename it to try again." : "This notebook's name could not be sealed with its key yet. Rename it to try again."];
@@ -2105,7 +2105,7 @@ function Workspace({
     if (!write) throw new KeysWaitingError();
     const sealed = await sealAttachment(write, container.id, plaintext, file);
     const upload = await sendUploadStart({ container, generation: sealed.keyGeneration }, sealed.payload.byteLength, await digestSha256Hex(sealed.payload));
-    const job = { uploadId: upload.uploadId, containerID: container.id, objectID, objectVersion, ...sealed, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, name: file.name, type: file.type, size: file.size };
+    const job = { uploadId: upload.uploadId, owner: auth.user.id, containerID: container.id, objectID, objectVersion, ...sealed, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, name: file.name, type: file.type, size: file.size };
     await putUpload(job);
     return job;
   }
@@ -2113,12 +2113,14 @@ function Workspace({
   async function resealUpload(job: PendingUpload, container: Container, plaintext: Uint8Array, file: AttachmentFile): Promise<PendingUpload> {
     const next = await sealUpload(container, job.objectID, job.objectVersion, plaintext, file);
     await deleteUpload(job.uploadId).catch(() => undefined);
-    await clearUpload(job.uploadId);
+    await clearUpload(auth.user.id, job.uploadId);
     setUploadProgress((value) => { const rest = { ...value }; delete rest[job.uploadId]; return rest; });
     return next;
   }
   async function uploadPending(job: PendingUpload, tries = 0): Promise<{ id: string; keyGeneration: number }> {
     if (tries > 1) throw new KeysWaitingError();
+    // Only this account's own upload: another's could be finalized, misattributed, in a notebook both share.
+    if (job.owner !== auth.user.id) throw new Error("This upload belongs to another account.");
     // Before the first chunk: the job must still be sealed for this notebook's current key and floor.
     const container = await syncKeys(await currentContainer(job.containerID), true);
     const step = await attachmentStep(job, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, waitingRef.current);
@@ -2147,7 +2149,7 @@ function Workspace({
       return uploadPending(job, tries + 1);
     }
     await attachToObject(job.objectID, finalized.attachmentId, job.objectVersion);
-    await clearUpload(job.uploadId);
+    await clearUpload(auth.user.id, job.uploadId);
     setUploadProgress((value) => { const next = { ...value }; delete next[job.uploadId]; return next; });
     return { id: finalized.attachmentId, keyGeneration: job.keyGeneration };
   }
@@ -2155,7 +2157,7 @@ function Workspace({
     if (drainingUploads.current) return;
     drainingUploads.current = true;
     try {
-      for (const job of await pendingUploads()) {
+      for (const job of await pendingUploads(auth.user.id)) {
         try {
           await uploadPending(job);
           setError(`Attachment uploaded: ${job.name}`);
@@ -2170,12 +2172,12 @@ function Workspace({
   async function cancelAttachmentUpload(uploadId: string) {
     cancelledUploads.current.add(uploadId);
     try { await deleteUpload(uploadId); } catch { /* The server may already have expired it. */ }
-    await clearUpload(uploadId);
+    await clearUpload(auth.user.id, uploadId);
     setUploadProgress((value) => { const next = { ...value }; delete next[uploadId]; return next; });
   }
   async function retryAttachmentUpload(uploadId: string) {
     cancelledUploads.current.delete(uploadId);
-    const job = (await pendingUploads()).find((entry) => entry.uploadId === uploadId);
+    const job = (await pendingUploads(auth.user.id)).find((entry) => entry.uploadId === uploadId);
     if (!job) return;
     try { await uploadPending(job); } catch { setError(`Attachment waiting to resume: ${job.name}`); }
   }
@@ -3324,7 +3326,7 @@ function SettingsView({
   async function exportWaiting(): Promise<number> {
     const queued = (await pendingSaves()).filter((item) => item.owner === userID);
     if (!queued.length) return 0;
-    const file = await exportUnsent(queued, (item) => openFirst(keysFor(item as PendingSave), (key) => decryptObject(key, item.containerID, item.payload)));
+    const file = await exportUnsent(queued, (item) => openFirst(keysFor(item), (key) => decryptObject(key, item.containerID, item.payload)));
     downloadFile("kynotes-unsent-edits.json", file.json, "application/json");
     return queued.length - file.unreadable;
   }

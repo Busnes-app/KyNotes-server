@@ -1,5 +1,5 @@
 import { bytesToHex } from "@noble/ciphers/utils.js";
-import { base64 } from "./crypto";
+import { base64, type KeyRef } from "./crypto";
 import { sha256 } from "./fallbackCrypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import type { Invitation } from "./api";
@@ -161,7 +161,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
     pins = opened.pins;
-    const seal = (member: MemberKey, generation: number, key: Uint8Array) => {
+    const seal = (member: MemberKey, generation: number, key: KeyRef) => {
       const sealed = sealFor(member, container.id, generation, key, me!, pins);
       pins = sealed.pins;
       fresh.push(...sealed.fresh);

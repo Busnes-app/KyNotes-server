@@ -16,7 +16,7 @@ const person = (name: string, c: string, role = "editor") => {
 const open = (mark: number, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Record<string, string>, held?: Map<number, KeyRef>, digests: Record<number, string> = {}) =>
   openKeyring({ containerID: cnt, envelopes, me, members, pins, known: { mark, digests }, held });
 /** An envelope sealed with no pins in play. */
-const seal = (member: MemberKey, generation: number, key: Uint8Array, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
+const seal = (member: MemberKey, generation: number, key: KeyRef, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
 
 describe("keyring", () => {
   it("opens only this identity's envelopes, by generation, and skips rows it cannot open", () => {

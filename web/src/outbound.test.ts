@@ -34,7 +34,7 @@ describe("outbound ciphertext gate", () => {
   it("sends no chunk of a waiting pending upload, and re-seals it for the current key once that arrives", async () => {
     const plaintext = new Uint8Array([1, 2, 3, 4]);
     // Started while this browser had no key: sealed with the identity's waiting key.
-    const job: PendingUpload = { uploadId: "upl", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
+    const job: PendingUpload = { uploadId: "upl", owner: "usr_me", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     // Keys missing: the resume waits, and the gate refuses the stored chunk outright.
     expect((await attachmentStep(job, shared, floorOf(cnt), undefined, ring, waiting)).kind).toBe("wait");

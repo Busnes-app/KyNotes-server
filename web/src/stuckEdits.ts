@@ -17,7 +17,7 @@ export const unsentEdits = (queued: PendingSave[], live: ReadonlySet<string> | u
   stuckSaves(queued.filter((item) => item.owner === owner), live);
 
 /** A JSON export of the edits open() reads; the rest are counted, never guessed at. */
-export async function exportUnsent(items: CachedNote[], open: (item: CachedNote) => Promise<unknown>): Promise<{ json: string; unreadable: number }> {
+export async function exportUnsent<T extends CachedNote>(items: T[], open: (item: T) => Promise<unknown>): Promise<{ json: string; unreadable: number }> {
   const out: Array<{ id: string; notebook: string; updatedAt: string; content: unknown }> = [];
   let unreadable = 0;
   for (const item of items) {

@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { sha256 } from "./fallbackCrypto";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { base64 } from "./crypto";
+import { base64, type KeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";
@@ -399,7 +399,7 @@ describe("keys from a refused first-contact sender", () => {
   it("are never returned, remembered or accepted later when a concurrent pass pinned another key", async () => {
     const owner = user("owner", "b", "owner"), forged = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
     expect(forged.public!.deviceId).toBe(owner.public!.deviceId); // the server swaps only the key
-    const view = (sender: User, key: Uint8Array): KeyAPI => {
+    const view = (sender: User, key: KeyRef): KeyAPI => {
       const envelope = sealFor({ ...editor.member, identity: editor.public }, cnt, 2, key, { ...sender.held!, userId: owner.member.userId }, {}).envelope;
       return {
         container: async () => ({ id: cnt, keyGeneration: 2, sharedGeneration: 2 }),

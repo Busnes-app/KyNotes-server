@@ -240,7 +240,7 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
  * and returned in fresh (persist pins, surface fresh); a changed key throws
  * FingerprintChangedError.
  */
-export function sealFor(member: MemberKey, containerID: string, generation: number, key: Uint8Array, me: Me, pins: Pins): { envelope: Envelope; pins: Pins; fresh: MemberKey[] } {
+export function sealFor(member: MemberKey, containerID: string, generation: number, key: KeyRef, me: Me, pins: Pins): { envelope: Envelope; pins: Pins; fresh: MemberKey[] } {
   const identity = member.identity!;
   const recipient = publicKeyBytes(identity.publicKey);
   let next = pins;

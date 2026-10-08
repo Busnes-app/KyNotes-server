@@ -7,11 +7,39 @@ const all = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}"
 const sources = Object.entries(all).map(([file, text]) => ({ file: file.slice(2), text }));
 const using = (pattern: RegExp) => sources.filter(({ text }) => pattern.test(text)).map(({ file }) => file).sort();
 
+/**
+ * Casts that can push raw bytes past the KeyRef brand: as KeyRef, <KeyRef>, as never, as any, as unknown as,
+ * as Parameters<…>, or an alias of KeyRef. Each allowed line is named with its file; none of them carries a key.
+ */
+const BYPASS = /\bas\s+(?:KeyRef|never|any|unknown\s+as|Parameters\s*<)|(?<![\w.])<\s*KeyRef\s*>|\btype\s+\w+\s*=\s*KeyRef\b/;
+const ALLOWED_CASTS = new Set([
+  "crypto.ts: return bytes as KeyRef;", // asContentKey: the one brand-minting function
+  "crypto.ts: crypto.getRandomValues(buffer as any);", // a nonce buffer
+  "document.ts: case \"paragraph\": return [{ type: \"paragraph\", content: content as never }];", // editor JSON
+  "document.ts: case \"heading\": return [{ type: \"heading\", props: { level: Number(node.attrs?.level) || 1 }, content: content as never }];",
+  "knowledge.ts: blocks.forEach((block) => visit(block as Parameters<typeof visit>[0]));", // plaintext text projection
+  "api.ts: body: bytes as unknown as BodyInit,", // ciphertext request bodies
+  "api.ts: export function uploadChunk(uploadID: string, index: number, bytes: Uint8Array) { return request<{ receivedBytes: number; nextChunk: number }>(`/api/v1/uploads/${encodeURIComponent(uploadID)}`, { method: \"PATCH\", body: bytes as unknown as BodyInit, headers: { \"Content-Type\": \"application/octet-stream\", \"X-Kynotes-Chunk-Index\": String(index) } }); }",
+]);
+const bypasses = (files: Array<{ file: string; text: string }>) => files.flatMap(({ file, text }) =>
+  text.split("\n").filter((line) => BYPASS.test(line)).map((line) => `${file}: ${line.trim()}`).filter((entry) => !ALLOWED_CASTS.has(entry)));
+
 describe("content keys", () => {
   it("only keyring.ts makes content keys, and nothing casts to one", () => {
     expect(sources.map(({ file }) => file)).toEqual(expect.arrayContaining(["main.tsx", "keyring.ts", "crypto.ts"]));
     expect(using(/asContentKey\(/)).toEqual(["crypto.ts", "keyring.ts"]); // crypto.ts: the definition
     expect(using(/as KeyRef\b/)).toEqual(["crypto.ts"]);
+  });
+
+  it("no cast can push raw bytes past the brand", () => {
+    expect(bypasses(sources)).toEqual([]);
+    // Every allowed line still exists, so the list cannot keep a stale exception.
+    const present = new Set(sources.flatMap(({ file, text }) => text.split("\n").map((line) => `${file}: ${line.trim()}`)));
+    for (const entry of ALLOWED_CASTS) expect(present, entry).toContain(entry);
+    // A planted bypass of each kind fails.
+    for (const planted of ["encryptNote(secret as never, id, note);", "decryptObject(<KeyRef>bytes, id, body);", "const k = bytes as any;", "const k = bytes as unknown as Uint8Array;", "const k = bytes as KeyRef;", "type K = KeyRef;", "encryptNote(bytes as Parameters<typeof encryptNote>[0], id, note);"])
+      expect(bypasses([{ file: "main.tsx", text: planted }]), planted).toHaveLength(1);
+    expect(bypasses([{ file: "keyring.ts", text: "const ring = new Map<number, KeyRef>(); const keys: Promise<KeyRef> = p;" }])).toEqual([]);
   });
 
   it("no login-derived content key or legacy read path exists", () => {
@@ -38,6 +66,17 @@ describe("content keys", () => {
     const readFor = main.slice(main.indexOf("  const readKeysFor"), main.indexOf("\n  };", main.indexOf("  const readKeysFor")));
     expect(readFor).toMatch(/\breadKeys\(container, ringsRef\.current\[container\.id\] \?\? noKeys, generation, floor\)/);
     expect(readFor).not.toMatch(/waiting|ownCopyKeys\(/);
+  });
+
+  it("pending uploads are read, cleared and sent only for this account", () => {
+    const main = all["./main.tsx"];
+    expect(main.match(/\bpendingUploads\(/g)?.length).toBe(main.match(/\bpendingUploads\(auth\.user\.id\)/g)?.length);
+    expect(main.match(/\bclearUpload\(/g)?.length).toBe(main.match(/\bclearUpload\(auth\.user\.id, /g)?.length);
+    expect(main).toContain("const job = { uploadId: upload.uploadId, owner: auth.user.id,");
+    // An upload that is not this account's is never re-sealed or sent, whatever list it came from.
+    const pending = main.slice(main.indexOf("  async function uploadPending("));
+    expect(pending.indexOf("if (job.owner !== auth.user.id) throw")).toBeGreaterThan(-1);
+    expect(pending.indexOf("if (job.owner !== auth.user.id) throw")).toBeLessThan(pending.indexOf("attachmentStep("));
   });
 
   it("every read of the queue in a session keeps only this account's entries", () => {

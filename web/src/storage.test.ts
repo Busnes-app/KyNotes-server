@@ -1,11 +1,11 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
-import type { PendingSave } from "./storage";
+import type { PendingSave, PendingUpload } from "./storage";
 
 const shared = indexedDB;
 const userID = "usr_0123456789abcdefghjkmnpqrs";
@@ -217,6 +217,27 @@ describe("note cache", () => {
   });
 });
 
+describe("pending uploads", () => {
+  const job = (uploadId: string, owner: string): PendingUpload => ({ uploadId, owner, containerID: "cnt_1", objectID: "obj_1", objectVersion: 1, keyGeneration: 2, chunkBytes: 1, nextChunk: 0, payload: new Uint8Array([1]), metadataCiphertext: "AA==", name: "secret.pdf", type: "application/pdf", size: 1 });
+  const other = "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz";
+
+  it("are listed and cleared only for the account that started them; one without an owner is nobody's", async () => {
+    await putUpload(job("upl_mine", userID));
+    await putUpload(job("upl_theirs", other));
+    const { owner: _owner, ...unowned } = job("upl_unowned", "");
+    await writeRaw("uploads", unowned); // as no build of v6 writes it
+    expect((await pendingUploads(userID)).map((entry) => entry.uploadId)).toEqual(["upl_mine"]);
+    expect((await pendingUploads(other)).map((entry) => entry.uploadId)).toEqual(["upl_theirs"]);
+    expect(await pendingUploads("")).toEqual([]);
+    // Another account's clear changes nothing.
+    await clearUpload(other, "upl_mine");
+    expect((await pendingUploads(userID)).map((entry) => entry.uploadId)).toEqual(["upl_mine"]);
+    await clearUpload(userID, "upl_mine");
+    await clearUpload(other, "upl_theirs");
+    expect(await pendingUploads(userID)).toEqual([]);
+  });
+});
+
 describe("version 6 upgrade", () => {
   const CID = `cnt_${"a".repeat(26)}`;
   /** A v5 database as earlier builds left it: an owner-unknown cached page, a queue entry, an upload and a vault record. */
@@ -241,12 +262,22 @@ describe("version 6 upgrade", () => {
   it("a v5 database opens at v6 with empty stores and its vault", () => fresh(async () => {
     localStorage.setItem("kynotes-pending-saves", "{}");
     expect(await pendingSaves()).toEqual([]);
-    expect(await pendingUploads()).toEqual([]);
+    expect(await pendingUploads(userID)).toEqual([]);
     expect(await getNote("", "obj_a")).toBeUndefined();
     expect(await getDeviceKey("alice")).toBe("a".repeat(64));
     expect(await getPins("alice", userID)).toEqual({ usr_b: "pin" });
     expect(await getKeyState("alice", userID, CID)).toEqual({ mark: 2, digests: { 2: "d2" }, shared: 2, generation: 2 });
     expect(localStorage.getItem("kynotes-pending-saves")).toBeNull();
+  }));
+
+  it("opens where site storage is disabled: the upgrade never depends on localStorage", () => fresh(async () => {
+    vi.stubGlobal("localStorage", { getItem: () => { throw new DOMException("denied", "SecurityError"); }, removeItem: () => { throw new DOMException("denied", "SecurityError"); } });
+    try {
+      expect(await pendingSaves()).toEqual([]);
+      expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+    } finally {
+      vi.stubGlobal("localStorage", { getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => { local.set(key, value); }, removeItem: (key: string) => { local.delete(key); } });
+    }
   }));
 
   it("clears once: entries written after the upgrade survive every later open", () => fresh(async () => {
@@ -261,6 +292,17 @@ describe("version 6 upgrade", () => {
   }));
 });
 
+/** Writes a row as stored, bypassing the typed API. */
+const writeRaw = (name: string, row: Record<string, unknown>) => new Promise<void>((resolve, reject) => {
+  const open = indexedDB.open("kynotes-web");
+  open.onerror = () => reject(open.error);
+  open.onsuccess = () => {
+    const tx = open.result.transaction(name, "readwrite");
+    tx.objectStore(name).put(row);
+    tx.oncomplete = () => { open.result.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  };
+});
 const vaultRow = (username: string) => new Promise<Record<string, any> | undefined>((resolve, reject) => {
   const open = indexedDB.open("kynotes-web");
   open.onerror = () => reject(open.error);

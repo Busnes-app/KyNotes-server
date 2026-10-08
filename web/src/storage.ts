@@ -9,7 +9,8 @@ const storeName = "notes";
 export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
 /** owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never reads or replaces another's. */
 export type PendingSave = CachedNote & { owner: string };
-export type PendingUpload = { uploadId: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
+/** owner: the user ID that started it; only that account lists, resumes, re-seals or clears it. */
+export type PendingUpload = { uploadId: string; owner: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
 const OWNED = ["owner", "id"];
 
@@ -22,7 +23,7 @@ function openDatabase(): Promise<IDBDatabase> {
       // earlier builds may be sealed with the login key, which nothing opens any more: dropped, not tried.
       if (event.oldVersion < 6) {
         for (const name of [storeName, "pending", "uploads"]) if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name);
-        localStorage.removeItem("kynotes-pending-saves");
+        try { localStorage.removeItem("kynotes-pending-saves"); } catch { /* storage disabled: nothing was kept there either */ }
       }
       if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName, { keyPath: OWNED });
       if (!db.objectStoreNames.contains("pending")) db.createObjectStore("pending", { keyPath: OWNED });
@@ -126,13 +127,18 @@ export async function replaceQueuedSave(expected: PendingSave, next?: PendingSav
 export async function putUpload(upload: PendingUpload): Promise<void> {
   await write("uploads", (store) => store.put(upload));
 }
-export async function pendingUploads(): Promise<PendingUpload[]> {
+/** owner's pending uploads; another account's, and any without an owner, are never returned. */
+export async function pendingUploads(owner: string): Promise<PendingUpload[]> {
   const db = await openDatabase();
   const result = await new Promise<PendingUpload[]>((resolve, reject) => { const request = db.transaction("uploads").objectStore("uploads").getAll(); request.onsuccess = () => resolve(request.result as PendingUpload[]); request.onerror = () => reject(request.error); });
-  db.close(); return result;
+  db.close(); return owner ? result.filter((upload) => upload.owner === owner) : [];
 }
-export async function clearUpload(uploadId: string): Promise<void> {
-  await write("uploads", (store) => store.delete(uploadId));
+/** Deletes uploadId only while it is owner's. */
+export async function clearUpload(owner: string, uploadId: string): Promise<void> {
+  await write("uploads", (store) => {
+    const read = store.get(uploadId);
+    read.onsuccess = guarded(store.transaction, () => { if ((read.result as PendingUpload | undefined)?.owner === owner) store.delete(uploadId); });
+  });
 }
 
 /** Merges into the vault record so a cached identity survives a new auth secret. */

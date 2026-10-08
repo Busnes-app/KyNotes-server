@@ -24,7 +24,7 @@ export function UnsentEdits({ username, userID, keysFor }: { username: string; u
   useEffect(() => { void load(); }, [userID]);
   if (!unsent.length) return null;
   async function exportAll() {
-    const file = await exportUnsent(unsent, (item) => open(item as PendingSave));
+    const file = await exportUnsent(unsent, open);
     if (file.unreadable === unsent.length) {
       alert("None of these edits can be opened in this browser: they are sealed with a notebook key it no longer holds.");
       return;
