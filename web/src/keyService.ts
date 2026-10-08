@@ -226,7 +226,9 @@ export type InviteAPI = Pick<KeyAPI, "userIdentity" | "stepUp"> & {
  * - moved: a generation changed meanwhile.
  */
 export type InviteKeys = "sealed" | "cannot-wrap" | "rollback" | "no-keys" | "no-identity" | "invalid-identity" | "untrusted" | "pins-unsaved" | "moved";
-export type Invited = { invitation: Invitation; keys: InviteKeys; recipient?: MemberKey };
+export type Invited =
+  | { invitation: Invitation; keys: "sealed"; recipient: MemberKey & { identity: NonNullable<MemberKey["identity"]> } }
+  | { invitation: Invitation; keys: Exclude<InviteKeys, "sealed">; recipient?: undefined };
 /**
  * The team the user chose to invite to. Child workspaces are never added here: teamId is a server
  * claim. floor: this tab's in-memory floor (mergeFloor), merged with the stored one, which can lag;
@@ -243,7 +245,7 @@ export type InviteTarget = { container: ReportedContainer; ring: Keyring; floor:
  */
 export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invitee: Member, caller: Caller, store: PinStore, confirmChanged: (changes: PinChange[]) => boolean | Promise<boolean>): Promise<Invited> {
   const { container, ring } = target;
-  const plain = async (keys: InviteKeys): Promise<Invited> => ({ invitation: await api.invite(container.id, invitee.userId, invitee.role, []), keys });
+  const plain = async (keys: Exclude<InviteKeys, "sealed">): Promise<Invited> => ({ invitation: await api.invite(container.id, invitee.userId, invitee.role, []), keys });
   if (!caller.identity || !caller.canWrap) return plain("cannot-wrap");
   if (!target.floor) return plain("no-keys");
   // This device's floor decides, never the server's sharing state alone.
@@ -255,7 +257,7 @@ export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invit
   const identity = await api.userIdentity(invitee.userId);
   if (!identity) return plain("no-identity");
   try { publicKeyBytes(identity.publicKey); } catch { return plain("invalid-identity"); }
-  const member: MemberKey = { ...invitee, identity: { deviceId: identity.deviceId, publicKey: identity.publicKey } };
+  const member = { ...invitee, identity: { deviceId: identity.deviceId, publicKey: identity.publicKey } };
   let pins = await store.load();
   const { changed } = comparePins(pins, [member]);
   if (changed.length) {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { clearStashedInvite, inviteLink, keyRequestText, parseInviteLink, stashInviteLink, stashedInvite } from "./invitations";
+import { clearStashedInvite, inviteLink, keyRequestText, parseInviteLink, stashInviteLink, stashedInvite, takeInviteLink } from "./invitations";
 
 const id = `inv_${"a".repeat(26)}`;
 const token = `${"A-_z".repeat(10)}abc`; // 43 base64url characters
@@ -35,6 +35,19 @@ describe("invitation links", () => {
     const refusing = { setItem: () => { throw new Error("QuotaExceededError"); } };
     expect(() => stashInviteLink({ hash: `#/invite/${id}/${token}`, pathname: "/app" }, { replaceState }, refusing)).toThrow();
     expect(replaceState).toHaveBeenCalledWith(null, "", "/app");
+  });
+
+  it("takes a link pasted into an open tab: stashed, out of the address bar, kept for this page if storage refuses", () => {
+    const storage = memory();
+    const replaceState = vi.fn();
+    expect(takeInviteLink({ hash: `#/cnt_${"a".repeat(26)}`, pathname: "/" }, { replaceState }, storage)).toBeUndefined();
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(takeInviteLink({ hash: `#/invite/${id}/${token}`, pathname: "/" }, { replaceState }, storage)).toEqual({ id, token });
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/");
+    expect(stashedInvite(storage)).toEqual({ id, token });
+    const refusing = { setItem: () => { throw new Error("QuotaExceededError"); } };
+    expect(takeInviteLink({ hash: `#/invite/${id}/${token}`, pathname: "/app" }, { replaceState }, refusing)).toEqual({ id, token });
+    expect(replaceState).toHaveBeenLastCalledWith(null, "", "/app");
   });
 
   it("ignores a tampered stash", () => {

@@ -61,7 +61,7 @@ import { copyableConflicts, keysAllowed, legacyRow, memberKeyStatus, movesLabell
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
-import { clearStashedInvite, inviteLink, keyRequestText, stashInviteLink, stashedInvite } from "./invitations";
+import { clearStashedInvite, inviteLink, keyRequestText, stashInviteLink, stashedInvite, takeInviteLink } from "./invitations";
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
@@ -1014,6 +1014,9 @@ function Workspace({
   }, [queueMode, loadingContainer, selected?.id, sectionID, selectedNote?.id]);
   useEffect(() => {
     const follow = () => void (async () => {
+      // A pasted invitation link: out of the address bar, into the banner.
+      const link = takeInviteLink(location, history, sessionStorage);
+      if (link) { setInvitation(link); return; }
       const route = parseRoute(location.hash);
       const container = items.find((item) => item.id === route.container);
       // Our own hash writes match the current state and stop here.
@@ -2211,9 +2214,9 @@ function Workspace({
       const invitee = { userId: userID, username: colleagueNames.current[userID] ?? "", role: "editor" };
       const caller = { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso };
       const { invitation: made, keys, recipient } = await inviteWithKeys({ userIdentity, stepUp: keyAPI.stepUp, invite: inviteMember }, target, invitee, caller, pinStore, confirmChangedKeys(team.id));
-      const carried = keys === "sealed" && recipient?.identity
+      const carried = keys === "sealed"
         ? `The invitation carries this team's keys, sealed for the key with fingerprint ${await fingerprintOf(recipient.identity.publicKey)}; compare it with ${displayName(invitee.username, userID)} (their Settings shows it).`
-        : INVITE_WITHOUT_KEYS[keys as Exclude<InviteKeys, "sealed">];
+        : INVITE_WITHOUT_KEYS[keys];
       prompt(`${carried} Send this link to the person you invited. It works once, only for their account, until ${new Date(made.expiresAt).toLocaleString()}.`, inviteLink(location.origin, made));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to invite member");

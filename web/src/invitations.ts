@@ -29,6 +29,17 @@ export function stashInviteLink(location: Pick<Location, "hash" | "pathname">, h
   return true;
 }
 
+/**
+ * An invitation link opened in a tab already running KyNotes (hashchange): stashed like a fresh
+ * load, and returned so this page can offer it even when session storage refuses it.
+ */
+export function takeInviteLink(location: Pick<Location, "hash" | "pathname">, history: Pick<History, "replaceState">, storage: Pick<Storage, "setItem">): InviteLink | undefined {
+  const link = parseInviteLink(location.hash);
+  if (!link) return undefined;
+  try { stashInviteLink(location, history, storage); } catch { /* kept for this page only */ }
+  return link;
+}
+
 /** The stashed invitation, re-validated: storage is not trusted to hold what was written. */
 export function stashedInvite(storage: Pick<Storage, "getItem">): InviteLink | undefined {
   try {
