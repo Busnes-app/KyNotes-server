@@ -331,7 +331,7 @@ is still an owner or admin of the live container. Accepting checks the invitatio
 Previously downloaded plaintext cannot be recalled. This is an inherent limit
 of end-to-end encryption and is treated as best-effort revocation.
 
-Team roles are owner, admin, editor, commenter, and viewer. The server
+Team roles are owner, admin, editor, commenter, and viewer. A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members. The server
 enforces membership and operation authorization without decrypting content.
 
 ## 5. Storage architecture

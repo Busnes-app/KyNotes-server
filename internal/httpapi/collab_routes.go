@@ -27,20 +27,21 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 		}
 		// keyResetAt (stewards only): the member's last self-service key reset, which retires this
 		// notebook's key until a steward mints the next one; the cause of a waiting notebook.
-		rows, err := db.Query(`SELECT m.user_id,u.username,m.role,COALESCE((SELECT MAX(a.created_at) FROM audit_events a WHERE a.user_id=m.user_id AND a.event='identity.create' AND a.outcome='success' AND a.reason_code LIKE '%,reset%'),'') FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
+		rows, err := db.Query(`SELECT m.user_id,u.username,m.role,COALESCE((SELECT MAX(a.created_at) FROM audit_events a WHERE a.user_id=m.user_id AND a.event='identity.create' AND a.outcome='success' AND a.reason_code LIKE '%,reset%'),''),m.approved FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		defer rows.Close()
-		out := []map[string]string{}
+		out := []map[string]any{}
 		for rows.Next() {
 			var id, username, memberRole, resetAt string
-			if rows.Scan(&id, &username, &memberRole, &resetAt) != nil {
+			var approved bool
+			if rows.Scan(&id, &username, &memberRole, &resetAt, &approved) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			member := map[string]string{"userId": id, "username": username, "role": memberRole}
+			member := map[string]any{"userId": id, "username": username, "role": memberRole, "approved": approved}
 			if isSteward(role) && resetAt != "" {
 				member["keyResetAt"] = resetAt
 			}
@@ -86,6 +87,40 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 				return err
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.member_remove", cid, target, "success", "", RequestID(r))
+		})
+		if writeTeamKeyError(w, r, err) {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	// A steward approves a member the server administrator added, on the team and its child workspaces.
+	mux.Handle("POST /api/v1/containers/{id}/members/{userID}/approve", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		cid, target := r.PathValue("id"), r.PathValue("userID")
+		if ids.Validate("cnt", cid) != nil || ids.Validate("usr", target) != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		err := dbTx(db, func(tx *sql.Tx) error {
+			var role string
+			if err := tx.QueryRow(`SELECT m.role FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' AND c.team_id='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND m.approved=1`, cid, s.UserID).Scan(&role); err != nil {
+				return err
+			}
+			if !isSteward(role) {
+				return errInsufficientRole
+			}
+			res, err := tx.Exec(`UPDATE memberships SET approved=1 WHERE user_id=? AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE (id=? OR team_id=?) AND deleted_at='')`, target, cid, cid)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				return errNotMember
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.member_approve", cid, target, "success", "", RequestID(r))
 		})
 		if writeTeamKeyError(w, r, err) {
 			return
@@ -193,7 +228,7 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			if steward == 0 {
 				return sql.ErrNoRows
 			}
-			readmit, e := admitMemberTx(tx, cid, s.UserID, role, inviter, now)
+			readmit, e := admitMemberTx(tx, cid, s.UserID, role, inviter, true, now)
 			if e != nil {
 				return e
 			}

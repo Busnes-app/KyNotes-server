@@ -128,7 +128,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 			if !ok {
 				return sql.ErrNoRows
 			}
-			if _, err := admitMemberTx(tx, cid, in.UserID, in.Role, "", now); err != nil {
+			if _, err := admitMemberTx(tx, cid, in.UserID, in.Role, "", false, now); err != nil {
 				return err
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "admin.team.member_add", cid, in.UserID, "success", "", RequestID(r))
