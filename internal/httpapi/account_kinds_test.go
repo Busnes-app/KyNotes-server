@@ -344,6 +344,26 @@ func TestSetupCreatesBothAccounts(t *testing.T) {
 			t.Fatalf("%s: %s|%s|%d %v", name, kind, role, flagged, err)
 		}
 	}
+	// The one session setup mints is the administrator's, the account the response names.
+	var owners []string
+	rows, err := db.Query(`SELECT u.id,u.username FROM sessions s JOIN users u ON u.id=s.user_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			t.Fatal(err)
+		}
+		if id != out.User.ID {
+			name += "(not the reported user)"
+		}
+		owners = append(owners, name)
+	}
+	rows.Close()
+	if len(owners) != 1 || owners[0] != "admin" {
+		t.Fatalf("setup sessions=%v", owners)
+	}
 	if rec := post(setupBody("admin2", "owner2")); rec.Code != http.StatusForbidden {
 		t.Fatalf("second setup=%d", rec.Code)
 	}
