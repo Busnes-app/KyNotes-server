@@ -259,6 +259,17 @@ describe("planSweep", () => {
   const editor = person("editor", "c");
   const container = (keyGeneration: number, sharedGeneration: number) => ({ id: cnt, keyGeneration, sharedGeneration });
 
+  it("leaves a member an administrator added out of every mint and wrap until a steward approves them", () => {
+    const added = { ...person("added", "f").member, approved: false };
+    const base = { me: owner.member.userId, recoverable: true };
+    expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, added], envelopes: [], ring: new Map() })).toEqual({ kind: "mint", recipients: [owner.member] });
+    const k2 = newContainerKey();
+    const envelopes = [seal(owner.member, 2, k2, owner.held)];
+    expect(planSweep({ ...base, container: container(2, 2), members: [owner.member, added], envelopes, ring: new Map([[2, k2]]) })).toEqual({ kind: "idle" });
+    expect(planSweep({ ...base, container: container(2, 2), members: [owner.member, { ...added, approved: true }], envelopes, ring: new Map([[2, k2]]) }).kind).toBe("wrap");
+    expect(memberKeyStatus(container(2, 2), [owner.member, added], envelopes)).toMatchObject({ [added.userId]: "unapproved" });
+  });
+
   it("mints the first key for every keyed member, once the caller is recoverable", () => {
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
     const base = { me: owner.member.userId, envelopes: [], ring: new Map(), recoverable: true };

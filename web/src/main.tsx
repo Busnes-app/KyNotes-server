@@ -7,6 +7,7 @@ import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, us
 import { createRoot } from "react-dom/client";
 import {
   acceptInvitation,
+  approveMember,
   attachToObject,
   APIRequestError,
   changePassword,
@@ -182,7 +183,9 @@ const passwordReset = (username: string) => ({
   derive: async (password: string) => { const params = await loginParams(username); return deriveLoginKeys(password, params.loginSalt, params.iterations); },
   stepUp: (authSecret: string) => stepUp(authSecret),
 });
-const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet" };
+const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet", unapproved: "awaiting approval" };
+const UNNAMED_TEAM = "An administrator created this team notebook for you. Name it so its members can find it.";
+const approvalText = (name: string) => `${name} was added by an administrator. They get this notebook's keys only after you approve them.`;
 const INVITE_WITHOUT_KEYS: Record<Exclude<InviteKeys, "sealed">, string> = {
   "cannot-wrap": "The invitation carries no keys: this browser cannot share keys at invitation time (it holds no encryption key, or you signed in with single sign-on). A team owner's browser shares them after the person joins.",
   rollback: "The invitation carries no keys: the server reports an older sharing state for this team than this browser has seen.",
@@ -2336,13 +2339,30 @@ function Workspace({
     try {
       await removeMember(selected.id, userID);
       // Forward secrecy: the removal retired every key; mint new ones now rather than at the next open.
-      for (const child of items.filter((entry) => entry.teamId === selected.id)) await syncKeys(child);
-      setSelected(await syncKeys(selected));
-      setMembersForTeam(await members(selected.id));
+      await reloadTeamMembers(selected);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to remove member",
       );
+    }
+  }
+  /** Re-reads the team's members and runs the key pass on it and its workspaces. */
+  async function reloadTeamMembers(team: Container) {
+    for (const child of items.filter((entry) => entry.teamId === team.id)) await syncKeys(child);
+    setSelected(await syncKeys(team));
+    setMembersForTeam(await members(team.id));
+  }
+  async function approve(userID: string) {
+    if (selected?.kind !== "team") return;
+    setBusy(true);
+    try {
+      await approveMember(selected.id, userID);
+      // The key pass now wraps for them.
+      await reloadTeamMembers(selected);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to approve");
+    } finally {
+      setBusy(false);
     }
   }
   async function shareNote() {
@@ -2552,6 +2572,14 @@ function Workspace({
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
                 {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
                 {identityState === "held" && live && !live.recoveryId && <div className="conflict-banner" role="status">{RECOVERY_MISSING} <button onClick={() => setView("settings")}>Create recovery code</button></div>}
+                {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
+                  <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button onClick={() => void renameWorkspace()}>Name notebook</button></div>
+                )}
+                {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
+                  <div className="conflict-banner" role="status" key={member.userId}>
+                    {approvalText(displayName(member.username, member.userId))} <button disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
+                  </div>
+                ))}
                 <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
                 {invitation && (
                   <div className="conflict-banner" role="status">

@@ -15,7 +15,9 @@ export type KeyedContainer = { id: string; keyGeneration: number; sharedGenerati
 export type Keyring = ReadonlyMap<number, KeyRef>;
 export type WriteKey = { key: KeyRef; generation: number };
 /** keyResetAt: shown to owners and admins only, the member's last own key reset (it retires the notebook's key). */
-export type Member = { userId: string; username: string; role: string; keyResetAt?: string };
+/** keyResetAt: shown to owners and admins only, the member's last own key reset (it retires the notebook's key).
+ * approved is false only for a member a server administrator added that no steward approved yet; api.ts sets it, failing closed. */
+export type Member = { userId: string; username: string; role: string; keyResetAt?: string; approved?: boolean };
 /** A member and its identity, when it has one the server shows us. */
 export type MemberKey = Member & { identity?: Pick<PublicIdentity, "deviceId" | "publicKey"> };
 
@@ -214,12 +216,13 @@ export type SweepPlan =
  * - Shared, current generation empty (after a removal): mint the next key.
  * - Otherwise wrap every generation this browser holds for each member missing it.
  * Only keys this browser unwrapped are ever wrapped (P2 rule 7).
+ * Members an administrator added wait for a steward's approval (spec A §4).
  */
 export function planSweep(input: { container: KeyedContainer; me: string; members: MemberKey[]; envelopes: Envelope[]; ring: Keyring; recoverable: boolean }): SweepPlan {
   const { container, me, members, envelopes, ring } = input;
   const self = members.find((member) => member.userId === me);
   if (!self?.identity || !isSteward(self.role)) return { kind: "idle" };
-  const keyed = members.filter((member) => member.identity);
+  const keyed = members.filter((member) => member.identity && member.approved !== false);
   if (container.sharedGeneration === 0) return input.recoverable ? { kind: "mint", recipients: keyed } : { kind: "unrecoverable" };
   if (!envelopes.some((row) => row.keyGeneration === container.keyGeneration)) return { kind: "mint", recipients: keyed };
   const held = new Set(envelopes.map((row) => `${row.deviceId}:${row.keyGeneration}`));
@@ -256,7 +259,7 @@ export function sealFor(member: MemberKey, containerID: string, generation: numb
 /** 32 bytes from the platform CSPRNG; noble throws rather than fall back to Math.random. */
 export const newContainerKey = (): KeyRef => asContentKey(randomBytes(32));
 
-export type MemberKeyStatus = "has-key" | "waiting" | "no-identity";
+export type MemberKeyStatus = "has-key" | "waiting" | "no-identity" | "unapproved";
 
 /**
  * What each member holds, for the member list. Shared notebooks: the current generation's key
@@ -267,6 +270,7 @@ export type MemberKeyStatus = "has-key" | "waiting" | "no-identity";
 export function memberKeyStatus(container: KeyedContainer, members: MemberKey[], envelopes: Envelope[]): Record<string, MemberKeyStatus> {
   const held = new Set(envelopes.filter((row) => row.keyGeneration === container.keyGeneration).map((row) => row.deviceId));
   return Object.fromEntries(members.flatMap((member): Array<[string, MemberKeyStatus]> => {
+    if (member.approved === false) return [[member.userId, "unapproved"]];
     if (!member.identity) return [[member.userId, "no-identity"]];
     if (container.sharedGeneration === 0) return [];
     return [[member.userId, held.has(member.identity.deviceId) ? "has-key" : "waiting"]];

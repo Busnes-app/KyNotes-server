@@ -192,7 +192,8 @@ export async function userIdentity(userID: string): Promise<PublicIdentity | und
   try { return await request<PublicIdentity>(`/api/v1/users/${encodeURIComponent(userID)}/identity`); }
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
-export const members = (containerID: string) => request<Array<Member>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
+export const members = async (containerID: string): Promise<Member[]> =>
+  (await request<Array<Omit<Member, "approved"> & { approved?: unknown }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`)).map((row) => ({ ...row, approved: row.approved === true }));
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
 export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }

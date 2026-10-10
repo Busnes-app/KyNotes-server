@@ -104,6 +104,13 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(submit).toContain("if (everyday && !result.passwordChangeRequired) {\n        await rememberAfter(async () => result, activeName, authSecret);");
   });
 
+  it("asks stewards to approve administrator-added members and to name a team an administrator created", () => {
+    expect(main).toContain("const UNNAMED_TEAM = \"An administrator created this team notebook for you. Name it so its members can find it.\";");
+    expect(main).toMatch(/approvalText = \(name: string\) => `\$\{name\} was added by an administrator\. They get this notebook's keys only after you approve them\.`/);
+    expect(main).toContain("teamSteward && membersForTeam.filter((member) => member.approved === false)");
+    expect(main).toContain("await approveMember(");
+  });
+
   it("shows member management and team notebooks only to stewards, from the server's member list (M1)", () => {
     expect(main).toContain("const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;");
     expect(main).toContain("{selected?.id === container.id && teamSteward && (");
