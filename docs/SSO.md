@@ -262,25 +262,32 @@ schedule changes, deposit, export, mirror and restore drill) and the local
 credential routes (user creation and password reset) require a fresh,
 one-use OIDC proof for SSO sessions. Local-password sessions retain the existing
 ten-minute password step-up. Other administrator routes retain their current
-admin/CSRF requirements; this extension does not add step-up to every mutation. SSO sessions cannot create a user identity, write key envelopes or rotate keys
-(`PUT /api/v1/me/identity`, `PUT .../envelopes` and `POST .../key-rotations`
-require a local password step-up).
+admin/CSRF requirements; this extension does not add step-up to every mutation. SSO sessions create device-only identities, write key envelopes and rotate keys after a user-scope confirmation; invitations they send carry no envelopes. The `identity.create` audit records `wrap=none,proof=sso:<challenge ID>` (local: `wrap=aes-256-gcm,proof=password`). While an administrator knows the account's password (`password_admin_known`), local password step-ups for these actions answer `409 password_change_required`, and the device-link relay refuses local sessions the same way. Changing that password (`POST /auth/password`) on an account with a KySignOn subject needs a user-scope KySignOn confirmation of the request from an SSO session; a local session gets `409 sso_sign_in_required` (no challenge: sign in with KySignOn and retry). So the administrator who set the password cannot lift the fence; only the identity provider's user can. A local-only account has no such proof: until its user changes the password, whoever set it acts as the user. Any password change revokes the account's other sessions and device credentials in the same transaction and audits the counts (`account.password_change`, `sessions_revoked=N,devices_revoked=N`), so the old password's sessions end with the takeback. If SSO is later unconfigured, an SSO-linked account cannot change an administrator-set password at all until an operator restores SSO or clears the account's SSO link (`sso_subject`). Recovery and an administrator password reset keep the identity (they remove only a password copy). An SSO user with no trusted browser restores it with the recovery code; with neither, the user's own reset in Settings replaces it (personal notebooks are lost). A reset of a device-only identity stays device-only, and so does the reset of any account linked to KySignOn, even from a local password session (`409 device_only_required` for a password copy; the browser re-sends it device-only). An administrator password reset also revokes the account's paired device credentials.
+
+A challenge has a scope. `admin` (the routes above) needs verified `kynotes.admin`; `user` proves only the session's own account and gates the caller's own identity creation, envelope writes, rotations and password change (migration 0024). A grant opens only routes of its own scope, and its start, poll and cancel routes need a session, not an administrator. An SSO account gets a device-only identity on a click, and identity writes are compare-and-swap in the browser.
 
 A blocked action returns `403 sso_step_up_required` and a challenge ID. The server
 binds that challenge to the original local session and a SHA-256 digest of the
 method, exact request URI, Content-Type and body (at most 64 KiB), storing no body.
-Only one challenge may exist per session; starting another action cancels the old
-one. Pending challenges expire in five minutes. The browser keeps the attempted
+Only one challenge may exist per session. Starting another action replaces an
+unstarted one; once the user has opened a challenge in KySignOn (started or
+verified, unexpired), a new action answers `409 step_up_pending` carrying that `challenge` ID (another
+tab of the session may cancel it) and leaves it alone, so a background write cannot cancel a confirmation in progress. An
+abandoned started challenge blocks new ones until the browser cancels it or it
+expires. Pending challenges expire in five minutes. Minting a challenge (checked after
+the pending refusal, which spends nothing) uses a
+per-account `challenge` bucket at `ratelimit.login_per_minute` (`429
+rate_limited` with `Retry-After`), which bounds the audit rows one account can write. The browser keeps the attempted
 request only in memory and opens a native confirmation dialog. Continue opens
 KySignOn in a separate window with its opener detached; cancellation burns the challenge, including a
 callback that races cancellation. Reloading abandons the in-memory request.
 
 `POST /api/v1/auth/oidc/step-up` takes `{ "challenge": "rea_..." }`, requires
-current admin and CSRF, and returns an authorization URL using PKCE, state, nonce,
+a session and CSRF, and returns an authorization URL using PKCE, state, nonce,
 `prompt=login`, `max_age=0`, and `acr_values=urn:kysignon:acr:password`. It uses the
 same registered callback as ordinary login. The callback must arrive with the
 original live local session, authenticate the same issuer/client/subject, and
-include verified `kynotes.admin`. It never creates or replaces a local session.
+include verified `kynotes.admin` for an admin challenge. It never creates or replaces a local session.
 
 The signed integer `auth_time` must be at or after challenge creation (epoch-second
 precision), no later than now or `iat`. Issuance time alone proves nothing.
@@ -293,12 +300,12 @@ minimum and accepts ordinary MFA when the issuer requires it.
 
 The browser polls `GET /api/v1/auth/oidc/step-up/{id}` and retries the identical
 request once with `X-Kynotes-Step-Up: <id>`. A verified grant expires after at most
-one minute. Consumption checks current admin permission, session lifetimes,
+one minute. Consumption checks the challenge's scope (and, for admin challenges, current admin permission), session lifetimes,
 configuration and directory/logout fences, including logout of the fresh proof's
 `sid`, then deletes the grant with an audit in the same writer transaction. One
 concurrent request wins. The protected operation follows that committed admission;
 a later logout cannot undo an already admitted operation. A failed operation needs
-a new proof. `DELETE` requires admin access, the owning session and CSRF, and validates
+a new proof. `DELETE` requires the owning session and CSRF, and validates
 the `rea_` ID format before database access. A well-formed absent, foreign-session or
 repeated ID returns 204 without an audit write; only actual deletion is audited.
 
@@ -309,6 +316,13 @@ middleware-established request ID, never an untrusted caller header. Restart los
 restart the action. Verified grants remain bounded by their persisted expiry and
 parent-session revocation. Restoring a database revokes the parent sessions through
 the existing restore procedure. Older receiver binaries do not enforce this policy.
+
+Challenges carry a scope (migration `0024_device_linking.sql`, `sso_stepup.scope`). `admin`
+challenges come from `RequireStepUp` routes and are unchanged. `user` challenges come from
+`RequireUserActionStepUp` routes (identity creation, envelope writes, key rotations, device-link
+approval): they prove the session's own account with the same fresh-login, PKCE, nonce, assurance
+and action-binding rules, and need no `kynotes.admin`. A grant is consumed only by a route of its
+own scope.
 
 ## Adoption boundary and verification
 

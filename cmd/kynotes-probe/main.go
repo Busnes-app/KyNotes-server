@@ -27,7 +27,9 @@ const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
 
 type client struct {
 	base, user, password, config  string
-	authSecret, keyPath           string
+	original, authSecret, keyPath string
+	iterations                    int
+	takenOver                     bool // the account holds a temporary password until restorePassword
 	deviceKey                     *ecdh.PrivateKey
 	server                        string
 	hc                            *http.Client
@@ -36,6 +38,11 @@ type client struct {
 	deviceID, deviceSecret        string
 	attachmentID, previewUploadID string
 	version                       int
+	userID, loginSalt             string
+	identityDevice                string
+	identityKey                   *ecdh.PrivateKey // the account's identity, unwrapped with the password
+	generation                    int64            // the probe notebook's key generation
+	contentKey                    []byte           // the probe notebook's key at generation
 }
 
 func main() {
@@ -46,7 +53,7 @@ func main() {
 	server := flag.String("server", "kynotes-server", "server binary for maintenance checks")
 	keyPath := flag.String("device-key", "", "device private key file (default: user cache dir, per server URL and username)")
 	flag.Parse()
-	p := &client{base: strings.TrimRight(*base, "/"), user: *user, password: *password, config: *config, server: *server, keyPath: *keyPath, hc: &http.Client{Timeout: 30 * time.Second}}
+	p := &client{base: strings.TrimRight(*base, "/"), user: *user, password: *password, original: *password, config: *config, server: *server, keyPath: *keyPath, hc: &http.Client{Timeout: 30 * time.Second}}
 	if p.keyPath == "" {
 		cache, err := os.UserCacheDir()
 		if err != nil {
@@ -56,12 +63,21 @@ func main() {
 		sum := sha256.Sum256([]byte(p.base + "\x00" + p.user))
 		p.keyPath = filepath.Join(cache, "kynotes-probe", hex.EncodeToString(sum[:])+".key")
 	}
-	steps := []func() error{p.login, p.pair, p.envelope, p.selectContainer, p.saveAndRead, p.conflict, p.upload, p.dedup, p.download, p.preview, p.catchUp, p.deleteAndGC}
+	if err := p.recoverTakeOver(); err != nil {
+		fmt.Fprintf(os.Stderr, "restore password from an interrupted run: %v\n", err)
+		os.Exit(1)
+	}
+	// A password change revokes every device, so the take-over runs before pairing (inside
+	// identity) and the restore after the device is revoked.
+	steps := []func() error{p.login, p.identity, p.keyContainer, p.pair, p.envelope, p.selectContainer, p.saveAndRead, p.conflict, p.upload, p.dedup, p.download, p.preview, p.catchUp, p.deleteAndGC}
 	for i, step := range steps {
 		if err := step(); err != nil {
 			fmt.Fprintf(os.Stderr, "step %d failed: %v\n", i+1, err)
 			if p.deviceID != "" {
 				_ = p.revokeDevice()
+			}
+			if err := p.restorePassword(); err != nil {
+				fmt.Fprintf(os.Stderr, "restore password: %v; re-run the probe to retry\n", err)
 			}
 			os.Exit(1)
 		}
@@ -69,9 +85,232 @@ func main() {
 	}
 	if err := p.revokeDevice(); err != nil {
 		fmt.Fprintf(os.Stderr, "revoke probe device: %v\n", err)
+		_ = p.restorePassword()
 		os.Exit(1)
 	}
 	fmt.Println("probe device revoked")
+	if err := p.restorePassword(); err != nil {
+		fmt.Fprintf(os.Stderr, "restore password: %v; re-run the probe to retry\n", err)
+		os.Exit(1)
+	}
+}
+
+func (p *client) takeOverPath() string { return p.keyPath + ".takeover" }
+
+// identity makes sure the probe account holds a password-wrapped identity this run can use: it
+// was unwrapped at login, or it is created now. If an administrator set the password, creating
+// it is refused (409 password_change_required), and the password is taken over first, as a user
+// would. An identity without a password copy cannot be used here and stops the run.
+func (p *client) identity() error {
+	if p.identityKey != nil {
+		return nil
+	}
+	res, err := p.request(http.MethodGet, "/api/v1/me/identity", nil, nil, false)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode == http.StatusOK {
+		return errors.New("the probe account has an encryption key without a password copy (an administrator reset); reset it in Settings or use a fresh account")
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		key, err := ecdh.X25519().GenerateKey(rand.Reader)
+		if err != nil {
+			return err
+		}
+		kek, err := teamkeys.UserKEK(p.password, p.loginSalt, p.iterations)
+		if err != nil {
+			return err
+		}
+		wrapped, err := teamkeys.SealIdentity(kek, key.Bytes(), p.userID)
+		if err != nil {
+			return err
+		}
+		if err = p.stepUp(); err != nil {
+			return err
+		}
+		body, _ := json.Marshal(map[string]string{"publicKey": base64.StdEncoding.EncodeToString(key.PublicKey().Bytes()), "wrapAlg": "aes-256-gcm", "wrappedPrivateKey": base64.StdEncoding.EncodeToString(wrapped)})
+		res, err := p.request(http.MethodPut, "/api/v1/me/identity", body, nil, false)
+		if err != nil {
+			return err
+		}
+		b, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			return err
+		}
+		if res.StatusCode == http.StatusOK {
+			var out struct {
+				DeviceID string `json:"deviceId"`
+			}
+			if err = json.Unmarshal(b, &out); err != nil || out.DeviceID == "" {
+				return fmt.Errorf("identity create: %s", b)
+			}
+			p.identityKey, p.identityDevice = key, out.DeviceID
+			return nil
+		}
+		var e struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if attempt > 0 || res.StatusCode != http.StatusConflict || json.Unmarshal(b, &e) != nil || e.Error.Code != "password_change_required" {
+			return fmt.Errorf("identity create: status %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+		}
+		if err = p.takeOver(); err != nil {
+			return err
+		}
+	}
+	return errors.New("identity create: unreachable")
+}
+
+// takeOver replaces an operator-set password with a temporary one, as a user taking over the
+// account would.
+func (p *client) takeOver() error {
+	temp := make([]byte, 24)
+	if _, err := rand.Read(temp); err != nil {
+		return err
+	}
+	// Written first, so a run that dies after the change can still restore the password.
+	if err := os.MkdirAll(filepath.Dir(p.takeOverPath()), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(p.takeOverPath(), []byte(hex.EncodeToString(temp)), 0o600); err != nil {
+		return err
+	}
+	if err := p.changePassword(hex.EncodeToString(temp)); err != nil {
+		return err
+	}
+	p.takenOver = true
+	fmt.Println("operator-set password taken over")
+	return nil
+}
+
+// keyContainer creates the probe's notebook and gives it its first key, as a browser does at
+// creation: generation 1 holds nothing, and the first rotation makes generation 2 its first key.
+func (p *client) keyContainer() error {
+	res, err := p.request(http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), nil, false)
+	if err != nil {
+		return err
+	}
+	var container struct {
+		ID string `json:"id"`
+	}
+	if err = decode(res, &container); err != nil {
+		return err
+	}
+	p.containerID = container.ID
+	p.contentKey = make([]byte, 32)
+	if _, err = rand.Read(p.contentKey); err != nil {
+		return err
+	}
+	sealed, err := teamkeys.SealEnvelope(p.contentKey, p.identityKey.PublicKey().Bytes(), p.containerID, 2, p.identityDevice, p.identityKey, p.identityDevice)
+	if err != nil {
+		return err
+	}
+	if err = p.stepUp(); err != nil {
+		return err
+	}
+	body := []byte(fmt.Sprintf(`{"expectedGeneration":1,"envelopes":[{"deviceId":%q,"keyGeneration":2,"alg":%q,"envelope":%q}]}`, p.identityDevice, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	res, err = p.request(http.MethodPost, "/api/v1/containers/"+p.containerID+"/key-rotations", body, nil, false)
+	if err != nil {
+		return err
+	}
+	var rotated struct {
+		KeyGeneration int64 `json:"keyGeneration"`
+	}
+	if err = decode(res, &rotated); err != nil {
+		return err
+	}
+	if rotated.KeyGeneration != 2 {
+		return fmt.Errorf("first key at generation %d, want 2", rotated.KeyGeneration)
+	}
+	p.generation = 2
+	return nil
+}
+
+// restorePassword sets the original password back over the current session, which a password
+// change keeps; the account then no longer counts as admin-known, so later runs skip the take-over.
+func (p *client) restorePassword() error {
+	if !p.takenOver {
+		return nil
+	}
+	if err := p.changePassword(p.original); err != nil {
+		return err
+	}
+	p.takenOver = false
+	fmt.Println("original password restored")
+	return os.Remove(p.takeOverPath())
+}
+
+// recoverTakeOver restores the password a previous run took over and never restored.
+func (p *client) recoverTakeOver() error {
+	temp, err := os.ReadFile(p.takeOverPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p.password = string(temp)
+	if err = p.login(); errors.Is(err, errInvalidCredentials) {
+		// The change never committed.
+		p.password = p.original
+		return os.Remove(p.takeOverPath())
+	}
+	if err != nil {
+		return err
+	}
+	p.takenOver = true
+	return p.restorePassword()
+}
+
+// changePassword uses the user's own change route and re-wraps the probe identity under the new
+// password in the same request.
+func (p *client) changePassword(password string) error {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+	loginSalt := base64.StdEncoding.EncodeToString(salt)
+	secret, err := auth.DeriveAuthSecret(password, loginSalt, p.iterations)
+	if err != nil {
+		return err
+	}
+	in := map[string]any{"currentAuthSecret": p.authSecret, "newAuthSecret": secret, "newLoginSalt": loginSalt, "iterations": p.iterations}
+	if p.identityKey != nil {
+		kek, err := teamkeys.UserKEK(password, loginSalt, p.iterations)
+		if err != nil {
+			return err
+		}
+		wrapped, err := teamkeys.SealIdentity(kek, p.identityKey.Bytes(), p.userID)
+		if err != nil {
+			return err
+		}
+		in["identityDeviceId"], in["wrappedIdentityKey"] = p.identityDevice, base64.StdEncoding.EncodeToString(wrapped)
+	}
+	body, _ := json.Marshal(in)
+	res, err := p.request(http.MethodPost, "/api/v1/auth/password", body, nil, false)
+	if err != nil {
+		return err
+	}
+	if err = requireStatus(res, http.StatusNoContent); err != nil {
+		return fmt.Errorf("password change: %w", err)
+	}
+	p.password, p.authSecret, p.loginSalt = password, secret, loginSalt
+	return nil
+}
+
+func (p *client) stepUp() error {
+	res, err := p.request(http.MethodPost, "/api/v1/auth/step-up", []byte(fmt.Sprintf(`{"authSecret":%q}`, p.authSecret)), nil, false)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("step-up status %d", res.StatusCode)
+	}
+	return nil
 }
 
 // loadOrCreateDeviceKey returns the probe's random X25519 device key, created
@@ -143,6 +382,8 @@ func (p *client) request(method, path string, body []byte, headers map[string]st
 	if device {
 		req.Header.Set("X-Kynotes-Device-Id", p.deviceID)
 		req.Header.Set("X-Kynotes-Device-Secret", p.deviceSecret)
+	} else {
+		req.Header.Set("X-Kynotes-Key-Scheme", "shared-v2")
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -202,6 +443,7 @@ func (p *client) login() error {
 	if err = decode(res, &params); err != nil {
 		return err
 	}
+	p.iterations, p.loginSalt = params.Iterations, params.LoginSalt
 	if p.authSecret, err = auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations); err != nil {
 		return err
 	}
@@ -209,8 +451,48 @@ func (p *client) login() error {
 	if err != nil {
 		return err
 	}
-	return requireStatus(res, http.StatusOK)
+	if res.StatusCode == http.StatusUnauthorized {
+		res.Body.Close()
+		return errInvalidCredentials
+	}
+	var session struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+		Identity *struct {
+			DeviceID          string `json:"deviceId"`
+			WrapAlg           string `json:"wrapAlg"`
+			WrappedPrivateKey string `json:"wrappedPrivateKey"`
+		} `json:"identity"`
+	}
+	if err = decode(res, &session); err != nil {
+		return err
+	}
+	p.userID = session.User.ID
+	p.identityKey, p.identityDevice = nil, ""
+	if session.Identity == nil || session.Identity.WrapAlg != "aes-256-gcm" {
+		return nil // none yet, or no password copy: identity() decides
+	}
+	kek, err := teamkeys.UserKEK(p.password, p.loginSalt, p.iterations)
+	if err != nil {
+		return err
+	}
+	wrapped, err := base64.StdEncoding.DecodeString(session.Identity.WrappedPrivateKey)
+	if err != nil {
+		return err
+	}
+	raw, err := teamkeys.OpenIdentity(kek, wrapped, p.userID)
+	if err != nil {
+		return fmt.Errorf("unwrap the probe identity: %w", err)
+	}
+	if p.identityKey, err = ecdh.X25519().NewPrivateKey(raw); err != nil {
+		return err
+	}
+	p.identityDevice = session.Identity.DeviceID
+	return nil
 }
+
+var errInvalidCredentials = errors.New("login: invalid credentials")
 
 func requireStatus(res *http.Response, code int) error {
 	_, err := expect(res, code)
@@ -218,18 +500,7 @@ func requireStatus(res *http.Response, code int) error {
 }
 
 func (p *client) pair() error {
-	res, err := p.request(http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","metaCiphertext":""}`), nil, false)
-	if err != nil {
-		return err
-	}
-	var container struct {
-		ID string `json:"id"`
-	}
-	if err = decode(res, &container); err != nil {
-		return err
-	}
-	p.containerID = container.ID
-	res, err = p.request(http.MethodPost, "/api/v1/devices/pairing-token", nil, nil, false)
+	res, err := p.request(http.MethodPost, "/api/v1/devices/pairing-token", nil, nil, false)
 	if err != nil {
 		return err
 	}
@@ -265,24 +536,16 @@ func (p *client) pair() error {
 // envelope steps up, installs a real envelope for the paired device, proves the
 // device opens it, and proves a second envelope for that recipient is refused.
 func (p *client) envelope() error {
-	res, err := p.request(http.MethodPost, "/api/v1/auth/step-up", []byte(fmt.Sprintf(`{"authSecret":%q}`, p.authSecret)), nil, false)
+	if err := p.stepUp(); err != nil {
+		return err
+	}
+	sealed, err := teamkeys.SealEnvelope(p.contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, uint32(p.generation), p.deviceID, p.identityKey, p.identityDevice)
 	if err != nil {
 		return err
 	}
-	res.Body.Close()
-	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("step-up status %d", res.StatusCode)
-	}
-	contentKey := make([]byte, 32)
-	if _, err = rand.Read(contentKey); err != nil {
-		return err
-	}
-	sealed, err := teamkeys.SealEnvelope(contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, 1, p.deviceID, p.deviceKey, p.deviceID)
+	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":%d,"alg":%q,"envelope":%q}]}`, p.deviceID, p.generation, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	res, err := p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false)
 	if err != nil {
-		return err
-	}
-	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":1,"alg":%q,"envelope":%q}]}`, p.deviceID, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
-	if res, err = p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false); err != nil {
 		return err
 	}
 	if err = requireStatus(res, http.StatusNoContent); err != nil {
@@ -310,8 +573,8 @@ func (p *client) envelope() error {
 	if err != nil {
 		return err
 	}
-	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, 1, p.deviceID, p.deviceKey.PublicKey().Bytes())
-	if err != nil || !bytes.Equal(opened, contentKey) {
+	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, uint32(p.generation), p.deviceID, p.identityKey.PublicKey().Bytes())
+	if err != nil || !bytes.Equal(opened, p.contentKey) {
 		return fmt.Errorf("device could not open its envelope: %v", err)
 	}
 	return nil
@@ -345,7 +608,7 @@ func (p *client) save(body []byte, base int) (*http.Response, error) {
 	return p.request(http.MethodPut, "/api/v1/objects/"+p.objectID, body, map[string]string{
 		"Content-Type":             "application/octet-stream",
 		"X-Kynotes-Base-Version":   fmt.Sprint(base),
-		"X-Kynotes-Key-Generation": "1",
+		"X-Kynotes-Key-Generation": fmt.Sprint(p.generation),
 	}, false)
 }
 
@@ -441,7 +704,7 @@ func (p *client) sendChunks(id string, data []byte, stopAfter int) error {
 }
 
 func (p *client) finalizeUpload(id string, preview string) (map[string]any, error) {
-	body := []byte(fmt.Sprintf(`{"metadataCiphertext":"","keyGeneration":1,"previewUploadId":%q}`, preview))
+	body := []byte(fmt.Sprintf(`{"metadataCiphertext":"","keyGeneration":%d,"previewUploadId":%q}`, p.generation, preview))
 	res, err := p.request(http.MethodPost, "/api/v1/uploads/"+id+"/finalize", body, nil, false)
 	if err != nil {
 		return nil, err

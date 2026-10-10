@@ -7,7 +7,7 @@ COPY web .
 COPY testdata/protocol /src/testdata/protocol
 RUN npm run build
 
-FROM golang:1.26.6@sha256:640a234f4bea3e399c056b7b8f9c667c4939befae8db2f14e9785e16eccd4205 AS build
+FROM golang:1.26.9@sha256:d7722066f0b60ceccb6c0643cbed1f5f9e15506ac237146c95333504d7805d89 AS build
 WORKDIR /src
 RUN mkdir -p /data /tmp && chown 65532:65532 /data /tmp
 COPY go.mod go.sum ./

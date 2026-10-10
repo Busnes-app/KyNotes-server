@@ -1,7 +1,10 @@
-import { createComment, createUpload, finalizeUpload, saveObject, updateContainer, uploadChunk } from "./api";
+import { approveLinkRequest, collectLinkRequest, createComment, createUpload, finalizeUpload, saveObject, updateContainer, uploadChunk, type LinkState } from "./api";
+import { base64 } from "./crypto";
 import { queuedSaveStep } from "./drain";
 import { floorOf } from "./floors";
 import type { ReportedContainer, WriteKey } from "./keyring";
+import { isLiveLinkKey, isTypedCheckCodeConfirmation, type CheckCodeConfirmation } from "./linking";
+import type { Identity } from "./teamKeys";
 
 /** Ciphertext about to leave: the container it was sealed for and the generation it was sealed at. */
 export type Sealed = { container: ReportedContainer; generation: number };
@@ -21,13 +24,13 @@ export function setWriteKeySource(source: (container: ReportedContainer) => Writ
 }
 
 /**
- * The one gate in front of every container-key or login-key ciphertext upload: right before the
+ * The one gate in front of every ciphertext upload: right before the
  * request, the sealing generation must be this tab's current write generation under the tab-wide
  * floor (queuedSaveStep "send"). Otherwise it throws KeysWaitingError and nothing is sent.
  */
 export function sendCiphertext(sealed: Sealed): void {
   const write = currentWrite?.(sealed.container);
-  if (queuedSaveStep(sealed.container, floorOf(sealed.container.id), sealed.generation, write) !== "send") throw new KeysWaitingError();
+  if (queuedSaveStep(floorOf(sealed.container.id), sealed.generation, write) !== "send") throw new KeysWaitingError();
 }
 
 // main.tsx reaches these API calls only through the wrappers below (outbound.test.ts).
@@ -55,3 +58,15 @@ export const sendUploadFinal = (sealed: Sealed, uploadID: string, metadataCipher
   sendCiphertext(sealed);
   return finalizeUpload(uploadID, metadataCiphertext, sealed.generation);
 };
+
+/** A device-link bundle leaves only after the user typed the newcomer's check code for that request (confirmTypedCheckCode). */
+export function sendLinkBundle(confirmation: CheckCodeConfirmation, requestID: string, bundle: Uint8Array): Promise<void> {
+  if (!isTypedCheckCodeConfirmation(confirmation, requestID)) throw new Error("Compare the check codes on both screens first.");
+  return approveLinkRequest(requestID, base64(bundle));
+}
+
+/** Collecting deletes an approved bundle: only an attempt still holding its one-time key may collect. */
+export function collectLinkBundle(key: Identity, requestID: string): Promise<LinkState> {
+  if (!isLiveLinkKey(key)) throw new Error("This link attempt ended. Start again on both browsers.");
+  return collectLinkRequest(requestID);
+}

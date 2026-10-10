@@ -86,6 +86,9 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
+		if _, err := checkContainerKeyed(db, cid, s.UserID, r.Header.Get(keySchemeHeader)); writeTeamKeyError(w, r, err) {
+			return
+		}
 		var in struct {
 			DeclaredBytes  int64  `json:"declaredBytes"`
 			ExpectedDigest string `json:"expectedDigest"`
@@ -138,11 +141,14 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var uid string
+		var uid, cid string
 		var received, next, declared, chunk int64
 		var expires, status string
-		if e := db.QueryRow(`SELECT user_id,received_bytes,next_chunk,declared_bytes,chunk_bytes,expires_at,status FROM upload_sessions WHERE id=?`, id).Scan(&uid, &received, &next, &declared, &chunk, &expires, &status); e != nil || uid != s.UserID {
+		if e := db.QueryRow(`SELECT user_id,container_id,received_bytes,next_chunk,declared_bytes,chunk_bytes,expires_at,status FROM upload_sessions WHERE id=?`, id).Scan(&uid, &cid, &received, &next, &declared, &chunk, &expires, &status); e != nil || uid != s.UserID {
 			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if _, err := checkContainerKeyed(db, cid, s.UserID, r.Header.Get(keySchemeHeader)); writeTeamKeyError(w, r, err) {
 			return
 		}
 		if status != "pending" || time.Now().After(parseTime(expires)) {
@@ -262,7 +268,11 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			KeyGeneration      int64  `json:"keyGeneration"`
 			PreviewUploadID    string `json:"previewUploadId"`
 		}
-		if kind != "preview" {
+		if kind == "preview" {
+			if _, err := checkContainerKeyed(db, cid, s.UserID, r.Header.Get(keySchemeHeader)); writeTeamKeyError(w, r, err) {
+				return
+			}
+		} else {
 			if json.NewDecoder(r.Body).Decode(&in) != nil {
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return

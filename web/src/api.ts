@@ -1,15 +1,14 @@
 import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
-import type { Envelope } from "./keyring";
+import type { Envelope, InvitationEnvelope, Member } from "./keyring";
+import type { RecoveryAPI, RecoveryCopy } from "./recovery";
 export type User = { id: string; role: string; username?: string };
 export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
+export type Invitation = { id: string; token: string; expiresAt: string };
 
-/**
- * A row generation from the server: a non-negative safe integer, else undefined, which readKeys
- * never opens. 0 passes: a personal container reads it as before, a shared one labels it (legacyRow).
- */
+/** A row generation from the server: a non-negative safe integer, else undefined, which readKeys never opens. */
 export function serverGeneration(value: unknown): number | undefined {
   const parsed = typeof value === "string" ? (/^\d+$/.test(value) ? Number(value) : Number.NaN) : value;
   return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
@@ -20,11 +19,12 @@ export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCip
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
 
-type APIError = { error?: { code?: string; message?: string }; conflictId?: string; currentVersion?: number };
-export class APIRequestError extends Error { code?: string; conflictId?: string; currentVersion?: number; constructor(message: string, detail: APIError) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; } }
+type APIError = { error?: { code?: string; message?: string; challenge?: string }; conflictId?: string; currentVersion?: number };
+/** challenge: the open KySignOn confirmation a 409 step_up_pending names, so the caller can cancel it. */
+export class APIRequestError extends Error { code?: string; challenge?: string; conflictId?: string; currentVersion?: number; status?: number; constructor(message: string, detail: APIError, status?: number) { super(message); this.name = "APIRequestError"; this.code = detail.error?.code; this.challenge = typeof detail.error?.challenge === "string" ? detail.error.challenge : undefined; this.conflictId = detail.conflictId; this.currentVersion = detail.currentVersion; this.status = status; } }
 
 /** Marks writes from a bundle that seals shared containers with their container key; the server refuses shared-container writes without it. */
-export const KEY_SCHEME = "shared-v1";
+export const KEY_SCHEME = "shared-v2";
 
 export function csrfToken(): string {
   return document.cookie.split("; ").find((v) => v.startsWith("csrf_token="))?.slice(11) ?? "";
@@ -57,7 +57,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (!response.ok) {
     let detail: APIError = {};
     try { detail = await response.json() as APIError; } catch { /* opaque server error */ }
-    throw new APIRequestError(detail.error?.message ?? `Request failed (${response.status})`, detail);
+    throw new APIRequestError(detail.error?.message ?? `Request failed (${response.status})`, detail, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -112,13 +112,16 @@ export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/them
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
 export const containers = () => request<Container[]>("/api/v1/containers");
 
-export function createContainer(kind = "workbook", metaCiphertext = "", teamId = "") {
+/** Created without a name: the server refuses one, and the name is sealed only once the first key exists. */
+export function createContainer(kind = "workbook", teamId = "") {
   return request<Container>("/api/v1/containers", {
-    method: "POST", body: JSON.stringify({ kind, metaCiphertext, teamId }),
+    method: "POST", body: JSON.stringify({ kind, teamId }),
   });
 }
 
 /** keyGeneration is the generation the name was sealed with; a shared container refuses any but the current one. */
+/** Owner only, and only within five minutes of sign-in (server rule); createKeyed's best-effort cleanup. */
+export const deleteContainer = (id: string) => request<void>(`/api/v1/containers/${encodeURIComponent(id)}`, { method: "DELETE" });
 export function updateContainer(id: string, metaCiphertext: string, baseVersion: number, keyGeneration: number) {
   return request<{ metaVersion: number; changeSeq: number }>(`/api/v1/containers/${encodeURIComponent(id)}`, {
     method: "PATCH", body: JSON.stringify({ metaCiphertext, baseVersion, keyGeneration }),
@@ -132,7 +135,8 @@ export async function serviceStatus() {
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
 export const adminTeams = () => request<AdminTeam[]>("/api/v1/admin/teams");
-export function createAdminTeam(metaCiphertext: string) { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({ metaCiphertext }) }); }
+/** Created without a name, like createContainer. */
+export function createAdminTeam() { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({}) }); }
 export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; role: string }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
 export function resetAdminPassword(id: string, input: { newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(input) }); }
 export function addAdminTeamMember(teamID: string, userID: string, role: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members`, { method: "POST", body: JSON.stringify({ userId: userID, role }) }); }
@@ -148,6 +152,34 @@ export async function myIdentity(): Promise<PublicIdentity | undefined> {
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
 export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
+export const putDeviceOnlyIdentity = (publicKey: string) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ publicKey, wrapAlg: "none" }) });
+/** Sets or replaces the recovery-code copy (compare-and-swap); recovery.ts saveRecovery is the only caller. */
+export const putRecovery: RecoveryAPI["putRecovery"] = (input) => request<{ recoveryId: string }>("/api/v1/me/identity/recovery", { method: "PUT", body: JSON.stringify(input) });
+/** Behind a user-action step-up; undefined when the account has no identity or no copy (one 404 for both). */
+export async function fetchRecovery(): Promise<RecoveryCopy | undefined> {
+  try { return await request<RecoveryCopy>("/api/v1/me/identity/recovery/fetch", { method: "POST" }); }
+  catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
+}
+/** The self-service reset: a new identity with its recovery copy, replacing the one named by expectedDeviceId. */
+export const replaceIdentity: RecoveryAPI["replaceIdentity"] = (input) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ ...input, replace: true }) });
+export const recoveryAPI: RecoveryAPI = { myIdentity, putRecovery, fetchRecovery, replaceIdentity };
+/** A device-link request as the trusted side lists it; newcomerKey is "" until revealed to this session. */
+export type LinkRequestRow = { id: string; commitment: string; createdAt: string; expiresAt: string; claimed: boolean; newcomerKey: string };
+/** The newcomer's view of its request; bundle once, after approval. */
+export type LinkState = { state: "pending" | "claimed" | "revealed" | "approved"; expiresAt: string; approverKey?: string; bundle?: string };
+const linkURL = (id: string, suffix = "") => `/api/v1/me/link-requests/${encodeURIComponent(id)}${suffix}`;
+export const createLinkRequest = (commitment: string) => request<{ id: string; expiresAt: string }>("/api/v1/me/link-requests", { method: "POST", body: JSON.stringify({ commitment }) });
+export const linkRequests = () => request<LinkRequestRow[]>("/api/v1/me/link-requests");
+export const claimLinkRequest = (id: string, approverKey: string) => request<void>(linkURL(id, "/claim"), { method: "POST", body: JSON.stringify({ approverKey }) });
+export const revealLinkRequest = (id: string, newcomerKey: string) => request<void>(linkURL(id, "/reveal"), { method: "POST", body: JSON.stringify({ newcomerKey }) });
+/** Only outbound.ts sendLinkBundle calls this (outbound.test.ts). */
+export const approveLinkRequest = (id: string, bundle: string) => request<void>(linkURL(id, "/approve"), { method: "POST", body: JSON.stringify({ bundle }) });
+/** A POST (CSRF, no-store): collecting deletes the approved bundle. Only outbound.ts collectLinkBundle calls this. */
+export const collectLinkRequest = (id: string) => request<LinkState>(linkURL(id, "/collect"), { method: "POST" });
+/** keepalive: sent from pagehide, so the request outlives the page (same-origin, custom headers allowed). */
+export const cancelLinkRequest = (id: string, keepalive = false) => request<void>(linkURL(id), { method: "DELETE", keepalive });
+/** Cancels an open KySignOn confirmation (the challenge a 409 step_up_pending names). */
+export const cancelSSOStepUp = (challenge: string) => request<void>(`/api/v1/auth/oidc/step-up/${encodeURIComponent(challenge)}`, { method: "DELETE" });
 export const identityAPI: IdentityAPI = { myIdentity, putMyIdentity, stepUp: async (authSecret) => (await stepUp(authSecret))?.identity };
 export const containerEnvelopes = (containerID: string) => request<Envelope[]>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`);
 export const putEnvelopes = (containerID: string, envelopes: Envelope[]) => request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/envelopes`, { method: "PUT", body: JSON.stringify({ envelopes }) });
@@ -157,11 +189,15 @@ export async function userIdentity(userID: string): Promise<PublicIdentity | und
   try { return await request<PublicIdentity>(`/api/v1/users/${encodeURIComponent(userID)}/identity`); }
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
-export const members = (containerID: string) => request<Array<{ userId: string; username: string; role: string }>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
+export const members = (containerID: string) => request<Array<Member>>(`/api/v1/containers/${encodeURIComponent(containerID)}/members`);
 export const notifications = () => request<Array<{ id: string; objectId: string; authorUserId: string; createdAt: string; kind: string }>>("/api/v1/notifications");
 export const presence = (containerID: string) => request<Array<{ userId: string; state: string }>>(`/api/v1/presence?containerId=${encodeURIComponent(containerID)}`);
 export function updatePresence(containerID: string, state: "editing" | "viewing" | "idle") { return request<void>("/api/v1/presence", { method: "POST", body: JSON.stringify({ containerId: containerID, state }) }); }
-export function inviteMember(containerID: string, inviteeID: string, role: string) { return request<{ id: string; token: string }>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify({ inviteeId: inviteeID, role }) }); }
+/** Envelopes need a fresh password step-up on the server, so a keyless invitation sends none. */
+export function inviteMember(containerID: string, inviteeID: string, role: string, envelopes: InvitationEnvelope[] = []) {
+  return request<Invitation>(`/api/v1/containers/${encodeURIComponent(containerID)}/invitations`, { method: "POST", body: JSON.stringify(envelopes.length ? { inviteeId: inviteeID, role, envelopes } : { inviteeId: inviteeID, role }) });
+}
+export const acceptInvitation = (id: string, token: string) => request<void>(`/api/v1/invitations/${encodeURIComponent(id)}/accept`, { method: "POST", body: JSON.stringify({ token }) });
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const comments = (objectID: string): Promise<Comment[]> => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`).then(withGeneration);
 export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }
@@ -185,7 +221,7 @@ export async function readObject(objectID: string, version?: number) {
     credentials: "include", headers: { Accept: "application/octet-stream" },
   });
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
-  // A missing or malformed generation stays undefined so readKeys finds no key, never the legacy one.
+  // A missing or malformed generation stays undefined so readKeys finds no key.
   const keyGeneration = serverGeneration(response.headers.get("X-Kynotes-Key-Generation"));
   return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
 }
@@ -215,12 +251,6 @@ export async function downloadAttachment(attachmentID: string) { const response 
 export const objectConflicts = (objectID: string) => request<Array<{ id: string; baseVersion: number; currentVersion: number; keyGeneration?: number; createdAt: string; resolved: boolean }>>(`/api/v1/objects/${encodeURIComponent(objectID)}/conflicts`).then(withGeneration);
 export async function conflictCiphertext(conflictID: string) { const response = await fetch(`/api/v1/conflicts/${encodeURIComponent(conflictID)}`, { credentials: "include", headers: { Accept: "application/octet-stream" } }); if (!response.ok) throw new Error(`Unable to read conflicting version (${response.status})`); return new Uint8Array(await response.arrayBuffer()); }
 export const resolveConflict = (conflictID: string) => request<void>(`/api/v1/conflicts/${encodeURIComponent(conflictID)}/resolve`, { method: "POST" });
-
-export function createShareLink(objectID: string, expiresAt: string, version = 0) {
-  return request<{ id: string; token: string; objectId: string; version: number; expiresAt: string; commitReceipt: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/share-links`, {
-    method: "POST", body: JSON.stringify({ version, expiresAt }),
-  });
-}
 
 export function createSealedShareLink(ciphertext: Uint8Array, expiresAt: string) {
   let binary = ""; for (const byte of ciphertext) binary += String.fromCharCode(byte);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readObject, serverGeneration } from "./api";
+import { acceptInvitation, APIRequestError, cancelLinkRequest, claimLinkRequest, collectLinkRequest, createAdminTeam, createComment, createContainer, createLinkRequest, finalizeUpload, inviteMember, KEY_SCHEME, members, putDeviceOnlyIdentity, putEnvelopes, readObject, revealLinkRequest, saveObject, serverGeneration, updateContainer } from "./api";
 
 const obj = `obj_${"a".repeat(26)}`;
 const serve = (headers: Record<string, string>) => vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { headers })));
@@ -24,5 +24,125 @@ describe("serverGeneration", () => {
   it("passes non-negative safe integers and nothing else", () => {
     for (const value of [0, 1, 7, "0", "7"]) expect(serverGeneration(value)).toBe(Number(value));
     for (const value of [undefined, null, -1, 1.5, Number.NaN, "", "-1", "1.5", "0x1", true, {}, 2 ** 60]) expect(serverGeneration(value)).toBeUndefined();
+  });
+});
+
+describe("inviteMember", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sends envelopes only when it has some, so a keyless invitation needs no step-up", async () => {
+    const sent: unknown[] = [];
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return Response.json({ id: "inv", token: "t", expiresAt: "e" });
+    }));
+    const cnt = `cnt_${"a".repeat(26)}`, usr = `usr_${"b".repeat(26)}`;
+    const envelope = { containerId: cnt, deviceId: `dev_${"c".repeat(26)}`, keyGeneration: 2, alg: "x25519-hkdf-sha256-chacha20poly1305", envelope: "AA==" };
+    await inviteMember(cnt, usr, "editor");
+    await inviteMember(cnt, usr, "editor", [envelope]);
+    expect(sent).toEqual([{ inviteeId: usr, role: "editor" }, { inviteeId: usr, role: "editor", envelopes: [envelope] }]);
+  });
+});
+
+describe("acceptInvitation", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sends the token in the body only, never in the URL", async () => {
+    const token = "T".repeat(43);
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init?: RequestInit) => { calls.push([path, init]); return new Response(null, { status: 204 }); }));
+    await acceptInvitation(`inv_${"a".repeat(26)}`, token);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe(`/api/v1/invitations/inv_${"a".repeat(26)}/accept`);
+    expect(calls[0][0]).not.toContain(token);
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ token });
+  });
+});
+
+describe("device-only identities and device links", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sends device-only identities and link calls in the documented shapes", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const fetches = vi.fn(async (_path: string, _init?: RequestInit) => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetches);
+    await putDeviceOnlyIdentity("cHVi");
+    await createLinkRequest("Y29t");
+    await claimLinkRequest(`lnk_${"a".repeat(26)}`, "YXBw");
+    await revealLinkRequest(`lnk_${"a".repeat(26)}`, "bmV3");
+    await collectLinkRequest(`lnk_${"a".repeat(26)}`);
+    const bodies = fetches.mock.calls.map(([url, init]) => `${init?.method} ${url} ${init?.body}`);
+    expect(bodies).toEqual([
+      `PUT /api/v1/me/identity {"publicKey":"cHVi","wrapAlg":"none"}`,
+      `POST /api/v1/me/link-requests {"commitment":"Y29t"}`,
+      `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/claim {"approverKey":"YXBw"}`,
+      `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/reveal {"newcomerKey":"bmV3"}`,
+      `POST /api/v1/me/link-requests/lnk_${"a".repeat(26)}/collect undefined`,
+    ]);
+  });
+
+  it("cancels a link request with CSRF, and with keepalive when the page is going away", async () => {
+    vi.stubGlobal("document", { cookie: "csrf_token=t" });
+    const fetches = vi.fn(async (_path: string, _init?: RequestInit) => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetches);
+    const id = `lnk_${"a".repeat(26)}`;
+    await cancelLinkRequest(id);
+    await cancelLinkRequest(id, true);
+    for (const [path, init] of fetches.mock.calls) {
+      expect(path).toBe(`/api/v1/me/link-requests/${id}`);
+      expect(init?.method).toBe("DELETE");
+      expect(new Headers(init?.headers).get("X-CSRF-Token")).toBe("t");
+    }
+    expect(fetches.mock.calls.map(([, init]) => init?.keepalive)).toEqual([false, true]);
+  });
+
+  it("keeps the open challenge of a step_up_pending refusal, so it can be cancelled", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const challenge = `rea_${"a".repeat(26)}`;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "step_up_pending", message: "finish", challenge } }), { status: 409 })));
+    const refusal = await putDeviceOnlyIdentity("cHVi").catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(APIRequestError);
+    expect(refusal).toMatchObject({ code: "step_up_pending", challenge, status: 409 });
+  });
+});
+
+describe("writes and creation", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const cnt = `cnt_${"a".repeat(26)}`, obj = `obj_${"a".repeat(26)}`;
+  const capture = () => {
+    const sent: Array<{ method: string; headers: Headers; body: unknown }> = [];
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, init?: RequestInit) => {
+      sent.push({ method: String(init?.method ?? "GET"), headers: new Headers(init?.headers), body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body });
+      return Response.json({ id: cnt, version: 1, metaVersion: 1, changeSeq: 1 });
+    }));
+    return sent;
+  };
+
+  it("every write carries the shared-v2 key scheme; reads carry none", async () => {
+    const sent = capture();
+    await saveObject(obj, new Uint8Array([1]), 0, 2);
+    await updateContainer(cnt, "AA==", 0, 2);
+    await createComment(obj, "AA==", 2);
+    await finalizeUpload("upl_x", "AA==", 2);
+    await putEnvelopes(cnt, []);
+    await createContainer();
+    await members(cnt);
+    expect(KEY_SCHEME).toBe("shared-v2");
+    for (const write of sent.filter((entry) => entry.method !== "GET")) expect(write.headers.get("X-Kynotes-Key-Scheme")).toBe("shared-v2");
+    expect(sent.filter((entry) => entry.method !== "GET")).toHaveLength(6);
+    expect(sent.find((entry) => entry.method === "GET")!.headers.has("X-Kynotes-Key-Scheme")).toBe(false);
+  });
+
+  it("creates a notebook or an administrator's team without a name: names are sealed only after the first key", async () => {
+    const sent = capture();
+    await createContainer("workbook", cnt);
+    await createAdminTeam();
+    expect(sent.map((entry) => entry.body)).toEqual([{ kind: "workbook", teamId: cnt }, {}]);
+    // No caller can pass one.
+    expect(createContainer.length).toBe(0);
+    expect(createAdminTeam.length).toBe(0);
   });
 });

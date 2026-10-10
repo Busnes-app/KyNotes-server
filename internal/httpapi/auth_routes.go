@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 var dummyMu sync.Mutex
@@ -258,12 +261,33 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	}))
 	mux.Handle("POST /api/v1/auth/logout", handleLogout)
 	mux.Handle("POST /api/auth/logout", handleLogout)
-	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var changePassword http.HandlerFunc
+	changePassword = func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
+		// An administrator who set an SSO account's password could otherwise clear the fence by
+		// changing it; only the identity provider's user can confirm with KySignOn.
+		confirmed, _ := r.Context().Value(ssoConfirmedKey{}).(bool)
+		if !confirmed {
+			fenced, err := adminKnownSSOAccount(db, s.UserID)
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			if fenced && s.SSOIssuer == "" {
+				WriteError(w, r, 409, "sso_sign_in_required", "sign in with KySignOn to change a password an administrator set")
+				return
+			}
+			if fenced {
+				auth.RequireSSOUserStepUp(db, s, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					changePassword(w, r.WithContext(context.WithValue(r.Context(), ssoConfirmedKey{}, true)))
+				}), w, r)
+				return
+			}
+		}
 		var in struct {
 			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
 			WrappedIdentityKey                             string `json:"wrappedIdentityKey"`
@@ -305,6 +329,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		loginLockout.Success(key)
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
+		}
 		hash, err := auth.HashAuthSecret(in.NewAuthSecret)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
@@ -321,11 +348,18 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if current != stored {
 				return errPasswordChanged
 			}
+			if fenced, err := adminKnownSSOAccount(tx, s.UserID); err != nil {
+				return err
+			} else if fenced && !confirmed {
+				return errSSOConfirmationRequired
+			}
 			var identities int
-			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=?`, s.UserID).Scan(&identities); err != nil {
+			// Only a password-wrapped identity moves with the password; a device-only one is not touched.
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=? AND wrap_alg=?`, s.UserID, identityWrapAlg).Scan(&identities); err != nil {
 				return err
 			}
-			if (identities == 1) != (wrapped != nil) {
+			// An old client must not orphan a password copy; a new one may only re-add a stripped one (below).
+			if identities == 1 && wrapped == nil {
 				return errIdentityRewrap
 			}
 			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=0,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
@@ -335,16 +369,39 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if _, err := tx.Exec(`UPDATE sessions SET stepup_at='' WHERE user_id=?`, s.UserID); err != nil {
 				return err
 			}
+			// Whoever knew the old password keeps nothing: other sessions and device credentials end
+			// here, as on deactivation. The identity is not a credential.
+			sessions, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=? AND id<>? AND revoked_at=''`, now, s.UserID, s.ID)
+			if err != nil {
+				return err
+			}
+			devices, err := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, now, s.UserID)
+			if err != nil {
+				return err
+			}
+			ns, _ := sessions.RowsAffected()
+			nd, _ := devices.RowsAffected()
+			if err := storage.RecordAuditOutcomeTx(tx, s.UserID, "account.password_change", "", "", "success", fmt.Sprintf("sessions_revoked=%d,devices_revoked=%d", ns, nd), RequestID(r)); err != nil {
+				return err
+			}
 			if wrapped == nil {
 				return nil
 			}
 			// Bound to the identity the client unwrapped, so a concurrent re-create is not overwritten.
-			res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=?`, wrapped, now, s.UserID, in.IdentityDeviceID)
+			// Re-wrap the password copy, or re-add the one a reset stripped.
+			guard := `i.wrap_alg='` + identityWrapAlg + `'`
+			if identities == 0 {
+				guard = passwordCopyAddableSQL
+			}
+			res, err := tx.Exec(`UPDATE user_identities AS i SET wrapped_private_key=?,wrap_alg=?,updated_at=? WHERE i.user_id=? AND i.device_id=? AND `+guard, wrapped, identityWrapAlg, now, s.UserID, in.IdentityDeviceID)
 			if err != nil {
 				return err
 			}
 			if n, _ := res.RowsAffected(); n != 1 {
 				return errIdentityRewrap
+			}
+			if identities == 0 {
+				return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.password_wrap.create", "", in.IdentityDeviceID, "success", "password_change", RequestID(r))
 			}
 			return nil
 		})
@@ -360,13 +417,17 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and change the password again")
 			return
 		}
+		if errors.Is(err, errSSOConfirmationRequired) {
+			WriteError(w, r, 409, "sso_sign_in_required", "sign in with KySignOn to change a password an administrator set")
+			return
+		}
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		recordAudit(db, s.UserID, "account.password_change", "", "", RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	}
+	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, changePassword))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -517,15 +578,14 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			if _, e := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
 				return e
 			}
-			// Without the old password the wrapped identity is unrecoverable; delete it
-			// instead of leaving a revoked row.
-			if e := deleteIdentityTx(tx, uid, uid, RequestID(r)); e != nil {
+			// The new password cannot re-wrap the identity: only its password copy goes (stripPasswordWrapTx).
+			if e := stripPasswordWrapTx(tx, uid, uid, RequestID(r)); e != nil {
 				return e
 			}
-			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
+			if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity'`, now, uid); e != nil {
 				return e
 			}
-			_, e = tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=?)`, uid)
+			_, e = tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, uid)
 			if e != nil {
 				return e
 			}
@@ -570,4 +630,18 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func clearCookie(w http.ResponseWriter, name string, httpOnly, secure bool) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: httpOnly, Secure: secure, SameSite: http.SameSiteLaxMode})
+}
+
+type ssoConfirmedKey struct{}
+
+var errSSOConfirmationRequired = errors.New("KySignOn confirmation required")
+
+// adminKnownSSOAccount: an administrator set the password of an account that signs in through
+// KySignOn. Only a KySignOn confirmation may change it (a local-only account has no such proof).
+func adminKnownSSOAccount(q interface {
+	QueryRow(string, ...any) *sql.Row
+}, userID string) (bool, error) {
+	var n int
+	err := q.QueryRow(`SELECT COUNT(*) FROM users WHERE id=? AND sso_subject<>'' AND password_admin_known=1`, userID).Scan(&n)
+	return n > 0, err
 }

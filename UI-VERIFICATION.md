@@ -199,15 +199,72 @@ Overflow was measured in the page (`documentElement.scrollWidth` against the vie
 | ![Fingerprint desktop light](docs/team-keys-fingerprint-light-desktop.png) | ![Fingerprint desktop dark](docs/team-keys-fingerprint-dark-desktop.png) |
 | ![Fingerprint mobile light](docs/team-keys-fingerprint-light-mobile.png) | ![Fingerprint mobile dark](docs/team-keys-fingerprint-dark-mobile.png) |
 
-### Rendered labels and notices (P3a)
+## Team keys P3b (2026-10-08)
 
-Same scratch server and Chromium; two separate browser contexts (owner, member). Scripted states, none faked in the DOM: the owner creates a team with a member who never signed in and sees the "not end-to-end shared yet" notice; writes a parent page and an indented subpage under the legacy key; the member signs in with a password (identity created); the owner reopens, the first key is minted, and "Shared this notebook's name with members" and the "Not verified" labels render. A move of the legacy parent (Alt+ArrowDown with a verified sibling below) shows the subpage refusal. Busnes Light and Dark via emulated OS scheme, 1280x900 and 390x844, device scale 1. File pattern `docs/team-keys-p3a-label-<state>-<light|dark>-<desktop|mobile>.png`; the `page-label` mobile files are full-page, the `list-labels` files are mobile only with the page list scrolled to its end.
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle at the P3b head). Scratch scripts lived outside the repo. Four browser contexts (owner, editor, newcomer, plus a never-signed-in `ghost` account); nothing was set in the DOM. Each state was shot in Busnes Light and Dark (`emulateMedia` colorScheme) at 1280x900 and 390x844 as `docs/team-keys-p3b-<state>-<light|dark>-<desktop|mobile>.png`. Overflow was measured in the page (`documentElement.scrollWidth` and elements whose right edge passes the viewport).
 
 | State | Files | Result |
 | --- | --- | --- |
-| Unshared notice | `unshared-notice-*` | Pass; wraps in the list header, no horizontal overflow |
-| Shared notice (fingerprint plus name shared) | `shared-notice-*` | Pass; wraps, no overflow |
-| "Not verified" row labels, banner "Written before this notebook was shared; not end-to-end verified." | `page-label-*`, `list-labels-*-mobile` | Pass; legible in both themes. At 390 px the labelled rows sit below the fold of the 280 px page list (see below) |
-| Subpage refusal toast | `move-refused-*` | Pass; text legible. On mobile it covers the notice text; on desktop it stacks over the commit toast |
+| Join banner, link opened in a fresh tab (address bar had no token; token held in sessionStorage) | `join-fresh-tab-*` | Pass; banner legible in both themes |
+| Join banner, link pasted into an already-open tab (window object kept, no reload) | `join-open-tab-*` | Pass; same |
+| Member rows: has key, waiting for key, no encryption key yet (editor's view) | `member-rows-*` | Legible; user IDs wrap mid-ID in the 210 px desktop sidebar |
+| Waiting banner with "Ask an owner" (newcomer) | `ask-owner-*` | Pass; the control is a small quiet link |
+| Settings: your user ID | `settings-user-id-*` | Desktop pass; 390 px clipped (see findings) |
+| Colleague keys, ID-first name, "matches the server" | `colleague-keys-*` | Desktop pass; 390 px clipped |
+| Colleague keys after the colleague's key changed, "Trust new key" | `colleague-keys-changed-*` | Desktop pass; 390 px clipped |
+| Unsent edits: one owned entry, one sealed owner-unknown entry, export/discard, unencrypted-export warning | `unsent-edits-*` | Desktop pass, buttons touch; 390 px clipped |
 
-Findings, not fixed here: at 390 px the notebook notice fills most of the 280 px `.note-list` (`web/src/styles.css:66`), so the labelled rows need an inner scroll to be seen; `.toast` (`web/src/styles.css:65`) is fixed at the same corner as `.commit-toast`, so an error toast overlaps it.
+Not captured as screenshots: the invite dialog (keys sealed / no keys, including the not-yet-signed-in "you cannot see this person's encryption key yet" copy), the Ask an owner text and the re-trust confirm are native `prompt`/`confirm` dialogs, which headless screenshots never contain. Their exact text and the copied value were read from the dialog events (user ID first, both fingerprints in the confirm). The "Unsent edit, owner unknown: N edit(s) ... sealed with a notebook key" variant was not produced; the entry shown is the "owner unknown, cannot be opened in this browser" variant (a row with empty owner and an undecryptable payload). The member-row key states were captured before the editor's reset; later shots show the editor as waiting.
+
+Findings, not fixed here:
+
+- Fixed after capture (`minmax(0, 1fr)` and a gap between Unsent edits buttons); re-measured with a fresh owner at 390x844 in both themes: Settings `scrollWidth` 390 = viewport (`docs/team-keys-p3b-settings-fixed-*-mobile.png`). The `*-mobile` shots above predate the fix. Original findings:
+- At 390 px the non-admin Settings page was 523 px wide: the last `.settings-sidebar` link ("Colleague keys", added in P3b) makes the single `1fr` track at `web/src/styles.css:157` grow to the nav's width, so every card is clipped on the right and a light strip shows past the dark page. `minmax(0, 1fr)` would contain it.
+- Export and Discard unsent edits touch each other (no horizontal gap, `web/src/styles.css:94`).
+- User IDs (30 chars, no break points) wrap mid-ID in the 210 px sidebar member rows (`web/src/styles.css:149`); the last row sits flush against the ACCOUNT label.
+- "Ask an owner" is an 11 px quiet link in the status line (`web/src/main.tsx:2481`); at 390 px the member list pushes it and the join banner about 700 px down the page.
+- A member row whose username equals its role reads "usr_... · editor · editor · has key".
+
+## Team keys P3c (2026-10-08)
+
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle at the P3c head). Scratch scripts lived outside the repo. Contexts: the owner's browser (holds the key), a second browser of the owner's account whose vault identity was removed (as a single sign-on browser would not hold it), and an administrator-created account with no key whose `GET /api/v1/auth/session` answer was rewritten to `sso: true` (the only stub; nothing was set in the DOM). Each state was shot in Busnes Light and Dark (context `colorScheme`) at 1280x900 and 390x844 as `docs/team-keys-p3c-<state>-<light|dark>-<desktop|mobile>.png`, two animation frames after each resize. Overflow was measured in the page (`documentElement.scrollWidth` and elements whose right edge passes the viewport); the check code's line count is its `getClientRects().length`.
+
+| State | Files | Result |
+| --- | --- | --- |
+| Workspace link banner ("This browser does not hold your encryption key", Link this browser) | `link-banner-*` | Pass; no overflow |
+| Newcomer waiting, request code shown | `newcomer-waiting-*` | Pass |
+| Approver "Link another browser" with one request row | `approver-request-*` | Pass |
+| Newcomer with the check code, Codes match / Codes differ | `newcomer-check-code-*` | Pass; check code on one line at both widths |
+| Approver with the newcomer's code typed, Approve — send key enabled / Codes differ | `approver-check-code-*` | Pass; buttons wrap at 390 px |
+| SSO "Set up encryption key" banner | `sso-setup-*` | Pass |
+
+Every state: `scrollWidth` equals the viewport. At 390 px the only elements past the right edge are Settings nav links inside `.settings-nav`, which scrolls horizontally by design (`overflow: auto`).
+
+Not captured as screenshots: the Forget-this-device confirm is a native `confirm`; the e2e matches its full text. Real single sign-on (KySignOn step-up for an approve, SSO key set-up) needs a live IdP and was not driven; only the banner was rendered.
+
+Findings, not fixed here:
+
+- At 390 px "Codes differ" wraps under "Approve — send key" and sits 8 px right of it (`.config-card button + button { margin-left: 8px }` at `web/src/styles.css:95` adds to the `.link-actions` gap), so the two buttons do not align.
+- The approver's check-code input is 23 px tall, below a comfortable touch target.
+- The newcomer's Settings "Trusted Device & SSO" intro still says "This browser holds your local zero-knowledge encryption key" directly above "This browser holds no encryption key for team notebooks".
+
+## Team keys P5 (2026-10-08)
+
+Capture conditions: real Chromium (Playwright, headless) against the throwaway `web/e2e/server.sh` server (127.0.0.1:18080, fresh data directory, embedded bundle with the legacy key removed). The captures come from the e2e itself: `KYNOTES_E2E_SHOTS=<absolute docs path> npm run e2e --prefix web` shoots each state when the run reaches it, the named card scrolled into view, in Busnes Light and Dark (`emulateMedia` colorScheme) at 1280x900 and 390x844, two animation frames after each resize. Files: `docs/team-keys-p5-<state>-<light|dark>-<desktop|mobile>.png`. The run asserts `documentElement.scrollWidth` is at most the viewport width; every shot measured exactly the viewport. The codes shown belong to a throwaway server.
+
+| State | Files | Result |
+| --- | --- | --- |
+| New personal notebook, keyed at creation, with its first page and the "Save a recovery code" banner | `keyed-*` | Pass; no "Not verified" label or review banner. At 390 px the commit toast covers the first page row |
+| Recovery code shown once: intro, the code, keep/last warnings, Print, Download, I saved it | `recovery-code-*` | Pass; at 390 px the code wraps after its fourth group and "I saved it" wraps below Print and Download |
+| Type-back: "Type group N of 7 from your saved copy", code hidden, Show the code again, Save recovery code | `recovery-type-back-*` | Pass |
+| Fresh browser after an administrator reset: "Use a recovery code" beside "Link this browser" | `restore-*` | Pass; Restore disabled while the field is empty |
+| Restored browser reading the team notebook | `restored-*` | Pass |
+| Reset dialog: held-key status, the full loss list, Export unsent edits first, Type RESET, Your password, Cancel, Continue (disabled) | `reset-dialog-*` | Pass |
+| The new code a reset shows | `reset-code-*` | Pass; same layout as `recovery-code-*` |
+
+Not captured as screenshots: the "Notebook name" prompt and the administrator reset alert are native dialogs; the e2e matches each one's full text. Refusal states (typo, wrong code, a copy for another key, wrong reset password) are asserted by text, not shot.
+
+Findings, not fixed here:
+
+- After a successful restore, Settings shows "Linked. This browser now holds your encryption key." (`main.tsx` `justLinked`): the restore card and its "Restored. …" status unmount once the key is held, so the user reads link copy after a restore.
+- The team member list shows "Add person" and "Remove" to members who are not stewards (the restored editor's `restored-*` shot). Present before P5; this run did not check what the server answers.

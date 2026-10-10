@@ -97,3 +97,64 @@ func TestRateLimitStillUsesAuthenticatedUserAcrossIPs(t *testing.T) {
 		}
 	}
 }
+
+func TestInvitationCreationIsRateLimitedPerCaller(t *testing.T) {
+	cfg := config.Defaults()
+	if cfg.RateLimit.InvitationPerHour != 30 {
+		t.Fatalf("default invitation_per_hour=%d, want 30", cfg.RateLimit.InvitationPerHour)
+	}
+	cfg.RateLimit.InvitationPerHour = 2
+	h := rateLimitMiddleware(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	call := func(method, path, ip string) int {
+		req := httptest.NewRequest(method, path, nil)
+		req.RemoteAddr = ip
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	const team = "/api/v1/containers/cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa/invitations"
+	for i := 0; i < 2; i++ {
+		if got := call(http.MethodPost, team, "203.0.113.20:1"); got != http.StatusOK {
+			t.Fatalf("invitation %d=%d", i, got)
+		}
+	}
+	for _, path := range []string{"/api/v1/containers/cnt_bbbbbbbbbbbbbbbbbbbbbbbbbb/invitations", "/api/containers/cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa/invitations"} {
+		if got := call(http.MethodPost, path, "203.0.113.20:1"); got != http.StatusTooManyRequests {
+			t.Fatalf("%s after the bucket was spent=%d, want 429", path, got)
+		}
+	}
+	if got := call(http.MethodPost, team, "203.0.113.21:1"); got != http.StatusOK {
+		t.Fatalf("another caller=%d", got)
+	}
+	// Accepts have their own bucket at the same rate, so a spent creation budget does not block one.
+	const accept = "/api/v1/invitations/inv_aaaaaaaaaaaaaaaaaaaaaaaaaa/accept"
+	for i := 0; i < 2; i++ {
+		if got := call(http.MethodPost, accept, "203.0.113.20:1"); got != http.StatusOK {
+			t.Fatalf("accept %d=%d", i, got)
+		}
+	}
+	for _, path := range []string{"/api/v1/invitations/inv_bbbbbbbbbbbbbbbbbbbbbbbbbb/accept", "/api/invitations/inv_aaaaaaaaaaaaaaaaaaaaaaaaaa/accept"} {
+		if got := call(http.MethodPost, path, "203.0.113.20:1"); got != http.StatusTooManyRequests {
+			t.Fatalf("%s after the accept bucket was spent=%d, want 429", path, got)
+		}
+	}
+	if got := call(http.MethodPost, accept, "203.0.113.21:1"); got != http.StatusOK {
+		t.Fatalf("another caller's accept=%d", got)
+	}
+}
+
+func TestRetryAfterFollowsRefillInterval(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.RateLimit.InvitationPerHour = 30
+	h := rateLimitMiddleware(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	var rec *httptest.ResponseRecorder
+	for i := 0; i < 31; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/containers/cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa/invitations", nil)
+		req.RemoteAddr = "203.0.113.30:1"
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+	}
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "120" {
+		t.Fatalf("code=%d Retry-After=%q, want 429 and 120", rec.Code, rec.Header().Get("Retry-After"))
+	}
+}

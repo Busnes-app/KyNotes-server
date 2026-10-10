@@ -26,6 +26,7 @@ type uploadClient struct {
 	hc             *http.Client
 	url, container string
 	csrf           string
+	generation     int64
 }
 
 func newUploadClient(t *testing.T) *uploadClient {
@@ -70,6 +71,7 @@ func newUploadClient(t *testing.T) *uploadClient {
 	_ = json.NewDecoder(res.Body).Decode(&c)
 	res.Body.Close()
 	u.container = c.ID
+	u.generation = keyForTest(t, s.DB(), c.ID, "usr_upload_test")
 	return u
 }
 
@@ -82,6 +84,7 @@ func (u *uploadClient) do(t *testing.T, method, path string, body []byte, csrf b
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Set(keySchemeHeader, keySchemeShared) // a current web client
 	if csrf {
 		for _, c := range u.hc.Jar.Cookies(req.URL) {
 			if c.Name == "csrf_token" {
@@ -119,6 +122,7 @@ func (u *uploadClient) chunk(t *testing.T, id string, index int, data string) *h
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Kynotes-Chunk-Index", strconv.Itoa(index))
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range u.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {
@@ -146,6 +150,7 @@ func TestChunkOutOfOrderIsRejectedWithExpectedNext(t *testing.T) {
 	id := u.upload(t, 8, nil)
 	req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader("abcd"))
 	req.Header.Set("X-Kynotes-Chunk-Index", "1")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range u.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {
@@ -172,6 +177,7 @@ func TestIdenticalChunkRetryIsAcceptedAsNoOp(t *testing.T) {
 	for _, index := range []int{0, 0} {
 		req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader("abcd"))
 		req.Header.Set("X-Kynotes-Chunk-Index", strconv.Itoa(index))
+		req.Header.Set(keySchemeHeader, keySchemeShared)
 		for _, c := range u.hc.Jar.Cookies(req.URL) {
 			req.AddCookie(c)
 			if c.Name == "csrf_token" {
@@ -195,6 +201,7 @@ func TestDifferentBytesForSameChunkIndexIsRejected(t *testing.T) {
 	for index, data := range []string{"abcd", "wxyz"} {
 		req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader(data))
 		req.Header.Set("X-Kynotes-Chunk-Index", strconv.Itoa(index))
+		req.Header.Set(keySchemeHeader, keySchemeShared)
 		for _, c := range u.hc.Jar.Cookies(req.URL) {
 			req.AddCookie(c)
 			if c.Name == "csrf_token" {
@@ -212,6 +219,7 @@ func TestDifferentBytesForSameChunkIndexIsRejected(t *testing.T) {
 	}
 	req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+id, strings.NewReader("bad!"))
 	req.Header.Set("X-Kynotes-Chunk-Index", "1")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, c := range u.hc.Jar.Cookies(req.URL) {
 		req.AddCookie(c)
 		if c.Name == "csrf_token" {
@@ -315,7 +323,7 @@ func TestCorruptedChunkChangesDigestAndFailsFinalize(t *testing.T) {
 	} else {
 		res.Body.Close()
 	}
-	res = u.do(t, http.MethodPost, "/api/v1/uploads/"+v.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":1}`), true)
+	res = u.do(t, http.MethodPost, "/api/v1/uploads/"+v.ID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(u.generation, 10)+`}`), true)
 	if res.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("finalize status=%d", res.StatusCode)
 	}

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { KeyFloor } from "./keyring";
 
 /** Same-origin tabs: every channel of a name hears every other one, never itself. */
 class FakeChannel {
@@ -52,5 +53,27 @@ describe("floors across tabs", () => {
     const alone = await tab();
     alone.raiseFloorIn(cnt, { shared: 1, generation: 1 });
     expect(alone.floorOf(cnt)).toMatchObject({ shared: 1, generation: 1 });
+  });
+  it("keeps only generations: a closure in a message or a stored floor from an older build is dropped", async () => {
+    vi.stubGlobal("BroadcastChannel", FakeChannel);
+    const [a, b] = [await tab(), await tab()];
+    a.raiseFloorIn(cnt, { shared: 2, generation: 2, closed: 2 } as KeyFloor);
+    expect(a.floorOf(cnt)).toEqual({ shared: 2, generation: 2 });
+    b.raiseFloorIn(cnt, { shared: 2, generation: 2 });
+    FakeChannel.open[0].postMessage({ containerID: cnt, shared: 2, generation: 3, closed: 2, reopened: true });
+    expect(b.floorOf(cnt)).toEqual({ shared: 2, generation: 3 });
+    // A message for a container not loaded yet is held as a minimum: also generations only.
+    const other = `cnt_${"c".repeat(26)}`;
+    FakeChannel.open[0].postMessage({ containerID: other, shared: 4, generation: 4, closed: 4 });
+    b.publishFloor(other, { shared: 1, generation: 1 }, true);
+    expect(b.floorOf(other)).toEqual({ shared: 4, generation: 4 });
+  });
+
+  it("the floor store reads and forwards only shared and generation", () => {
+    const source = import.meta.glob<string>("./floors.ts", { query: "?raw", import: "default", eager: true })["./floors.ts"];
+    const code = source.replace(/\/\*[^]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    // Every floor field it destructures, builds or posts: the two generations and the container ID.
+    expect(code).not.toMatch(/\bclosed\b|\breopened\b|\.\.\.(?:floor|next|event\.data|data)\b/);
+    expect(code).toContain("const { containerID, shared, generation } = (event.data ?? {}) as Record<string, unknown>;");
   });
 });

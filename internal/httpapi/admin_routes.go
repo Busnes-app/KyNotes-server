@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -22,8 +23,8 @@ func recordAudit(db *sql.DB, actor, event, container, object, requestID string) 
 	recordAuditOutcome(db, actor, event, container, object, "success", "", requestID)
 }
 
-// recordAuditOutcome writes one flat audit row. outcome is "success" or
-// "failure"; reason is operator-facing text already bounded by the caller and
+// recordAuditOutcome writes one flat audit row. outcome is "success",
+// "failure" or "denied"; reason is operator-facing text already bounded by the caller and
 // never a secret.
 func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, reason, requestID string) {
 	_ = storage.RecordAuditOutcome(db, actor, event, container, object, outcome, reason, requestID)
@@ -41,20 +42,16 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 		var in struct {
 			MetaCiphertext string `json:"metaCiphertext"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.MetaCiphertext) > 8192 {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		meta, err := base64.StdEncoding.DecodeString(in.MetaCiphertext)
-		if err != nil || len(meta) > 4096 {
+		// The team has no name until its owner's browser mints its first key and seals one.
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.MetaCiphertext != "" {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
 		teamID, _ := ids.Mint("cnt")
 		membershipID, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
-		if err = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", s.UserID, 1, meta, 0, now, now); e != nil {
+		if err := dbTx(db, func(tx *sql.Tx) error {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", s.UserID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
 			_, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, membershipID, teamID, s.UserID, "owner", now)
@@ -64,7 +61,7 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		recordAudit(db, s.UserID, "admin.team.create", teamID, "", r.Header.Get("X-Request-Id"))
-		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": in.MetaCiphertext, "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
+		writeJSON(w, map[string]any{"id": teamID, "kind": "team", "ownerUserId": s.UserID, "metaCiphertext": "", "metaVersion": 0, "changeSeq": 1, "keyGeneration": 1, "sharedGeneration": 0})
 	})))
 	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query(`SELECT id,kind,owner_user_id,meta_ciphertext,meta_version,change_seq,key_generation,shared_generation FROM containers WHERE kind='team' AND deleted_at='' ORDER BY id`)
@@ -96,20 +93,35 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		membershipID, _ := ids.Mint("mem")
-		now := time.Now().UTC().Format(time.RFC3339)
-		if err := dbTx(db, func(tx *sql.Tx) error {
-			if _, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, membershipID, r.PathValue("id"), in.UserID, in.Role, now, r.PathValue("id"), in.UserID); err != nil {
-				return err
-			}
-			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?, ?,? FROM containers c WHERE c.team_id=? AND c.deleted_at=''`, in.UserID, in.Role, now, r.PathValue("id"))
-			return err
-		}); err != nil {
-			WriteError(w, r, 409, "already_exists", "unable to add member")
+		cid := r.PathValue("id")
+		if ids.Validate("cnt", cid) != nil || ids.Validate("usr", in.UserID) != nil {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		recordAudit(db, s.UserID, "admin.team.member_add", r.PathValue("id"), in.UserID, r.Header.Get("X-Request-Id"))
+		now := time.Now().UTC().Format(time.RFC3339)
+		err := dbTx(db, func(tx *sql.Tx) error {
+			var ok bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM containers WHERE id=? AND kind='team' AND deleted_at='') AND EXISTS(SELECT 1 FROM users WHERE id=? AND status='active')`, cid, in.UserID).Scan(&ok); err != nil {
+				return err
+			}
+			if !ok {
+				return sql.ErrNoRows
+			}
+			if _, err := admitMemberTx(tx, cid, in.UserID, in.Role, "", now); err != nil {
+				return err
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "admin.team.member_add", cid, in.UserID, "success", "", RequestID(r))
+		})
+		if err != nil {
+			auditRefusal(db, r, s.UserID, "admin.team.member_add", cid, in.UserID, err)
+		}
+		if errors.Is(err, errMembershipExists) {
+			WriteError(w, r, 409, "already_exists", "unable to add member")
+			return
+		} else if writeTeamKeyError(w, r, err) {
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("DELETE /api/v1/admin/teams/{id}/members/{userID}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -265,17 +277,27 @@ func AdminRoutes(mux *http.ServeMux, db *sql.DB, ssoStore *sso.Store) {
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		// An admin cannot re-wrap the user's identity, so the reset deletes it in the same commit.
+		// An admin cannot re-wrap the user's identity: the reset removes only its password copy (stripPasswordWrapTx).
 		if err = dbTx(db, func(tx *sql.Tx) error {
 			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,password_admin_known=1,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); err != nil {
 				return err
 			}
-			return deleteIdentityTx(tx, r.PathValue("id"), s.UserID, RequestID(r))
+			// The old password's sessions and paired device credentials end with the reset, or it does not commit.
+			now := time.Now().UTC().Format(time.RFC3339)
+			if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, r.PathValue("id")); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, now, r.PathValue("id")); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, r.PathValue("id")); err != nil {
+				return err
+			}
+			return stripPasswordWrapTx(tx, r.PathValue("id"), s.UserID, RequestID(r))
 		}); err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		_, _ = db.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"))
 		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
 	})))

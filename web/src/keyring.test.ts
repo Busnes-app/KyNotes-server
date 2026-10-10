@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { base64, decryptNote, encryptNote, legacyKeyRef } from "./crypto";
-import { copyableConflicts, guardContainer, keysAllowed, legacyRow, NO_FLOOR, raiseFloor, localKey, movesLabelledSubpage, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, writeKey, type Envelope, type Me, type MemberKey } from "./keyring";
+import { asContentKey, base64, decryptNote, encryptNote, type KeyRef } from "./crypto";
+import { guardContainer, mergeFloor, memberKeyStatus, keysAllowed, NO_FLOOR, ownCopyKeys, raiseFloor, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, waitingKey, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { generateIdentity } from "./teamKeys";
-import { confirmFingerprintChange, displayName, FingerprintChangedError, PinConfirmation } from "./pins";
+import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const dev = (c: string) => `dev_${c.repeat(26)}`;
@@ -12,12 +12,11 @@ const person = (name: string, c: string, role = "editor") => {
   const member: MemberKey = { userId: held.userId, username: name, role, identity: { deviceId: dev(c), publicKey: base64(id.publicKey) } };
   return { held, member };
 };
-const legacy = legacyKeyRef("5a".repeat(32));
 /** openKeyring with this device's stored high-water mark (generations it accepted from a current steward). */
-const open = (mark: number, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Record<string, string>, held?: Map<number, Uint8Array>, digests: Record<number, string> = {}) =>
+const open = (mark: number, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Record<string, string>, held?: Map<number, KeyRef>, digests: Record<number, string> = {}) =>
   openKeyring({ containerID: cnt, envelopes, me, members, pins, known: { mark, digests }, held });
 /** An envelope sealed with no pins in play. */
-const seal = (member: MemberKey, generation: number, key: Uint8Array, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
+const seal = (member: MemberKey, generation: number, key: KeyRef, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
 
 describe("keyring", () => {
   it("opens only this identity's envelopes, by generation, and skips rows it cannot open", () => {
@@ -177,56 +176,47 @@ describe("keyring", () => {
     });
   });
 
-  it("writes legacy containers with the login key and shared ones only with the current key", () => {
+  it("never writes with the login key: a never-shared container has no write key, a shared one only the current key", () => {
     const k3 = newContainerKey();
     const ring = new Map([[3, k3]]);
-    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 0 }, ring, legacy, NO_FLOOR)).toEqual({ key: legacy, generation: 4 });
-    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, ring, legacy, NO_FLOOR)).toEqual({ key: k3, generation: 3 });
+    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 0 }, ring, NO_FLOOR)).toBeUndefined();
+    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, ring, NO_FLOOR)).toEqual({ key: k3, generation: 3 });
     // Waiting for keys: never fall back to the legacy key in a shared container.
-    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 2 }, ring, legacy, NO_FLOOR)).toBeUndefined();
+    expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 2 }, ring, NO_FLOOR)).toBeUndefined();
   });
 
-  it("reads a shared generation only with its own key, and legacy rows only with the legacy key", async () => {
+  it("reads a keyed generation only with its own key, and nothing below the first key", async () => {
     const [k2, k3, k4] = [newContainerKey(), newContainerKey(), newContainerKey()];
     const ring = new Map([[2, k2], [4, k4], [3, k3]]);
     const shared = { sharedGeneration: 2 };
-    expect(readKeys(shared, ring, legacy, 3, NO_FLOOR)).toEqual([k3]);
-    expect(readKeys(shared, ring, legacy, 1, NO_FLOOR)).toEqual([legacy]);
-    expect(readKeys({ sharedGeneration: 0 }, ring, legacy, 5, NO_FLOOR)).toEqual([legacy]);
-    expect(readKeys(shared, ring, legacy, undefined, NO_FLOOR)).toEqual([]);
-    expect(readKeys(shared, ring, legacy, 5, NO_FLOOR)).toEqual([]);
-    const note = { title: "L", body: "" };
-    // Legacy rows below sharedGeneration still decrypt.
-    const old = await encryptNote(legacy, cnt, note);
-    await expect(openFirst(readKeys(shared, ring, legacy, 1, NO_FLOOR), (key) => decryptNote(key, cnt, old))).resolves.toEqual(note);
-    // A server relabelling legacy-key ciphertext as shared cannot downgrade the read.
-    await expect(openFirst(readKeys(shared, ring, legacy, 3, NO_FLOOR), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
+    expect(readKeys(shared, ring, 3, NO_FLOOR)).toEqual([k3]);
+    for (const generation of [undefined, Number.NaN, 0, 1, 5]) expect(readKeys(shared, ring, generation, NO_FLOOR)).toEqual([]);
+    for (const generation of [undefined, 0, 1, 2, 5]) expect(readKeys({ sharedGeneration: 0 }, ring, generation, NO_FLOOR)).toEqual([]);
+    // A server relabelling generation-2 ciphertext as generation 3 cannot make it open.
+    const old = await encryptNote(k2, cnt, { title: "L", body: "" });
+    await expect(openFirst(readKeys(shared, ring, 3, NO_FLOOR), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
   });
 
-  it("reads a personal container with the legacy key even without a row generation", () => {
-    // Old cache entries carry no keyGeneration; a never-shared container has only the legacy key.
-    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, undefined, NO_FLOOR)).toEqual([legacy]);
-    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, Number.NaN, NO_FLOOR)).toEqual([legacy]);
-  });
-
-  it("seals an edit made while keys are missing for this device only, and reads it back", async () => {
+  it("seals an edit made while keys are missing for this device only, and reads it back only as its own copy", async () => {
     const shared = { id: cnt, keyGeneration: 3, sharedGeneration: 2 };
-    const waiting = localKey(shared, new Map(), legacy, NO_FLOOR);
-    expect(waiting).toEqual({ key: legacy, generation: WAITING_GENERATION });
+    const seal = waitingKey(generateIdentity());
+    expect(writeKey(shared, new Map(), NO_FLOOR)).toBeUndefined();
+    const waiting = { key: seal, generation: WAITING_GENERATION }; // main.tsx localKeyFor
     // Never a generation the server would accept, and never the current key's slot.
     expect(WAITING_GENERATION).toBeLessThan(1);
     const sealed = await encryptNote(waiting.key, cnt, { title: "W", body: "" });
-    await expect(openFirst(readKeys(shared, new Map(), legacy, WAITING_GENERATION, NO_FLOOR), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
+    await expect(openFirst(ownCopyKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR, seal), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
+    expect(readKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR)).toEqual([]);
     const k3 = newContainerKey();
-    expect(localKey(shared, new Map([[3, k3]]), legacy, NO_FLOOR)).toEqual({ key: k3, generation: 3 });
+    expect(writeKey(shared, new Map([[3, k3]]), NO_FLOOR)).toEqual({ key: k3, generation: 3 });
   });
 
   it("never opens a newer row with a removed member's older key", async () => {
     const k2 = newContainerKey();
     const removed = new Map([[2, k2]]); // keys a member held before removal re-keyed to generation 3
     const forged = await encryptNote(k2, cnt, { title: "F", body: "" });
-    expect(readKeys({ sharedGeneration: 2 }, removed, legacy, 3, NO_FLOOR)).toEqual([]);
-    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, legacy, 3, NO_FLOOR), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
+    expect(readKeys({ sharedGeneration: 2 }, removed, 3, NO_FLOOR)).toEqual([]);
+    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, 3, NO_FLOOR), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
   });
 });
 
@@ -269,15 +259,19 @@ describe("planSweep", () => {
   const editor = person("editor", "c");
   const container = (keyGeneration: number, sharedGeneration: number) => ({ id: cnt, keyGeneration, sharedGeneration });
 
-  it("mints the first key only when every member has an identity", () => {
+  it("mints the first key for every keyed member, once the caller is recoverable", () => {
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
-    const base = { me: owner.member.userId, envelopes: [], ring: new Map() };
-    expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member, sso] })).toEqual({ kind: "blocked", waitingFor: [displayName("sso-user", sso.userId)] });
+    const base = { me: owner.member.userId, envelopes: [], ring: new Map(), recoverable: true };
+    // A member without an identity no longer holds the first key back: it is wrapped later by the sweep.
+    expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member, sso] })).toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
+    // A first key waits for a recoverable identity; a re-mint never does.
+    expect(planSweep({ ...base, recoverable: false, container: container(1, 0), members: [owner.member, editor.member] })).toEqual({ kind: "unrecoverable" });
+    expect(planSweep({ ...base, recoverable: false, container: container(3, 2), members: [owner.member, editor.member], envelopes: [] }).kind).toBe("mint");
     expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member] })).toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
   });
 
   it("never acts for a non-steward or a steward without an identity", () => {
-    const base = { container: container(1, 0), envelopes: [], ring: new Map() };
+    const base = { container: container(1, 0), envelopes: [], ring: new Map(), recoverable: true };
     expect(planSweep({ ...base, me: editor.member.userId, members: [owner.member, editor.member] }).kind).toBe("idle");
     expect(planSweep({ ...base, me: owner.member.userId, members: [{ ...owner.member, identity: undefined }, editor.member] }).kind).toBe("idle");
   });
@@ -286,8 +280,19 @@ describe("planSweep", () => {
     const k2 = newContainerKey();
     const envelopes = [seal(owner.member, 2, k2, owner.held), seal(editor.member, 2, k2, owner.held)];
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
-    expect(planSweep({ container: container(3, 2), me: owner.member.userId, members: [owner.member, editor.member, sso], envelopes, ring: new Map([[2, k2]]) }))
+    expect(planSweep({ container: container(3, 2), recoverable: true, me: owner.member.userId, members: [owner.member, editor.member, sso], envelopes, ring: new Map([[2, k2]]) }))
       .toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
+  });
+
+  it("re-mints, never wraps, after a self-service reset retired the generation", () => {
+    // The editor reset: the server deleted the old identity's envelopes and advanced 2 -> 3.
+    const k2 = newContainerKey();
+    const reset: MemberKey = { ...editor.member, identity: person("editor", "f").member.identity };
+    const envelopes = [seal(owner.member, 2, k2, owner.held)];
+    const plan = planSweep({ container: container(3, 2), recoverable: true, me: owner.member.userId, members: [owner.member, reset], envelopes, ring: new Map([[2, k2]]) });
+    expect(plan).toEqual({ kind: "mint", recipients: [owner.member, reset] });
+    // Without the advance the same state would wrap the old key for the new identity.
+    expect(planSweep({ container: container(2, 2), recoverable: true, me: owner.member.userId, members: [owner.member, reset], envelopes, ring: new Map([[2, k2]]) }).kind).toBe("wrap");
   });
 
   it("wraps every held generation for a member missing it, and nothing it does not hold", () => {
@@ -295,59 +300,50 @@ describe("planSweep", () => {
     const [k2, k4] = [newContainerKey(), newContainerKey()];
     const envelopes = [seal(owner.member, 2, k2, owner.held), seal(editor.member, 2, k2, owner.held), seal(owner.member, 4, k4, owner.held), seal(editor.member, 4, k4, owner.held)];
     // Generation 3 was emptied by a removal and never held; generation 1 predates sharing.
-    const plan = planSweep({ container: container(4, 2), me: owner.member.userId, members: [owner.member, editor.member, newcomer.member], envelopes, ring: new Map([[2, k2], [4, k4]]) });
+    const plan = planSweep({ container: container(4, 2), recoverable: true, me: owner.member.userId, members: [owner.member, editor.member, newcomer.member], envelopes, ring: new Map([[2, k2], [4, k4]]) });
     expect(plan).toEqual({ kind: "wrap", grants: [{ member: newcomer.member, generation: 2 }, { member: newcomer.member, generation: 4 }] });
-    expect(planSweep({ container: container(4, 2), me: owner.member.userId, members: [owner.member, editor.member], envelopes, ring: new Map([[2, k2], [4, k4]]) }).kind).toBe("idle");
+    expect(planSweep({ container: container(4, 2), recoverable: true, me: owner.member.userId, members: [owner.member, editor.member], envelopes, ring: new Map([[2, k2], [4, k4]]) }).kind).toBe("idle");
   });
 });
 
 describe("main.tsx key wiring", () => {
-  it("derives the legacy key in exactly two places and never hands content crypto the login secret", () => {
-    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
-    // Workspace (legacy reads, personal notebooks) and AdminTeams (admin-created names).
-    expect(main.match(/legacyKeyRef\(/g)).toHaveLength(2);
+  const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+
+  it("never hands content crypto the login secret", () => {
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*(?:auth\.)?authSecret\b/);
-  });
-});
-
-describe("legacyRow", () => {
-  const ck = newContainerKey();
-  const legacy = legacyKeyRef("a".repeat(64));
-
-  it("labels exactly the rows readKeys opens with the legacy key", () => {
-    for (const shared of [{ sharedGeneration: 0 }, { sharedGeneration: 3 }]) {
-      for (const generation of [undefined, Number.NaN, 1.5, -1, 0, 1, 2, 3, 4]) {
-        const legacyRead = readKeys(shared, new Map([[3, ck]]), legacy, generation, NO_FLOOR)[0] === legacy;
-        expect(legacyRow(shared, generation, NO_FLOOR)).toBe(shared.sharedGeneration > 0 && legacyRead);
-      }
-    }
+    expect(main).not.toMatch(/\blegacy\b/);
   });
 
-  it("labels generation 0 in a shared container, never in a personal one", () => {
-    expect(legacyRow({ sharedGeneration: 3 }, WAITING_GENERATION, NO_FLOOR)).toBe(true);
-    expect(legacyRow({ sharedGeneration: 3 }, 2, NO_FLOOR)).toBe(true);
-    expect(legacyRow({ sharedGeneration: 3 }, 3, NO_FLOOR)).toBe(false);
-    expect(legacyRow({ sharedGeneration: 3 }, undefined, NO_FLOOR)).toBe(false); // no key at all
-    expect(legacyRow({ sharedGeneration: 0 }, 0, NO_FLOOR)).toBe(false);
-    expect(readKeys({ sharedGeneration: 0 }, new Map(), legacy, 0, NO_FLOOR)).toEqual([legacy]); // personal reads unchanged
+  it("AdminTeams decrypts nothing: it shows names the workspace already opened", () => {
+    const admin = main.slice(main.indexOf("function AdminTeams("));
+    const body = admin.slice(0, admin.indexOf("\nfunction ", 1)).replace(/\/\/.*$/gm, "");
+    expect(body).not.toMatch(/decrypt|openFirst|readKeys|authSecret/);
+    expect(body).toContain('{knownNames[entry.id] ?? "Unnamed team"}');
+    expect(body).toContain("setTeams(await listAdminTeams(sink));");
   });
 
-  it("never copies a labelled conflict version, generation 0 included", () => {
-    const conflicts = [{ id: "a", keyGeneration: 0 }, { id: "b", keyGeneration: 2 }, { id: "c", keyGeneration: 3 }, { id: "d", keyGeneration: undefined }];
-    expect(copyableConflicts({ sharedGeneration: 3 }, conflicts, NO_FLOOR)).toEqual({ copy: [conflicts[2], conflicts[3]], kept: 2 });
-    expect(copyableConflicts({ sharedGeneration: 0 }, conflicts, NO_FLOOR)).toEqual({ copy: conflicts, kept: 0 });
+  it("never seals with anything but a write key or the waiting key", () => {
+    const sources = import.meta.glob<string>(["./drain.ts", "./outbound.ts", "./keyService.ts", "./keyring.ts"], { query: "?raw", import: "default", eager: true });
+    for (const [file, source] of Object.entries({ "./main.tsx": main, ...sources }))
+      expect(source, file).not.toMatch(/(?:encrypt|seal)\w*\(\s*(?:legacy|login|from)\b/i);
+    expect(writeKey).toHaveLength(3); // (container, ring, floor): nothing to fall back to
+    const localKeyFor = main.slice(main.indexOf("  const localKeyFor"), main.indexOf("\n", main.indexOf("  const localKeyFor")));
+    expect(localKeyFor).toContain("waitingRef.current");
   });
 
-  it("refuses a block move that would re-seal a labelled subpage, not one of the head", () => {
-    const block = [{ id: "head" }, { id: "sub" }];
-    expect(movesLabelledSubpage(block, "head", new Set(["sub"]))).toBe(true);
-    expect(movesLabelledSubpage(block, "head", new Set(["head"]))).toBe(false);
-    expect(movesLabelledSubpage(block, "head", new Set())).toBe(false);
+  it("uses ownCopyKeysFor only for entries this browser sealed itself", () => {
+    const own = [...main.matchAll(/ownCopyKeysFor\([^,]+, ([\w.!]+)\)/g)].map((match) => match[1]);
+    expect(main.match(/ownCopyKeysFor\(/g)).toHaveLength(own.length);
+    expect(own).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
+    expect(new Set(own)).toEqual(new Set(["cached!.keyGeneration", "cached.keyGeneration", "item.keyGeneration"]));
+    // The cache holds only ciphertext this browser just sealed from its own edit, never a server read.
+    const writes = main.match(/putNote\([^]*?\}\)/g)!;
+    expect(writes).toHaveLength(3);
+    for (const write of writes) expect(write).toMatch(/payload: (?:encrypted|await encryptNote\(write\.key)/);
   });
 });
 
 describe("sharing-state rollback", () => {
-  const legacy = legacyKeyRef("a".repeat(64));
   const k3 = newContainerKey();
   const ring = new Map([[3, k3]]);
   const seen = raiseFloor({}, { id: cnt, keyGeneration: 3, sharedGeneration: 2 });
@@ -358,44 +354,111 @@ describe("sharing-state rollback", () => {
     expect(raiseFloor(seen, { id: cnt, keyGeneration: 5, sharedGeneration: 2 })).toEqual({ shared: 2, generation: 5 });
   });
 
-  it("refuses every write when the server reports a seen-shared notebook as legacy", () => {
-    const legacyReport = { id: cnt, keyGeneration: 3, sharedGeneration: 0 };
-    expect(guardContainer(legacyReport, seen).rollback).toBe(true);
-    expect(writeKey(legacyReport, ring, legacy, seen)).toBeUndefined();
-    // The local waiting seal never leaves the device; it is never a server write key.
-    expect(localKey(legacyReport, ring, legacy, seen).generation).toBe(WAITING_GENERATION);
-    // Reads keep the shared rule: the current generation opens only with its container key.
-    expect(readKeys(legacyReport, ring, legacy, 3, seen)).toEqual([k3]);
-    expect(legacyRow(legacyReport, 3, seen)).toBe(false);
-    expect(legacyRow(legacyReport, 1, seen)).toBe(true);
+  it("refuses every write when the server reports a seen-keyed notebook as unkeyed; reads keep the floor", () => {
+    const unkeyed = { id: cnt, keyGeneration: 3, sharedGeneration: 0 };
+    expect(guardContainer(unkeyed, seen).rollback).toBe(true);
+    expect(writeKey(unkeyed, ring, seen)).toBeUndefined();
+    // Reads keep the floor's first keyed generation: the current one opens with its key, older ones with none.
+    expect(readKeys(unkeyed, ring, 3, seen)).toEqual([k3]);
+    expect(readKeys(unkeyed, new Map([[1, k3]]), 1, seen)).toEqual([]);
   });
 
   it("refuses a lowered key generation, so nothing is sealed under an older key", () => {
     const lowered = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
     const withOld = new Map([[2, newContainerKey()], [3, k3]]);
     expect(guardContainer(lowered, seen).rollback).toBe(true);
-    expect(writeKey(lowered, withOld, legacy, seen)).toBeUndefined();
-    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, withOld, legacy, seen)).toEqual({ key: k3, generation: 3 });
+    expect(writeKey(lowered, withOld, seen)).toBeUndefined();
+    expect(writeKey({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, withOld, seen)).toEqual({ key: k3, generation: 3 });
   });
 });
 
-describe("server-claimed kind never decides keys", () => {
-  const legacy = legacyKeyRef("a".repeat(64));
+describe("nothing is sealed before the first key, and kind never decides keys", () => {
   const k2 = newContainerKey();
   const seen = { shared: 2, generation: 2 };
 
-  it("gives a seen-shared notebook relabelled personal no write key and no legacy read", () => {
-    const relabelled = { id: cnt, kind: "personal", keyGeneration: 2, sharedGeneration: 0 };
-    expect(keysAllowed(relabelled, seen)).toBe(false);
-    expect(writeKey(relabelled, new Map([[2, k2]]), legacy, seen)).toBeUndefined();
-    expect(readKeys(relabelled, new Map([[2, k2]]), legacy, 2, seen)).not.toContain(legacy);
-    // Still shared on the server, but called personal: also refused.
-    expect(keysAllowed({ ...relabelled, sharedGeneration: 2 }, seen)).toBe(false);
+  it("gives an unkeyed notebook no write key and no read key", () => {
+    const fresh = { id: cnt, kind: "workbook", keyGeneration: 1, sharedGeneration: 0 };
+    expect(writeKey(fresh, new Map([[1, k2]]), {})).toBeUndefined();
+    expect(readKeys(fresh, new Map([[1, k2]]), 1, {})).toEqual([]);
   });
 
-  it("leaves a never-shared personal notebook and a team notebook alone", () => {
-    expect(keysAllowed({ id: cnt, kind: "workbook", keyGeneration: 1, sharedGeneration: 0 }, {})).toBe(true);
-    expect(keysAllowed({ id: cnt, kind: "team", keyGeneration: 2, sharedGeneration: 2 }, seen)).toBe(true);
-    expect(keysAllowed({ id: cnt, kind: "workbook", teamId: "cnt_t", keyGeneration: 2, sharedGeneration: 2 }, seen)).toBe(true);
+  it("keeps the keys of a keyed notebook the server calls personal; only a lower report pauses it", () => {
+    const personal = { id: cnt, kind: "workbook", keyGeneration: 2, sharedGeneration: 2 };
+    expect(keysAllowed(personal, seen)).toBe(true);
+    expect(writeKey(personal, new Map([[2, k2]]), seen)).toEqual({ key: k2, generation: 2 });
+    expect(keysAllowed({ ...personal, sharedGeneration: 0 }, seen)).toBe(false);
+    expect(writeKey({ ...personal, sharedGeneration: 0 }, new Map([[2, k2]]), seen)).toBeUndefined();
+  });
+});
+
+describe("waiting edits (N3)", () => {
+  it("seal with a key derived from the identity alone, not from the password", () => {
+    const identity = generateIdentity();
+    expect(waitingKey(identity)).toEqual(waitingKey({ privateKey: identity.privateKey.slice() }));
+    expect(waitingKey(identity)).toHaveLength(32);
+    expect(waitingKey(identity)).not.toEqual(waitingKey(generateIdentity()));
+    expect(waitingKey(identity)).not.toEqual(identity.privateKey);
+  });
+
+  it("open with the waiting key only, for generation 0 only", () => {
+    const waiting = waitingKey(generateIdentity());
+    const k1 = asContentKey(new Uint8Array(32).fill(1));
+    const shared = { sharedGeneration: 2 };
+    expect(ownCopyKeys(shared, new Map([[0, k1]]), WAITING_GENERATION, { shared: 2 }, waiting)).toEqual([waiting]);
+    expect(ownCopyKeys(shared, new Map(), 1, { shared: 2 }, waiting)).toEqual([]);
+    expect(ownCopyKeys(shared, new Map(), WAITING_GENERATION, { shared: 2 })).toEqual([]);
+  });
+});
+
+describe("memberKeyStatus", () => {
+  const owner = person("owner", "b", "owner"), editor = person("editor", "c"), newcomer = person("newcomer", "d");
+  const bare: MemberKey = { userId: `usr_${"e".repeat(26)}`, username: "sso", role: "viewer" };
+  const row = (member: MemberKey, generation: number): Envelope => ({ deviceId: member.identity!.deviceId, keyGeneration: generation, alg: "x", envelope: "" });
+
+  it("reports has key, waiting and no identity against the current generation only", () => {
+    const status = memberKeyStatus({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, [owner.member, editor.member, newcomer.member, bare], [row(owner.member, 3), row(editor.member, 3), row(newcomer.member, 2)]);
+    expect(status).toEqual({ [owner.member.userId]: "has-key", [editor.member.userId]: "has-key", [newcomer.member.userId]: "waiting", [bare.userId]: "no-identity" });
+  });
+
+  it("in a never-shared notebook, names only members without an identity", () => {
+    expect(memberKeyStatus({ id: cnt, keyGeneration: 1, sharedGeneration: 0 }, [owner.member, bare], [])).toEqual({ [bare.userId]: "no-identity" });
+  });
+});
+
+describe("key floors", () => {
+  it("a floor carries only generations: a stored closure from an older build is dropped", () => {
+    const merged = mergeFloor({ shared: 2, generation: 3, closed: 2 } as KeyFloor, { shared: 2, generation: 4 });
+    expect(merged).toEqual({ shared: 2, generation: 4 });
+  });
+
+  it("drops a stale field on either side: a merge holds only shared and generation", () => {
+    const stale = { shared: 3, generation: 5, closed: 2, reopened: true } as KeyFloor;
+    for (const merged of [mergeFloor({ shared: 2, generation: 4 }, stale), mergeFloor(stale, stale), mergeFloor(undefined, stale)])
+      expect(Object.keys(merged).sort()).toEqual(["generation", "shared"]);
+    expect(mergeFloor({ shared: 2, generation: 4 }, stale)).toEqual({ shared: 3, generation: 5 });
+  });
+});
+
+describe("key decisions read no server claim about kind", () => {
+  const sources = import.meta.glob<string>(["./keyring.ts", "./keyService.ts", "./drain.ts", "./outbound.ts", "./floors.ts", "./observe.ts", "./recovery.ts", "./identity.ts"], { query: "?raw", import: "default", eager: true });
+  const code = (source: string) => source.replace(/\/\*[^]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+  it("no key module compares kind or reads teamId", () => {
+    for (const [file, source] of Object.entries(sources)) {
+      // Property reads only: ReportedContainer still declares teamId as a layout field.
+      expect(code(source), file).not.toMatch(/\.teamId\b|\.kind\s*[!=]==?\s*["'](?:team|workbook|project|personal)["']/);
+    }
+  });
+
+  it("main.tsx gives every notebook a key pass and decides keys without kind", () => {
+    const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
+    expect(main).not.toMatch(/needsKeyPass/);
+    for (const start of ["  const writeKeyFor", "  const readKeysFor", "  const ownCopyKeysFor", "  const localKeyFor", "  async function syncKeys(", "  async function sendable("]) {
+      const from = main.indexOf(start);
+      expect(from, start).toBeGreaterThan(-1);
+      const rest = main.slice(from + start.length);
+      // plan.kind and similar discriminants are fine; a container's kind or teamId is not.
+      expect(code(start + rest.slice(0, rest.search(/\n {2}(?:async function|function|const) /))), start).not.toMatch(/\.teamId\b|\.kind\s*[!=]==?\s*["'](?:team|workbook|project|personal)["']/);
+    }
   });
 });

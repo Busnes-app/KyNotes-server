@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -80,11 +81,31 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "auth"
 		case path == "/api/v1/devices/pairing-token":
 			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "pairing"
+		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/invitations"):
+			// Bounds how fast one account can learn whether user IDs are live by inviting them.
+			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "invitation"
+		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/invitations/") && strings.HasSuffix(path, "/accept"):
+			// Its own bucket at the same rate: bounds guessing and the refusal audit rows a caller can write.
+			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "accept"
+		case r.Method != http.MethodGet && (path == "/api/v1/me/identity" || strings.HasPrefix(path, "/api/v1/me/identity/recovery")):
+			// Creating or resetting the identity, setting or fetching its recovery-code copy: a handful an hour
+			// bounds resets, fetches and audit rows. ponytail: reuses pairing_per_hour; upgrade path is a
+			// dedicated recovery_per_hour key.
+			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "recovery"
+		case r.Method == http.MethodPost && path == "/api/v1/me/link-requests":
+			// Linking a browser is device pairing: the same per-account hourly budget.
+			limit, rate, label = cfg.RateLimit.PairingPerHour, cfg.RateLimit.PairingPerHour, "link"
+		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/me/link-requests/") && strings.HasSuffix(path, "/collect"):
+			// The newcomer polls every four seconds: three live requests make 45 a minute.
+			limit, rate, label = cfg.RateLimit.LinkPollPerMinute, cfg.RateLimit.LinkPollPerMinute, "link-poll"
+		case r.Method != http.MethodGet && strings.HasPrefix(path, "/api/v1/me/link-requests/"):
+			// Claim, reveal, approve and cancel: a ceremony needs a handful; bounds refusal audit rows.
+			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "link-step"
 		case (strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/uploads")) || strings.HasPrefix(path, "/api/v1/uploads/"):
 			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "upload"
 		}
 		refill := float64(rate) / 60
-		if label == "pairing" {
+		if label == "pairing" || label == "invitation" || label == "accept" || label == "link" || label == "recovery" {
 			refill = float64(rate) / 3600
 		}
 		identity := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)
@@ -94,11 +115,19 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			}
 		}
 		if label != "" && !l.allow(label+"\x00"+identity, refill, limit, time.Now().UTC()) {
-			w.Header().Set("Retry-After", strconv.Itoa(60))
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/refill))))
 			WriteError(w, r, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return
 		}
-		next.ServeHTTP(w, r)
+		// SSO step-up challenges are minted by whatever route asked for one: their own bucket at the login rate.
+		challenge := float64(cfg.RateLimit.LoginPerMinute) / 60
+		next.ServeHTTP(w, r.WithContext(auth.WithChallengeLimit(r.Context(), func(userID string) bool {
+			if l.allow("challenge\x00"+userID, challenge, cfg.RateLimit.LoginPerMinute, time.Now().UTC()) {
+				return true
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/challenge))))
+			return false
+		})))
 	})
 }
 

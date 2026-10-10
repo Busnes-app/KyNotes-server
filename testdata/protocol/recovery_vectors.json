@@ -1,0 +1,159 @@
+{
+  "codes": [
+    {
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "code": "0004-1061-050R-3GG2-8A1C-60T3-GFJ7",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "privateKey": "1111111111111111111111111111111111111111111111111111111111111111",
+      "publicKey": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+      "salt": "202122232425262728292a2b2c2d2e2f",
+      "nonce": "404142434445464748494a4b",
+      "kek": "a689f1aced036c156917c396f58fb59d2f8d9e05868390eca8a3a8a97dfa5951",
+      "wrapped": "202122232425262728292a2b2c2d2e2f404142434445464748494a4b6ec8be09c2d078917568ea9691911bd1ab2e9b38ebcc00902542cce55c66b4b675940a9789ac5c8f64b79b47e9b03226"
+    },
+    {
+      "secret": "ffffffffffffffffffffffffffffffff",
+      "code": "7ZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZ0D",
+      "userId": "usr_zyxwvtsrqpnmkjhgfedcba9876",
+      "privateKey": "2222222222222222222222222222222222222222222222222222222222222222",
+      "publicKey": "0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+      "salt": "606162636465666768696a6b6c6d6e6f",
+      "nonce": "808182838485868788898a8b",
+      "kek": "2e876934bad7266d0c113696e61d7380c3949e5f6d922ec0144af582c4d57431",
+      "wrapped": "606162636465666768696a6b6c6d6e6f808182838485868788898a8bebfaf77ac88df5d7a21857c4816d322b8ed429a87f3e4b0a7a4ba415b7d0642bdebcfc4f5383d85d77908bd0035a43dd"
+    },
+    {
+      "secret": "00000000000000000000000000000000",
+      "code": "0000-0000-0000-0000-0000-0000-0069",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "privateKey": "3333333333333333333333333333333333333333333333333333333333333333",
+      "publicKey": "7b0d47d93427f8311160781c7c733fd89f88970aef490d8aa0ee19a4cb8a1b14",
+      "salt": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+      "nonce": "c0c1c2c3c4c5c6c7c8c9cacb",
+      "kek": "92a96d8804c44cdc6d55f46d3ae2584b89c51dbfd72d9a6bb7218933378cced8",
+      "wrapped": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafc0c1c2c3c4c5c6c7c8c9cacb0107fbbf88dc8c5d33ab221b58b630c499bbe26b11bb8f99824c0e50f3d6ffaf7fd5cc5b3994804f7da7bc29947c070f"
+    }
+  ],
+  "aliases": [
+    {
+      "case": "lowercase",
+      "input": "0004-1061-050r-3gg2-8a1c-60t3-gfj7",
+      "code": "0004-1061-050R-3GG2-8A1C-60T3-GFJ7"
+    },
+    {
+      "case": "spaces",
+      "input": "0004 1061 050R 3GG2 8A1C 60T3 GFJ7",
+      "code": "0004-1061-050R-3GG2-8A1C-60T3-GFJ7"
+    },
+    {
+      "case": "no-separators",
+      "input": "00041061050R3GG28A1C60T3GFJ7",
+      "code": "0004-1061-050R-3GG2-8A1C-60T3-GFJ7"
+    },
+    {
+      "case": "letters-for-digits",
+      "input": "OOO4-lO6l-O5OR-3GG2-8AlC-6OT3-GFJ7",
+      "code": "0004-1061-050R-3GG2-8A1C-60T3-GFJ7"
+    },
+    {
+      "case": "surrounding-whitespace",
+      "input": "  0004-1061-050R-3GG2-8A1C-60T3-GFJ7\n",
+      "code": "0004-1061-050R-3GG2-8A1C-60T3-GFJ7"
+    }
+  ],
+  "rejects": [
+    {
+      "case": "short",
+      "input": "0041061050R3GG28A1C60T3GFJ7"
+    },
+    {
+      "case": "long",
+      "input": "000041061050R3GG28A1C60T3GFJ7"
+    },
+    {
+      "case": "bad-symbol",
+      "input": "00041U61050R3GG28A1C60T3GFJ7"
+    },
+    {
+      "case": "overflow",
+      "input": "80041061050R3GG28A1C60T3GFJ7"
+    },
+    {
+      "case": "typo",
+      "input": "10041061050R3GG28A1C60T3GFJ7"
+    },
+    {
+      "case": "transposed",
+      "input": "00401061050R3GG28A1C60T3GFJ7"
+    },
+    {
+      "case": "bad-checksum",
+      "input": "00041061050R3GG28A1C60T3GFJ8"
+    }
+  ],
+  "openRejects": [
+    {
+      "case": "low-iterations",
+      "reason": "alg",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "publicKey": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+      "wrapAlg": "pbkdf2-sha256-1000/aes-256-gcm",
+      "wrapped": "202122232425262728292a2b2c2d2e2f404142434445464748494a4b394280fd088d62add9464a33f0b53021cfbcbc36f819199c298e725520fc055cff0f093f8523cab55acb5dec71e6f657"
+    },
+    {
+      "case": "short-salt",
+      "reason": "format",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "publicKey": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+      "wrapAlg": "pbkdf2-sha256-600000/aes-256-gcm",
+      "wrapped": "2021222324252627404142434445464748494a4bc1e5ebe2a961283914bedd4f91f374e6fd2fe13b4db2d17ce10af118bd5da047afee44fac1d9a4d3dd3af9f978bb4364"
+    },
+    {
+      "case": "wrong-code",
+      "reason": "aead",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "publicKey": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+      "wrapAlg": "pbkdf2-sha256-600000/aes-256-gcm",
+      "wrapped": "606162636465666768696a6b6c6d6e6f808182838485868788898a8bebfaf77ac88df5d7a21857c4816d322b8ed429a87f3e4b0a7a4ba415b7d0642bdebcfc4f5383d85d77908bd0035a43dd"
+    },
+    {
+      "case": "wrong-user",
+      "reason": "aead",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_zyxwvtsrqpnmkjhgfedcba9876",
+      "publicKey": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+      "wrapAlg": "pbkdf2-sha256-600000/aes-256-gcm",
+      "wrapped": "202122232425262728292a2b2c2d2e2f404142434445464748494a4b6ec8be09c2d078917568ea9691911bd1ab2e9b38ebcc00902542cce55c66b4b675940a9789ac5c8f64b79b47e9b03226"
+    },
+    {
+      "case": "wrong-public-key",
+      "reason": "aead",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "publicKey": "0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+      "wrapAlg": "pbkdf2-sha256-600000/aes-256-gcm",
+      "wrapped": "202122232425262728292a2b2c2d2e2f404142434445464748494a4b6ec8be09c2d078917568ea9691911bd1ab2e9b38ebcc00902542cce55c66b4b675940a9789ac5c8f64b79b47e9b03226"
+    },
+    {
+      "case": "tamper",
+      "reason": "aead",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "publicKey": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13",
+      "wrapAlg": "pbkdf2-sha256-600000/aes-256-gcm",
+      "wrapped": "202122232425262728292a2b2c2d2e2f404142434445464748494a4b6ec8be09c2d078917568ea9690911bd1ab2e9b38ebcc00902542cce55c66b4b675940a9789ac5c8f64b79b47e9b03226"
+    },
+    {
+      "case": "key-mismatch",
+      "reason": "public-key",
+      "secret": "000102030405060708090a0b0c0d0e0f",
+      "userId": "usr_0123456789abcdefghjkmnpqrs",
+      "publicKey": "0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+      "wrapAlg": "pbkdf2-sha256-600000/aes-256-gcm",
+      "wrapped": "202122232425262728292a2b2c2d2e2f404142434445464748494a4b6ec8be09c2d078917568ea9691911bd1ab2e9b38ebcc00902542cce55c66b4b6c267a888fbcd0c5f7abd8bdb5424a2b9"
+    }
+  ]
+}

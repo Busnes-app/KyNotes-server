@@ -27,10 +27,10 @@ var (
 	errVersionConflict       = errors.New("version conflict")
 )
 
-// keySchemeHeader marks a write from a client that seals shared containers with
-// their container key. A shared container refuses writes without it, so a tab
-// loaded before team keys cannot store login-key ciphertext at a shared generation.
-const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v1"
+// keySchemeHeader marks a write from a client that seals content only with container keys.
+// Every content write and name change must carry it; a tab from an older build is refused
+// and told to reload.
+const keySchemeHeader, keySchemeShared = "X-Kynotes-Key-Scheme", "shared-v2"
 
 type envelopeIn struct {
 	DeviceID      string `json:"deviceId"`
@@ -46,33 +46,60 @@ func (v envelopeIn) bytes() ([]byte, bool) {
 
 // writeTeamKeyError maps team-key and write-gate errors; false when err is nil.
 func writeTeamKeyError(w http.ResponseWriter, r *http.Request, err error) bool {
-	switch {
-	case err == nil:
+	if err == nil {
 		return false
-	case errors.Is(err, auth.ErrSessionInvalid):
-		auth.WriteAuthError(w, "unauthenticated", "authentication required")
-	case errors.Is(err, auth.ErrStepUpInvalid):
-		auth.WriteAuthError(w, "step_up_required", "re-enter your password to continue")
-	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
-		WriteError(w, r, 404, "not_found", "not found")
-	case errors.Is(err, errInsufficientRole):
-		WriteError(w, r, 403, "forbidden", "insufficient role")
-	case errors.Is(err, errEnvelopeInvalid):
-		WriteError(w, r, 400, "invalid_request", "invalid request")
-	case errors.Is(err, errEnvelopeExists):
-		WriteError(w, r, 409, "already_exists", "envelope already exists")
-	case errors.Is(err, errGenerationMoved):
-		WriteError(w, r, 409, "already_exists", "key generation changed")
-	case errors.Is(err, errKeyRotationIncomplete):
-		WriteError(w, r, 409, "already_exists", "key rotation incomplete")
-	case errors.Is(err, errVersionConflict):
-		WriteError(w, r, 409, "version_conflict", "base version is stale")
-	case errors.Is(err, errStaleClient):
-		WriteError(w, r, 409, "already_exists", "this notebook uses shared keys: reload the page")
-	default:
-		WriteError(w, r, 500, "internal", "internal server error")
+	}
+	status, code, message := teamKeyError(err)
+	if code == "unauthenticated" || code == "step_up_required" {
+		auth.WriteAuthError(w, code, message)
+	} else {
+		WriteError(w, r, status, code, message)
 	}
 	return true
+}
+
+// teamKeyError maps a team-key route error to its response; err is not nil.
+func teamKeyError(err error) (status int, code, message string) {
+	switch {
+	case errors.Is(err, auth.ErrSessionInvalid):
+		return 401, "unauthenticated", "authentication required"
+	case errors.Is(err, auth.ErrStepUpInvalid):
+		return 403, "step_up_required", "re-enter your password to continue"
+	case errors.Is(err, auth.ErrPasswordAdminKnown):
+		return 409, "password_change_required", "change the password an administrator set first"
+	case errors.Is(err, errNotMember), errors.Is(err, sql.ErrNoRows):
+		return 404, "not_found", "not found"
+	case errors.Is(err, errInsufficientRole):
+		return 403, "forbidden", "insufficient role"
+	case errors.Is(err, errEnvelopeInvalid):
+		return 400, "invalid_request", "invalid request"
+	case errors.Is(err, errEnvelopeExists):
+		return 409, "already_exists", "envelope already exists"
+	case errors.Is(err, errGenerationMoved):
+		return 409, "already_exists", "key generation changed"
+	case errors.Is(err, errKeyRotationIncomplete):
+		return 409, "already_exists", "key rotation incomplete"
+	case errors.Is(err, errVersionConflict):
+		return 409, "version_conflict", "base version is stale"
+	case errors.Is(err, errStaleClient):
+		return 409, "already_exists", "this notebook uses shared keys: reload the page"
+	default:
+		return 500, "internal", "internal server error"
+	}
+}
+
+// auditRefusal records a failed membership attempt outside its rolled-back transaction. The reason
+// is the response code, so the audit says no more than the caller was told.
+func auditRefusal(db *sql.DB, r *http.Request, actor, event, container, object string, err error) {
+	outcome, code := "denied", "already_exists"
+	if !errors.Is(err, errMembershipExists) {
+		var status int
+		status, code, _ = teamKeyError(err)
+		if status == 500 {
+			outcome = "failure"
+		}
+	}
+	recordAuditOutcome(db, actor, event, container, object, outcome, code, RequestID(r))
 }
 
 // memberTx returns the caller's role and the container's current generation.
@@ -137,18 +164,16 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 	return nil
 }
 
-// putGenerationTx is the generation a PUT envelope targets. Legacy containers
-// (shared_generation=0) keep the current generation, as before. A shared
-// container accepts any generation from shared_generation to current that
-// already holds an envelope: stewards backfill history for newcomers, but a key
-// is minted only by key-rotations, never by PUT (no split generations).
+// putGenerationTx is the generation a PUT envelope targets: any generation from shared_generation
+// to current that already holds an envelope, so stewards backfill history for newcomers. Keys are
+// minted only by key-rotations, so a container without a key yet takes no envelope here.
 func putGenerationTx(tx *sql.Tx, cid string, current, requested int64) (int64, error) {
 	var shared int64
 	if err := tx.QueryRow(`SELECT shared_generation FROM containers WHERE id=?`, cid).Scan(&shared); err != nil {
 		return 0, err
 	}
 	if shared == 0 {
-		return current, nil
+		return 0, errKeyRotationIncomplete
 	}
 	if requested < shared || requested > current {
 		return 0, errGenerationMoved
@@ -172,7 +197,7 @@ const ownIdentityEnvelopeSQL = `SELECT EXISTS(SELECT 1 FROM key_envelopes e JOIN
 const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND d.revoked_at='' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
 
 func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
-	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserActionStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -198,7 +223,7 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		var next int64
 		err := dbTx(db, func(tx *sql.Tx) error {
 			now := time.Now().UTC()
-			if err := auth.RecheckUserStepUpTx(tx, s, now); err != nil {
+			if err := auth.RecheckUserActionTx(tx, s, now); err != nil {
 				return err
 			}
 			role, _, err := memberTx(tx, cid, s.UserID)
@@ -245,51 +270,6 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 		}
 		writeJSON(w, map[string]any{"keyGeneration": next})
 	})))
-	mux.Handle("PUT /api/v1/comments/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth.CheckCSRF(r) != nil {
-			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
-			return
-		}
-		s, _ := auth.SessionFromContext(r)
-		id := r.PathValue("id")
-		var in struct {
-			BodyCiphertext string `json:"bodyCiphertext"`
-			KeyGeneration  int64  `json:"keyGeneration"`
-		}
-		if ids.Validate("cmt", id) != nil || json.NewDecoder(r.Body).Decode(&in) != nil || in.KeyGeneration < 1 {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		body, err := base64.StdEncoding.DecodeString(in.BodyCiphertext)
-		if err != nil {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
-			return
-		}
-		err = dbTx(db, func(tx *sql.Tx) error {
-			var cid, author, role string
-			err := tx.QueryRow(`SELECT c.container_id,c.author_user_id,m.role FROM comments c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, s.UserID, id).Scan(&cid, &author, &role)
-			if err != nil {
-				return err
-			}
-			if author != s.UserID || role == "viewer" {
-				return errInsufficientRole
-			}
-			if err := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); err != nil {
-				return err
-			}
-			now := time.Now().UTC().Format(time.RFC3339)
-			var seq int64
-			if err := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); err != nil {
-				return err
-			}
-			_, err = tx.Exec(`UPDATE comments SET body_ciphertext=?,key_generation=?,change_seq=? WHERE id=?`, body, in.KeyGeneration, seq, id)
-			return err
-		})
-		if writeTeamKeyError(w, r, err) {
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})))
 	// Visible to the user, to anyone sharing a live container with them, and to a
 	// team or project owner/admin holding a pending invitation for them. Everyone
 	// else gets the same 404, so the route is no liveness oracle for strangers.
@@ -316,44 +296,44 @@ func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
 	})))
 }
 
-// missingEnvelopesSQL is the legacy save gate for containers that never rotated
-// (shared_generation=0): members' paired devices lacking an envelope at the
-// current generation. Identity rows are excluded.
-const missingEnvelopesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' WHERE d.revoked_at='' AND d.platform<>'identity' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=? AND e.device_id=d.id AND e.key_generation=?)`
-
 type rowQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// checkWriteGate admits a content write by userID into cid at generation
-// requested. Containers that never rotated keep the legacy device rule; once
-// rotated, the writer must send keySchemeShared and its own identity needs an
-// envelope at the current generation. Call it before streaming a body and again
-// inside the write transaction.
-func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
+// checkContainerKeyed admits bytes from userID into cid before any generation is named (upload
+// start, chunks, preview finalize): a live member, sending keySchemeShared, into a container that
+// has a key (shared_generation > 0). It returns the current generation.
+func checkContainerKeyed(q rowQuerier, cid, userID, scheme string) (int64, error) {
 	var generation, shared int64
 	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
-		return errNotMember
+		return 0, errNotMember
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if shared != 0 && scheme != keySchemeShared {
-		return errStaleClient
+	if scheme != keySchemeShared {
+		return 0, errStaleClient
+	}
+	if shared == 0 {
+		return 0, errKeyRotationIncomplete
+	}
+	return generation, nil
+}
+
+// checkWriteGate admits a content write by userID into cid at generation requested: the container
+// passes checkContainerKeyed, requested is its current generation and the writer's own identity
+// holds an envelope there. Call it before streaming a body and again inside the write transaction.
+func checkWriteGate(q rowQuerier, cid, userID string, requested int64, scheme string) error {
+	generation, err := checkContainerKeyed(q, cid, userID, scheme)
+	if err != nil {
+		return err
 	}
 	if requested != generation {
 		return errKeyRotationIncomplete
 	}
-	admitted := false
-	if shared == 0 {
-		var missing int
-		err = q.QueryRow(missingEnvelopesSQL, cid, cid, generation).Scan(&missing)
-		admitted = missing == 0
-	} else {
-		err = q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted)
-	}
-	if err != nil {
+	var admitted bool
+	if err := q.QueryRow(ownIdentityEnvelopeSQL, userID, cid, generation).Scan(&admitted); err != nil {
 		return err
 	}
 	if !admitted {
@@ -380,6 +360,8 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?3 WHERE id=?1 OR (team_id=?1 AND deleted_at='')`,
 		`DELETE FROM key_envelopes WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
 		`DELETE FROM device_containers WHERE container_id IN ` + scope + ` AND device_id IN (SELECT id FROM devices WHERE user_id=?2)`,
+		// Pending invitations to the removed member die too: accepting one must not undo the removal.
+		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND invitee_id=?2 AND status='pending'`,
 		// The removed steward's pending invitations die with them (envelopes cascade).
 		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND inviter_id=?2 AND status='pending'`,
 		`DELETE FROM invitation_envelopes WHERE container_id IN ` + scope + ` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`,
@@ -389,6 +371,51 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		}
 	}
 	return nil
+}
+
+// retireKeysTx advances key_generation in every keyed container userID is a live member of, as a
+// member removal does: a self-service reset may follow a stolen browser, so the old identity's
+// keys must open nothing written afterwards. The new generation has no envelopes; writes wait
+// until a steward mints it. It returns how many containers it retired.
+func retireKeysTx(tx *sql.Tx, userID, now string) (int64, error) {
+	const scope = `(SELECT container_id FROM memberships WHERE user_id=?1 AND revoked_at='')`
+	res, err := tx.Exec(`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?2 WHERE shared_generation>0 AND deleted_at='' AND id IN `+scope, userID, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM invitation_envelopes WHERE container_id IN `+scope+` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`, userID); err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// admitMemberTx makes userID a member of cid and its live child workspaces with
+// role, recording invitedBy (empty for a server-admin add). Rows a removal revoked
+// are reactivated (the unique index keeps one row per container and user) and
+// keep no keys; errMembershipExists when any row in the team scope is live.
+// readmit reports that a revoked row came back.
+func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy, now string) (readmit bool, err error) {
+	var live int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, userID, cid).Scan(&live); err != nil {
+		return false, err
+	}
+	if live > 0 {
+		return false, errMembershipExists
+	}
+	const scope = `(SELECT id FROM containers WHERE (id=?2 OR team_id=?2) AND deleted_at='')`
+	for i, q := range []string{
+		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5 WHERE user_id=?1 AND container_id IN ` + scope,
+		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
+	} {
+		res, err := tx.Exec(q, userID, cid, role, now, invitedBy)
+		if err != nil {
+			return false, err
+		}
+		if n, _ := res.RowsAffected(); i == 0 && n > 0 {
+			readmit = true
+		}
+	}
+	return readmit, nil
 }
 
 type invitationEnvelopeIn struct {
@@ -405,8 +432,8 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 		return errEnvelopeInvalid
 	}
 	var role string
-	var generation int64
-	err := tx.QueryRow(`SELECT m.role,c.key_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation)
+	var generation, shared int64
+	err := tx.QueryRow(`SELECT m.role,c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND (c.id=? OR c.team_id=?) AND c.deleted_at=''`, inviter, v.ContainerID, cid, cid).Scan(&role, &generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errEnvelopeInvalid
 	}
@@ -415,6 +442,10 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 	}
 	if !isSteward(role) {
 		return errInsufficientRole
+	}
+	// Keys are minted only by key-rotations: a container without one takes no envelope.
+	if shared == 0 {
+		return errKeyRotationIncomplete
 	}
 	if v.KeyGeneration != generation {
 		return errGenerationMoved
@@ -440,7 +471,7 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 // container is still at their generation and whose identity is still live; the
 // rest are dropped for the key steward sweep to fill.
 func moveInvitationEnvelopesTx(tx *sql.Tx, invitationID, invitee, now string) error {
-	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
+	rows, err := tx.Query(`SELECT ie.container_id,ie.device_id,ie.key_generation,ie.alg,ie.envelope FROM invitation_envelopes ie JOIN containers c ON c.id=ie.container_id AND c.key_generation=ie.key_generation AND c.shared_generation>0 AND c.deleted_at='' JOIN devices d ON d.id=ie.device_id AND d.user_id=? AND d.platform='identity' AND d.revoked_at='' WHERE ie.invitation_id=?`, invitee, invitationID)
 	if err != nil {
 		return err
 	}

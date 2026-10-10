@@ -46,6 +46,26 @@ func TestTeamCanCreateMultipleChildWorkspaces(t *testing.T) {
 	}
 }
 
+// A row the list cannot read fails the request: a 200 is always the complete list, which the
+// browser relies on before it offers to discard edits for notebooks missing from it.
+func TestContainerListFailsRatherThanReturningPartialList(t *testing.T) {
+	f := newShareFixture(t)
+	if _, err := f.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at,key_generation) VALUES('cnt_bad','workbook','usr_share','now','now','not a number')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('mem_bad','cnt_bad','usr_share','owner','now')`); err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.client.Get(f.server.URL + "/api/v1/containers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status=%d, want 500", res.StatusCode)
+	}
+}
+
 func TestTeamNotebookCopiesEachMember(t *testing.T) {
 	f := newShareFixture(t)
 	for _, q := range []string{

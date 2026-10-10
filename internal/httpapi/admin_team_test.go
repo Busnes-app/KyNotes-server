@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestAdminTeamCreationCreatesOwnerAndAuditEvent(t *testing.T) {
+func TestAdminTeamCreationTakesNoNameAndCreatesOwner(t *testing.T) {
 	f := newShareFixture(t)
 	if _, err := f.db.Exec(`UPDATE users SET role='admin' WHERE id='usr_share'`); err != nil {
 		t.Fatal(err)
@@ -17,6 +17,13 @@ func TestAdminTeamCreationCreatesOwnerAndAuditEvent(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, f.server.URL+"/api/v1/admin/teams", strings.NewReader(`{"metaCiphertext":"`+ciphertext+`"}`))
 	f.csrf(req)
 	res, err := f.client.Do(req)
+	if err != nil || res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create named team err=%v status=%d", err, res.StatusCode)
+	}
+	res.Body.Close()
+	req, _ = http.NewRequest(http.MethodPost, f.server.URL+"/api/v1/admin/teams", strings.NewReader(`{}`))
+	f.csrf(req)
+	res, err = f.client.Do(req)
 	if err != nil || res.StatusCode != http.StatusOK {
 		t.Fatalf("create team err=%v status=%d", err, res.StatusCode)
 	}
@@ -31,8 +38,8 @@ func TestAdminTeamCreationCreatesOwnerAndAuditEvent(t *testing.T) {
 		t.Fatalf("unexpected team response: %+v", team)
 	}
 	var stored []byte
-	if err := f.db.QueryRow(`SELECT meta_ciphertext FROM containers WHERE id=?`, team.ID).Scan(&stored); err != nil || string(stored) != "encrypted-team-name" {
-		t.Fatalf("stored team metadata=%q err=%v", stored, err)
+	if err := f.db.QueryRow(`SELECT meta_ciphertext FROM containers WHERE id=?`, team.ID).Scan(&stored); err != nil || len(stored) != 0 {
+		t.Fatalf("stored team metadata must be empty: %q err=%v", stored, err)
 	}
 	var role string
 	if err := f.db.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=?`, team.ID, "usr_share").Scan(&role); err != nil || role != "owner" {

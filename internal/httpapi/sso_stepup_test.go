@@ -44,8 +44,14 @@ func reauthAction(f *logoutFixture, cookies []*http.Cookie, id, path, body strin
 	return f.send(req)
 }
 func reauthStart(f *logoutFixture, cookies []*http.Cookie) (string, *http.Request) {
+	return reauthStartAt(f, cookies, "alice", "/action", `{"target":1}`, []string{sso.AdminAppRole})
+}
+
+// reauthStartAt blocks POST path body, starts its challenge and returns the IdP callback that
+// proves subject freshly; roles nil sends no app role.
+func reauthStartAt(f *logoutFixture, cookies []*http.Cookie, subject, path, body string, roles []string) (string, *http.Request) {
 	f.t.Helper()
-	blocked := reauthAction(f, cookies, "", "/action", `{"target":1}`)
+	blocked := reauthAction(f, cookies, "", path, body)
 	var detail struct{ Error struct{ Challenge string } }
 	if blocked.Code != 403 || json.Unmarshal(blocked.Body.Bytes(), &detail) != nil || detail.Error.Challenge == "" {
 		f.t.Fatalf("challenge: %d %s", blocked.Code, blocked.Body.String())
@@ -67,8 +73,12 @@ func reauthStart(f *logoutFixture, cookies []*http.Cookie) (string, *http.Reques
 	}
 	state := q.Get("state")
 	now := time.Now().Unix()
+	proof := map[string]any{"iss": f.issuer.URL, "aud": "kynotes", "sub": subject, "sid": "fresh-proof", "iat": now, "exp": now + 3600, "nonce": q.Get("nonce"), "auth_time": now, "acr": "urn:kysignon:acr:password", "amr": []string{"pwd"}}
+	if roles != nil {
+		proof["roles"] = roles
+	}
 	f.mu.Lock()
-	f.proofs[state] = map[string]any{"iss": f.issuer.URL, "aud": "kynotes", "sub": "alice", "sid": "fresh-proof", "iat": now, "exp": now + 3600, "nonce": q.Get("nonce"), "auth_time": now, "acr": "urn:kysignon:acr:password", "amr": []string{"pwd"}, "roles": []string{sso.AdminAppRole}}
+	f.proofs[state] = proof
 	f.mu.Unlock()
 	callback := withCookies(httptest.NewRequest("GET", "/api/v1/auth/oidc/callback?code="+state+"&state="+state, nil), cookies)
 	for _, cookie := range res.Result().Cookies() {
@@ -379,10 +389,12 @@ func TestSSOStepUpCancellationAuditsOnlyOwnedDeletion(t *testing.T) {
 		t.Errorf("oversized ID: %d", code)
 	}
 	assertCounts(0, 0)
+	// Any session may cancel (user-scope challenges); a missing ID stays an unaudited no-op.
 	ordinary := f.login("bob", "ordinary")
-	if code := cancel(missing, ordinary); code != 403 {
+	if code := cancel(missing, ordinary); code != 204 {
 		t.Errorf("non-admin cancellation: %d", code)
 	}
+	assertCounts(0, 0)
 	id, _ := reauthStart(f, cookies)
 	other := roleCallback(f, "alice", []string{sso.AdminAppRole}, "")
 	if code := cancel(id, other.Result().Cookies()); code != 204 {

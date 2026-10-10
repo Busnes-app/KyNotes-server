@@ -53,6 +53,7 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 	post := func(path string, body string, csrf bool) *http.Response {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(keySchemeHeader, keySchemeShared) // a current web client
 		if csrf {
 			for _, x := range jar.Cookies(req.URL) {
 				if x.Name == "csrf_token" {
@@ -71,7 +72,7 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 		t.Fatalf("login %d", r.StatusCode)
 	}
 	r.Body.Close()
-	r = post("/api/v1/containers", `{"kind":"workbook","metaCiphertext":"`+base64.StdEncoding.EncodeToString([]byte("cipher"))+`"}`, true)
+	r = post("/api/v1/containers", `{"kind":"workbook","metaCiphertext":""}`, true)
 	if r.StatusCode != 200 {
 		t.Fatalf("container %d", r.StatusCode)
 	}
@@ -80,6 +81,7 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&container)
 	r.Body.Close()
+	generation := strconv.FormatInt(keyForTest(t, s.DB(), container.ID, "usr_integration"), 10)
 	r = post("/api/v1/containers/"+container.ID+"/objects", `{"kind":"note"}`, true)
 	if r.StatusCode != 200 {
 		t.Fatalf("object %d", r.StatusCode)
@@ -92,7 +94,8 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/objects/"+object.ID, strings.NewReader("ciphertext-v1"))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("X-Kynotes-Base-Version", "0")
-	req.Header.Set("X-Kynotes-Key-Generation", "1")
+	req.Header.Set("X-Kynotes-Key-Generation", generation)
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, x := range jar.Cookies(req.URL) {
 		if x.Name == "csrf_token" {
 			req.Header.Set("X-CSRF-Token", x.Value)
@@ -106,7 +109,8 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 	req, _ = http.NewRequest(http.MethodPut, srv.URL+"/api/v1/objects/"+object.ID, strings.NewReader("ciphertext-stale"))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("X-Kynotes-Base-Version", "0")
-	req.Header.Set("X-Kynotes-Key-Generation", "1")
+	req.Header.Set("X-Kynotes-Key-Generation", generation)
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, x := range jar.Cookies(req.URL) {
 		if x.Name == "csrf_token" {
 			req.Header.Set("X-CSRF-Token", x.Value)
@@ -130,6 +134,7 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 	r.Body.Close()
 	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/api/v1/uploads/"+upload.ID, bytes.NewReader(data))
 	req.Header.Set("X-Kynotes-Chunk-Index", "0")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	for _, x := range jar.Cookies(req.URL) {
 		if x.Name == "csrf_token" {
 			req.Header.Set("X-CSRF-Token", x.Value)
@@ -140,7 +145,7 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 		t.Fatalf("chunk %v %d", e, r.StatusCode)
 	}
 	r.Body.Close()
-	r = post("/api/v1/uploads/"+upload.ID+"/finalize", `{"metadataCiphertext":"","keyGeneration":1}`, true)
+	r = post("/api/v1/uploads/"+upload.ID+"/finalize", `{"metadataCiphertext":"","keyGeneration":`+generation+`}`, true)
 	if r.StatusCode != 200 {
 		t.Fatalf("finalize %d", r.StatusCode)
 	}

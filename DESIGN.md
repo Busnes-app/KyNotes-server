@@ -136,13 +136,28 @@ wrapped key and never sees `userKEK`. The wrapped key is returned only in the
 bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
-clears it, and logout keeps it. Identity rows never authenticate as a device,
+clears it, and logout keeps it. In secure contexts the vault stores the private key
+encrypted under a non-extractable WebCrypto key kept in the same record; that is not
+at-rest protection (browsers write the key's bytes into the same profile and page script
+can call `decrypt`), it only keeps the raw key out of the record's plain values. On
+plain-HTTP origins the key is stored unwrapped and Settings says so (an interim that awaits
+Yoshi's decision: refusing to keep it there is the more secure default); without IndexedDB
+the browser holds no identity. "Forget this device" keeps the encrypted save queue. Identity rows never authenticate as a device,
 are not listed, revoked or selected through device routes or directory
 deactivation and role changes, and are excluded from the device-envelope save
-gate. No identity is created while someone other than the user knows the
-password (`users.password_admin_known`: admin create and reset, bootstrap,
-`user add`); the user's own password change or recovery clears the flag, and
-the browser then creates the identity under the new password. Envelopes are
+gate. No password-wrapped identity is created while someone other than the
+user knows the password (`users.password_admin_known`: admin create and reset,
+bootstrap, `user add`), and no local password step-up admits an identity action
+(identity creation, envelope writes, rotations, invitation keys; `409
+password_change_required`), so that password never acts for an SSO user's
+device-only identity. The user's own password change or recovery clears the
+flag, and the browser then creates the identity under the new password. On an
+account that signs in through KySignOn, changing a password an administrator set
+also needs a KySignOn confirmation of that request, so the administrator cannot
+clear the flag by changing the password. A local-only account has no second proof:
+until its user changes the password, whoever set it can act as the user. That is
+an accepted residual of administrator-set passwords. The change revokes every
+other session and device credential of the account in the same transaction. Envelopes are
 `0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
 keyed by both an ephemeral and the sender identity's X25519 agreement and bound
 by AAD to container, key generation, recipient and sender (IDs in the AAD are
@@ -152,9 +167,38 @@ admin whose identity key matches its local trust-on-first-use pin, or, for
 history below the device's high-water mark, from an identity already pinned
 (see below), and reads rows at or above `shared_generation` only with that
 generation's key. A password change
-re-wraps the identity in the same transaction; recovery and administrator
-password resets delete it and write an audit row. SSO-only users have no
-password, hence no `userKEK` and no identity yet (open question).
+re-wraps the identity in the same transaction. Recovery and administrator
+password resets remove only its password copy and write an audit row (an administrator
+reset also revokes paired device credentials): another
+browser or the recovery code still restores it, and nothing re-wraps it under the
+new password until the user's own password change re-adds the copy from a browser
+that holds the identity (not on an account linked to KySignOn). Only the user deletes an identity: the self-service reset, behind a
+user-action step-up and a compare-and-swap on the identity the browser saw, swaps
+it in one transaction for a new one with a new recovery copy (and, for a password
+account, a new password copy, as on a first identity; an account linked to KySignOn
+never gets one, from any session), deletes the old envelopes,
+copies and link requests, and revokes the account's other sessions and paired
+device credentials with their envelopes. It refuses the old identity's own key. Like a member
+removal, it advances the key generation of every keyed container the user belongs to, so a stolen
+browser holding the old identity opens nothing written afterwards: the new generation has no
+envelopes and takes no writes until a steward mints it. A steward's browser mints on its next
+open and wraps the team's history for the new key in the same pass. An account may reset at most
+three times a rolling day, so one member cannot keep a team waiting, and owners and admins see in
+the member list and on the waiting notice who reset and when. Personal notebooks are then lost, and
+stewards re-share team keys. An SSO session creates a
+device-only identity (`wrap_alg = none`) after a KySignOn confirmation of the
+request; no password copy exists on the server, and other
+browsers receive it by device linking. A password never unlocks or re-wraps it.
+Every account may also keep a recovery-code copy: the identity private key sealed
+in the browser under a key derived (PBKDF2-SHA256, 600 000 iterations) from a
+one-time 128-bit code the browser shows once. The server stores the copy, never
+the code. It hands the copy only to a session of the same account behind a
+user-action step-up (for an SSO browser holding nothing, a KySignOn confirmation
+of that request), audits each fetch and rate-limits it, and answers the same 404
+whether the account has no identity or no copy. A new code replaces the copy by
+compare-and-swap, so the old code opens nothing on the live database. The code
+is 128 random bits written as 28 Crockford base32 symbols with a 10-bit
+checksum; `testdata/protocol/recovery_vectors.json` pins the format.
 
 An owner or admin mints a container's content key for each key generation
 through `POST /containers/{id}/key-rotations`. In one transaction it advances
@@ -164,34 +208,23 @@ The one exception is a member's own identity envelope, which that member may
 re-wrap but never write first: a steward or an accepted invitation supplies
 it. Recipients must be live devices or identities of active members. Any member
 may write envelopes for its own paired devices; owners and admins may write for
-any member. Envelope writes and rotations need a local password step-up; SSO
-sessions are refused. The save gate depends on whether the container has ever
-rotated (`containers.shared_generation`). Until it has, every member's paired
-device needs an envelope at the current generation, as before. Afterwards, the
-writer's own identity needs one. Both gates also need a live membership, and
+any member. Envelope writes and rotations need a fresh step-up: a password re-proof for
+local sessions, a KySignOn confirmation of the exact request for SSO sessions. A container has no key until its first rotation (`containers.shared_generation`, the first keyed generation); until then it takes no content, name or envelope, and it is created without a name. Afterwards a write needs the writer's own identity to hold an envelope at the current generation. Both gates also need a live membership, and
 the write transaction checks them again. Object saves also recheck the writer's
 role there; comment and attachment writes recheck only the gate.
 
-The web client seals a team container's content with its container key once
-the container is shared. A row at or above `sharedGeneration` opens only with
-its own generation's key; rows below it, and personal containers, use the
-legacy login-derived key; a missing or malformed generation gets no key, so it
-fails closed. Rows below `sharedGeneration` are a known residual until P4: the
-server sees `authSecret`, so it can derive the legacy key and forge a row
-labelled below `sharedGeneration`. The client labels such rows "not end-to-end
-verified" and re-seals one under the container key only when the user edits or
-moves that row, never as a side effect of opening, autosave, another move or a
-conflict copy (legacy conflict versions are not copied). P4 migrates legacy rows
-and then refuses legacy reads in shared containers. The client never writes
-legacy ciphertext into a shared container. A member without the current key
-cannot change anything there: pages, sections, groups, moves, deletes, comments,
-attachments and conflict copies are disabled and their handlers refuse, so no
+The web client seals and opens every container's content only with its container keys; no content key
+derives from the login secret. A notebook gets its first key when it is created (team keys P5; a
+notebook whose first key was never minted is read-only until its owner's next open mints it, and only
+once the owner's identity is recoverable: a password copy or a recovery-code copy exists). A row opens
+only with the key of its own generation, at or above the container's first keyed generation
+(`sharedGeneration`); a missing, malformed or older generation gets no key, so it
+fails closed. A member without the current key
+cannot change anything there: pages, sections, groups, moves, deletes,
+comments, attachments and conflict copies are disabled and their handlers refuse, so no
 empty object is created. Edits already in progress when the key went missing
-wait in the encrypted local queue at generation 0, are never uploaded at that
-generation, and are resealed under the current key when keys arrive; a
-password change in the same browser re-seals them for the new login key. Shared containers refuse content writes that lack the
-`X-Kynotes-Key-Scheme: shared-v1` header, so a page loaded before shared keys
-cannot write. A container meta `PATCH` on a shared container must carry
+wait in the encrypted local queue at generation 0, sealed with a key derived from the identity (HKDF label `kynotes/waiting/v1`), are never
+uploaded at that generation, and are resealed under the current key when keys arrive. Every content write and name change carries `X-Kynotes-Key-Scheme: shared-v2`; a tab from an older build is refused and told to reload. A container meta `PATCH` must carry
 `keyGeneration` equal to the current generation; a missing, zero, old or future
 value is refused inside the transaction with `409 already_exists`, so a stale
 tab cannot seal a name under a retired key. The same transaction checks the
@@ -200,8 +233,7 @@ stale base is `409 version_conflict`, so concurrent renames never overwrite
 each other. Conflict listings report each
 copy's `keyGeneration`. Owners and admins mint keys only through rotation;
 envelope `PUT` may add a member to any shared generation that already has
-envelopes (history for newcomers) and never mints one. The first mint waits
-until every member has an identity. Envelopes are v2 and sender-authenticated:
+envelopes (history for newcomers) and never mints one. Envelopes are v2 and sender-authenticated:
 a browser accepts a key only from its own identity, from a current owner or
 admin whose identity matches its pin, or from a pinned identity for a
 generation below the device's high-water mark. The first key per generation
@@ -215,9 +247,8 @@ keeps, add-only per container, the highest `sharedGeneration` and
 `keyGeneration` the server ever reported; key choices use the higher shared
 generation, and a lower report pauses writes ("The server reported an older key
 state for this notebook than this device has seen"), so a server cannot roll a
-shared notebook back to the login key or an older generation. This applies to
-every container: a server relabelling a seen-shared notebook as personal gets
-the same pause, because `kind` and `teamId` never decide keys.
+shared notebook back to an older generation. This applies to
+every container. Relabelling a notebook as personal or team changes nothing, because `kind` and `teamId` never decide keys. A team's first key is minted for every member with an identity; members without one are wrapped by a later sweep.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks
@@ -244,6 +275,25 @@ it and the garbage-collection retention period has elapsed. Garbage collection
 is controlled globally and uses a configurable retention period. It may be
 disabled, with unreferenced storage growth as the explicit trade-off.
 
+### Device linking
+
+A browser that does not hold the account's identity asks a trusted browser of the same account
+for it. The server relays only public keys and one sealed bundle (`/api/v1/me/link-requests`,
+migration `0024_device_linking.sql`). The newcomer first posts a commitment to its one-time
+X25519 key; the trusted browser claims the request with its own one-time key; the newcomer then
+reveals its key, which must match the commitment. Both screens show a six-digit check code over the
+account, the request and both keys. The newcomer confirms its code; the approver types the
+code shown on the newcomer's screen, so a click cannot replace the comparison. The newcomer pins
+the approver's key before it reveals its own, and a failed reveal ends the attempt. The commitment means a relay
+cannot pick a key to fit the code after seeing the other one. Only then is the identity private key
+sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
+step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer polls). Requests are per user, single use, expire after ten minutes (checked in the step's transaction), need a
+live session of that user on both sides, are rate-limited (creation with device pairing, collect polls
+by `ratelimit.link_poll_per_minute`) and are audited, except collect misses. Relay success
+without the user's help is about 10^-6 per visible attempt.
+Recovery, an administrator reset and the self-service reset delete the account's open link requests
+in the same transaction.
+
 ### Device enrollment and revocation
 
 Enrollment is initiated on the authenticated website. The web client creates
@@ -260,7 +310,8 @@ storage on the next successful connection. Local memory and browser storage
 wiping are best effort.
 
 Recovery uses an exported recovery code. Using recovery revokes all device
-keys and all active web sessions, and deletes the user's identity key and its envelopes. The recovery code is single-use and must be
+keys and all active web sessions, and removes the password copy of the user's identity key; the
+identity, its envelopes and its recovery-code copy stay. The recovery code is single-use and must be
 replaced after successful recovery. Existing devices must be enrolled again.
 
 ### Teams and revocation limits
@@ -272,10 +323,10 @@ owner or admin or by a server administrator, revokes the team and child-workspac
 memberships, advances their key generations, deletes the member's envelopes and
 device selections there, and deletes the pending invitations that member issued.
 A steward then rotates to a new key for the remaining members. An invitation may
-carry envelopes for the invitee's identity; creating it then needs the same
-password step-up as a direct envelope write. They are installed when the
+carry envelopes for the invitee's identity; creating it then needs a local
+password step-up; invitations from SSO sessions carry no envelopes. They are installed when the
 invitation is accepted, only while the generation is unchanged and the inviter
-is still an owner or admin of the live container.
+is still an owner or admin of the live container. Accepting checks the invitation's invitee and expiry inside that transaction. Removing a member deletes pending invitations addressed to them, and accepting is audited. A member who was removed is admitted again by reactivating their revoked membership, with the new role and no keys. A team admin may remove another admin only when its own invitation admitted that admin's current membership; owners and server administrators may remove any non-owner. Invitation creation is rate-limited per account. Envelopes of expired invitations are deleted by the periodic garbage collection.
 
 Previously downloaded plaintext cannot be recalled. This is an inherent limit
 of end-to-end encryption and is treated as best-effort revocation.
@@ -563,7 +614,10 @@ Keep an unlinked local administrator available for recovery; see [SSO roles](doc
 ## Action-bound OIDC step-up
 
 Backup/recovery step-up routes, local user creation and password reset require a one-use OIDC proof for SSO
-sessions. Migration 0019 binds the exact request digest to the original session;
+sessions. A `user`-scope challenge (`sso_stepup.scope`, migration 0024) proves only the session's own
+account, bound to the action and body (64 KiB at most), with a fresh `auth_time`; it covers identity creation,
+envelope writes, rotations and changing an administrator-set password on an SSO-linked account. A grant opens
+only its own scope, and challenge creation is rate-limited per account. Migration 0019 binds the exact request digest to the original session;
 fresh signed auth_time and ordinary assurance, identity and app-admin permission
 are required. Issuance time is never substituted for authentication time. Creation,
 verification, cancellation and consumption are audited atomically. Admission

@@ -56,7 +56,7 @@ jobs:
           diff -qr web/dist internal/web/dist
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.6'
+          go-version: '1.26.9'
       - run: go build ./...
       - run: go vet ./...
       - run: test -z "$(gofmt -l .)"

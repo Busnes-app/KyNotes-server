@@ -12,6 +12,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,11 +25,12 @@ import (
 )
 
 type shareFixture struct {
-	db     *sql.DB
-	server *httptest.Server
-	client *http.Client
-	jar    *cookiejar.Jar
-	object string
+	db         *sql.DB
+	server     *httptest.Server
+	client     *http.Client
+	jar        *cookiejar.Jar
+	object     string
+	generation int64
 }
 
 func newShareFixture(t *testing.T) shareFixture {
@@ -88,7 +90,7 @@ func newShareFixture(t *testing.T) shareFixture {
 	}
 	_ = json.NewDecoder(res.Body).Decode(&object)
 	res.Body.Close()
-	return shareFixture{db: store.DB(), server: server, client: client, jar: jar, object: object.ID}
+	return shareFixture{db: store.DB(), server: server, client: client, jar: jar, object: object.ID, generation: keyForTest(t, store.DB(), container.ID, "usr_share")}
 }
 
 func (f shareFixture) csrf(req *http.Request) {
@@ -104,7 +106,8 @@ func TestObjectPutReturnsDeterministicCommitReceipt(t *testing.T) {
 	body := []byte("ciphertext")
 	req, _ := http.NewRequest(http.MethodPut, f.server.URL+"/api/v1/objects/"+f.object, bytes.NewReader(body))
 	req.Header.Set("X-Kynotes-Base-Version", "0")
-	req.Header.Set("X-Kynotes-Key-Generation", "1")
+	req.Header.Set("X-Kynotes-Key-Generation", strconv.FormatInt(f.generation, 10))
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	f.csrf(req)
 	res, err := f.client.Do(req)
 	if err != nil || res.StatusCode != http.StatusOK {
@@ -138,7 +141,8 @@ func TestShareLinkStoresOnlyTokenHashAndServesCiphertext(t *testing.T) {
 	body := []byte("shared-ciphertext")
 	req, _ := http.NewRequest(http.MethodPut, f.server.URL+"/api/v1/objects/"+f.object, bytes.NewReader(body))
 	req.Header.Set("X-Kynotes-Base-Version", "0")
-	req.Header.Set("X-Kynotes-Key-Generation", "1")
+	req.Header.Set("X-Kynotes-Key-Generation", strconv.FormatInt(f.generation, 10))
+	req.Header.Set(keySchemeHeader, keySchemeShared)
 	f.csrf(req)
 	res, _ := f.client.Do(req)
 	res.Body.Close()
