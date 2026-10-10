@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser checks (`npm run e2e`: team keys and `web/e2e/admin-separation.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -128,7 +128,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   The document loader converts the prior encrypted Tiptap JSON envelope to
   BlockNote blocks on read so existing formatting survives editor remounts.
   The workspace surface
-  labels notebooks explicitly, and the admin surface uses tabbed
+  labels notebooks explicitly, and the administrator console (`components/AdminConsole.tsx`) uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
   seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
@@ -193,6 +193,23 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   account as `editor`, `commenter` or `viewer` only. `POST /admin/users` takes `accountKind`; `PATCH` refuses
   the grant on an everyday account (`409 account_kind_mismatch`). Verify `TestAdminUserRoutesKeepKindsApart`,
   `TestAdminTeamAccessNeedsStepUpAndListsNoNames`.
+- Steward approval: administrator-added members have `memberships.approved=0` (child workspaces copy it;
+  readmission resets it) and get no envelope, are not required by rotation and retire nothing on a key reset
+  until an approved owner or admin of the team calls `POST /containers/{id}/members/{userID}/approve`
+  (audit `container.member_approve`). The members list reports `approved`; the browser's `planSweep` skips
+  unapproved members and stewards see an approve banner. Verify `TestAdminAddedMembersWaitForApproval`,
+  `TestInvitedMembersAreApproved`, `keyring.test.ts` and `workspaceWiring.test.ts`.
+- SSO account kinds (`ssoKindRefusal`): `kynotes.admin` signs in only to an administrator account and an
+  administrator account only with it (`403 admin_account_not_provisioned`, `admin_role_on_everyday_account`,
+  `admin_role_required`, audited `auth.sso_admin_refused`); automatic provisioning creates everyday accounts
+  only. Directory sync decides the kind at creation and later moves only the grant (an everyday account's is
+  refused, `role_refused=everyday_account`); readback reports `accountKind`; `apply-setup` reports `conflict`
+  for an identity bound to an everyday account. Verify `TestSSOKindsFollowTheToken`,
+  `TestDirectoryNeverGrantsAdminToEverydayAccounts`, `TestDecideAdmin`, `TestApplyAdminNeverPromotesAnEverydayAccount`.
+- Web account kinds: `/setup` takes both accounts (`setup.ts` compares them; the server never sees either
+  password); `App` routes a `passwordChangeRequired` session to `ChoosePassword` and an administrator session
+  to `components/AdminConsole.tsx` before the workspace. The console imports no key, vault, notebook or content
+  crypto module and keeps no vault record (`adminSeparation.test.ts`); the workspace has no admin view.
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
@@ -336,9 +353,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   local administrator through upgrade; resync explicit `kynotes.admin` assignments.
   OIDC ignores singular/global role claims and stores a verified app-admin ceiling
   on each session. `auth.SessionRole` is shared by admin guards and session responses;
-  SSO admin needs both that ceiling and local account permission. Directory roles
+  SSO admin needs both that ceiling and an administrator account with the grant. Directory roles
   map only exact `kynotes.admin` from strings or SCIM value objects to admin;
-  unrelated/missing/malformed role data grants nothing, never blocks login or deactivation.
+  unrelated/missing/malformed role data grants nothing and never blocks deactivation; it blocks an
+  administrator account's login (`admin_role_required`).
   Active demotion retains the last active admin's local grant with `admin_retained=true`
   in the audit, but still revokes credentials and requires the OIDC ceiling. Inactive
   events always disable/revoke, and never preserve an active administrator.
@@ -625,7 +643,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   identity, keyService, outbound, DeviceLink) and `npm run e2e --prefix web`.
 
 - Team keys P5: personal keys and the recovery code. Every notebook is keyed at creation (`main.tsx`
-  `createNamed`, also for administrator-created teams); one whose first key was never minted is read-only
+  `createNamed`; an administrator-created team is keyed and named by its everyday owner); one whose first key was never minted is read-only
   until its owner's next open mints it; `planSweep` has no `blocked` plan and refuses a first key while the caller's
   identity is not `recoverable` (password or recovery-code copy); no key module reads `kind` or `teamId`
   (structure test). Waiting edits seal with `waitingKey` (HKDF `kynotes/waiting/v1` over the identity).
@@ -635,7 +653,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `recovery` bucket at `pairing_per_hour` (`ponytail:` in `ratelimit.go`). `PUT /me/identity` with
   `replace` and `expectedDeviceId` is the self-service reset: one transaction swaps the identity, its
   recovery copy and (password users) its password copy, revokes other sessions and paired devices with
-  their envelopes, advances `key_generation` in every keyed container the user belongs to (`retireKeysTx`,
+  their envelopes, advances `key_generation` in every keyed container where the user is an approved member (`retireKeysTx`,
   as a removal; stewards mint the next key), refuses the old key and audits `identity.reset`
   (`containers_retired=N`), at most `identityResetsPerDay` (3) a rolling day (`429`); members lists give stewards
   `keyResetAt`; a minting sweep also wraps history in that pass. Verify `TestIdentityReset*`,

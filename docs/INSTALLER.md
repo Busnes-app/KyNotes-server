@@ -38,9 +38,15 @@ and how it configures KyNotes with `apply-setup`.
   issues it, taken from KyIdentity's own `apply-setup` output. Never guess it from a username.
 - Admin access needs both gates: the local grant (`admins` creates it) and the
   `kynotes.admin` role claim at sign-in. Either alone gives no admin access.
+- KyIdentity holds two identities for the owner. Only the administrator identity carries
+  `kynotes.admin`, and it must exist in KyNotes (the `admins` bundle entry, or a directory
+  `user.created` carrying the role) before it first signs in. The everyday identity's account
+  is created by the directory connector or at its first sign-in.
 - Verify the everyday identity has none: sign in as it, then
   `GET https://<host>/api/v1/admin/backup/status` must answer 403. The same request as the
   administrator identity answers 200.
+- Verify the mirror: sign in as the administrator identity; `GET https://<host>/api/v1/containers`
+  must answer `403 admin_account`.
 
 ## Offboarding
 
@@ -118,7 +124,9 @@ Bundle, version 1. Every section is optional; unknown fields are rejected:
   `KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY`; loopback and link-local are always refused.
 - Admin issuers must equal the SSO issuer, from the bundle or already configured.
 - `sso` is stored only when no SSO settings exist, after an issuer discovery probe.
-- `admins` creates or promotes the account bound to issuer+subject, with no password. A
+- `admins` creates the administrator account bound to issuer+subject, with no password, or
+  re-grants a bound administrator account; a subject bound to an everyday account is a
+  `conflict`. A
   username held by another account is a conflict; accounts are never adopted by username.
   Sign-in as admin also needs the `kynotes.admin` claim. Creating an admin closes the
   first-run web setup.

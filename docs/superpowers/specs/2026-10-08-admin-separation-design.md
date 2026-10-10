@@ -68,6 +68,7 @@ no class lists, so a new route cannot be added unclassified.
 | Public (setup, login, login-params, recover, theme, sso-config, OIDC login/callback, back-channel logout, `sync/events`, `sync/readback`, `GET /share-links/{token}`, health) | none | yes | yes | n/a |
 | Account (`GET /auth/session`, `POST /auth/logout`, `/auth/logout-all`, `/auth/password`, `/auth/step-up`, OIDC step-up start, poll, cancel) | `auth.RequireAccount` | yes | yes | no |
 | Content (containers, objects, conflicts, comments, uploads, attachments, share-link create, members, invitations, notifications, presence, devices, envelopes, key rotations, `/me/identity*`, `/me/link-requests*`, `/users/{id}/identity`) | `RequireSession`, `RequireEither`, `RequireDevice`, `RequireUserActionStepUp` | yes | **403 `admin_account`** | everyday accounts only |
+| Fence-exempt content (`GET /me/identity` only, read by the change screen) | `auth.RequireEveryday` | yes, not fenced by §3 | **403 `admin_account`** | no |
 | Admin (`/api/v1/admin/*`, `/api/admin/*`) | `RequireAdmin`, `RequireStepUp` | **403 `forbidden`** | needs `role='admin'` and, for SSO, the session's `kynotes.admin` ceiling | no |
 
 - The refusal is in the middleware, so it is default-deny: a new content route built on `RequireSession` refuses
@@ -113,7 +114,8 @@ no class lists, so a new route cannot be added unclassified.
   have nothing to open it with (team-keys §9 ruling 11).
 - **Steward approval (closes F7).** `memberships.approved` (default 1). The server-admin add route
   (`POST /admin/teams/{id}/members`, now with an admin step-up) admits the member with `approved=0`, on the team and
-  its child workspaces, and only for an active everyday account (admin accounts get the uniform `404`). Until a
+  its child workspaces, and only for an active everyday account (admin accounts get the uniform `404`). The
+  administrator adds `editor`, `commenter` or `viewer` only; a team admin comes from a steward's invitation. Until a
   steward of the team approves:
   - envelope `PUT` refuses the member's identity as a recipient (`400 invalid_request`, the existing
     `errEnvelopeInvalid`);
@@ -228,8 +230,12 @@ administrator identity. `docs/SSO.md` says so.
 - **Residual: steward approval is a human check.** A steward who approves an account the administrator controls gives
   it the keys. The banner names the account by `displayName` (ID first) and says an administrator added it.
 - **Residual: local-account takeover (P3c, unchanged).** An administrator can reset an everyday account's password and
-  sign in as it. It reaches no existing key: the reset removes the password copy, and stewards' pins refuse a
-  replaced identity until a person confirms the new fingerprint.
+  sign in as it. A member that already has an identity reaches no existing key: the reset removes the password copy,
+  and stewards' pins refuse a replaced identity until a person confirms the new fingerprint. A member with no
+  identity yet does: its first identity is pinned on first contact and the sweep wraps for it. The same holds for an
+  unbound local account that an administrator links to an identity it controls by rewriting the SSO settings
+  (`POST /admin/sso`, no step-up) and sending a directory event. The person loses their own sign-in, which is the
+  visible sign.
 - **Residual: whoever operates KyIdentity** can create an administrator identity or sign in as an everyday one (P3c
   decision 4, unchanged).
 - **Residual: a disabled sole owner.** A team whose only steward is disabled has nobody to mint or approve. The
@@ -279,6 +285,11 @@ Each item has the safest option picked and built. Changing one is a small follow
 4. **Mixed accounts drop the grant even when none remain (ruling 14).** Picked: drop, with the CLI remedy. The
    alternative keeps a mixed administrator until another exists, which violates the separation for the life of that
    account. KyNotes was never live, so this affects development databases only.
+5. **Takeover of an approved member with no identity yet (§10, not built).** An administrator can reset such a
+   member's local password, or link an unbound local account to an identity it controls through the SSO settings,
+   and the member's first identity is then pinned on first contact and wrapped for. Options: accept it (the person
+   loses their own sign-in, which is visible), or require a step-up on `POST /admin/sso` and `/admin/sso/pair` plus a
+   steward confirmation for any member's first identity.
 
 ## 13. Out of scope
 
