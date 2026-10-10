@@ -18,7 +18,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 )
 
-func ShareLinkRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store) {
+func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store) {
 	mux.Handle("POST /api/v1/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")

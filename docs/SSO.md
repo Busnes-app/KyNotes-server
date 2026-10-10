@@ -180,7 +180,7 @@ ID, and event type `user.readback`, signed using the same paired secret. Body an
 purpose must be signed because syncauth does not bind method or URL. Mutation
 signatures cannot authorize a readback and readback signatures cannot mutate users.
 
-The no-store response reports `subject`, `present`, `active`, local account `role` and `version` from
+The no-store response reports `subject`, `present`, `active`, local account `role`, `accountKind` (`user`, `admin`, or empty when absent) and `version` from
 one audited transaction. The `directory.readback` audit records the probed subject
 in `object_id` and the signed event ID in `reason_code`. Version is empty when no versioned event has applied;
 a deleted local account may report absent with a retained version. Missing and
@@ -215,13 +215,24 @@ KyNotes administration. The distinct role name also prevents SCIM's legacy globa
 OIDC login reads the signed, issuer/client-bound `roles` array. Both string entries
 and SCIM objects with a string `value` are recognized; only exact `kynotes.admin`
 grants the session ceiling. Unrelated names, unfamiliar entries, missing roles and
-wrong-shaped role data grant nothing and do not prevent ordinary login. The old
-singular `role` claim is ignored. Automatic account creation starts as a local user.
+wrong-shaped role data grant nothing. The old singular `role` claim is ignored.
 Directory events use the same role interpretation; deactivation ignores roles entirely.
 
-SSO administration requires **both** local account permission and `kynotes.admin`
-in that session's verified ID token. Directory provisioning normally sets the local
-permission; a local administrator can also deliberately edit it using the existing
+An identity carrying `kynotes.admin` is an administrator identity, and administrator
+accounts cannot open notes. Automatic provisioning creates everyday accounts only. A
+token carrying `kynotes.admin` signs in only to an administrator account (`403
+admin_account_not_provisioned` when no account is bound to the subject, `403
+admin_role_on_everyday_account` when an everyday account is). An administrator account
+signs in only with it (`403 admin_role_required`). Each refusal mints no session and is
+audited `auth.sso_admin_refused`. KyIdentity therefore holds two identities for a person
+who both administers and writes: only the administrator identity carries the role.
+
+SSO administration requires **both** an administrator account with the grant and
+`kynotes.admin` in that session's verified ID token. Directory provisioning creates an
+administrator account when a subject's first event carries `kynotes.admin`; later events
+grant or revoke the role on that account only. An everyday account never takes it
+(`role_refused=everyday_account` in the apply audit, and nothing is revoked); a local
+administrator can still edit an administrator account's grant using the existing
 user-management route. An OIDC claim alone does not grant a local role. OIDC-only
 installations therefore need an explicit local grant as well as the app-role claim.
 Every admin request and the session response use the same intersection. Existing
@@ -250,10 +261,19 @@ retains active linked local admin grants and records `admin_retained=true` in th
 upgrade audits. It always revokes old SSO sessions once and audits each linked subject
 with its previous role. Retention does not restore SSO administration without a new
 verified `kynotes.admin` claim. Unlinked administrators and encrypted data stay intact. **Before upgrade, keep an unlinked local administrator
-available** (the server CLI supports `user add --username <name> --admin`). After
+available** (the server CLI's `user add --username <name> --admin` creates an administrator account). After
 upgrade, configure/assign `kynotes.admin`, request a new versioned resync and sign
 in again. Replaying an old acknowledged revision does not reapply its roles. Do not
 reuse an old receiver binary after migration; it does not enforce these controls.
+
+### Upgrade to 0026 (account kinds)
+
+Migration 0026 fixes each account's kind. An administrator that also held notes,
+memberships or an identity becomes an everyday account with its notes intact and loses
+the grant, even when no administrator remains. An SSO-linked one's sign-in is then
+refused (`admin_role_on_everyday_account`) until KyIdentity moves `kynotes.admin` to a
+separate administrator identity. When no active administrator account remains, start-up
+logs `no_active_admin`; `kynotes-server user add --username <name> --admin` creates one.
 
 ## Fresh authorization for backup and recovery actions
 

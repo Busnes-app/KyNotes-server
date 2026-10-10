@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Administrator accounts are now separate from everyday accounts. An administrator account manages users,
+  teams, single sign-on, backups and the audit log, and cannot open notes; an everyday account cannot reach
+  administration. First-run setup creates one of each. A password an administrator set must be changed at
+  first sign-in before anything else. Teams an administrator creates belong to an everyday owner, who names
+  the notebook, and people an administrator adds receive a team's keys only after one of its owners approves
+  them. With single sign-on, the `kynotes.admin` role signs in only to an administrator account. Upgrading
+  turns any administrator that also held notes into an everyday account with its notes intact; if that leaves
+  no administrator, the server logs `no_active_admin` and `kynotes-server user add --admin` creates one.
 - Notebooks are keyed only by their own encryption keys, from the moment they are created; no notebook
   content is ever sealed or opened with a key derived from your password (KyNotes was never released, so
   this is not a migration). The server refuses to store content, a name, an envelope or an upload for a

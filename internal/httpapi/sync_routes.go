@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-func SyncRoutes(mux *http.ServeMux, db *sql.DB) {
+func SyncRoutes(mux RouteMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/containers/{id}/changes", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		device, isDevice := auth.DeviceFromContext(r)

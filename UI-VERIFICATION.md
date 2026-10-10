@@ -268,3 +268,22 @@ Findings, not fixed here:
 
 - After a successful restore, Settings shows "Linked. This browser now holds your encryption key." (`main.tsx` `justLinked`): the restore card and its "Restored. …" status unmount once the key is held, so the user reads link copy after a restore.
 - The team member list shows "Add person" and "Remove" to members who are not stewards (the restored editor's `restored-*` shot). Present before P5; this run did not check what the server answers.
+
+## Administrator separation (2026-10-10)
+
+Capture conditions: as Team keys P5. `KYNOTES_E2E_SHOTS=<dir> npm run e2e --prefix web` shoots each state from `web/e2e/admin-separation.e2e.ts` (and first-run setup from `people.ts adminConsole`) in Busnes Light and Dark at 1280x900 and 390x844. Files: `docs/admin-separation-<state>-<light|dark>-<desktop|mobile>.png`. Every shot measured `scrollWidth` equal to the viewport (1280 or 390).
+
+| State | Files | Result |
+| --- | --- | --- |
+| First-run setup: Administrator login and Everyday login fieldsets, each with username, password and confirmation | `setup-first-run-*` | Pass |
+| Administrator console: the "cannot open notes" note, section tabs, Sign out, no workspace | `console-admin-*` | Pass; at 390 px the section tabs scroll horizontally (`.settings-nav`, by design) |
+| An administrator-set password: "Choose your own password" before anything else | `choose-password-everyday-*` | Pass |
+| The owner's team with an administrator-added member: the approval banner, the member row "awaiting approval" | `approve-owner-*` | Pass; the user ID in the banner wraps inside it (`.conflict-banner` `overflow-wrap: anywhere`) |
+
+Fixed during capture: the approval banner's user ID overflowed its box at 1280 px, and the setup fieldsets put their last input on the border.
+
+Not captured as screenshots: the "Notebook name" prompt and the administrator's "Person added" alert are native dialogs; the e2e matches each one's full text.
+
+Findings, not fixed here:
+
+- The console sidebar shows the administrator's username as muted text directly above Sign out, with no label.

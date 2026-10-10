@@ -23,10 +23,10 @@ describe("workspace keys after P5", () => {
     expect(create).toContain("}, deleteContainer);");
     expect(create).toContain("const container = await syncKeys(created, false, () => false, true);");
     expect(create).toContain("if (!write) throw new Error(NOT_KEYED);");
-    expect(main.match(/createNamed\(/g)).toHaveLength(4); // the definition, a notebook, a team workspace, an administrator's team
+    expect(main.match(/createNamed\(/g)).toHaveLength(3); // the definition, a notebook, a team workspace
     // Every creation goes through createNamed.
-    const creations = main.split("\n").filter((line) => /new(?:Container|AdminTeam)\(floorSink/.test(line));
-    expect(creations).toHaveLength(3);
+    const creations = main.split("\n").filter((line) => /newContainer\(floorSink/.test(line));
+    expect(creations).toHaveLength(2);
     for (const line of creations) expect(line).toContain("createNamed(");
     expect(main).not.toMatch(/nameUnsharedTeam|renameTeam/);
     expect(main).toMatch(/writeKey\(container, ringsRef\.current\[container\.id\] \?\? noKeys, floor\)/);
@@ -38,7 +38,6 @@ describe("workspace keys after P5", () => {
     expect(main).toContain("canWrap: false, recoverable: false }"); // the list's read-only pass never mints
     expect(main.match(/waitingRef\.current\)/g)?.length).toBeGreaterThanOrEqual(3); // ownCopyKeysFor, readyToSend, attachmentStep
     expect(main).toContain("waitingRef.current = identityRef.current && waitingKey(identityRef.current);");
-    expect(main).toContain('{knownNames[entry.id] ?? "Unnamed team"}'); // AdminTeams reads the live prop, not a stale closure
   });
 
   it("checks the account's identity once per session until it changes (M5)", () => {
@@ -55,9 +54,8 @@ describe("workspace keys after P5", () => {
     expect(main.match(/queuedNotice\(stewardHere\(selected\)\)/g)).toHaveLength(2);
     expect(main).toContain("waitingNotice({ steward: stewardHere(selected),");
     expect(main).toContain("others ? `Sealed this notebook's name with its key: ${name}.` : \"\"");
-    // Only when the server refused the identity create for an administrator-set password (M2).
-    expect(main).toContain("{!auth.sso && identityState === \"create\" && adminSetPassword.has(auth.user.id) && <div className=\"conflict-banner\" role=\"status\">{ADMIN_PASSWORD_FIRST}");
-    expect(main).toContain("if ((await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin)) === \"admin-password\") adminSetPassword.add(userID);");
+    // An administrator-set password is changed on ChoosePassword before the workspace opens.
+    expect(main).not.toMatch(/adminSetPassword|ADMIN_PASSWORD_FIRST/);
   });
 
   it("changes the password without a content warning: nothing depends on it", () => {
@@ -87,17 +85,30 @@ describe("recovery code wiring (P5 Task 8)", () => {
 
   it("tells users and administrators that a reset keeps the key and the recovery code restores it", () => {
     expect(main).toMatch(/const FORGET_DEVICE = "[^"]*enter your recovery code[^"]*KySignOn have no password copy/);
-    expect(main).toMatch(/alert\("Password reset\.[^"]*keeps its encryption key[^"]*recovery code[^"]*KySignOn gets no password copy back/);
+    const adminConsole = import.meta.glob<string>("./components/AdminConsole.tsx", { query: "?raw", import: "default", eager: true })["./components/AdminConsole.tsx"];
+    expect(adminConsole).toContain("All existing sessions and paired device credentials were revoked.");
+    expect(adminConsole).toMatch(/alert\("Password reset\.[^"]*keeps its encryption key[^"]*recovery code[^"]*KySignOn gets no password copy back/);
     expect(main).not.toMatch(/encryption identity was deleted|an administrator reset removes it/);
   });
 
   it("never asks a single sign-on session for a password; a refused password lets no one in (I1)", () => {
+    expect(main).toContain("if (res.user.accountKind === \"admin\" || res.passwordChangeRequired) {");
     expect(main).toContain("if (res.sso) {\n          setAuth({ username: res.user.username, authSecret: await ssoDeviceSecret(res.user.username), user: res.user, sso: true });\n          return;\n        }\n        setSessionUser(res.user);");
+    expect(main.indexOf("res.passwordChangeRequired) {")).toBeLessThan(main.indexOf("if (res.sso) {"));
     expect(main).not.toMatch(/master password|Master Password|note-encryption keys|storeDeviceKey/);
     const submit = block("  async function submit(");
     expect(submit).not.toMatch(/sso: true/);
     expect(submit.match(/catch/g)).toHaveLength(1); // the error shown on the form; no fallback sign-in
-    expect(submit).toContain("const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);");
+    expect(submit).toContain("const result = await login(activeName, authSecret);");
+    // Only an everyday account on its own password keeps a vault record, after the server accepted the password.
+    expect(submit).toContain("if (everyday && !result.passwordChangeRequired) {\n        await rememberAfter(async () => result, activeName, authSecret);");
+  });
+
+  it("asks stewards to approve administrator-added members and to name a team an administrator created", () => {
+    expect(main).toContain("const UNNAMED_TEAM = \"An administrator created this team notebook for you. Name it so its members can find it.\";");
+    expect(main).toMatch(/approvalText = \(name: string\) => `\$\{name\} was added by an administrator\. They get this notebook's keys only after you approve them\.`/);
+    expect(main).toContain("teamSteward && membersForTeam.filter((member) => member.approved === false)");
+    expect(main).toContain("await approveMember(");
   });
 
   it("shows member management and team notebooks only to stewards, from the server's member list (M1)", () => {
@@ -119,6 +130,5 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).toContain("waitingRef.current = identityRef.current && waitingKey(identityRef.current);\n      setWaitingHeld(Boolean(waitingRef.current));");
     expect(main).toContain("waitingHeld={waitingHeld}");
     expect(main).not.toMatch(/=\{[^}]*waitingRef\.current/); // no JSX prop reads the ref during render
-    expect(main).toContain("All existing sessions and paired device credentials were revoked.");
   });
 });

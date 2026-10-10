@@ -18,6 +18,8 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
+var errSetupDone = errors.New("setup already completed")
+
 var dummyMu sync.Mutex
 var dummyHash string
 var loginLockout = auth.NewLockout(3, 15*time.Minute, 50000)
@@ -43,7 +45,7 @@ func dummyVerifier() (string, error) {
 	return dummyHash, nil
 }
 
-func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
+func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("GET /api/v1/theme", func(w http.ResponseWriter, r *http.Request) {
 		var theme string
 		if db.QueryRow(`SELECT value FROM server_settings WHERE key='default_theme'`).Scan(&theme) != nil {
@@ -67,75 +69,77 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("GET /api/v1/setup", handleSetupCheck)
 	mux.HandleFunc("GET /api/setup", handleSetupCheck)
 
+	type setupAccount struct {
+		Username   string `json:"username"`
+		AuthSecret string `json:"authSecret"`
+		LoginSalt  string `json:"loginSalt"`
+		Iterations int    `json:"iterations"`
+	}
+	valid := func(a *setupAccount) bool {
+		a.Username = strings.ToLower(strings.TrimSpace(a.Username))
+		return a.Username != "" && len(a.AuthSecret) == 64 && a.LoginSalt != "" && a.Iterations >= 100000 && a.Iterations <= 1000000
+	}
+	// First-run setup creates the administrator account and the everyday account that writes notes,
+	// both with passwords the person at setup chose, and signs this browser in as the administrator.
 	handleSetupInit := func(w http.ResponseWriter, r *http.Request) {
-		var count int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil || count > 0 {
+		var in struct{ Admin, Everyday *setupAccount }
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if dec.Decode(&in) != nil || in.Admin == nil || in.Everyday == nil || !valid(in.Admin) || !valid(in.Everyday) || in.Admin.Username == in.Everyday.Username {
+			WriteError(w, r, 400, "invalid_request", "an administrator and an everyday account with different usernames are required")
+			return
+		}
+		accountIDs := [2]string{}
+		for i := range accountIDs {
+			id, err := ids.Mint("usr")
+			if err != nil {
+				WriteError(w, r, 500, "internal", "failed to mint user id")
+				return
+			}
+			accountIDs[i] = id
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		err := dbTx(db, func(tx *sql.Tx) error {
+			var count int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+				return err
+			}
+			if count > 0 {
+				return errSetupDone
+			}
+			for i, a := range []*setupAccount{in.Admin, in.Everyday} {
+				kind := []string{"admin", "user"}[i]
+				hash, err := auth.HashAuthSecret(a.AuthSecret)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',?,?)`, accountIDs[i], a.Username, hash, a.LoginSalt, a.Iterations, kind, kind, now, now); err != nil {
+					return err
+				}
+			}
+			return storage.RecordAuditOutcomeTx(tx, accountIDs[0], "setup.initialized", "", accountIDs[1], "success", "", RequestID(r))
+		})
+		if errors.Is(err, errSetupDone) {
 			WriteError(w, r, http.StatusForbidden, "setup_completed", "setup has already been completed")
 			return
 		}
-
-		var in struct {
-			Username   string `json:"username"`
-			AuthSecret string `json:"authSecret"`
-			LoginSalt  string `json:"loginSalt"`
-			Iterations int    `json:"iterations"`
-		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil {
-			WriteError(w, r, 400, "invalid_request", "invalid request")
+		if errors.Is(err, auth.ErrBusy) {
+			authBusy(w, r, "setup temporarily unavailable")
 			return
 		}
-
-		username := strings.TrimSpace(in.Username)
-		if username == "" {
-			username = "admin"
-		}
-
-		salt := in.LoginSalt
-		if salt == "" {
-			salt = auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
-		}
-		iterations := in.Iterations
-		if iterations < 100000 || iterations > 1000000 {
-			iterations = 600000
-		}
-
-		// The password never reaches the server: it also derives the userKEK.
-		authSecret := in.AuthSecret
-		if len(authSecret) != 64 {
-			WriteError(w, r, 400, "invalid_request", "authSecret required")
-			return
-		}
-
-		hash, err := auth.HashAuthSecret(authSecret)
 		if err != nil {
-			WriteError(w, r, 500, "internal", "failed to hash auth secret")
+			writeInternal(w, r, "setup.create", err)
 			return
 		}
-
-		id, err := ids.Mint("usr")
-		if err != nil {
-			WriteError(w, r, 500, "internal", "failed to mint user id")
-			return
-		}
-
-		now := time.Now().UTC().Format(time.RFC3339)
-		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, created_at, updated_at) VALUES(?, ?, ?, ?, ?, 'admin', 'active', ?, ?)`,
-			id, strings.ToLower(username), hash, salt, iterations, now, now)
-		if err != nil {
-			WriteError(w, r, 500, "internal", "failed to create initial admin: "+err.Error())
-			return
-		}
-
-		s, err := auth.MintSession(db, w, id, cfg.Server.DevInsecureCookies, time.Now().UTC())
+		s, err := auth.MintSession(db, w, accountIDs[0], cfg.Server.DevInsecureCookies, time.Now().UTC())
 		if err != nil {
 			WriteError(w, r, 500, "internal", "failed to create session")
 			return
 		}
-
-		recordAudit(db, id, "setup.initialized", "", "", r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]any{
 			"ok":            true,
-			"user":          map[string]string{"id": id, "role": "admin", "username": username},
+			"user":          map[string]string{"id": accountIDs[0], "role": "admin", "accountKind": "admin", "username": in.Admin.Username},
+			"everyday":      map[string]string{"id": accountIDs[1], "username": in.Everyday.Username},
 			"expiresAt":     s.ExpiresAt.UTC().Format(time.RFC3339),
 			"hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339),
 		})
@@ -176,8 +180,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 429, "rate_limited", "login temporarily unavailable")
 			return
 		}
-		var id, stored, status, role string
-		err := db.QueryRow(`SELECT id,auth_secret_hash,status,role FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&id, &stored, &status, &role)
+		var id, stored, status, role, kind string
+		var known int
+		err := db.QueryRow(`SELECT id,auth_secret_hash,status,role,account_kind,password_admin_known FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&id, &stored, &status, &role, &kind, &known)
 		if err != nil {
 			stored, err = dummyVerifier()
 			if err != nil {
@@ -207,6 +212,9 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		// Bound to the verified hash: a password changed since then mints nothing and returns no identity.
 		var identity map[string]string
 		s, err := auth.MintPasswordSession(db, w, id, stored, cfg.Server.DevInsecureCookies, time.Now().UTC(), func(tx *sql.Tx) (err error) {
+			if kind != auth.KindEveryday {
+				return nil // an administrator account holds no identity
+			}
 			identity, err = loadIdentity(tx, id, true)
 			return err
 		})
@@ -219,7 +227,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		recordAudit(db, id, "auth.login", "", "", RequestID(r))
-		out := map[string]any{"user": map[string]string{"id": id, "role": role}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)}
+		out := map[string]any{"user": map[string]string{"id": id, "role": role, "accountKind": kind}, "passwordChangeRequired": known != 0, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)}
 		if identity != nil {
 			out["identity"] = identity
 		}
@@ -229,7 +237,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("POST /api/v1/auth/login", handleLogin)
 	mux.HandleFunc("POST /api/auth/login", handleLogin)
 
-	handleSession := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handleSession := auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		var username string
 		_ = db.QueryRow(`SELECT username FROM users WHERE id=?`, s.UserID).Scan(&username)
@@ -239,12 +247,12 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 
-		writeJSON(w, map[string]any{"sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username}, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
+		writeJSON(w, map[string]any{"sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	}))
 	mux.Handle("GET /api/v1/auth/session", handleSession)
 	mux.Handle("GET /api/auth/session", handleSession)
 
-	handleLogout := auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handleLogout := auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -427,8 +435,8 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-	mux.Handle("POST /api/v1/auth/password", auth.RequireSession(db, changePassword))
-	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/auth/password", auth.RequireAccount(db, changePassword))
+	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -447,7 +455,7 @@ func AuthRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 	// Step-up re-proves the login secret for this session. The browser derives
 	// it from the typed password exactly as at login; the server never sees
 	// the password.
-	mux.Handle("POST /api/v1/auth/step-up", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/v1/auth/step-up", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return

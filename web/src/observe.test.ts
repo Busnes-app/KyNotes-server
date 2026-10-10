@@ -67,7 +67,7 @@ describe("observeContainer", () => {
   it("is the only path to the raw container fetchers", () => {
     const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.{ts,tsx}", "!./api.ts", "!./observe.ts", "!./ky-ui/**"], { query: "?raw", import: "default", eager: true });
     expect(Object.keys(sources)).toEqual(expect.arrayContaining(["./main.tsx", "./components/UnsentEdits.tsx"]));
-    const raw = /\b(containers|createContainer|adminTeams|createAdminTeam)\b/;
+    const raw = /\b(containers|createContainer)\b/;
     const imports = (text: string) => [...text.matchAll(/import\s*\{([^}]*)\}\s*from\s*"[./]*\/?api"/g)].flatMap((match) => match[1].split(",").map((name) => name.trim()));
     expect(Object.entries(sources).filter(([, text]) => imports(text).some((name) => raw.test(name))).map(([name]) => name)).toEqual([]);
   });

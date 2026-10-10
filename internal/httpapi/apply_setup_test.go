@@ -173,7 +173,7 @@ func TestApplyAdminCreatesBindingWithoutPassword(t *testing.T) {
 func TestApplyAdminGrantRevokesCredentials(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,sso_issuer,sso_subject,created_at,updated_at) VALUES('usr_b','owner','x','salt',600000,'user','active',?,'sub-owner',?,?)`, setupTestIssuer, now, now); err != nil {
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,sso_issuer,sso_subject,created_at,updated_at) VALUES('usr_b','owner','x','salt',600000,'user','admin','active',?,'sub-owner',?,?)`, setupTestIssuer, now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('ses_b','usr_b','tok','csrf',?,?,?)`, now, now, now); err != nil {
@@ -191,6 +191,20 @@ func TestApplyAdminGrantRevokesCredentials(t *testing.T) {
 	}
 	if n := setupAuditCount(t, db, "admin.user.update"); n != 1 {
 		t.Fatalf("audit rows: %d", n)
+	}
+}
+
+func TestApplyAdminNeverPromotesAnEverydayAccount(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,sso_issuer,sso_subject,created_at,updated_at) VALUES('usr_c','alice','x','salt',600000,'user','user','active',?,'sub-everyday',?,?)`, setupTestIssuer, now, now); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := applyAdmin(db, cfg, setupTestIssuer, applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-everyday", Username: "x-admin"})
+	var role string
+	_ = db.QueryRow(`SELECT role FROM users WHERE id='usr_c'`).Scan(&role)
+	if res.Status != applysetup.Conflict || role != "user" || setupAuditCount(t, db, "admin.user.update") != 0 {
+		t.Fatalf("%+v role=%q", res, role)
 	}
 }
 

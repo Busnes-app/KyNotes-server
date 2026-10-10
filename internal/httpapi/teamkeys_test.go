@@ -48,6 +48,23 @@ func (p *pairClient) addUser(t *testing.T, username string) member {
 	return member{q, id}
 }
 
+// addAdmin creates an administrator account (login secret "a"*64) and signs it in. It can hold
+// no content: tests that need an administrator and a member use two accounts.
+func (p *pairClient) addAdmin(t *testing.T, username string) member {
+	t.Helper()
+	id := mint(t, "usr")
+	hash, _ := auth.HashAuthSecret(strings.Repeat("a", 64))
+	if _, err := p.db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,created_at,updated_at) VALUES(?,?,?,?,?,'admin','admin','now','now')`, id, username, hash, base64.StdEncoding.EncodeToString([]byte("0123456789abcdef")), 100000); err != nil {
+		t.Fatal(err)
+	}
+	jar, _ := cookiejar.New(nil)
+	q := &pairClient{hc: &http.Client{Jar: jar}, db: p.db, url: p.url}
+	if code, body := status(t, q.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":`+quote(username)+`,"authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)); code != http.StatusOK {
+		t.Fatalf("login %s=%d %s", username, code, body)
+	}
+	return member{q, id}
+}
+
 // seedContainer inserts a container (child of team when team != "") with the
 // given userID→role memberships.
 func seedContainer(t *testing.T, p *pairClient, kind, team string, roles map[string]string) string {
@@ -647,10 +664,8 @@ func TestSaveRacingDemotionIsRefused(t *testing.T) {
 func TestAdminMemberRemovalRotatesLikeOwnerRemoval(t *testing.T) {
 	tm := newTeam(t)
 	tm.rotate(t, tm.id, 1)
-	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-		t.Fatal(err)
-	}
-	if code, body := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
+	admin := tm.owner.addAdmin(t, "server-admin")
+	if code, body := status(t, admin.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNoContent {
 		t.Fatalf("admin remove=%d %s", code, body)
 	}
 	if g, _ := generationOf(t, tm.owner, tm.id); g != 3 {
@@ -666,10 +681,10 @@ func TestAdminMemberRemovalRotatesLikeOwnerRemoval(t *testing.T) {
 	if memberships != 0 || envelopes != 0 || audits != 1 {
 		t.Fatalf("memberships=%d envelopes=%d audits=%d", memberships, envelopes, audits)
 	}
-	if code, _ := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNotFound {
+	if code, _ := status(t, admin.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+tm.editor.id, nil, true, false)); code != http.StatusNotFound {
 		t.Fatalf("second removal=%d", code)
 	}
-	if code, _ := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+pairUser, nil, true, false)); code != http.StatusBadRequest {
+	if code, _ := status(t, admin.do(t, http.MethodDelete, "/api/v1/admin/teams/"+tm.id+"/members/"+pairUser, nil, true, false)); code != http.StatusBadRequest {
 		t.Fatalf("invalid user ID=%d", code)
 	}
 }

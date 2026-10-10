@@ -37,7 +37,7 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,created_at,updated_at) VALUES('usr_fixture','admin',?,'salt',600000,'admin','active','','')`, hash); err != nil {
+	if _, err = st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,created_at,updated_at) VALUES('usr_fixture','admin',?,'salt',600000,'admin','admin','active','','')`, hash); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = st.DB().Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('sess_fixture','usr_fixture','token','csrf',?,?,?)`, time.Now().Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339)); err != nil {

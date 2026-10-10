@@ -53,7 +53,7 @@ func TestDepositAndDrillOfflineAndLive(t *testing.T) {
 	svc.Close()
 	if err == nil {
 		now := time.Now().UTC().Format(time.RFC3339)
-		_, err = st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,created_at,updated_at) VALUES('usr_a','admin','x','salt',600000,'admin','active',?,?)`, now, now)
+		_, err = st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,created_at,updated_at) VALUES('usr_a','admin','x','salt',600000,'admin','admin','active',?,?)`, now, now)
 	}
 	st.Close()
 	if err != nil {
