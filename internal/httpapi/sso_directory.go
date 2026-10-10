@@ -145,13 +145,13 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		return
 	}
 	if readback {
-		var status, role string
-		err = tx.QueryRow(`SELECT status,role FROM users WHERE sso_issuer=? AND sso_subject=?`, settings.IssuerURL, u.ID).Scan(&status, &role)
+		var status, role, kind string
+		err = tx.QueryRow(`SELECT status,role,account_kind FROM users WHERE sso_issuer=? AND sso_subject=?`, settings.IssuerURL, u.ID).Scan(&status, &role, &kind)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 500, "sync_failed", "account lookup failed")
 			return
 		}
-		observed := map[string]any{"subject": u.ID, "present": err == nil, "active": status == "active", "role": role, "version": ""}
+		observed := map[string]any{"subject": u.ID, "present": err == nil, "active": status == "active", "role": role, "accountKind": kind, "version": ""}
 		if prior > 0 {
 			observed["version"] = fmt.Sprintf(`W/"%d"`, prior)
 		}
@@ -191,7 +191,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		return
 	}
 	status := "already_applied"
-	var retained bool
+	var role, note string
 	if revision > prior {
 		status = "applied"
 		var cutoff int64
@@ -200,7 +200,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		}
 		_, err = tx.Exec(`INSERT INTO sso_directory_state(issuer,subject,revision,digest,active,event_id,revoked_before) VALUES(?,?,?,?,?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revision=excluded.revision,digest=excluded.digest,active=excluded.active,event_id=excluded.event_id,revoked_before=max(sso_directory_state.revoked_before,excluded.revoked_before)`, settings.IssuerURL, u.ID, revision, incoming, *u.Active, event.ID, cutoff)
 		if err == nil {
-			retained, err = syncSingleUser(tx, cfg, settings.IssuerURL, &u)
+			role, note, err = syncSingleUser(tx, cfg, settings.IssuerURL, &u)
 		}
 		if err == nil && !*u.Active {
 			now := time.Now().UTC().Format(time.RFC3339)
@@ -212,11 +212,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 			}
 		}
 		if err == nil {
-			role, extra := u.localRole(), ""
-			if retained {
-				role, extra = "admin", ",admin_retained=true"
-			}
-			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,role=%s,event=%s", revision, *u.Active, role, event.ID)+extra, RequestID(r))
+			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,role=%s,event=%s", revision, *u.Active, role, event.ID)+note, RequestID(r))
 		}
 	}
 	if err == nil {
@@ -229,20 +225,22 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 	writeJSON(w, map[string]any{"status": status, "eventId": event.ID, "version": u.Meta.Version})
 }
 
-func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUser) (bool, error) {
+// syncSingleUser applies u and returns the role it stored, with an audit note when that differs
+// from the directory's.
+func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUser) (role, note string, err error) {
 	if u.ID == "" {
-		return false, errors.New("missing directory subject")
+		return "", "", errors.New("missing directory subject")
 	}
-	var existingID, existingUsername, existingRole, existingStatus, existingSubject, existingIssuer string
-	err := db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE sso_subject=? AND sso_issuer=?`, u.ID, issuer).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject, &existingIssuer)
+	var existingID, existingUsername, existingRole, existingKind, existingStatus, existingSubject, existingIssuer string
+	err = db.QueryRow(`SELECT id, username, role, account_kind, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE sso_subject=? AND sso_issuer=?`, u.ID, issuer).Scan(&existingID, &existingUsername, &existingRole, &existingKind, &existingStatus, &existingSubject, &existingIssuer)
 	if errors.Is(err, sql.ErrNoRows) && u.UserName != "" {
-		err = db.QueryRow(`SELECT id, username, role, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE username=?`, strings.ToLower(u.UserName)).Scan(&existingID, &existingUsername, &existingRole, &existingStatus, &existingSubject, &existingIssuer)
+		err = db.QueryRow(`SELECT id, username, role, account_kind, status, coalesce(sso_subject,''),sso_issuer FROM users WHERE username=?`, strings.ToLower(u.UserName)).Scan(&existingID, &existingUsername, &existingRole, &existingKind, &existingStatus, &existingSubject, &existingIssuer)
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return false, err
+		return "", "", err
 	}
 	if err == nil && existingSubject != "" && (existingSubject != u.ID || existingIssuer != issuer) {
-		return false, errors.New("directory subject conflict")
+		return "", "", errors.New("directory subject conflict")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -250,7 +248,7 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 	if username == "" {
 		username = existingUsername
 	}
-	role := u.localRole()
+	role = u.localRole()
 	status := "disabled"
 	if *u.Active {
 		status = "active"
@@ -258,7 +256,7 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 
 	if errors.Is(err, sql.ErrNoRows) && !*u.Active {
 		// An absent inactive account needs only its durable fence, never a placeholder.
-		return false, nil
+		return role, "", nil
 	}
 	if err != nil {
 		// Insert new user
@@ -267,42 +265,46 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 		}
 		newID, mintErr := ids.Mint("usr")
 		if mintErr != nil {
-			return false, mintErr
+			return "", "", mintErr
 		}
 		dummyBytes := make([]byte, 32)
 		_, _ = rand.Read(dummyBytes)
 		dummySecret := hex.EncodeToString(dummyBytes)
 		dummyHash, hashErr := auth.HashAuthSecret(dummySecret)
 		if hashErr != nil {
-			return false, hashErr
+			return "", "", hashErr
 		}
 		loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username)
 
 		_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, ?, ?, ?, ?, ?, ?)`,
 			newID, username, dummyHash, loginSalt, role, role, status, u.ID, issuer, now, now)
-		return false, err
+		return role, "", err
 	}
 
-	retained := false
+	// An everyday account never takes the grant; the subject's sign-in is refused instead (ssoKindRefusal).
+	if role == "admin" && existingKind != auth.KindAdmin {
+		role, note = "user", ",role_refused=everyday_account"
+	}
 	if existingRole == "admin" && role != "admin" && existingStatus == "active" && *u.Active {
 		var others int
 		if err := db.QueryRow(`SELECT count(*) FROM users WHERE id<>? AND status='active' AND role='admin'`, existingID).Scan(&others); err != nil {
-			return false, err
+			return "", "", err
 		}
 		if others == 0 {
-			role, retained = "admin", true
+			role, note = "admin", ",admin_retained=true"
 		}
 	}
-	// A retained recovery grant still invalidates earlier proofs and credentials.
-	if u.localRole() != existingRole {
+	// A retained recovery grant still invalidates earlier proofs and credentials. Only an
+	// administrator account's grant moves; a refused one changes nothing.
+	if existingKind == auth.KindAdmin && u.localRole() != existingRole {
 		if err := revokeForRoleChange(db, issuer, u.ID, existingID, now); err != nil {
-			return false, err
+			return "", "", err
 		}
 	}
 	// Update existing user
 	_, err = db.Exec(`UPDATE users SET username=?, role=?, status=?, sso_subject=?, sso_issuer=?, updated_at=? WHERE id=?`,
 		username, role, status, u.ID, issuer, now, existingID)
-	return retained, err
+	return role, note, err
 }
 
 // revokeForRoleChange: promotion and demotion both require fresh sessions, device pairing

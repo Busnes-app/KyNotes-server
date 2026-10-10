@@ -38,10 +38,11 @@ func TestDecideSSO(t *testing.T) {
 }
 
 func TestDecideAdmin(t *testing.T) {
-	admin := &Account{ID: "usr_1", Username: "owner", Role: "admin", Status: "active"}
-	user := &Account{ID: "usr_1", Username: "owner", Role: "user", Status: "active"}
-	disabled := &Account{ID: "usr_1", Username: "owner", Role: "user", Status: "disabled"}
-	other := &Account{ID: "usr_2", Username: "owner-admin", Role: "admin", Status: "active"}
+	admin := &Account{ID: "usr_1", Username: "owner", Role: "admin", Status: "active", Kind: "admin"}
+	inert := &Account{ID: "usr_1", Username: "owner", Role: "user", Status: "active", Kind: "admin"}
+	everyday := &Account{ID: "usr_1", Username: "owner", Role: "user", Status: "active", Kind: "user"}
+	disabled := &Account{ID: "usr_1", Username: "owner", Role: "user", Status: "disabled", Kind: "user"}
+	other := &Account{ID: "usr_2", Username: "owner-admin", Role: "admin", Status: "active", Kind: "admin"}
 	for _, c := range []struct {
 		name         string
 		bound, named *Account
@@ -50,7 +51,8 @@ func TestDecideAdmin(t *testing.T) {
 	}{
 		{"new identity", nil, nil, Created, CreateAdmin},
 		{"bound admin", admin, nil, Present, NoAction},
-		{"bound user", user, nil, Created, GrantAdmin},
+		{"bound admin without grant", inert, nil, Created, GrantAdmin},
+		{"bound everyday", everyday, nil, Conflict, NoAction},
 		{"bound disabled", disabled, nil, Conflict, NoAction},
 		{"username taken", nil, other, Conflict, NoAction},
 	} {

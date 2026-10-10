@@ -69,14 +69,9 @@ func TestSSOAppRolesRequireExplicitTokenAndAccountPermission(t *testing.T) {
 	if _, err := f.db.Exec(`UPDATE users SET role='user' WHERE id=?`, seedSSOAdmin(f, "alice")); err != nil {
 		t.Fatal(err)
 	}
-	// A legacy global administrator claim never grants product administration.
-	legacy := roleCallback(f, "alice", nil, "admin")
-	if legacy.Code != 302 || admin(legacy.Result().Cookies()) != 403 {
+	// A legacy global administrator claim never grants product administration, nor signs an administrator account in.
+	if legacy := roleCallback(f, "alice", nil, "admin"); legacy.Code != 403 || errorCode(t, legacy.Body.String()) != "admin_role_required" {
 		t.Fatalf("legacy role admitted %d", legacy.Code)
-	}
-	var role string
-	if err := f.db.QueryRow(`SELECT role FROM users WHERE username='alice'`).Scan(&role); err != nil || role != "user" {
-		t.Fatalf("legacy role persisted %q %v", role, err)
 	}
 	// The token alone is insufficient; provisioning/local account permission must agree.
 	tokenOnly := roleCallback(f, "alice", []string{sso.AdminAppRole}, "admin")
@@ -84,25 +79,26 @@ func TestSSOAppRolesRequireExplicitTokenAndAccountPermission(t *testing.T) {
 		t.Fatal("token bypassed account permission")
 	}
 	provision(1, []any{map[string]any{"value": "admin"}}, 200)
-	if roleCallback(f, "alice", []string{"admin"}, "admin").Code != 302 {
-		t.Fatal("ordinary login refused")
+	if res := roleCallback(f, "alice", []string{"admin"}, "admin"); res.Code != 403 || errorCode(t, res.Body.String()) != "admin_role_required" {
+		t.Fatalf("administrator login without the app role: %d %s", res.Code, res.Body.String())
 	}
 	provision(2, []any{map[string]any{"value": sso.AdminAppRole}}, 200)
-	if admin(legacy.Result().Cookies()) != 401 || admin(tokenOnly.Result().Cookies()) != 401 {
+	if admin(tokenOnly.Result().Cookies()) != 401 {
 		t.Fatal("promotion revived old sessions")
 	}
-	user := roleCallback(f, "alice", []string{}, "admin")
-	if user.Code != 302 || admin(user.Result().Cookies()) != 403 {
+	if res := roleCallback(f, "alice", []string{}, "admin"); res.Code != 403 || errorCode(t, res.Body.String()) != "admin_role_required" {
 		t.Fatal("account role bypassed token ceiling")
-	}
-	me := f.send(withCookies(httptest.NewRequest("GET", "/api/v1/auth/session", nil), user.Result().Cookies()))
-	var session struct{ User struct{ Role string } }
-	if me.Code != 200 || json.Unmarshal(me.Body.Bytes(), &session) != nil || session.User.Role != "user" {
-		t.Fatalf("session reported wrong permission: %d %s", me.Code, me.Body.String())
 	}
 	elevated := roleCallback(f, "alice", []string{sso.AdminAppRole}, "user")
 	if elevated.Code != 302 || admin(elevated.Result().Cookies()) != 204 {
 		t.Fatalf("app role not granted: %d", elevated.Code)
+	}
+	me := f.send(withCookies(httptest.NewRequest("GET", "/api/v1/auth/session", nil), elevated.Result().Cookies()))
+	var session struct {
+		User struct{ Role, AccountKind string }
+	}
+	if me.Code != 200 || json.Unmarshal(me.Body.Bytes(), &session) != nil || session.User.Role != "admin" || session.User.AccountKind != "admin" {
+		t.Fatalf("session reported wrong permission: %d %s", me.Code, me.Body.String())
 	}
 	// A local password session has the same account role and is also revoked on loss.
 	var uid string
@@ -174,6 +170,13 @@ func TestSSOAppRolesIgnoreUnrelatedClaims(t *testing.T) {
 		{"kynotes.admin", 403}, {[]any{1}, 403}, {[]string{"bad role"}, 403}, {json.RawMessage("null"), 403}, {[]string{"kynotes.admin.extra"}, 403},
 	} {
 		r := roleCallback(f, "alice", tc.roles, "admin")
+		if tc.want == 403 {
+			// Without the app role an administrator account does not sign in at all.
+			if r.Code != 403 || errorCode(t, r.Body.String()) != "admin_role_required" {
+				t.Fatalf("roles %#v login: %d %s", tc.roles, r.Code, r.Body.String())
+			}
+			continue
+		}
 		if r.Code != 302 {
 			t.Fatalf("roles %#v login: %d %s", tc.roles, r.Code, r.Body.String())
 		}
@@ -199,7 +202,7 @@ func TestDirectoryDeactivationIgnoresRoles(t *testing.T) {
 			}
 			// An administrator account holds no device; directory revocation of devices is TestDirectoryRevocationsSpareIdentity's.
 			seedSSOAdmin(f, "alice")
-			if login := roleCallback(f, "alice", nil, ""); login.Code != 302 {
+			if login := roleCallback(f, "alice", []string{sso.AdminAppRole}, ""); login.Code != 302 {
 				t.Fatal(login.Code)
 			}
 			p := directoryPayload("alice", "alice", 1, false)
@@ -237,7 +240,7 @@ func TestDirectoryRetainsLastActiveAdminGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedSSOAdmin(f, "alice")
-	if login := roleCallback(f, "alice", nil, ""); login.Code != 302 {
+	if login := roleCallback(f, "alice", []string{sso.AdminAppRole}, ""); login.Code != 302 {
 		t.Fatal(login.Code)
 	}
 	p := directoryPayload("alice", "alice", 1, true)
@@ -261,8 +264,7 @@ func TestDirectoryRetainsLastActiveAdminGrant(t *testing.T) {
 		t.Fatalf("admins=%d sessions=%d audit=%s", admins, sessions, reason)
 	}
 	f.router.(*http.ServeMux).Handle("GET /admin-protected", auth.RequireAdmin(f.db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
-	fresh := roleCallback(f, "alice", []string{}, "admin")
-	if fresh.Code != 302 || f.send(withCookies(httptest.NewRequest("GET", "/admin-protected", nil), fresh.Result().Cookies())).Code != 403 {
+	if fresh := roleCallback(f, "alice", []string{}, "admin"); fresh.Code != 403 || errorCode(t, fresh.Body.String()) != "admin_role_required" {
 		t.Fatal("retained grant bypassed verified app role")
 	}
 }

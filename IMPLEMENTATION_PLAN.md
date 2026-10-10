@@ -50,6 +50,14 @@ revision and attributed audit. The setup/upgrade path and OIDC-only explicit loc
 grant option are in docs/SSO.md. Verify role claims, versioned loss/re-grant,
 rollback and pre-0018 upgrade in the app-role tests. Action-bound fresh OIDC
 reauthentication for existing backup/recovery guards is described below; live acceptance is open.
+Account kinds at sign-in (`ssoKindRefusal`, verify `TestSSOKindsFollowTheToken`): a token with
+`kynotes.admin` signs in only to an administrator account and an administrator account only with it;
+each refusal is `403` with the code in §1.7, mints no session and is audited `auth.sso_admin_refused`.
+A subject with no account and no role is provisioned as an everyday account (`account_kind='user'`).
+Directory creation sets the kind from the first event's role; later events move only the grant, and a
+grant for an everyday account is stored as `user`, revokes nothing and is audited
+`role_refused=everyday_account` (`TestDirectoryNeverGrantsAdminToEverydayAccounts`). Readback reports
+`accountKind` (`""` when absent). `apply-setup` reports `conflict` for an identity bound to an everyday account.
 
 
 Lifecycle extension for issue 13, fresh-authorization stage: migration 0019 binds
@@ -356,6 +364,9 @@ user data.
 | `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; carries its `challenge` ID; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
 | `admin_account` | 403 | an administrator account reached a content route |
+| `admin_account_not_provisioned` | 403 | an OIDC sign-in carrying `kynotes.admin` for a subject with no account; automatic provisioning never creates an administrator account |
+| `admin_role_on_everyday_account` | 403 | an OIDC sign-in carrying `kynotes.admin` for a subject bound to an everyday account |
+| `admin_role_required` | 403 | an OIDC sign-in without `kynotes.admin` for a subject bound to an administrator account |
 | `account_kind_mismatch` | 409 | the administrator grant was asked for an everyday account |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |

@@ -194,6 +194,20 @@ func TestApplyAdminGrantRevokesCredentials(t *testing.T) {
 	}
 }
 
+func TestApplyAdminNeverPromotesAnEverydayAccount(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,sso_issuer,sso_subject,created_at,updated_at) VALUES('usr_c','alice','x','salt',600000,'user','user','active',?,'sub-everyday',?,?)`, setupTestIssuer, now, now); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := applyAdmin(db, cfg, setupTestIssuer, applysetup.Admin{Issuer: setupTestIssuer, Subject: "sub-everyday", Username: "x-admin"})
+	var role string
+	_ = db.QueryRow(`SELECT role FROM users WHERE id='usr_c'`).Scan(&role)
+	if res.Status != applysetup.Conflict || role != "user" || setupAuditCount(t, db, "admin.user.update") != 0 {
+		t.Fatalf("%+v role=%q", res, role)
+	}
+}
+
 func TestApplyAdminNeverAdoptsByUsername(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	createAdminUser(t, db) // local, unbound account named "admin"

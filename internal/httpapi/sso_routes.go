@@ -21,6 +21,26 @@ import (
 
 const ssoCookieName = "kynotes_sso_state"
 
+// ssoKindRefusal: an identity carrying kynotes.admin is an administrator identity. It signs in only to an
+// admin account, and an admin account only with it. Automatic provisioning never makes one. "" admits.
+func ssoKindRefusal(kind string, appAdmin bool) string {
+	switch {
+	case kind == "" && appAdmin:
+		return "admin_account_not_provisioned"
+	case kind == auth.KindEveryday && appAdmin:
+		return "admin_role_on_everyday_account"
+	case kind == auth.KindAdmin && !appAdmin:
+		return "admin_role_required"
+	}
+	return ""
+}
+
+var ssoKindMessages = map[string]string{
+	"admin_account_not_provisioned":  "administrator identities sign in only to an administrator account set up by apply-setup, directory sync or an administrator",
+	"admin_role_on_everyday_account": "this identity carries the KyNotes administrator role, but its account is an everyday account; ask your identity administrator to move the role to a separate administrator identity",
+	"admin_role_required":            "this administrator account needs the KyNotes administrator role at sign-in",
+}
+
 func isRequestSecure(r *http.Request) bool {
 	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
@@ -259,11 +279,16 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			return
 		}
 
-		var userID, userStatus string
+		var userID, userStatus, kind string
 		// 1. Try finding user by sso_subject
-		err = db.QueryRow(`SELECT id, status FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus)
+		err = db.QueryRow(`SELECT id, status, account_kind FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus, &kind)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 500, "internal", "account lookup failed")
+			return
+		}
+		if refused := ssoKindRefusal(kind, claims.AppAdmin); refused != "" {
+			recordAuditOutcome(db, userID, "auth.sso_admin_refused", "", claims.Subject, "denied", refused, RequestID(r))
+			WriteError(w, r, http.StatusForbidden, refused, ssoKindMessages[refused])
 			return
 		}
 
@@ -303,7 +328,7 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, claims.Username)
 			now := time.Now().UTC().Format(time.RFC3339)
 
-			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, 'active', ?, ?, ?, ?)`,
+			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, 'user', 'active', ?, ?, ?, ?)`,
 				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, settings.IssuerURL, now, now)
 			if err != nil {
 				writeInternal(w, r, "user.auto_provision", err)
