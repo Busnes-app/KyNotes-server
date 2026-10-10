@@ -137,7 +137,7 @@ this plan; see §14.
 | Item | Frozen value |
 |---|---|
 | Module path | `github.com/Busnes-app/kynotes-server` |
-| Go version | `1.26.6` (`go.mod`: `go 1.26.6`) |
+| Go version | `1.26.9` (`go.mod`: `go 1.26.9`) |
 | `go.mod` location | repository root (this repo is server-only) |
 | Binary | `kynotes-server` |
 | Entry point | `cmd/kynotes-server/main.go` |
@@ -710,8 +710,8 @@ by classification only.
 
 ### 2.4 Docker
 
-* Multi-stage. Builder `golang:1.26.6` pinned **by digest as well as tag**
-  (resolve with `docker buildx imagetools inspect golang:1.26.6 --format
+* Multi-stage. Builder `golang:1.26.9` pinned **by digest as well as tag**
+  (resolve with `docker buildx imagetools inspect golang:1.26.9 --format
   '{{.Manifest.Digest}}'` and write both).
 * Runtime stage `gcr.io/distroless/static-debian12:nonroot`, also digest-pinned.
   There is no shell and no package manager in the runtime image.
