@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Browser, type Locator, type Page, type Request } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
+import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, withDialog, type Person } from "./people";
 import { asContentKey, decryptComment, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
@@ -7,46 +8,10 @@ import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
 // Three people in three isolated browser contexts (cookies and IndexedDB apart).
 const TEMPORARY = "temporary horse battery staple";
-const OWN = "my own horse battery staple";
+const OWN = OWNER.password;
 const TEAM = "Team Keys E2E";
 const WAITING = "This notebook is read-only until its keys reach this browser.";
-
-/** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
-type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
-type Person = { page: Page; expected: Dialog[]; unexpected: string[] };
-
-/** Every dialog must be announced with expectDialog; anything else (a fingerprint change included) fails the run. */
-async function person(browser: Browser): Promise<Person> {
-  const page = await (await browser.newContext()).newPage();
-  const who: Person = { page, expected: [], unexpected: [] };
-  page.on("dialog", (dialog) => {
-    const next = who.expected[0];
-    const matches = next && dialog.type() === next.type && (typeof next.text === "string" ? dialog.message() === next.text : next.text.test(dialog.message()));
-    if (matches) {
-      who.expected.shift();
-      next.seen?.(dialog.defaultValue(), dialog.message());
-      void (next.decline ? dialog.dismiss() : dialog.accept(next.answer));
-      return;
-    }
-    who.unexpected.push(`${dialog.type()}: ${dialog.message()}`);
-    void dialog.dismiss();
-  });
-  return who;
-}
-
-async function withDialog(who: Person, dialog: Dialog, action: () => Promise<unknown>) {
-  who.expected.push(dialog);
-  await action();
-  await expect.poll(() => who.expected.length, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
-}
-
-async function signIn(page: Page, username: string, password: string) {
-  await page.goto("/");
-  await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Unlock KyNotes" }).click();
-  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
-}
+const shoot = (page: Page, phase: string, state: string, focus: Locator) => shootAs("team-keys", page, phase, state, focus);
 
 /** On Settings. An administrator-set password blocks the identity; the user's own change creates it. */
 async function changeOwnPassword(page: Page, current: string, next: string) {
@@ -57,11 +22,10 @@ async function changeOwnPassword(page: Page, current: string, next: string) {
   await expect(page.getByText("Password changed.")).toBeVisible();
 }
 
-async function takeOverPassword(page: Page) {
-  await page.getByRole("button", { name: "Settings" }).click();
-  await changeOwnPassword(page, TEMPORARY, OWN);
+/** An administrator set the password: the change screen replaces it, then the identity is created. */
+async function takeOverPassword(page: Page, username: string) {
+  await signInAndChoose(page, username, TEMPORARY, OWN);
   await expect.poll(() => vaultOf(page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
-  await page.getByRole("button", { name: "← Workspace" }).click();
 }
 
 // Copied from components/RecoveryCode.tsx, recovery.ts and main.tsx: a changed string fails the run.
@@ -75,6 +39,13 @@ const RESET_CONFIRM = "Reset your encryption key? Your personal notebooks become
 const RESET_WRONG_PASSWORD = "That password is not right. Nothing was reset.";
 const RESET_DONE = "Your encryption key was reset. Team owners share their notebooks' keys with you again when they next open them.";
 const ADMIN_RESET = "Password reset. All existing sessions and paired device credentials were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.";
+/** On the administrator console: resets username's password to temporary (needs the users step-up). */
+async function resetPassword(admin: Person, username: string, temporary: string) {
+  await confirmAdmin(admin.page, "users");
+  const row = admin.page.locator(".admin-user", { has: admin.page.locator("strong", { hasText: new RegExp(`^${username}$`) }) });
+  admin.expected.push({ type: "prompt", text: `New temporary password for ${username}`, answer: temporary });
+  await withDialog(admin, { type: "alert", text: ADMIN_RESET }, () => row.getByRole("button", { name: "Reset password" }).click());
+}
 const CODE_FORMAT = /^([0-9A-HJKMNP-TV-Z]{4}-){6}[0-9A-HJKMNP-TV-Z]{4}$/;
 
 const typeBackLabel = (scope: Locator) => scope.locator("label.field span").filter({ hasText: /^Type group [1-7] of 7 from your saved copy$/ });
@@ -217,10 +188,13 @@ const dropVaultIdentity = (page: Page) => page.evaluate(() => new Promise<void>(
   };
 }));
 
-/** Reloads the app on cid (default: the first notebook) and waits until that load has finished. */
-async function openTeam(page: Page, name = TEAM, cid?: string) {
+/** The team the administrator created for this run; the owner's account also holds other files' teams. */
+let teamID = "";
+
+/** Reloads the app on cid (default: this run's team) and waits until that load has finished. */
+async function openTeam(page: Page, name = TEAM, cid = teamID) {
   await page.goto("about:blank");
-  await page.goto(cid ? `/#/${cid}` : "/");
+  await page.goto(`/#/${cid}`);
   await expect(page.locator(".workspace-title")).toHaveText(name);
   await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
 }
@@ -243,18 +217,6 @@ async function readPage(page: Page, title: string, comments: string[]) {
   await page.locator(".note-row", { hasText: title }).click();
   await expect(page.locator(".title-input")).toHaveValue(title);
   for (const comment of comments) await expect(page.getByText(comment)).toBeVisible();
-}
-
-async function addToTeam(owner: Person, username: string, teamID?: string) {
-  const { page } = owner;
-  await page.getByRole("button", { name: "Admin" }).click();
-  const team = page.getByRole("combobox", { name: "Team", exact: true });
-  // Options read "<name> · <id>": select by value.
-  await team.selectOption(teamID ?? { index: 1 });
-  const person = page.getByRole("combobox", { name: "Person", exact: true });
-  await person.selectOption((await person.locator("option", { hasText: username }).first().getAttribute("value"))!);
-  await withDialog(owner, { type: "alert", text: "Person added to team." }, () => page.getByRole("button", { name: "Add to team" }).click());
-  await page.getByRole("button", { name: "← Workspace" }).click();
 }
 
 const containerOf = (page: Page) => /#\/(cnt_[0-9a-z]+)/.exec(page.url())![1];
@@ -380,28 +342,18 @@ test("team keys: three people share, a removed member loses new content", async 
 });
 
 async function scenario(owner: Person, editor: Person, newcomer: Person, shared: Person, second: Person, another: () => Promise<Person>) {
-  // Owner: first-run setup (its own password, so its identity exists at once), then accounts.
-  await owner.page.goto("/");
-  await owner.page.getByLabel("Administrator Username").fill("owner");
-  await owner.page.getByLabel("Password", { exact: true }).fill(OWN);
-  await owner.page.getByLabel("Confirm Password").fill(OWN);
-  await owner.page.getByRole("button", { name: "Initialize KyNotes" }).click();
+  // The administrator is its own account and browser; the owner is the everyday account from setup
+  // (its own password, so its identity exists at once).
+  const admin = await another();
+  await adminConsole(admin.page);
+  for (const name of ["editor", "newcomer"]) await createUser(admin, name, TEMPORARY);
+  await signIn(owner.page, OWNER.username, OWNER.password);
   await expect.poll(() => vaultOf(owner.page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
-  await owner.page.getByRole("button", { name: "Admin" }).click();
-  for (const name of ["editor", "newcomer"]) {
-    await owner.page.getByPlaceholder("Username").fill(name);
-    await owner.page.getByPlaceholder("Temporary password").fill(TEMPORARY);
-    await owner.page.getByRole("button", { name: "Create user" }).click();
-    await expect(owner.page.getByRole("combobox", { name: "Person", exact: true })).toContainText(name);
-  }
-  await withDialog(owner, { type: "prompt", text: "Team name", answer: TEAM }, () => owner.page.getByRole("button", { name: "Create team" }).click());
-  await expect(owner.page.getByRole("combobox", { name: "Team", exact: true })).toContainText(TEAM);
-  await owner.page.getByRole("button", { name: "← Workspace" }).click();
+  teamID = await createTeamFor(admin, OWNER.username);
+  // The owner's first open mints the key; the owner names the notebook.
+  await nameTeam(owner, teamID, TEAM);
 
-  for (const [who, name] of [[editor, "editor"], [newcomer, "newcomer"]] as const) {
-    await signIn(who.page, name, TEMPORARY);
-    await takeOverPassword(who.page);
-  }
+  for (const [who, name] of [[editor, "editor"], [newcomer, "newcomer"]] as const) await takeOverPassword(who.page, name);
   // Envelope senders are checked against the identities these browsers hold.
   const senders = new Map<string, Uint8Array>();
   for (const who of [owner, editor, newcomer]) {
@@ -409,9 +361,10 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
     senders.set(identity.deviceId, Uint8Array.from(identity.publicKey));
   }
 
-  // Owner opens the team with every member keyed: the first key is minted and the name re-sealed.
-  await addToTeam(owner, "editor");
+  // The administrator adds the editor; no key reaches it until the owner approves.
+  await addToTeam(admin, "editor", teamID);
   await openTeam(owner.page);
+  await approve(owner, "editor");
   await expect(owner.page.getByText(/not end-to-end shared yet/)).toHaveCount(0);
   await expect(owner.page.getByText(WAITING)).toHaveCount(0);
   await writePage(owner.page, "Owner page", "owner comment");
@@ -456,16 +409,19 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   expect(stale.status).toBe(409);
   expect(stale.body).toContain("this notebook uses shared keys");
 
-  // Newcomer joins after content exists. Until a steward opens the team it waits, read-only.
-  await addToTeam(owner, "newcomer");
+  // Newcomer joins after content exists. Until a steward approves it, it waits, read-only.
+  await addToTeam(admin, "newcomer", teamID);
   await owner.page.goto("about:blank"); // no owner tab runs the 90-second key refresh meanwhile
   // Its name is sealed with a key the newcomer does not hold yet: the fallback label shows.
   await openTeam(newcomer.page, `Notebook ${cid.slice(4, 10)}`);
   await expect(newcomer.page.getByText(WAITING)).toBeVisible();
   await expect(newcomer.page.getByRole("button", { name: "New page" })).toBeDisabled();
   await expect(newcomer.page.getByRole("button", { name: "New section or group" })).toBeDisabled();
-  // The owner's next open wraps every held generation for the newcomer: history included.
+  // An owner's open alone shares nothing with it; the approval wraps every held generation: history included.
   await openTeam(owner.page);
+  await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("awaiting approval");
+  expect((await owner.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string }>).map((row) => row.deviceId)).not.toContain((await vaultOf(newcomer.page))!.identity!.deviceId);
+  await approve(owner, "newcomer");
   await openTeam(newcomer.page);
   await expect(newcomer.page.getByText(WAITING)).toHaveCount(0);
   await readPage(newcomer.page, "Owner page", ["owner comment"]);
@@ -506,25 +462,20 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await openTeam(editor.page);
   await readPage(editor.page, "After removal", ["after comment"]);
   await readPage(editor.page, "Owner page", ["owner comment"]);
-  await p3b(owner, editor, newcomer, shared, cid, senders);
+  await p3b(admin, owner, editor, newcomer, shared, cid, senders);
   await p3c(editor, second, cid, senders);
-  await p5(owner, editor, cid, another);
+  await p5(admin, owner, editor, cid, another);
 }
 
-async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Person, cid: string, senders: Map<string, Uint8Array>) {
+async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Person, shared: Person, cid: string, senders: Map<string, Uint8Array>) {
   const ownerOwn = await ownSettings(owner.page);
   const editorOwn = await ownSettings(editor.page);
   const newcomerOwn = await ownSettings(newcomer.page);
   const ownerDevice = (await vaultOf(owner.page))!.identity!.deviceId;
 
   // 1. A second team whose invitation carries its key: the editor reads it before any owner reopens it.
-  const before = await listed(owner.page);
-  await owner.page.getByRole("button", { name: "Admin" }).click();
-  await withDialog(owner, { type: "prompt", text: "Team name", answer: SECOND }, () => owner.page.getByRole("button", { name: "Create team" }).click());
-  await expect(owner.page.getByRole("combobox", { name: "Team", exact: true })).toContainText(SECOND);
-  await owner.page.getByRole("button", { name: "← Workspace" }).click();
-  const second = (await listed(owner.page)).find((id) => !before.includes(id))!;
-  await openTeam(owner.page, SECOND, second); // the only member: the first key is minted here
+  const second = await createTeamFor(admin, OWNER.username);
+  await nameTeam(owner, second, SECOND); // the only member: the first key is minted here
   await writePage(owner.page, "Second page", "second comment");
   const sealed = await inviteFrom(owner, editorOwn.userId, /The invitation carries this team's keys, sealed for the key with fingerprint/);
   expect(sealed.message).toContain(editorOwn.fingerprint);
@@ -595,20 +546,12 @@ async function p3b(owner: Person, editor: Person, newcomer: Person, shared: Pers
   await readPage(newcomer.page, "After removal", ["after comment"]);
 
   // 3. An administrator reset keeps the newcomer's key (members still see it); only the newcomer's own reset replaces it.
-  await owner.page.getByRole("button", { name: "Admin" }).click();
-  const users = owner.page.locator("#users");
-  await users.getByLabel("Confirm your password").fill(OWN);
-  await users.getByRole("button", { name: "Authorize user creation and password resets" }).click();
-  await expect(users.getByText("Password confirmed for ten minutes.")).toBeVisible();
-  owner.expected.push({ type: "prompt", text: "New temporary password for newcomer", answer: TEMPORARY });
-  await withDialog(owner, { type: "alert", text: ADMIN_RESET }, () =>
-    owner.page.locator(".admin-user", { hasText: "newcomer" }).getByRole("button", { name: "Reset password" }).click());
   await owner.page.goto("about:blank");
+  await resetPassword(admin, "newcomer", TEMPORARY);
   await openTeam(editor.page, TEAM, cid);
   await expect(editor.page.locator(".member-row", { hasText: "newcomer" })).toContainText("has key");
   const oldIdentity = (await vaultOf(newcomer.page))!.identity!;
-  await signIn(newcomer.page, "newcomer", TEMPORARY);
-  await takeOverPassword(newcomer.page);
+  await takeOverPassword(newcomer.page, "newcomer");
   expect((await vaultOf(newcomer.page))!.identity!.deviceId).toBe(oldIdentity.deviceId);
   // Every content key the old identity opens: a stolen browser would keep these after the reset.
   const preReset = await heldKeys(newcomer.page, cid, senders);
@@ -892,30 +835,6 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
 
 const pageRow = (page: Page, title: string) => page.locator(".note-row", { hasText: title });
 
-/** KYNOTES_E2E_SHOTS=<dir>: a state in Busnes Light and Dark at 1280x900 and 390x844 (UI-VERIFICATION.md). */
-async function shoot(page: Page, phase: string, state: string, focus: Locator) {
-  const dir = process.env.KYNOTES_E2E_SHOTS;
-  if (!dir) return;
-  const size = page.viewportSize()!;
-  for (const scheme of ["light", "dark"] as const) {
-    for (const [width, height, form] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.setViewportSize({ width, height });
-      await focus.scrollIntoViewIfNeeded();
-      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      const measured = await page.evaluate(() => {
-        const dialog = document.querySelector("dialog[open]");
-        return { scrollWidth: document.documentElement.scrollWidth, dialog: dialog && { overflowY: getComputedStyle(dialog).overflowY, scrolls: dialog.scrollHeight > dialog.clientHeight, right: dialog.getBoundingClientRect().right } };
-      });
-      console.log(`shot ${phase}-${state}-${scheme}-${form}: ${JSON.stringify(measured)}`);
-      expect(measured.scrollWidth).toBeLessThanOrEqual(width);
-      await page.screenshot({ path: `${dir}/team-keys-${phase}-${state}-${scheme}-${form}.png` });
-    }
-  }
-  await page.emulateMedia({ colorScheme: null });
-  await page.setViewportSize(size);
-}
-
 const KEYED = "Keyed Notebook";
 const WAITED = "Keyed page, edited while waiting";
 const NEW_OWN = "newer horse battery staple";
@@ -949,7 +868,7 @@ async function opensAs(key: KeyRef, cid: string, blob: Uint8Array) {
 const serverTitle = async (page: Page, id: string, key: KeyRef, cid: string) =>
   titleOf(key, cid, await page.evaluate(async (oid) => [...new Uint8Array(await (await fetch(`/api/v1/objects/${oid}`)).arrayBuffer())], id)).catch(() => undefined);
 
-async function p5(owner: Person, editor: Person, cid: string, another: () => Promise<Person>) {
+async function p5(admin: Person, owner: Person, editor: Person, cid: string, another: () => Promise<Person>) {
   const editorKey = (await vaultOf(editor.page))!.identity!;
   const editorId = (await ownSettings(editor.page)).userId;
   const senders = new Map([[editorKey.deviceId, Uint8Array.from(editorKey.publicKey)]]);
@@ -1060,15 +979,7 @@ async function p5(owner: Person, editor: Person, cid: string, another: () => Pro
   // 4. An administrator reset keeps the key: a fresh browser restores it with the code. A typo is refused
   //    before any request, a wrong code and a copy for another key are refused, nothing asks to link, and
   //    the code stays out of storage and the address bar.
-  await owner.page.getByRole("button", { name: "Admin" }).click();
-  const users = owner.page.locator("#users");
-  await users.getByLabel("Confirm your password").fill(OWN);
-  await users.getByRole("button", { name: "Authorize user creation and password resets" }).click();
-  await expect(users.getByText("Password confirmed for ten minutes.")).toBeVisible();
-  const row = owner.page.locator(".admin-user", { has: owner.page.locator("strong", { hasText: /^editor$/ }) });
-  owner.expected.push({ type: "prompt", text: "New temporary password for editor", answer: RESET_TEMPORARY });
-  await withDialog(owner, { type: "alert", text: ADMIN_RESET }, () => row.getByRole("button", { name: "Reset password" }).click());
-  await owner.page.getByRole("button", { name: "← Workspace" }).click();
+  await resetPassword(admin, "editor", RESET_TEMPORARY);
   const restored = await another();
   const linkWrites: string[] = [];
   const asked: string[] = [];
@@ -1077,9 +988,8 @@ async function p5(owner: Person, editor: Person, cid: string, another: () => Pro
     if (request.method() !== "GET" && path.startsWith("/api/v1/me/link-requests")) linkWrites.push(path);
     if (path === "/api/v1/auth/step-up" || path.startsWith("/api/v1/me/identity/recovery")) asked.push(path);
   });
-  await signIn(restored.page, "editor", RESET_TEMPORARY);
+  await signInAndChoose(restored.page, "editor", RESET_TEMPORARY, OWN);
   await restored.page.getByRole("button", { name: "Settings" }).click();
-  await changeOwnPassword(restored.page, RESET_TEMPORARY, OWN);
   const restore = restored.page.locator("#recovery-restore");
   await expect(restore).toBeVisible({ timeout: 30_000 });
   await shoot(restored.page, "p5", "restore", restore);
