@@ -1,5 +1,5 @@
-import { AdminBackup } from "./components/AdminBackup";
-import { ConfirmPassword } from "./components/ConfirmPassword";
+import { AdminConsole } from "./components/AdminConsole";
+import { setupProblem } from "./setup";
 import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
 import { exportUnsent, retireWaiting } from "./stuckEdits";
@@ -7,17 +7,12 @@ import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, us
 import { createRoot } from "react-dom/client";
 import {
   acceptInvitation,
-  addAdminTeamMember,
-  adminAudit,
-  adminSSO,
-  adminUsers,
   attachToObject,
   APIRequestError,
   changePassword,
   changes,
   checkSetup,
   comments,
-  createAdminUser,
   createObject,
   deleteUpload,
   createSealedShareLink,
@@ -40,24 +35,17 @@ import {
   userIdentity,
   resolveConflict,
   objectAttachments,
-  pairAdminSSO,
   readObject,
   removeMember,
-  resetAdminPassword,
-  saveAdminSSO,
-  serviceStatus,
   session,
   setupInit,
   ssoConfig,
-  updateAdminUser,
   updatePresence,
   uploadStatus,
-  type AdminTeam,
-  type AdminUser,
   type Container,
   type Note,
   type Session,
-  type SSOSettings,
+  type SetupAccount,
   identityAPI,
   myIdentity,
   putDeviceOnlyIdentity,
@@ -73,7 +61,7 @@ import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, se
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
-import { createKeyed, listAdminTeams, listContainers, newAdminTeam, newContainer, type FloorSink } from "./observe";
+import { createKeyed, listContainers, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
 import { passwordChangeProblem } from "./passwordChange";
 import { queuedNotice, resetNotice, resetWhen, stewardOf, UNRECOVERABLE, WAITING, waitingNotice } from "./keyNotices";
@@ -84,7 +72,6 @@ import {
   decryptContainerMeta,
   decryptObject,
   decryptSharePayload,
-  deriveAuthSecret,
   deriveLoginKeys,
   type LoginKeys,
   digestSha256Hex,
@@ -135,14 +122,11 @@ import {
   type PendingUpload,
 } from "./storage";
 
-/** Accounts whose identity create the server refused this page load because an administrator set the password (M2). */
-const adminSetPassword = new Set<string>();
 /** Opens or creates the identity after a password sign-in and keeps it on this browser; failures stay silent (the workspace offers linking). */
 async function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<void> {
   try {
     const store: IdentityStore = { load: () => loadIdentityRecord(username, userID), save: (identity, expected) => storeIdentityKey(username, userID, identity, expected) };
-    if ((await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin)) === "admin-password") adminSetPassword.add(userID);
-    else adminSetPassword.delete(userID);
+    await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin);
   } catch { /* the workspace shows what this browser can do instead */ }
 }
 import {
@@ -170,6 +154,8 @@ type AuthState = {
   user: Session["user"];
   /** A single sign-on session: it cannot prove the password, so it never wraps keys. */
   sso?: boolean;
+  /** The password was set by someone else: nothing but the change runs until it is replaced. */
+  passwordChangeRequired?: boolean;
 };
 type PlainComment = {
   id: string;
@@ -183,7 +169,6 @@ type QueueEntry = { note: Note; container: Container };
 const ROLLBACK = "The server reported an older key state for this notebook than this device has seen; writes are paused.";
 const NOT_KEYED = "The notebook was created, but its key is not set up yet. Open it again to finish.";
 const NO_KEY_HERE = "This browser does not hold your encryption key, so it cannot create a notebook. Link it, or restore your key with your recovery code, in Settings.";
-const ADMIN_PASSWORD_FIRST = "An administrator set your password. Change it in Settings before you can write in your notebooks.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
 /** What Settings suggests without a key: only an action this browser can actually take from here. */
 function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
@@ -219,6 +204,11 @@ function App() {
     session()
       .then(async (res) => {
         if (!res.user?.username) return;
+        // An administrator browser keeps no vault record, and a password someone else set unlocks nothing.
+        if (res.user.accountKind === "admin" || res.passwordChangeRequired) {
+          setAuth({ username: res.user.username, authSecret: "", user: res.user, sso: res.sso, passwordChangeRequired: res.passwordChangeRequired });
+          return;
+        }
         // A single sign-on session never asks for a password: nothing it unlocks comes from one (I1).
         if (res.sso) {
           setAuth({ username: res.user.username, authSecret: await ssoDeviceSecret(res.user.username), user: res.user, sso: true });
@@ -235,17 +225,22 @@ function App() {
   }, []);
   if (checking) return <main className="center">Loading KyNotes…</main>;
   if (location.pathname.startsWith("/share/")) return <SharedNote />;
+  const signOut = () => {
+    void logout().finally(() => {
+      clearFloors();
+      setAuth(null);
+      setSessionUser(null);
+    });
+  };
+  if (auth?.passwordChangeRequired)
+    return <ChoosePassword auth={auth} onChanged={(authSecret) => setAuth({ ...auth, authSecret: auth.user.accountKind === "admin" ? "" : authSecret, passwordChangeRequired: false })} onLogout={signOut} />;
+  if (auth?.user.accountKind === "admin")
+    return <AdminConsole username={auth.username} sso={auth.sso === true} onLogout={signOut} password={<PasswordSettings username={auth.username} userID={auth.user.id} everyday={false} onAuthSecret={() => {}} onIdentityCreated={() => {}} />} />;
   return auth ? (
     <Workspace
       auth={auth}
       onAuthSecret={(authSecret) => setAuth((value) => value && { ...value, authSecret })}
-      onLogout={() => {
-        void logout().finally(() => {
-          clearFloors();
-          setAuth(null);
-          setSessionUser(null);
-        });
-      }}
+      onLogout={signOut}
       onForgetDevice={() => {
         void clearDeviceKey(auth.username).then(() => {
           void logout().finally(() => {
@@ -333,16 +328,17 @@ function Login({
   const [username, setUsername] = useState(() => sessionUser?.username ?? sessionStorage.getItem("kynotes-last-username") ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [adminName, setAdminName] = useState("admin");
+  const [everydayName, setEverydayName] = useState("");
+  const [everydayPassword, setEverydayPassword] = useState("");
+  const [everydayConfirm, setEverydayConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [sso, setSSO] = useState<{ enabled: boolean; issuerUrl: string; clientId: string } | null>(null);
 
   useEffect(() => {
     void checkSetup().then((res) => {
-      if (res.setupRequired) {
-        setSetupRequired(true);
-        setUsername((prev) => prev || "admin");
-      }
+      if (res.setupRequired) setSetupRequired(true);
     }).catch(() => {});
     void ssoConfig().then(setSSO).catch(() => {});
   }, []);
@@ -355,35 +351,24 @@ function Login({
 
   async function submitSetup(event: React.FormEvent) {
     event.preventDefault();
+    const problem = setupProblem({ admin: adminName, adminPassword: password, adminConfirm: confirmPassword, everyday: everydayName, everydayPassword, everydayConfirm });
+    if (problem) {
+      setError(problem);
+      return;
+    }
     setError("");
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
     setBusy(true);
     try {
-      const name = username.trim() || "admin";
-      const params = await loginParams(name).catch(() => ({
-        loginSalt: randomLoginSalt(),
-        iterations: 600000,
-      }));
-      const salt = params.loginSalt || randomLoginSalt();
-      const iterations = params.iterations || 600000;
-      const keys = await deriveLoginKeys(password, salt, iterations);
-      const authSecret = keys.authSecret;
-      // The password stays in the browser; the server only ever sees authSecret.
-      const result = await rememberAfter(() => setupInit(name, undefined, authSecret, salt, iterations), name, authSecret);
-      sessionStorage.setItem("kynotes-last-username", name);
-      await settleIdentity(name, result.user.id, keys);
-      onLogin({ username: name, authSecret, user: result.user });
-      setPassword("");
-      setConfirmPassword("");
+      // Each password stays in this browser; the server sees only each account's authSecret.
+      const account = async (name: string, secret: string): Promise<SetupAccount> => {
+        const loginSalt = randomLoginSalt();
+        return { username: name.trim(), authSecret: (await deriveLoginKeys(secret, loginSalt, 600000)).authSecret, loginSalt, iterations: 600000 };
+      };
+      const result = await setupInit(await account(adminName, password), await account(everydayName, everydayPassword));
+      sessionStorage.setItem("kynotes-last-username", everydayName.trim());
+      onLogin({ username: adminName.trim(), authSecret: "", user: result.user });
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to initialize administrator account");
+      setError(error instanceof Error ? error.message : "Setup failed");
     } finally {
       setBusy(false);
     }
@@ -399,10 +384,15 @@ function Login({
       const keys = await deriveLoginKeys(password, params.loginSalt, params.iterations);
       const authSecret = keys.authSecret;
       // A password the server refuses never lets anyone in.
-      const result = await rememberAfter(() => login(activeName, authSecret), activeName, authSecret);
+      const result = await login(activeName, authSecret);
       sessionStorage.setItem("kynotes-last-username", activeName);
-      await settleIdentity(activeName, result.user.id, keys, result.identity);
-      onLogin({ username: activeName, authSecret, user: result.user });
+      const everyday = result.user.accountKind === "user";
+      // Only an everyday account on its own password keeps a vault record, after the server accepted the password.
+      if (everyday && !result.passwordChangeRequired) {
+        await rememberAfter(async () => result, activeName, authSecret);
+        await settleIdentity(activeName, result.user.id, keys, result.identity);
+      }
+      onLogin({ username: activeName, authSecret: everyday ? authSecret : "", user: result.user, passwordChangeRequired: result.passwordChangeRequired });
       setPassword("");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to sign in");
@@ -417,51 +407,81 @@ function Login({
         <section className="auth-card">
           <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
           <div className="eyebrow">INITIAL SETUP</div>
-          <h1>Create Admin Account</h1>
+          <h1>Set up KyNotes</h1>
           <p className="lede">
-            Welcome to KyNotes. Set up your organization's primary administrator username and password.
+            Welcome to KyNotes. Create two accounts: one to run the server and one to write notes with.
           </p>
           <form onSubmit={submitSetup}>
-            <label>
-              Administrator Username
-              <input
-                autoComplete="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                required
-                autoFocus
-              />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                minLength={8}
-              />
-            </label>
-            <label>
-              Confirm Password
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                minLength={8}
-              />
-            </label>
+            <fieldset>
+              <legend>Administrator login</legend>
+              <p className="hint">Manages users, teams, sign-on and backups. It cannot open notes.</p>
+              <label>
+                Administrator username
+                <input
+                  autoComplete="username"
+                  value={adminName}
+                  onChange={(event) => setAdminName(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Administrator password
+                <input type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Confirm administrator password
+                <input type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  required
+                />
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>Everyday login</legend>
+              <p className="hint">The account you write notes with.</p>
+              <label>
+                Everyday username
+                <input
+                  autoComplete="off"
+                  value={everydayName}
+                  onChange={(event) => setEverydayName(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Everyday password
+                <input type="password"
+                  autoComplete="new-password"
+                  value={everydayPassword}
+                  onChange={(event) => setEverydayPassword(event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Confirm everyday password
+                <input type="password"
+                  autoComplete="new-password"
+                  value={everydayConfirm}
+                  onChange={(event) => setEverydayConfirm(event.target.value)}
+                  required
+                />
+              </label>
+            </fieldset>
             {error && <p className="error">{error}</p>}
             <button disabled={busy}>
               {busy ? "Initializing…" : "Initialize KyNotes"}
             </button>
           </form>
           <p className="hint">
-            Your password stays in this browser. It derives your sign-in verifier and the key
-            that protects your encryption key, and is never sent to or stored on the server.
+            Each password stays in this browser. It derives that account's sign-in verifier and is
+            never sent to or stored on the server.
           </p>
         </section>
       </main>
@@ -925,9 +945,7 @@ function Workspace({
   // The page a conflict recovery is rewriting; it stays read-only until the run ends.
   const [recovering, setRecovering] = useState<string | null>(null);
   const recoveringRef = useRef(false);
-  const [view, setView] = useState<"workspace" | "settings" | "admin">(
-    "workspace",
-  );
+  const [view, setView] = useState<"workspace" | "settings">("workspace");
   const [queueMode, setQueueMode] = useState(false);
   const [loadingContainer, setLoadingContainer] = useState(false);
   const loadingContainerID = useRef<string | undefined>(undefined);
@@ -1493,8 +1511,6 @@ function Workspace({
       setBusy(false);
     }
   }
-  /** The administrator who creates a team owns it, so this browser mints and names it (AdminTeams). */
-  const createTeam = async (name: string) => (await createNamed(async () => currentContainer((await newAdminTeam(floorSink)).id), name)).id;
   async function renameWorkspace() {
     if (!selected) return;
     const name = prompt("Notebook name", nameOf(selected))?.trim();
@@ -2381,11 +2397,6 @@ function Workspace({
           <button className="quiet" onClick={() => setView("settings")}>
             Settings
           </button>
-          {auth.user.role === "admin" && (
-            <button className="quiet" onClick={() => setView("admin")}>
-              Admin
-            </button>
-          )}
           <button className="quiet" onClick={onLogout}>
             Lock
           </button>
@@ -2539,7 +2550,6 @@ function Workspace({
                 {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
                 {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
-                {!auth.sso && identityState === "create" && adminSetPassword.has(auth.user.id) && <div className="conflict-banner" role="status">{ADMIN_PASSWORD_FIRST} <button onClick={() => setView("settings")}>Change password</button></div>}
                 {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
                 {identityState === "held" && live && !live.recoveryId && <div className="conflict-banner" role="status">{RECOVERY_MISSING} <button onClick={() => setView("settings")}>Create recovery code</button></div>}
                 <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
@@ -2832,7 +2842,6 @@ function Workspace({
         </div>
         {view !== "workspace" && (
           <SettingsView
-            admin={view === "admin"}
             username={auth.username}
             userID={auth.user.id}
             colleagueNames={colleagueNames.current}
@@ -2851,8 +2860,6 @@ function Workspace({
             onReset={(next) => { void retireWaitingEdits(next).catch(() => undefined).finally(() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }); }}
             resetUnfinished={resetUnfinished}
             waitingHeld={waitingHeld}
-            createTeam={createTeam}
-            knownNames={names}
           />
         )}
       </>
@@ -2870,7 +2877,8 @@ function Workspace({
   );
 }
 
-function PasswordSettings({ username, userID, onAuthSecret, onIdentityCreated }: { username: string; userID: string; onAuthSecret: (authSecret: string) => void; onIdentityCreated: () => void }) {
+/** everyday: the account holds an identity whose password copy is re-wrapped; an administrator account has none. */
+function PasswordSettings({ username, userID, everyday, onAuthSecret, onIdentityCreated, onChanged }: { username: string; userID: string; everyday: boolean; onAuthSecret: (authSecret: string) => void; onIdentityCreated: () => void; onChanged?: (authSecret: string) => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [status, setStatus] = useState("");
@@ -2895,6 +2903,14 @@ function PasswordSettings({ username, userID, onAuthSecret, onIdentityCreated }:
       const currentKeys = await deriveLoginKeys(current, oldParams.loginSalt, oldParams.iterations);
       const newLoginSalt = randomLoginSalt();
       const newKeys = await deriveLoginKeys(next, newLoginSalt, 600000);
+      if (!everyday) {
+        await changePassword({ currentAuthSecret: currentKeys.authSecret, newAuthSecret: newKeys.authSecret, newLoginSalt, iterations: 600000 });
+        setCurrent("");
+        setNext("");
+        setStatus("Password changed.");
+        onChanged?.(newKeys.authSecret);
+        return;
+      }
       const cached = await getIdentityKey(name, userID).catch(() => undefined);
       const rewrapped = await rewrapIdentity(identityAPI, userID, currentKeys, newKeys, cached);
       await rememberAfter(() => changePassword({
@@ -2911,6 +2927,7 @@ function PasswordSettings({ username, userID, onAuthSecret, onIdentityCreated }:
       setCurrent("");
       setNext("");
       setStatus("Password changed.");
+      onChanged?.(newKeys.authSecret);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Unable to change password",
@@ -2959,350 +2976,29 @@ function PasswordSettings({ username, userID, onAuthSecret, onIdentityCreated }:
   );
 }
 
-function AdminCreateUser({ onCreated }: { onCreated: () => void }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("user");
-  const [busy, setBusy] = useState(false);
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const salt = randomLoginSalt();
-      const authSecret = await deriveAuthSecret(password, salt, 600000);
-      await createAdminUser({
-        username,
-        authSecret,
-        loginSalt: salt,
-        iterations: 600000,
-        role,
-      });
-      setUsername("");
-      setPassword("");
-      onCreated();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to create user");
-    } finally {
-      setBusy(false);
-    }
-  }
+const CHOOSE_PASSWORD = "An administrator set this account's password. Choose your own before you continue.";
+
+/** Shown before anything else while the server reports passwordChangeRequired; nothing runs before the change. */
+function ChoosePassword({ auth, onChanged, onLogout }: { auth: AuthState; onChanged: (authSecret: string) => void; onLogout: () => void }) {
   return (
-    <form className="admin-create" onSubmit={submit}>
-      <h3>Create user</h3>
-      <input
-        placeholder="Username"
-        value={username}
-        onChange={(event) => setUsername(event.target.value)}
-        required
-      />
-      <input
-        placeholder="Temporary password"
-        type="password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        required
-      />
-      <select value={role} onChange={(event) => setRole(event.target.value)}>
-        <option>user</option>
-        <option>admin</option>
-      </select>
-      <button disabled={busy}>Create user</button>
-    </form>
-  );
-}
-
-function AdminUserActions({
-  user,
-  onReset,
-}: {
-  user: AdminUser;
-  onReset: () => void;
-}) {
-  async function reset() {
-    const password = prompt(`New temporary password for ${user.username}`);
-    if (!password) return;
-    try {
-      const salt = randomLoginSalt();
-      const secret = await deriveAuthSecret(password, salt, 600000);
-      await resetAdminPassword(user.id, {
-        newAuthSecret: secret,
-        newLoginSalt: salt,
-        iterations: 600000,
-      });
-      onReset();
-      alert("Password reset. All existing sessions and paired device credentials were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.");
-    } catch (error) {
-      alert(
-        error instanceof Error ? error.message : "Unable to reset password",
-      );
-    }
-  }
-  return (
-    <button className="quiet" onClick={() => void reset()}>
-      Reset password
-    </button>
-  );
-}
-
-function AdminTeams({ users, username, userID, onCreateTeam, knownNames }: { users: AdminUser[]; username: string; userID: string; onCreateTeam: (name: string) => Promise<string>; knownNames: Record<string, string> }) {
-  // Admin pages hold no team keys: they show only names the workspace decrypted, and never write a name.
-  // The list still passes the observer, so its generations raise the tab-wide floors (floors.ts).
-  const sink: FloorSink = {
-    load: (containerID) => getKeyState(username, userID, containerID),
-    save: (containerID, state) => storeKeyState(username, userID, containerID, state),
-  };
-  const [teams, setTeams] = useState<AdminTeam[]>([]);
-  const [team, setTeam] = useState("");
-  const [user, setUser] = useState("");
-  const [role, setRole] = useState("editor");
-  async function reload() {
-    try {
-      setTeams(await listAdminTeams(sink));
-    } catch {
-      /* The admin page remains usable if the list refresh is unavailable. */
-    }
-  }
-  useEffect(() => {
-    void reload();
-  }, []);
-  async function createTeam() {
-    const name = prompt("Team name", "New team")?.trim();
-    if (!name) return;
-    try {
-      setTeam(await onCreateTeam(name));
-      await reload();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to create team");
-    }
-  }
-  async function add() {
-    if (!team || !user) return;
-    try {
-      await addAdminTeamMember(team, user, role);
-      alert("Person added to team.");
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to add person");
-    }
-  }
-  return (
-    <section className="config-card">
-      <h2>Teams</h2>
-      <p className="config-muted">
-        Create a team, then add active users to it.
-      </p>
-      <button onClick={() => void createTeam()}>Create team</button>
-      <label className="field">
-        <span>Team</span>
-        <select value={team} onChange={(event) => setTeam(event.target.value)}>
-          <option value="">Select team</option>
-          {teams.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {knownNames[entry.id] ?? "Unnamed team"} · {entry.id}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>Person</span>
-        <select value={user} onChange={(event) => setUser(event.target.value)}>
-          <option value="">Select person</option>
-          {users
-            .filter((entry) => entry.status === "active")
-            .map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.username}
-              </option>
-            ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>Role</span>
-        <select value={role} onChange={(event) => setRole(event.target.value)}>
-          <option>admin</option>
-          <option>editor</option>
-          <option>commenter</option>
-          <option>viewer</option>
-        </select>
-      </label>
-      <button onClick={() => void add()}>Add to team</button>
-    </section>
-  );
-}
-
-function AdminSSO({ username }: { username: string }) {
-  const [settings, setSettings] = useState<SSOSettings | null>(null);
-  const [pairingToken, setPairingToken] = useState("");
-  const [pairingIssuer, setPairingIssuer] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
-
-  useEffect(() => {
-    void adminSSO().then(setSettings).catch(() => {});
-  }, []);
-
-  async function handlePair(e: React.FormEvent) {
-    e.preventDefault();
-    if (!pairingToken.trim() || !pairingIssuer.trim()) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const res = await pairAdminSSO(pairingIssuer.trim(), pairingToken.trim());
-      setSettings(res.settings);
-      setPairingToken("");
-      setMessage({ text: `Successfully paired with KySignOn (System ID: ${res.systemId})!`, type: "success" });
-    } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : "Pairing failed", type: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!settings) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const updated = await saveAdminSSO(settings);
-      setSettings(updated);
-      setMessage({ text: "Single Sign-On settings saved successfully.", type: "success" });
-    } catch (err) {
-      setMessage({ text: err instanceof Error ? err.message : "Unable to save SSO settings", type: "error" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!settings) return <p className="config-muted">Loading Single Sign-On configuration…</p>;
-
-  return (
-    <section id="sso" className="config-card">
-      <h2>Single Sign-On (KySignOn / OIDC)</h2>
-      <ConfirmPassword username={username} what="Single sign-on changes" />
-      <p className="config-muted">
-        Connect KyNotes to KySignOn Server for one-click single sign-on and automated user directory replication.
-      </p>
-      {message && (
-        <p className={message.type === "error" ? "error" : "status-line"} style={{ margin: "14px 0" }}>
-          {message.text}
-        </p>
-      )}
-
-      <div style={{ background: "var(--accent-soft)", padding: "16px", borderRadius: "4px", margin: "18px 0" }}>
-        <h3 style={{ margin: "0 0 8px", fontSize: "14px", font: "12px Mono, monospace", letterSpacing: ".1em", textTransform: "uppercase" }}>
-          Quick Pair with KySignOn
-        </h3>
-        <p className="config-muted" style={{ margin: "0 0 14px", fontSize: "13px" }}>
-          Generate a 90-second system pairing token in KySignOn Admin Dashboard to pair KyNotes automatically.
-        </p>
-        <form onSubmit={handlePair} style={{ display: "grid", gap: "12px" }}>
-          <label className="field" style={{ marginTop: 0 }}>
-            <span>KySignOn Issuer URL</span>
-            <input
-              placeholder="http://localhost:5867 or https://auth.example.com"
-              value={pairingIssuer}
-              onChange={(e) => setPairingIssuer(e.target.value)}
-              required
-            />
-          </label>
-          <label className="field" style={{ marginTop: 0 }}>
-            <span>90-Second Pairing Token</span>
-            <input
-              placeholder="Enter pairing token from KySignOn UI"
-              value={pairingToken}
-              onChange={(e) => setPairingToken(e.target.value)}
-              required
-            />
-          </label>
-          <button disabled={busy} style={{ width: "fit-content" }}>
-            {busy ? "Pairing…" : "Pair with KySignOn"}
-          </button>
-        </form>
-      </div>
-
-      <form onSubmit={handleSave} style={{ marginTop: "24px" }}>
-        <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={settings.enabled}
-            onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
-            style={{ width: "18px", height: "18px" }}
-          />
-          <strong style={{ fontSize: "14px" }}>Enable OpenID Connect / Single Sign-On</strong>
-        </label>
-        <label className="field">
-          <span>OIDC Issuer URL</span>
-          <input
-            value={settings.issuerUrl}
-            onChange={(e) => setSettings({ ...settings, issuerUrl: e.target.value })}
-            placeholder="https://auth.example.com"
-          />
-        </label>
-        <label className="field">
-          <span>Client ID</span>
-          <input
-            value={settings.clientId}
-            onChange={(e) => setSettings({ ...settings, clientId: e.target.value })}
-            placeholder="kynotes"
-          />
-        </label>
-        <label className="field">
-          <span>{settings.clientSecretSet ? "Client Secret: set. Enter a new one only to replace it" : "Client Secret (Optional for PKCE)"}</span>
-          <input
-            type="password"
-            autoComplete="new-password"
-            value={settings.clientSecret ?? ""}
-            onChange={(e) => setSettings({ ...settings, clientSecret: e.target.value })}
-            placeholder={settings.clientSecretSet ? "Leave empty to keep the current secret" : ""}
-          />
-        </label>
-        {settings.clientSecretSet && (
-          <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <input type="checkbox" checked={settings.clearClientSecret ?? false} onChange={(e) => setSettings({ ...settings, clearClientSecret: e.target.checked })} />
-            <span>Remove the client secret</span>
-          </label>
-        )}
-        <p className="config-muted">Directory sync secret: {settings.hmacSecretSet ? "set" : "not set"}</p>
-        {settings.hmacSecretSet && (
-          <label style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <input type="checkbox" checked={settings.clearHmacSecret ?? false} onChange={(e) => setSettings({ ...settings, clearHmacSecret: e.target.checked })} />
-            <span>Remove the directory sync secret (turns directory sync off)</span>
-          </label>
-        )}
-        <label className="field">
-          <span>Custom Redirect URI (Optional override)</span>
-          <input
-            value={settings.redirectUri ?? ""}
-            onChange={(e) => setSettings({ ...settings, redirectUri: e.target.value })}
-            placeholder="https://notes.example.com/api/v1/auth/oidc/callback"
-          />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "16px", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={settings.autoProvision}
-            onChange={(e) => setSettings({ ...settings, autoProvision: e.target.checked })}
-            style={{ width: "18px", height: "18px" }}
-          />
-          <span style={{ fontSize: "13px" }}>Auto-provision new user accounts on first SSO login</span>
-        </label>
-        <button disabled={busy} style={{ marginTop: "20px" }}>
-          {busy ? "Saving…" : "Save SSO Settings"}
-        </button>
-      </form>
-    </section>
+    <main className="auth-page">
+      <section className="auth-card">
+        <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
+        <h1>Choose your own password</h1>
+        <p role="status">{CHOOSE_PASSWORD}</p>
+        <PasswordSettings username={auth.username} userID={auth.user.id} everyday={auth.user.accountKind === "user"} onAuthSecret={() => {}} onIdentityCreated={() => {}} onChanged={onChanged} />
+        <button className="quiet" onClick={onLogout}>Sign out</button>
+      </section>
+    </main>
   );
 }
 
 function SettingsView({
-  admin,
   onBack,
   username,
   userID,
   onForgetDevice,
   onAuthSecret,
-  createTeam,
-  knownNames,
   colleagueNames,
   keysFor,
   identityState,
@@ -3317,7 +3013,6 @@ function SettingsView({
   live,
   recoveryPrompt,
 }: {
-  admin: boolean;
   onBack: () => void;
   username: string;
   userID: string;
@@ -3327,8 +3022,6 @@ function SettingsView({
   keysFor: (item: PendingSave) => KeyRef[];
   onForgetDevice?: () => void;
   onAuthSecret: (authSecret: string) => void;
-  createTeam: (name: string) => Promise<string>;
-  knownNames: Record<string, string>;
   identityState: IdentityStatus | "unknown";
   /** A single sign-on session: it creates its key from the notebook list, not with a password. */
   sso: boolean;
@@ -3347,12 +3040,6 @@ function SettingsView({
   recoveryPrompt: boolean;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
-  const [status, setStatus] = useState<{
-    health: boolean;
-    ready: boolean;
-  } | null>(null);
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
   const [ownFingerprint, setOwnFingerprint] = useState("");
   const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
@@ -3369,195 +3056,86 @@ function SettingsView({
       .then((identity) => (identity ? fingerprint(base64(identity.publicKey)) : ""))
       .then(setOwnFingerprint, () => setOwnFingerprint(""));
   }, [username, userID, identityState]);
-  useEffect(() => {
-    if (admin) {
-      void Promise.all([adminUsers(), adminAudit(), serviceStatus()])
-        .then(([nextUsers, nextAudit, nextStatus]) => {
-          setUsers(nextUsers);
-          setAudit(nextAudit);
-          setStatus(nextStatus);
-        })
-        .catch(() => {});
-    }
-  }, [admin]);
-  async function saveUser(user: AdminUser) {
-    try {
-      await updateAdminUser(user);
-      setUsers((value) =>
-        value.map((entry) => (entry.id === user.id ? user : entry)),
-      );
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to update user");
-    }
-  }
   return (
-    <section
-      className={`settings-layout ${admin ? "admin-settings-layout" : ""}`}
-    >
+    <section className="settings-layout">
       <aside className="settings-sidebar">
         <button className="quiet" onClick={onBack}>
           ← Workspace
         </button>
-        <div className="section-label">{admin ? "ADMIN" : "SETTINGS"}</div>
-        {!admin && (
-          <nav className="settings-nav">
-            <a href="#appearance">Appearance</a>
-            <a href="#password">Password</a>
-            <a href="#device">Trusted Device</a>
-            {identityState === "link" && <a href="#link-this-browser">Link this browser</a>}
-            {identityState === "held" && <a href="#link-devices">Link a browser</a>}
-            <a href="#colleague-keys">Colleague keys</a>
-          </nav>
-        )}
+        <div className="section-label">SETTINGS</div>
+        <nav className="settings-nav">
+          <a href="#appearance">Appearance</a>
+          <a href="#password">Password</a>
+          <a href="#device">Trusted Device</a>
+          {identityState === "link" && <a href="#link-this-browser">Link this browser</a>}
+          {identityState === "held" && <a href="#link-devices">Link a browser</a>}
+          <a href="#colleague-keys">Colleague keys</a>
+        </nav>
       </aside>
       <div className="settings-content">
         <div className="settings-header">
-          <div className="section-label">{admin ? "ADMIN" : "PREFERENCES"}</div>
-          <h1>{admin ? "Administration" : "Settings"}</h1>
-          <p>
-            {admin
-              ? "Manage people, teams, and metadata-only audit records."
-              : "Your browser preferences and account security."}
-          </p>
+          <div className="section-label">PREFERENCES</div>
+          <h1>Settings</h1>
+          <p>Your browser preferences and account security.</p>
         </div>
-        {admin && (
-          <nav className="settings-nav admin-main-tabs" aria-label="Administration sections">
-            <a href="#server">Server</a>
-            <a href="#sso">Single Sign-On</a>
-            <a href="#users">Users</a>
-            <a href="#teams">Teams</a>
-            <a href="#audit">Audit log</a>
- <a href="#backups">Backups</a>
-          </nav>
-        )}
-        {!admin && (
-          <>
-            <section id="appearance" className="config-card">
-              <h2>Appearance</h2>
-              <p className="config-muted">
-                Choose from the complete KyNotes color selection.
-              </p>
-              <label className="field">
-                <span>Theme</span>
-                <select
-                  value={theme}
-                  onChange={(event) =>
-                    setTheme(event.target.value as ThemeName)
-                  }
-                >
-                  {THEME_OPTIONS.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              </label>
-              <button onClick={() => applyTheme(theme)}>Apply theme</button>
-            </section>
-            <div id="password">
-              <PasswordSettings username={username} userID={userID} onAuthSecret={onAuthSecret} onIdentityCreated={onIdentityChanged} />
-            </div>
-            <section id="device" className="config-card">
-              <h2>Trusted Device & SSO</h2>
-              <p className="config-muted">
-                {ownFingerprint
-                  ? "This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password."
-                  : "This browser keeps your sign-in for instant 1-click SSO login without entering a password."}
-              </p>
-              <p className="config-muted">Your user ID: <code>{userID}</code>. Team owners need it to invite you.</p>
-              <p className="config-muted">
-                {ownFingerprint
-                  ? <>Your encryption key fingerprint: <code>{ownFingerprint}</code>. Team owners see it when your key changes; compare it with them in person.</>
-                  : `This browser holds no encryption key for team notebooks.${noKeyHint(identityState, sso)}`}
-              </p>
-              {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped"
-                ? "This browser keeps it wrapped under a browser key that pages cannot export. That is not protection at rest: anyone who can read this browser's profile on disk can still recover it. Use \"Forget this device\" on shared computers."
-                : "This site is not served over HTTPS, so this browser stores your key unwrapped in its site storage. Anyone who can read this browser's profile can copy it. Use \"Forget this device\" on shared computers."}</p>}
-              {justLinked && <p role="status">{justLinked === "restored" ? RECOVERY_RESTORED : "Linked. This browser now holds your encryption key."}</p>}
-              {onForgetDevice && (
-                <button
-                  type="button"
-                  className="secondary danger"
-                  onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice(); }}
-                >
-                  Forget this device & sign out
-                </button>
-              )}
-            </section>
-            {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
-            {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked("linked"); onIdentityChanged(); }} />}
-            {resetUnfinished && <p role="status">{RESET_UNFINISHED}</p>}
-            {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked("restored"); onIdentityChanged(); }} />}
-            {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
-            <PinnedKeys username={username} userID={userID} names={colleagueNames} />
-            <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />
-            {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onReset} password={sso ? undefined : passwordReset(username)} />}
-          </>
-        )}
-        {admin && (
-          <>
-            <section id="server" className="config-card">
-              <h2>Server status</h2>
-              <p className="status-line">
-                Health:{" "}
-                {status ? (status.health ? "OK" : "failed") : "checking…"} ·
-                Readiness:{" "}
-                {status ? (status.ready ? "OK" : "failed") : "checking…"}
-              </p>
-            </section>
-            <AdminSSO username={username} />
- <AdminBackup username={username} />
-            <section id="users" className="config-card">
-              <h2>Users</h2>
-              <ConfirmPassword username={username} what="User creation and password resets" />
-              <AdminCreateUser
-                onCreated={() => void adminUsers().then(setUsers)}
-              />
-              {users.map((user) => (
-                <div className="admin-user" key={user.id}>
-                  <strong>{user.username}</strong>
-                  <select
-                    value={user.role}
-                    onChange={(event) =>
-                      void saveUser({ ...user, role: event.target.value })
-                    }
-                  >
-                    <option>user</option>
-                    <option>admin</option>
-                  </select>
-                  <select
-                    value={user.status}
-                    onChange={(event) =>
-                      void saveUser({ ...user, status: event.target.value })
-                    }
-                  >
-                    <option>active</option>
-                    <option>disabled</option>
-                  </select>
-                  <AdminUserActions user={user} onReset={() => {}} />
-                </div>
+        <section id="appearance" className="config-card">
+          <h2>Appearance</h2>
+          <p className="config-muted">
+            Choose from the complete KyNotes color selection.
+          </p>
+          <label className="field">
+            <span>Theme</span>
+            <select
+              value={theme}
+              onChange={(event) =>
+                setTheme(event.target.value as ThemeName)
+              }
+            >
+              {THEME_OPTIONS.map((option) => (
+                <option key={option}>{option}</option>
               ))}
-            </section>
-            <div id="teams">
-              <AdminTeams users={users} username={username} userID={userID} onCreateTeam={createTeam} knownNames={knownNames} />
-            </div>
-            <section id="audit" className="config-card">
-              <h2>Audit log</h2>
-              <div className="audit-log">
-                {audit.length === 0 ? (
-                  <p className="config-muted">No audit events recorded.</p>
-                ) : (
-                  audit.map((entry, index) => (
-                    <div className="audit-row" key={`${entry.at}-${index}`}>
-                      <strong>{entry.event}</strong>
-                      <span>
-                        {entry.outcome} · {entry.at}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </>
-        )}
+            </select>
+          </label>
+          <button onClick={() => applyTheme(theme)}>Apply theme</button>
+        </section>
+        <div id="password">
+          <PasswordSettings username={username} userID={userID} everyday onAuthSecret={onAuthSecret} onIdentityCreated={onIdentityChanged} />
+        </div>
+        <section id="device" className="config-card">
+          <h2>Trusted Device & SSO</h2>
+          <p className="config-muted">
+            {ownFingerprint
+              ? "This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password."
+              : "This browser keeps your sign-in for instant 1-click SSO login without entering a password."}
+          </p>
+          <p className="config-muted">Your user ID: <code>{userID}</code>. Team owners need it to invite you.</p>
+          <p className="config-muted">
+            {ownFingerprint
+              ? <>Your encryption key fingerprint: <code>{ownFingerprint}</code>. Team owners see it when your key changes; compare it with them in person.</>
+              : `This browser holds no encryption key for team notebooks.${noKeyHint(identityState, sso)}`}
+          </p>
+          {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped"
+            ? "This browser keeps it wrapped under a browser key that pages cannot export. That is not protection at rest: anyone who can read this browser's profile on disk can still recover it. Use \"Forget this device\" on shared computers."
+            : "This site is not served over HTTPS, so this browser stores your key unwrapped in its site storage. Anyone who can read this browser's profile can copy it. Use \"Forget this device\" on shared computers."}</p>}
+          {justLinked && <p role="status">{justLinked === "restored" ? RECOVERY_RESTORED : "Linked. This browser now holds your encryption key."}</p>}
+          {onForgetDevice && (
+            <button
+              type="button"
+              className="secondary danger"
+              onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice(); }}
+            >
+              Forget this device & sign out
+            </button>
+          )}
+        </section>
+        {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
+        {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked("linked"); onIdentityChanged(); }} />}
+        {resetUnfinished && <p role="status">{RESET_UNFINISHED}</p>}
+        {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked("restored"); onIdentityChanged(); }} />}
+        {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
+        <PinnedKeys username={username} userID={userID} names={colleagueNames} />
+        <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />
+        {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onReset} password={sso ? undefined : passwordReset(username)} />}
       </div>
     </section>
   );

@@ -100,6 +100,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .auth-card { background: var(--panel); border-color: var(--line); box-shadow: 12px 12px 0 var(--accent-soft); }
 .auth-card h1, .auth-card .lede, .auth-card .hint, .auth-card form label { color: var(--ink-strong); }
 .auth-card form input { background: var(--bg); color: var(--ink-strong); border-color: var(--line); }
+.auth-card fieldset { margin: 0 0 18px; padding: 12px 16px 4px; border: 1px solid var(--line); }
+.auth-card legend { padding: 0 6px; color: var(--ink-strong); font-weight: 600; }
 .auth-card form input:focus, .title-input:focus, .body-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow); }
 .auth-card form button { background: var(--accent); color: var(--button-text); }
 .section-label, .editor-meta, .empty-list, .hint, .quiet { color: var(--ink); }

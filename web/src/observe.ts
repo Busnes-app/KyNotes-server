@@ -1,4 +1,4 @@
-import { adminTeams, containers, createAdminTeam, createContainer } from "./api";
+import { containers, createContainer } from "./api";
 import { publishFloor } from "./floors";
 import { mergeFloor, type KeyFloor, type KeyState } from "./keyring";
 
@@ -28,8 +28,6 @@ export const observeContainers = <C extends Reported>(sink: FloorSink, list: C[]
 // The only callers of the raw container fetchers; every other module imports these instead (observe.test.ts).
 export const listContainers = async (sink: FloorSink) => observeContainers(sink, await containers());
 export const newContainer = async (sink: FloorSink, ...args: Parameters<typeof createContainer>) => observeContainer(sink, await createContainer(...args));
-export const listAdminTeams = async (sink: FloorSink) => observeContainers(sink, await adminTeams());
-export const newAdminTeam = async (sink: FloorSink) => observeContainer(sink, await createAdminTeam());
 
 export const NOT_CREATED = "The notebook could not get its own key, so it was not created. Try again.";
 /**

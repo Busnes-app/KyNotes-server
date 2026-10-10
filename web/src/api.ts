@@ -2,8 +2,9 @@ import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
 import type { Envelope, InvitationEnvelope, Member } from "./keyring";
 import type { RecoveryAPI, RecoveryCopy } from "./recovery";
-export type User = { id: string; role: string; username?: string };
-export type Session = { sso?: boolean; user: User; expiresAt: string; hardExpiresAt: string };
+export type AccountKind = "user" | "admin";
+export type User = { id: string; role: string; username?: string; accountKind: AccountKind };
+export type Session = { sso?: boolean; user: User; passwordChangeRequired?: boolean; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
 export type Invitation = { id: string; token: string; expiresAt: string };
@@ -14,8 +15,8 @@ export function serverGeneration(value: unknown): number | undefined {
   return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 const withGeneration = <T extends { keyGeneration?: unknown }>(rows: T[]) => rows.map((row) => ({ ...row, keyGeneration: serverGeneration(row.keyGeneration) }));
-export type AdminUser = { id: string; username: string; role: string; status: string; quotaBytes: number; createdAt: string };
-export type AdminTeam = { id: string; kind: string; ownerUserId: string; metaCiphertext?: string; metaVersion?: number; changeSeq?: number; keyGeneration?: number; sharedGeneration?: number };
+export type AdminUser = { id: string; username: string; role: string; accountKind: AccountKind; status: string; quotaBytes: number; createdAt: string };
+export type AdminTeam = { id: string; ownerUserId: string; ownerUsername: string; memberCount: number; keyed: boolean; named: boolean };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
 export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
 
@@ -67,16 +68,12 @@ export async function checkSetup() {
   return request<{ setupRequired: boolean }>("/api/v1/setup");
 }
 
-export async function setupInit(
-  username: string,
-  password?: string,
-  authSecret?: string,
-  loginSalt?: string,
-  iterations?: number,
-) {
+export type SetupAccount = { username: string; authSecret: string; loginSalt: string; iterations: number };
+
+export function setupInit(admin: SetupAccount, everyday: SetupAccount) {
   return request<{ ok: boolean; user: User; expiresAt: string; hardExpiresAt: string }>("/api/v1/setup", {
     method: "POST",
-    body: JSON.stringify({ username, password, authSecret, loginSalt, iterations }),
+    body: JSON.stringify({ admin, everyday }),
   });
 }
 
@@ -140,9 +137,10 @@ export async function serviceStatus() {
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
 export const adminTeams = () => request<AdminTeam[]>("/api/v1/admin/teams");
-/** Created without a name, like createContainer. */
-export function createAdminTeam() { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({}) }); }
-export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; role: string }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
+/** Created without a name, like createContainer; the everyday owner names it. */
+export function createAdminTeam(ownerUserId: string) { return request<AdminTeam>("/api/v1/admin/teams", { method: "POST", body: JSON.stringify({ ownerUserId }) }); }
+export function approveMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}/approve`, { method: "POST" }); }
+export function createAdminUser(input: { username: string; authSecret: string; loginSalt: string; iterations: number; accountKind: AccountKind }) { return request<{ id: string }>("/api/v1/admin/users", { method: "POST", body: JSON.stringify(input) }); }
 export function resetAdminPassword(id: string, input: { newAuthSecret: string; newLoginSalt: string; iterations: number }) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(input) }); }
 export function addAdminTeamMember(teamID: string, userID: string, role: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members`, { method: "POST", body: JSON.stringify({ userId: userID, role }) }); }
 export function removeAdminTeamMember(teamID: string, userID: string) { return request<void>(`/api/v1/admin/teams/${encodeURIComponent(teamID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }

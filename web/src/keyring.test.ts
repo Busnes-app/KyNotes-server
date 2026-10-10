@@ -314,14 +314,6 @@ describe("main.tsx key wiring", () => {
     expect(main).not.toMatch(/\blegacy\b/);
   });
 
-  it("AdminTeams decrypts nothing: it shows names the workspace already opened", () => {
-    const admin = main.slice(main.indexOf("function AdminTeams("));
-    const body = admin.slice(0, admin.indexOf("\nfunction ", 1)).replace(/\/\/.*$/gm, "");
-    expect(body).not.toMatch(/decrypt|openFirst|readKeys|authSecret/);
-    expect(body).toContain('{knownNames[entry.id] ?? "Unnamed team"}');
-    expect(body).toContain("setTeams(await listAdminTeams(sink));");
-  });
-
   it("never seals with anything but a write key or the waiting key", () => {
     const sources = import.meta.glob<string>(["./drain.ts", "./outbound.ts", "./keyService.ts", "./keyring.ts"], { query: "?raw", import: "default", eager: true });
     for (const [file, source] of Object.entries({ "./main.tsx": main, ...sources }))

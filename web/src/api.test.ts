@@ -136,13 +136,12 @@ describe("writes and creation", () => {
     expect(sent.find((entry) => entry.method === "GET")!.headers.has("X-Kynotes-Key-Scheme")).toBe(false);
   });
 
-  it("creates a notebook or an administrator's team without a name: names are sealed only after the first key", async () => {
+  it("creates a notebook without a name and an administrator's team for a named owner", async () => {
     const sent = capture();
     await createContainer("workbook", cnt);
-    await createAdminTeam();
-    expect(sent.map((entry) => entry.body)).toEqual([{ kind: "workbook", teamId: cnt }, {}]);
-    // No caller can pass one.
+    await createAdminTeam("usr_owner");
+    expect(sent.map((entry) => entry.body)).toEqual([{ kind: "workbook", teamId: cnt }, { ownerUserId: "usr_owner" }]);
     expect(createContainer.length).toBe(0);
-    expect(createAdminTeam.length).toBe(0);
+    expect(createAdminTeam.length).toBe(1);
   });
 });
