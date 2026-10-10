@@ -395,7 +395,8 @@ func retireKeysTx(tx *sql.Tx, userID, now string) (int64, error) {
 // are reactivated (the unique index keeps one row per container and user) and
 // keep no keys; errMembershipExists when any row in the team scope is live.
 // readmit reports that a revoked row came back. approved is false only for the
-// server-admin add: no key reaches that member until a steward approves it.
+// server-admin add: that member holds the viewer role and no key until a steward
+// approves it, and role is kept as its pending_role (0027_pending_viewer.sql).
 func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy string, approved bool, now string) (readmit bool, err error) {
 	var live int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, userID, cid).Scan(&live); err != nil {
@@ -405,11 +406,15 @@ func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy string, approved boo
 		return false, errMembershipExists
 	}
 	const scope = `(SELECT id FROM containers WHERE (id=?2 OR team_id=?2) AND deleted_at='')`
+	effective, pending := role, ""
+	if !approved {
+		effective, pending = "viewer", role
+	}
 	for i, q := range []string{
-		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5,approved=?6 WHERE user_id=?1 AND container_id IN ` + scope,
-		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5,?6 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
+		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5,approved=?6,pending_role=?7 WHERE user_id=?1 AND container_id IN ` + scope,
+		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved,pending_role) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5,?6,?7 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
 	} {
-		res, err := tx.Exec(q, userID, cid, role, now, invitedBy, approved)
+		res, err := tx.Exec(q, userID, cid, effective, now, invitedBy, approved, pending)
 		if err != nil {
 			return false, err
 		}

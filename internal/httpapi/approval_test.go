@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -39,6 +40,28 @@ func TestAdminAddedMembersWaitForApproval(t *testing.T) {
 		}
 	}
 	add()
+	// A pending member reads as a viewer: without any key it still cannot delete what is there.
+	oid, code := tm.owner.save(t, tm.id, "", 2)
+	if code/100 != 2 {
+		t.Fatalf("owner save=%d", code)
+	}
+	att := mint(t, "att")
+	if _, err := tm.owner.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) SELECT ?,?,blob_digest,1,x'00',2,1,'now' FROM object_versions WHERE object_id=? LIMIT 1`, att, tm.id, oid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.owner.db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT ?,object_id,version,'now' FROM object_versions WHERE object_id=? LIMIT 1`, att, oid); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/objects/" + oid, "/api/v1/objects/" + oid + "/attachments/" + att} {
+		if code, out := status(t, puppet.do(t, http.MethodDelete, path, nil, true, false)); code != http.StatusForbidden {
+			t.Fatalf("pending editor DELETE %s=%d %s", path, code, out)
+		}
+	}
+	var deleted string
+	var versions, refs int
+	if err := tm.owner.db.QueryRow(`SELECT (SELECT deleted_at FROM objects WHERE id=?1),(SELECT COUNT(*) FROM object_versions WHERE object_id=?1),(SELECT COUNT(*) FROM attachment_refs WHERE object_id=?1)`, oid).Scan(&deleted, &versions, &refs); err != nil || deleted != "" || versions == 0 || refs != 1 {
+		t.Fatalf("pending editor changed content: deleted=%q versions=%d refs=%d %v", deleted, versions, refs, err)
+	}
 	// A child workspace created after the add copies the team's rows, approval included.
 	code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","teamId":`+quote(tm.id)+`}`), true, false))
 	var later struct{ ID string }
@@ -71,12 +94,13 @@ func TestAdminAddedMembersWaitForApproval(t *testing.T) {
 	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/members/"+mint(t, "usr")+"/approve", nil, true, false)); code != http.StatusNotFound {
 		t.Fatalf("approve a non-member=%d %s", code, out)
 	}
-	// An unapproved steward approves nothing (no route admits one; the database could).
-	if _, err := tm.owner.db.Exec(`UPDATE memberships SET approved=0 WHERE container_id=? AND user_id=?`, tm.id, tm.admin.id); err != nil {
-		t.Fatal(err)
+	// An unapproved steward cannot exist: a pending member holds the viewer role (0027 triggers).
+	if _, err := tm.owner.db.Exec(`UPDATE memberships SET approved=0 WHERE container_id=? AND user_id=?`, tm.id, tm.admin.id); err == nil || !strings.Contains(err.Error(), "pending_member_is_viewer") {
+		t.Fatalf("unapproved steward stored: %v", err)
 	}
-	if code, out := approve(tm.admin.pairClient, tm.id); code != http.StatusNotFound {
-		t.Fatalf("unapproved steward approves=%d %s", code, out)
+	guest := tm.owner.addUser(t, "pending-guest")
+	if _, err := tm.owner.db.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,approved,pending_role) VALUES(?,?,?,'editor','now',0,'editor')`, mint(t, "mem"), tm.id, guest.id); err == nil || !strings.Contains(err.Error(), "pending_member_is_viewer") {
+		t.Fatalf("pending editor inserted: %v", err)
 	}
 	if code, out := approve(tm.owner, tm.id); code != http.StatusNoContent {
 		t.Fatalf("owner approves=%d %s", code, out)
@@ -84,6 +108,10 @@ func TestAdminAddedMembersWaitForApproval(t *testing.T) {
 	for _, cid := range []string{tm.id, tm.child} {
 		if approved, _ := approvedOf(t, tm.owner, cid, puppet.id); !approved {
 			t.Fatalf("%s still unapproved", cid)
+		}
+		var role, pending string
+		if err := tm.owner.db.QueryRow(`SELECT role,pending_role FROM memberships WHERE container_id=? AND user_id=?`, cid, puppet.id).Scan(&role, &pending); err != nil || role != "editor" || pending != "" {
+			t.Fatalf("%s approved as %q pending %q %v", cid, role, pending, err)
 		}
 	}
 	var audits int
@@ -129,5 +157,57 @@ func TestInvitedMembersAreApproved(t *testing.T) {
 	}
 	if approved, _ := approvedOf(t, tm.owner, tm.id, guest.id); !approved {
 		t.Fatal("an invited member waits for approval")
+	}
+}
+
+func TestOnlyWritersAttachDetachAndResolve(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	oid, code := tm.owner.save(t, tm.id, "", 2)
+	if code/100 != 2 {
+		t.Fatalf("owner save=%d", code)
+	}
+	att := mint(t, "att")
+	if _, err := tm.owner.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) SELECT ?,?,blob_digest,1,x'00',2,1,'now' FROM object_versions WHERE object_id=? LIMIT 1`, att, tm.id, oid); err != nil {
+		t.Fatal(err)
+	}
+	attach := func(c *pairClient) int {
+		code, _ := status(t, c.do(t, http.MethodPost, "/api/v1/objects/"+oid+"/attachments", []byte(`{"attachmentId":`+quote(att)+`,"objectVersion":1}`), true, false))
+		return code
+	}
+	detach := func(c *pairClient) int {
+		code, _ := status(t, c.do(t, http.MethodDelete, "/api/v1/objects/"+oid+"/attachments/"+att, nil, true, false))
+		return code
+	}
+	if code := attach(tm.viewer.pairClient); code != http.StatusForbidden {
+		t.Fatalf("viewer attach=%d", code)
+	}
+	if code := attach(tm.editor.pairClient); code != http.StatusNoContent {
+		t.Fatalf("editor attach=%d", code)
+	}
+	if code := detach(tm.viewer.pairClient); code != http.StatusForbidden {
+		t.Fatalf("viewer detach=%d", code)
+	}
+	var refs int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM attachment_refs WHERE object_id=?`, oid).Scan(&refs); err != nil || refs != 1 {
+		t.Fatalf("refs after viewer detach=%d %v", refs, err)
+	}
+	if code := detach(tm.editor.pairClient); code != http.StatusNoContent {
+		t.Fatalf("editor detach=%d", code)
+	}
+	// Resolving a preserved conflict copy hides it: a writer's action too.
+	cfl := mint(t, "cfl")
+	if _, err := tm.owner.db.Exec(`INSERT INTO conflicts(id,object_id,container_id,base_version,current_version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at) SELECT ?,object_id,?,1,1,blob_digest,1,2,1,'now' FROM object_versions WHERE object_id=? LIMIT 1`, cfl, tm.id, oid); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(c *pairClient) int {
+		code, _ := status(t, c.do(t, http.MethodPost, "/api/v1/conflicts/"+cfl+"/resolve", nil, true, false))
+		return code
+	}
+	if code := resolve(tm.viewer.pairClient); code != http.StatusForbidden {
+		t.Fatalf("viewer resolve=%d", code)
+	}
+	if code := resolve(tm.editor.pairClient); code != http.StatusNoContent {
+		t.Fatalf("editor resolve=%d", code)
 	}
 }

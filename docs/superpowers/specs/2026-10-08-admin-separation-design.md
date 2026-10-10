@@ -285,7 +285,7 @@ Each item has the safest option picked and built. Changing one is a small follow
 4. **Mixed accounts drop the grant even when none remain (ruling 14).** Picked: drop, with the CLI remedy. The
    alternative keeps a mixed administrator until another exists, which violates the separation for the life of that
    account. KyNotes was never live, so this affects development databases only.
-5. **Takeover of an approved member with no identity yet (§10, not built).** An administrator can reset such a
+5. **Takeover of an approved member with no identity yet (§10). Decided 2026-10-10: accepted, not built.** An administrator can reset such a
    member's local password, or link an unbound local account to an identity it controls through the SSO settings,
    and the member's first identity is then pinned on first contact and wrapped for. Options: accept it (the person
    loses their own sign-in, which is visible), or require a step-up on `POST /admin/sso` and `/admin/sso/pair` plus a

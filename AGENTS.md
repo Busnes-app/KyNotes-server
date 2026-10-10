@@ -193,7 +193,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   account as `editor`, `commenter` or `viewer` only. `POST /admin/users` takes `accountKind`; `PATCH` refuses
   the grant on an everyday account (`409 account_kind_mismatch`). Verify `TestAdminUserRoutesKeepKindsApart`,
   `TestAdminTeamAccessNeedsStepUpAndListsNoNames`.
-- Steward approval: administrator-added members have `memberships.approved=0` (child workspaces copy it;
+- Steward approval: administrator-added members have `memberships.approved=0` and the `viewer` role, the requested
+  role in `pending_role` (`0027_pending_viewer.sql` triggers keep the three consistent), so no write or delete reaches
+  them; attach, detach and conflict resolve need owner, admin or editor (`TestOnlyWritersAttachDetachAndResolve`) (child workspaces copy it;
   readmission resets it) and get no envelope, are not required by rotation and retire nothing on a key reset
   until an approved owner or admin of the team calls `POST /containers/{id}/members/{userID}/approve`
   (audit `container.member_approve`). The members list reports `approved`; the browser's `planSweep` skips

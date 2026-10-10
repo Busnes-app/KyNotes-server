@@ -27,7 +27,7 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 		}
 		// keyResetAt (stewards only): the member's last self-service key reset, which retires this
 		// notebook's key until a steward mints the next one; the cause of a waiting notebook.
-		rows, err := db.Query(`SELECT m.user_id,u.username,m.role,COALESCE((SELECT MAX(a.created_at) FROM audit_events a WHERE a.user_id=m.user_id AND a.event='identity.create' AND a.outcome='success' AND a.reason_code LIKE '%,reset%'),''),m.approved FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
+		rows, err := db.Query(`SELECT m.user_id,u.username,m.role,COALESCE((SELECT MAX(a.created_at) FROM audit_events a WHERE a.user_id=m.user_id AND a.event='identity.create' AND a.outcome='success' AND a.reason_code LIKE '%,reset%'),''),m.approved,m.pending_role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.container_id=? AND m.revoked_at='' ORDER BY u.username`, cid)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -37,11 +37,15 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 		for rows.Next() {
 			var id, username, memberRole, resetAt string
 			var approved bool
-			if rows.Scan(&id, &username, &memberRole, &resetAt, &approved) != nil {
+			var pending string
+			if rows.Scan(&id, &username, &memberRole, &resetAt, &approved, &pending) != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
 			member := map[string]any{"userId": id, "username": username, "role": memberRole, "approved": approved}
+			if pending != "" {
+				member["pendingRole"] = pending // the role approval grants; role reads viewer until then
+			}
 			if isSteward(role) && resetAt != "" {
 				member["keyResetAt"] = resetAt
 			}
@@ -113,7 +117,7 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			if !isSteward(role) {
 				return errInsufficientRole
 			}
-			res, err := tx.Exec(`UPDATE memberships SET approved=1 WHERE user_id=? AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE (id=? OR team_id=?) AND deleted_at='')`, target, cid, cid)
+			res, err := tx.Exec(`UPDATE memberships SET role=CASE WHEN approved=0 THEN pending_role ELSE role END,pending_role='',approved=1 WHERE user_id=? AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE (id=? OR team_id=?) AND deleted_at='')`, target, cid, cid)
 			if err != nil {
 				return err
 			}

@@ -76,7 +76,8 @@ func TestRemovedMemberIsReadmittedByReactivation(t *testing.T) {
 	if code := add(); code != http.StatusNoContent {
 		t.Fatalf("admin re-add=%d", code)
 	}
-	if live, rows, role := livesOf(t, tm, tm.viewer.id, tm.id); live != 2 || rows != 2 || role != "commenter" {
+	// Re-admitted as a viewer until a steward approves the commenter role (0027).
+	if live, rows, role := livesOf(t, tm, tm.viewer.id, tm.id); live != 2 || rows != 2 || role != "viewer" {
 		t.Fatalf("admin re-add: live=%d rows=%d role=%q", live, rows, role)
 	}
 	if code := add(); code != http.StatusConflict {

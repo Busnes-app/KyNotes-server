@@ -88,10 +88,10 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 				return e
 			}
 			if in.TeamID != "" {
-				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved) SELECT ?,?,?,role,?,invited_by,approved FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
+				if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved,pending_role) SELECT ?,?,?,role,?,invited_by,approved,pending_role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, mem, id, s.UserID, now, in.TeamID, s.UserID); e != nil {
 					return e
 				}
-				_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved) SELECT 'mem_' || lower(hex(randomblob(12))),?,user_id,role,?,invited_by,approved FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, now, in.TeamID, s.UserID)
+				_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved,pending_role) SELECT 'mem_' || lower(hex(randomblob(12))),?,user_id,role,?,invited_by,approved,pending_role FROM memberships WHERE container_id=? AND user_id<>? AND revoked_at=''`, id, now, in.TeamID, s.UserID)
 				return err
 			}
 			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)

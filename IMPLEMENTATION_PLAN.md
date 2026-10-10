@@ -1283,7 +1283,7 @@ deliberately every phase).
 | PATCH | `/api/v1/admin/users/{id}` | session + CSRF, server admin | `{"role","status","quotaBytes"}`; `404` unknown; `409 account_kind_mismatch` for `role:"admin"` on an everyday account |
 | GET | `/api/v1/admin/users` | session, server admin | rows carry `accountKind` |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n,"keyGeneration":n}` → §1.11 rules on `meta_version`; `keyGeneration` must equal the current generation of a container that has a key (missing, zero, old or future, or no key yet: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
-| GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role","approved"}]` (`approved` bool); to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
+| GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role","approved"}]` (`approved` bool; a pending member also carries `pendingRole`, and its `role` reads `viewer`); to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
 | POST | `/api/v1/containers/{id}/members/{userID}/approve` | session + CSRF, approved owner/admin of team `id` | 204; approves the member on the team and its child workspaces; `404` non-member, `403` non-steward; audit `container.member_approve` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
 | GET | `/api/v1/devices` | session | id, fingerprint, platform, created/last-seen, revoked; never the secret |
@@ -1448,7 +1448,7 @@ deliberately every phase).
 | DELETE | `/api/v1/objects/{id}` | — | soft delete, releases attachment refs |
 | GET | `/api/v1/objects/{id}/conflicts` | — | list of conflict records (metadata only: id, versions, bytes, `keyGeneration`, timestamps, resolved) |
 | GET | `/api/v1/conflicts/{id}` | — | the rejected ciphertext |
-| POST | `/api/v1/conflicts/{id}/resolve` | — | sets `resolved_at`; the blob becomes GC-eligible |
+| POST | `/api/v1/conflicts/{id}/resolve` | — | owner, admin or editor (`403` otherwise); sets `resolved_at`; the blob becomes GC-eligible |
 | GET | `/api/v1/containers/{id}/changes` | — | `?since=&limit=`, §1.11 |
 
 Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
@@ -1534,7 +1534,7 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 | HEAD | `/api/v1/containers/{id}/attachments/by-digest/{digest}` | `200` if that digest is already in **this** container, else `404` |
 | GET | `/api/v1/attachments/{id}` | ciphertext stream, supports `Range` |
 | GET | `/api/v1/attachments/{id}/preview` | preview ciphertext stream |
-| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref |
+| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref; owner, admin or editor (`403` otherwise), as is detaching it |
 | DELETE | `/api/v1/objects/{id}/attachments/{attachmentId}` | removes refs for that object |
 
 ### 7.2 Rules
@@ -1745,7 +1745,7 @@ Rules:
   read inside that transaction: a consumed, expired, void or other account's
   invitation is `404`. A live membership anywhere in the team scope is `409`;
   rows a removal revoked are reactivated with the invitation's role and no keys.
-  The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` and `approved` from the parent membership. A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members. Re-admission resets approval.
+  The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` and `approved` from the parent membership. A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members. It holds the `viewer` role meanwhile (`pending_role` keeps the role approval grants; migration `0027_pending_viewer.sql` triggers refuse any other pending state), so no write or delete reaches it either. Re-admission resets approval.
 * **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
   user ID reveals whether that user is active, at most
   `ratelimit.invitation_per_hour` times an hour per account; invitations may be

@@ -16,8 +16,9 @@ export type Keyring = ReadonlyMap<number, KeyRef>;
 export type WriteKey = { key: KeyRef; generation: number };
 /** keyResetAt: shown to owners and admins only, the member's last own key reset (it retires the notebook's key). */
 /** keyResetAt: shown to owners and admins only, the member's last own key reset (it retires the notebook's key).
- * approved is false only for a member a server administrator added that no steward approved yet; api.ts sets it, failing closed. */
-export type Member = { userId: string; username: string; role: string; keyResetAt?: string; approved?: boolean };
+ * approved is false only for a member a server administrator added that no steward approved yet; api.ts sets it, failing closed.
+ * Until then the server holds it as a viewer, and pendingRole is the role approval grants. */
+export type Member = { userId: string; username: string; role: string; keyResetAt?: string; approved?: boolean; pendingRole?: string };
 /** A member and its identity, when it has one the server shows us. */
 export type MemberKey = Member & { identity?: Pick<PublicIdentity, "deviceId" | "publicKey"> };
 

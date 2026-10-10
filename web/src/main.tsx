@@ -2503,7 +2503,7 @@ function Workspace({
                 {membersForTeam.map((member) => (
                   <div className="member-row" key={member.userId}>
                     <span>
-                      {displayName(member.username, member.userId)} · {member.role}
+                      {displayName(member.username, member.userId)} · {member.pendingRole ? `${member.pendingRole} once approved` : member.role}
                       {keyMembers?.containerID === selected.id && keyMembers.status[member.userId] && ` · ${KEY_STATUS[keyMembers.status[member.userId]]}`}
                       {member.keyResetAt && ` · reset their key ${resetWhen(member.keyResetAt)}`}
                     </span>
