@@ -100,8 +100,7 @@ jobs:
           name: tested-image
           path: tested-image.tar.gz
           retention-days: 1
-      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
-      - run: govulncheck ./...
+      - run: go tool -modfile=tools/go.mod govulncheck ./...
 
   # Publishes the image CI tested: only for pushes to master, only
   # after every job passed, and with no checkout and no build of its own, so
