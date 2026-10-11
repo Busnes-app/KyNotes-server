@@ -45,8 +45,16 @@ describe("workspace keys after P5", () => {
     expect(main).toContain("liveRef.current = live ?? null;");
     expect(main.match(/if \(liveRef\.current === undefined\) await refreshIdentity\(\)/g)).toHaveLength(2);
     expect(main).not.toMatch(/if \(!liveRef\.current\)/);
-    // A password change that creates the identity re-checks it.
-    expect(main).toContain("settleIdentity(name, userID, newKeys).then(onIdentityCreated,");
+    // A password change that creates the identity finishes it before the workspace opens, then re-checks it.
+    expect(main).toContain("await settleIdentity(name, userID, newKeys);\n        onIdentityCreated();");
+    expect(main).not.toMatch(/void settleIdentity\(/);
+  });
+
+  it("an approval shares keys for the team and its workspaces, as an SSO steward too", () => {
+    expect(block("  async function approve(")).toContain("await reloadTeamMembers(selected, true);");
+    const reload = block("  async function reloadTeamMembers(");
+    expect(reload).toContain("await syncKeys(child, false, () => false, share)");
+    expect(reload).toContain("await syncKeys(team, false, () => false, share)");
   });
 
   it("never tells an owner to wait for a team owner; copy follows the member list (keyNotices.ts)", () => {

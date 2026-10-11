@@ -2346,10 +2346,10 @@ function Workspace({
       );
     }
   }
-  /** Re-reads the team's members and runs the key pass on it and its workspaces. */
-  async function reloadTeamMembers(team: Container) {
-    for (const child of items.filter((entry) => entry.teamId === team.id)) await syncKeys(child);
-    setSelected(await syncKeys(team));
+  /** Re-reads the team's members and runs the key pass on it and its workspaces; `share` as in syncKeys. */
+  async function reloadTeamMembers(team: Container, share = false) {
+    for (const child of items.filter((entry) => entry.teamId === team.id)) await syncKeys(child, false, () => false, share);
+    setSelected(await syncKeys(team, false, () => false, share));
     setMembersForTeam(await members(team.id));
   }
   async function approve(userID: string) {
@@ -2357,8 +2357,8 @@ function Workspace({
     setBusy(true);
     try {
       await approveMember(selected.id, userID);
-      // The key pass now wraps for them.
-      await reloadTeamMembers(selected);
+      // "Approve and share keys" is explicit intent: an SSO steward wraps too (each write asks KySignOn).
+      await reloadTeamMembers(selected, true);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to approve");
     } finally {
@@ -2949,8 +2949,12 @@ function PasswordSettings({ username, userID, everyday, onAuthSecret, onIdentity
         identityDeviceId: rewrapped?.identityDeviceId,
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
       }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
-      // No identity yet (e.g. an administrator set the old password): create it under the new one.
-      if (!rewrapped) void settleIdentity(name, userID, newKeys).then(onIdentityCreated, () => undefined);
+      // No identity yet (e.g. an administrator set the old password): create it under the new one
+      // before the workspace opens, so it never caches an absent identity.
+      if (!rewrapped) {
+        await settleIdentity(name, userID, newKeys);
+        onIdentityCreated();
+      }
       onAuthSecret(newKeys.authSecret);
       setCurrent("");
       setNext("");

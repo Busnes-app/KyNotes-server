@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, CHOOSE_PASSWORD, OWNER, UNNAMED_TEAM, addToTeam, adminConsole, approve, choosePassword, createTeamFor, createUser, nameTeam, person, shoot, signIn, signInAndChoose, type Person } from "./people";
+import { ADMIN, CHOOSE_PASSWORD, OWNER, UNNAMED_TEAM, addToTeam, adminConsole, approve, createTeamFor, createUser, nameTeam, person, shoot, signIn, signInAndChoose, withDialog, type Person } from "./people";
 
 const TEMPORARY = "temporary sep battery staple";
 const ALICE_OWN = "alice own sep battery staple";
 const OPS_OWN = "ops own sep battery staple";
 const TEAM = "Separated Team E2E";
+const ALICE_NOTEBOOK = "Alice First Notebook";
 const WAITING = "This notebook is read-only until its keys reach this browser.";
 // Copied from components/AdminConsole.tsx: a changed string fails the run.
 const ADMIN_ACCOUNT_NOTE = "This is an administrator account. It manages KyNotes and cannot open notes. Sign in with your everyday account to write.";
@@ -56,11 +57,28 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     expect(await apiStatus(alice, "/api/v1/containers")).toEqual({ status: 409, code: "password_change_required" });
     await shoot("admin-separation", alice.page, "choose-password", "everyday", alice.page.getByText(CHOOSE_PASSWORD));
     await alice.page.reload();
-    await choosePassword(alice.page, TEMPORARY, ALICE_OWN);
+    // The identity is created under the new password before the workspace opens: hold its upload to prove the wait.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let uploads = 0;
+    await alice.page.route("**/api/v1/me/identity", async (route) => {
+      if (route.request().method() === "PUT") { uploads += 1; await held; }
+      await route.continue();
+    });
+    await alice.page.getByLabel("Current password").fill(TEMPORARY);
+    await alice.page.getByLabel("New password", { exact: true }).fill(ALICE_OWN);
+    await alice.page.getByLabel("Confirm new password").fill(ALICE_OWN);
+    await alice.page.getByRole("button", { name: "Change password" }).click();
+    await expect.poll(() => uploads, { timeout: 30_000 }).toBe(1);
+    await expect(alice.page.getByText(CHOOSE_PASSWORD)).toBeVisible();
+    release();
+    await expect(alice.page.getByText(CHOOSE_PASSWORD)).toHaveCount(0);
     await expect(alice.page.getByRole("button", { name: "Settings" })).toBeVisible();
     expect((await apiStatus(alice, "/api/v1/containers")).status).toBe(200);
-    // The identity is created after the change, in the background: wait for it, or the owner's approval wraps for nobody.
-    await expect.poll(async () => (await apiStatus(alice, "/api/v1/me/identity")).status, { timeout: 30_000 }).toBe(200);
+    expect((await apiStatus(alice, "/api/v1/me/identity")).status).toBe(200);
+    // Without a reload, the workspace holds the identity it was handed: a new notebook is keyed.
+    await withDialog(alice, { type: "prompt", text: "Notebook name", answer: ALICE_NOTEBOOK }, () => alice.page.getByRole("button", { name: "＋ New notebook" }).click());
+    await expect(alice.page.locator(".workspace-title")).toHaveText(ALICE_NOTEBOOK);
 
     // 4. A team for the everyday owner: the owner names it, and approves the person the administrator added.
     const teamID = await createTeamFor(admin, OWNER.username);
