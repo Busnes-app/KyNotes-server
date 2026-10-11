@@ -266,5 +266,5 @@ Not captured as screenshots: the "Notebook name" prompt and the administrator re
 
 Findings, not fixed here:
 
-- After a successful restore, Settings shows "Linked. This browser now holds your encryption key." (`main.tsx` `justLinked`): the restore card and its "Restored. …" status unmount once the key is held, so the user reads link copy after a restore.
+- After a successful restore, Settings shows "Restored. This browser now holds your encryption key." (`main.tsx` `justLinked`): the restore card unmounts once the key is held and shows no success status of its own, so the user reads it once, in Settings.
 - The team member list shows "Add person" and "Remove" to members who are not stewards (the restored editor's `restored-*` shot). Present before P5; this run did not check what the server answers.

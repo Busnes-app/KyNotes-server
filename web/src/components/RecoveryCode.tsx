@@ -183,7 +183,8 @@ export function RecoveryRestore({ userID, sso, store, stepUp, onRestored }: { us
         // On failure the input is kept so a typo can be fixed.
         if (problem) { setStatus(problem); return; }
         setCode("");
-        setStatus(RECOVERY_RESTORED);
+        // Settings announces RECOVERY_RESTORED once; this card unmounts when the key is held.
+        setStatus("");
         onRestored(restored!);
       })();
     }}>
