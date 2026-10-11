@@ -45,6 +45,20 @@ describe("inviteMember", () => {
   });
 });
 
+describe("members", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("reports approval only when the server says so, and keeps keyResetAt", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([{ userId: "usr_a", username: "a", role: "editor" }, { userId: "usr_b", username: "b", role: "editor", approved: true, keyResetAt: "2026-10-10T00:00:00Z" }, { userId: "usr_c", username: "c", role: "editor", approved: "true" }])));
+    expect(await members(`cnt_${"a".repeat(26)}`)).toEqual([
+      { userId: "usr_a", username: "a", role: "editor", approved: false },
+      { userId: "usr_b", username: "b", role: "editor", approved: true, keyResetAt: "2026-10-10T00:00:00Z" },
+      { userId: "usr_c", username: "c", role: "editor", approved: false },
+    ]);
+  });
+});
+
 describe("acceptInvitation", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -129,20 +143,19 @@ describe("writes and creation", () => {
     await finalizeUpload("upl_x", "AA==", 2);
     await putEnvelopes(cnt, []);
     await createContainer();
-    await members(cnt);
+    await members(cnt).catch(() => undefined); // the stub's body is no member list; only the request matters here
     expect(KEY_SCHEME).toBe("shared-v2");
     for (const write of sent.filter((entry) => entry.method !== "GET")) expect(write.headers.get("X-Kynotes-Key-Scheme")).toBe("shared-v2");
     expect(sent.filter((entry) => entry.method !== "GET")).toHaveLength(6);
     expect(sent.find((entry) => entry.method === "GET")!.headers.has("X-Kynotes-Key-Scheme")).toBe(false);
   });
 
-  it("creates a notebook or an administrator's team without a name: names are sealed only after the first key", async () => {
+  it("creates a notebook without a name and an administrator's team for a named owner", async () => {
     const sent = capture();
     await createContainer("workbook", cnt);
-    await createAdminTeam();
-    expect(sent.map((entry) => entry.body)).toEqual([{ kind: "workbook", teamId: cnt }, {}]);
-    // No caller can pass one.
+    await createAdminTeam("usr_owner");
+    expect(sent.map((entry) => entry.body)).toEqual([{ kind: "workbook", teamId: cnt }, { ownerUserId: "usr_owner" }]);
     expect(createContainer.length).toBe(0);
-    expect(createAdminTeam.length).toBe(0);
+    expect(createAdminTeam.length).toBe(1);
   });
 });

@@ -38,6 +38,7 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 	if err := EnsureBootstrapAdmin(store.DB(), c); err != nil {
 		return fmt.Errorf("bootstrap admin failed: %w", err)
 	}
+	WarnWithoutAdmin(store.DB(), log)
 	blobs, err := blobstore.New(c.DataDir)
 	if err != nil {
 		return err

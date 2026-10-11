@@ -20,7 +20,7 @@ import (
 // ponytail: one process-wide upload lock; upgrade to per-upload locks if concurrent upload throughput matters.
 var uploadMu sync.Mutex
 
-func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg config.Config) {
+func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.Config) {
 	mux.Handle("GET /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		if ids.Validate("ups", r.PathValue("id")) != nil {
@@ -440,9 +440,13 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var cid string
-		if db.QueryRow(`SELECT o.container_id FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&cid) != nil {
+		var cid, role string
+		if db.QueryRow(`SELECT o.container_id,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&cid, &role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if role != "owner" && role != "admin" && role != "editor" {
+			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
 		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT id,?,?,? FROM attachments WHERE id=? AND container_id=?`, r.PathValue("id"), in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), in.AttachmentID, cid)
@@ -466,9 +470,13 @@ func UploadRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, cfg co
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var n int
-		if db.QueryRow(`SELECT COUNT(*) FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&n) != nil || n == 0 {
+		var role string
+		if db.QueryRow(`SELECT m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if role != "owner" && role != "admin" && role != "editor" {
+			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
 		_, _ = db.Exec(`DELETE FROM attachment_refs WHERE object_id=? AND attachment_id=?`, r.PathValue("id"), r.PathValue("attachmentId"))

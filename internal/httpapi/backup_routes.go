@@ -11,7 +11,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 )
 
-func BackupRoutes(mux *http.ServeMux, db *sql.DB, service *backup.Service) {
+func BackupRoutes(mux RouteMux, db *sql.DB, service *backup.Service) {
 	mux.Handle("GET /api/v1/admin/backup/status", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		status, err := service.Status()
 		if err != nil {

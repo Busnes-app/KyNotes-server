@@ -51,8 +51,17 @@ mounts.
 
 ## Accounts
 
-`kynotes-server user add --username <name> --password <pass> [--admin]` creates an
-account and prints its recovery code once:
+An account is an administrator account (manages KyNotes, cannot open notes) or an
+everyday account (writes notes), never both. The web first-run setup creates one of
+each. On an empty database, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` create the
+administrator account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS`
+the everyday account (a different username); both must change their password at first
+sign-in. If the log shows `no_active_admin`, no administrator account is left: create one
+with the CLI below.
+
+`kynotes-server user add --username <name> --password <pass> [--admin | --everyday]`
+creates an account (everyday unless `--admin`; it changes its password at first sign-in)
+and prints its recovery code once:
 
 ```
 recovery code: xxxx-xxxx-xxxx

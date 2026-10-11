@@ -25,7 +25,7 @@ func PushPayload(containerID string, changeSeq int64) []byte {
 	return b
 }
 
-func PushRoutes(mux *http.ServeMux, db *sql.DB) {
+func PushRoutes(mux RouteMux, db *sql.DB) {
 	mux.Handle("GET /api/v1/notifications", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		rows, err := db.Query(`SELECT c.id,c.object_id,c.author_user_id,c.created_at FROM mentions n JOIN comments c ON c.id=n.comment_id WHERE n.mentioned_user_id=? AND c.deleted_at='' ORDER BY c.created_at DESC LIMIT 100`, s.UserID)

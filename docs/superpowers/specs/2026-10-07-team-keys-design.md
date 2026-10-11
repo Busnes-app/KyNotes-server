@@ -30,7 +30,7 @@ paired phones: own X25519 device key ◄── envelopes ── CK  (unchanged f
 - Any of the user's browsers recovers the private key after a password login (it derives `userKEK` from `stretched`) or from the IndexedDB keys vault.
 - `userKEK` uses a new HKDF label off the same PBKDF2 output. The server never sees it, which fixes F1 for all new content.
 
-**Admin-created accounts.** The admin's browser must not generate the user's keypair, because the admin knows the initial password. The identity is created on the user's own first login. Until then the user has no public key and appears as "awaiting first sign-in" in team UIs. An identity wrapped under that password stays readable by the admin, because a later password change only re-wraps it. So the server flags every password someone other than the user set (`users.password_admin_known`: admin create and reset, `BOOTSTRAP_ADMIN_*`, `user add`), refuses `PUT /me/identity` with 409 `password_change_required` while it is set, and the user's own password change (or recovery) clears it; the browser then creates the identity under the new password. Forcing that change at first login belongs to sub-project A. Accounts created before the flag existed are not flagged.
+**Admin-created accounts.** The admin's browser must not generate the user's keypair, because the admin knows the initial password. The identity is created on the user's own first login. Until then the user has no public key and appears as "awaiting first sign-in" in team UIs. An identity wrapped under that password stays readable by the admin, because a later password change only re-wraps it. So the server flags every password someone other than the user set (`users.password_admin_known`: admin create and reset, `BOOTSTRAP_ADMIN_*`, `user add`), refuses `PUT /me/identity` with 409 `password_change_required` while it is set, and the user's own password change (or recovery) clears it; the browser then creates the identity under the new password. Sub-project A forces that change at first sign-in for every route (spec `2026-10-08-admin-separation-design.md` §3). Accounts created before the flag existed are not flagged.
 
 **How this fits the frozen per-device envelope contract (minimal change).** Each user identity is represented as a `devices` row with `platform = 'identity'`:
 - `public_key` is the identity public key and the fingerprint is computed by the server as usual.
@@ -79,6 +79,8 @@ The AAD binding stops a malicious server from replaying an envelope into a diffe
 1. An admin calls `POST /admin/teams {ownerUserId}`. The server creates the container with empty meta, makes the named user the `owner`, and gives the admin **no membership**. Without a membership the admin can never be wrapped for.
 2. The admin UI shows the team ID, owner and member count only.
 3. When the owner opens the team for the first time with a fresh step-up, the browser mints `CK` through the rotate route (below), sets the encrypted name, and wraps for every member that has an identity.
+
+Built in sub-project A, with steward approval for administrator-added members (§4 there).
 
 The fallback rule ("unnamed until the owner opens it") is shown in the UI.
 
@@ -132,7 +134,7 @@ None. KyNotes was never live, so nothing is migrated: every container is keyed a
   - Owner or admin may write for any member. **Any member may write envelopes for their own devices and identity**, so a viewer can pair a phone.
   - `INSERT OR REPLACE` becomes a plain insert at an existing generation. Writing for a recipient that already has an envelope at that generation returns 409, except for the user's own identity. This stops two stewards from splitting a generation across different keys.
   - **The save gate:** a container with a key (`shared_generation > 0`), `X-Kynotes-Key-Scheme: shared-v2`, the current generation, and the writer's own identity envelope at it. Containers without a key take no content, name or envelope.
-  - Admin member removal performs the rotation bump. `POST /admin/teams` takes `ownerUserId` (sub-project A).
+  - Admin member removal performs the rotation bump. `POST /admin/teams` takes `ownerUserId` (built in sub-project A).
 - **Frozen-contract changes** (DESIGN.md §Encryption and §Teams, plus IMPLEMENTATION_PLAN §5 and §13, updated in the same change):
   - The user identity key is represented as a device row.
   - The save-gate wording changes.
@@ -165,7 +167,7 @@ None. KyNotes was never live, so nothing is migrated: every container is keyed a
 - **Removed members** keep the keys for generations before their removal and any plaintext they already downloaded. Rotation is forward-only, which is the documented limit.
 - **Insider owner or admin** can wrap a wrong or different key for some members. The insert-only rule plus a client-side check that the key decrypts current meta catches accidental splits. A malicious insider is out of scope.
 - **Minting** (rotation, wrapping for others) requires session, CSRF and step-up. Device credentials are never accepted.
-- **Admin separation:** admins never hold memberships in teams they create. Account bootstrap must force a password change before the identity exists (§1).
+- **Admin separation (built: sub-project A):** admins never hold memberships in teams they create. Account bootstrap must force a password change before the identity exists (§1).
 - **Offline guessing:** the wrapped identity key is guessable offline against the password, so it is released only in password-proving responses (local login and step-up), never to a bare session cookie or a device credential.
 - **Identities created before `password_admin_known` existed** may be wrapped under a password an administrator once knew. The user's own password change re-wraps rather than replaces them. Replacing the keypair needs the P5 replacement path, so P2 leaves this residual risk for pre-flag accounts. P5's self-service reset replaces such an identity.
 - **SSO users:** an SSO session creates a device-only identity after a user-scope KySignOn confirmation (P3c) and other browsers receive it by device linking; the recovery code is its server copy (P5). Losing every browser and the code leaves the self-service reset. Whoever operates KyIdentity can log in as the user, so it can create the first identity of an SSO account that has none, or a replacement after an administrator reset; stewards' first-contact fingerprints are the only check (P1's `password_admin_known` guard has no SSO counterpart). `identity.create` audits the proof kind (`proof=sso:<challenge ID>`) and owners see the new key holder as a first-contact pin. It can also start a link request, which succeeds only if the user approves it and types a check code read from the attacker's screen.
@@ -337,7 +339,7 @@ Each phase can ship on its own.
   15. Password users keep the password unlock path (§8, D-P5-2 follows the spec): a self-service reset wraps the new identity under the password too, and the user's own password change re-adds a stripped password copy (compare-and-swap, audit `identity.password_wrap.create`) when the browser holds the identity. KySignOn-linked accounts never get it back. The stricter "never password-wrap after a reset" option is not built. Awaiting Yoshi.
   16. SSO accounts see the recovery dialog right after "Set up encryption key" (a second KySignOn confirmation); password accounts get a banner. Every account without a code sees the banner.
   17. Restore never overwrites another local key (`OTHER_COPY`), stores compare-and-swap against the copy it read, checks the code's checksum before any step-up or request, and verifies the public key before accepting.
-  18. Administrator-created teams are minted and named at creation by the same `createNamed`; the administrator's login-key rename path is removed.
+  18. Administrator-created teams are minted and named at creation by the same `createNamed`; the administrator's login-key rename path is removed (superseded by sub-project A: administrators no longer create keyed teams).
   19. Phone pairing, QR codes and the device-recipient sender rule are deferred again, to a phase after P5.
   20. A KySignOn-linked account's reset is device-only from any session: the server refuses its password copy (`409 device_only_required`, checked in the transaction) and the browser re-sends it without one.
   21. An administrator password reset revokes paired device credentials and their envelopes in its transaction, as the user's own reset and a password change do.
@@ -370,7 +372,7 @@ Each phase can ship on its own.
   - An account on an administrator-set password has no identity and cannot write any notebook until its user changes the password; an SSO account needs a recovery code before its personal notebooks get keys. The "set by an administrator" banner shows only after a sign-in in the current page load.
   - Device pairing (`POST /devices/pairing-token`) needs no step-up, so a stolen cookie can pair a credential; the reset cuts such a device off but nothing prevents the pairing (pre-existing follow-up, outside P5).
 
-**P4. Lazy team migration and admin separation hook.** Dropped 2026-10-08 (§9): there is no legacy content to migrate. Admin-owned team naming moved to `createNamed` in P5.
+**P4. Lazy team migration and admin separation hook.** Dropped 2026-10-08 (§9): there is no legacy content to migrate. Administrator-owned teams are gone: sub-project A gives every team an everyday owner, who names it.
 
 **P5. Personal workbooks and recovery.** Mint CK for personal containers. Optionally wrap the identity under a client-side recovery code so recovery preserves data. Phone pairing UI. (plan: `docs/superpowers/plans/2026-10-08-team-keys-p5.md`). Phone pairing, QR codes and the device-recipient sender rule move to a later phase. (see §9)
 - Tests:

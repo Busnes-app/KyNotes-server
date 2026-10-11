@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,7 +53,8 @@ func TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin(t *testing.T) {
 				exec(`INSERT INTO users(id,username,role,sso_subject,sso_issuer,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES(?,?,'admin',?,?,'hash','salt',1,'now','now')`, name, name, sub, issuer)
 				exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at,sso_issuer) VALUES(?,?,?,'csrf','now','2099-01-01T00:00:00Z','2099-01-01T00:00:00Z',?)`, name, name, name, issuer)
 			}
-			exec(`INSERT INTO containers(id,kind,owner_user_id,meta_ciphertext,created_at,updated_at) VALUES('kept','workbook','linked',x'010203','now','now')`)
+			exec(`INSERT INTO users(id,username,role,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('plain','plain','user','hash','salt',1,'now','now')`)
+			exec(`INSERT INTO containers(id,kind,owner_user_id,meta_ciphertext,created_at,updated_at) VALUES('kept','workbook','plain',x'010203','now','now')`)
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +91,14 @@ func TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin(t *testing.T) {
 			if err := db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='auth.sso_role_upgrade'`).Scan(&subject, &reason); err != nil || subject != "subject" || reason != wantReason {
 				t.Fatalf("upgrade unattributed %q %q %v", subject, reason, err)
 			}
-			exec(`UPDATE users SET role='admin' WHERE id='linked'`)
+			if withLocal {
+				// 0018 demoted it, so 0026 made it an everyday account: the grant can never come back.
+				if _, err := db.Exec(`UPDATE users SET role='admin' WHERE id='linked'`); err == nil || !strings.Contains(err.Error(), "admin_role_needs_admin_account") {
+					t.Fatal("an everyday account took the admin grant", err)
+				}
+				_ = st.Close()
+				return
+			}
 			exec(`UPDATE sessions SET revoked_at='',sso_app_admin=1 WHERE id='linked'`)
 			if err := st.Close(); err != nil {
 				t.Fatal(err)

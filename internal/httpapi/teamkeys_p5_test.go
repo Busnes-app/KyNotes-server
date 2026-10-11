@@ -671,9 +671,7 @@ func TestCreatorDeletesABlankNotebookWithoutARecentSignIn(t *testing.T) {
 // user's own reset and a password change do; the identity device stays.
 func TestAdminPasswordResetRevokesPairedDevices(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
-	if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-		t.Fatal(err)
-	}
+	admin := p.addAdmin(t, "server-admin")
 	victim := p.addUser(t, "victim")
 	identity := victim.createIdentity(t)
 	victim.deviceID, victim.deviceSecret, _ = victim.register(t, victim.mintToken(t), bytes.Repeat([]byte{5}, 32))
@@ -686,10 +684,10 @@ func TestAdminPasswordResetRevokesPairedDevices(t *testing.T) {
 	if code, _ := status(t, victim.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusOK {
 		t.Fatal("paired device before the reset", code)
 	}
-	p.stepUp(t)
+	admin.stepUp(t)
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
-	if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/admin/users/"+victim.id+"/password", []byte(body), true, false)); code != http.StatusNoContent {
+	if code, out := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+victim.id+"/password", []byte(body), true, false)); code != http.StatusNoContent {
 		t.Fatal("admin reset", code, out)
 	}
 	if code, _ := status(t, victim.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil)); code != http.StatusUnauthorized {

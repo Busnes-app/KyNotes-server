@@ -74,13 +74,13 @@ func applyAdmin(db *sql.DB, cfg config.Config, issuer string, want applysetup.Ad
 		return failed()
 	}
 	defer tx.Rollback()
-	bound, err := lookupAccount(tx, `SELECT id,username,role,status FROM users WHERE sso_issuer=? AND sso_subject=?`, want.Issuer, want.Subject)
+	bound, err := lookupAccount(tx, `SELECT id,username,role,status,account_kind FROM users WHERE sso_issuer=? AND sso_subject=?`, want.Issuer, want.Subject)
 	if err != nil {
 		return failed()
 	}
 	var named *applysetup.Account
 	if bound == nil {
-		if named, err = lookupAccount(tx, `SELECT id,username,role,status FROM users WHERE username=?`, strings.ToLower(want.Username)); err != nil {
+		if named, err = lookupAccount(tx, `SELECT id,username,role,status,account_kind FROM users WHERE username=?`, strings.ToLower(want.Username)); err != nil {
 			return failed()
 		}
 	}
@@ -109,7 +109,7 @@ func applyAdmin(db *sql.DB, cfg config.Config, issuer string, want applysetup.Ad
 
 func lookupAccount(tx *sql.Tx, query string, args ...any) (*applysetup.Account, error) {
 	var a applysetup.Account
-	err := tx.QueryRow(query, args...).Scan(&a.ID, &a.Username, &a.Role, &a.Status)
+	err := tx.QueryRow(query, args...).Scan(&a.ID, &a.Username, &a.Role, &a.Status, &a.Kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -134,7 +134,7 @@ func createSSOAdmin(tx *sql.Tx, cfg config.Config, want applysetup.Admin, now st
 		return err
 	}
 	username := strings.ToLower(want.Username)
-	if _, err = tx.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, 'admin', 'active', ?, ?, ?, ?)`,
+	if _, err = tx.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, 'admin', 'admin', 'active', ?, ?, ?, ?)`,
 		id, username, hash, auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, username), want.Subject, want.Issuer, now, now); err != nil {
 		return err
 	}
