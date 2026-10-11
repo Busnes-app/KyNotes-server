@@ -48,7 +48,7 @@ func currentCommitReceipt(db *sql.DB, objectID string, version int64) string {
 	return commitReceipt(objectID, digest, version, bytes, generation, baseVersion, changeSeq)
 }
 
-func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max int64) {
+func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 	mux.Handle("GET /api/v1/objects/{id}/conflicts", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		if ids.Validate("obj", r.PathValue("id")) != nil {
@@ -101,9 +101,13 @@ func ObjectRoutes(mux *http.ServeMux, db *sql.DB, blobs *blobstore.Store, max in
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var n int
-		if db.QueryRow(`SELECT COUNT(*) FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&n) != nil || n == 0 {
+		var role string
+		if db.QueryRow(`SELECT m.role FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if role != "owner" && role != "admin" && role != "editor" {
+			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
 		if _, e := db.Exec(`UPDATE conflicts SET resolved_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); e != nil {

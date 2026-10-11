@@ -34,7 +34,7 @@ func fixture(t *testing.T) (*Service, recoverykey.PrivateKey) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	if _, err = st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,created_at,updated_at) VALUES('usr_fixture','admin','fixture','salt',600000,'admin','active','','')`); err != nil {
+	if _, err = st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,created_at,updated_at) VALUES('usr_fixture','admin','fixture','salt',600000,'admin','admin','active','','')`); err != nil {
 		t.Fatal(err)
 	}
 	svc := New(cfg, st, "test")

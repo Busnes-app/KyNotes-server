@@ -57,7 +57,7 @@ func SSODiff(have, want sso.SSOSettings) string {
 	return "existing SSO settings differ in " + strings.Join(d, ", ") + "; left unchanged"
 }
 
-type Account struct{ ID, Username, Role, Status string }
+type Account struct{ ID, Username, Role, Status, Kind string }
 
 type AdminAction int
 
@@ -73,6 +73,8 @@ func DecideAdmin(bound, named *Account) (Status, AdminAction, string) {
 	switch {
 	case bound != nil && bound.Status != "active":
 		return Conflict, NoAction, "the account bound to this identity is disabled; the directory owns its status"
+	case bound != nil && bound.Kind != "admin":
+		return Conflict, NoAction, "the account bound to this identity is an everyday account; give the administrator its own identity"
 	case bound != nil && bound.Role == "admin":
 		return Present, NoAction, ""
 	case bound != nil:

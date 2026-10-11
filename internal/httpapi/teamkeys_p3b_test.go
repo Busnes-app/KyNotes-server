@@ -67,17 +67,17 @@ func TestRemovedMemberIsReadmittedByReactivation(t *testing.T) {
 	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id+"/members/"+tm.viewer.id, nil, true, false)); code != http.StatusNoContent {
 		t.Fatalf("remove viewer=%d %s", code, out)
 	}
-	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-		t.Fatal(err)
-	}
+	admin := tm.owner.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	add := func() int {
-		code, _ := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/admin/teams/"+tm.id+"/members", []byte(`{"userId":`+quote(tm.viewer.id)+`,"role":"commenter"}`), true, false))
+		code, _ := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+tm.id+"/members", []byte(`{"userId":`+quote(tm.viewer.id)+`,"role":"commenter"}`), true, false))
 		return code
 	}
 	if code := add(); code != http.StatusNoContent {
 		t.Fatalf("admin re-add=%d", code)
 	}
-	if live, rows, role := livesOf(t, tm, tm.viewer.id, tm.id); live != 2 || rows != 2 || role != "commenter" {
+	// Re-admitted as a viewer until a steward approves the commenter role (0027).
+	if live, rows, role := livesOf(t, tm, tm.viewer.id, tm.id); live != 2 || rows != 2 || role != "viewer" {
 		t.Fatalf("admin re-add: live=%d rows=%d role=%q", live, rows, role)
 	}
 	if code := add(); code != http.StatusConflict {
@@ -216,18 +216,17 @@ func TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly(t *testing.T)
 	if n, _, _ := livesOf(t, tm, other.id, tm.id); n != 0 {
 		t.Fatalf("live=%d", n)
 	}
-	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-		t.Fatal(err)
-	}
+	admin := tm.owner.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	post := func(cid, uid string) int {
-		code, _ := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
+		code, _ := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
 		return code
 	}
 	unknown := mint(t, "cnt")
 	if post(tm.id, tm.editor.id) != http.StatusConflict || post(unknown, other.id) != http.StatusNotFound {
 		t.Fatal("admin add did not refuse")
 	}
-	want = []row{{pairUser, tm.id, tm.editor.id, "denied", "already_exists"}, {pairUser, unknown, other.id, "denied", "not_found"}}
+	want = []row{{admin.id, tm.id, tm.editor.id, "denied", "already_exists"}, {admin.id, unknown, other.id, "denied", "not_found"}}
 	if got := refusals("admin.team.member_add"); !slices.Equal(got, want) {
 		t.Fatalf("admin add refusals=%+v want %+v", got, want)
 	}
@@ -238,11 +237,10 @@ func TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly(t *testing.T)
 
 func TestAdminAddMapsOnlyConflictsTo409(t *testing.T) {
 	tm := newTeam(t)
-	if _, err := tm.owner.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
-		t.Fatal(err)
-	}
+	admin := tm.owner.addAdmin(t, "server-admin")
+	admin.stepUp(t)
 	post := func(cid, uid string) int {
-		code, _ := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
+		code, _ := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/teams/"+cid+"/members", []byte(`{"userId":`+quote(uid)+`,"role":"viewer"}`), true, false))
 		return code
 	}
 	if code := post(tm.id, tm.editor.id); code != http.StatusConflict {

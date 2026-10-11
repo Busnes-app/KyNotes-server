@@ -24,15 +24,20 @@ func TestOIDCVerifiedLogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"valid", "forged", "unsigned", "issuer", "audience", "expired", "nonce", "missing_nonce", "kid", "collision", "disabled", "provision_off", "discovery_issuer", "changed_settings"} {
+	for _, mode := range []string{"valid", "forged", "unsigned", "issuer", "audience", "expired", "nonce", "missing_nonce", "kid", "collision", "disabled", "provision_off", "discovery_issuer", "changed_settings", "token_error", "callback_discovery"} {
 		t.Run(mode, func(t *testing.T) {
 			db, cfg := setupTestDB(t)
 			settings := sso.NewStore(db)
 			var server *httptest.Server
 			nonce := ""
+			failDiscovery := false
 			server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/.well-known/openid-configuration":
+					if failDiscovery {
+						http.Error(w, "remote-detail-discovery", http.StatusInternalServerError)
+						return
+					}
 					issuer := server.URL
 					if mode == "discovery_issuer" {
 						issuer += "/wrong"
@@ -41,6 +46,10 @@ func TestOIDCVerifiedLogin(t *testing.T) {
 				case "/keys":
 					_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "one", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
 				case "/token":
+					if mode == "token_error" {
+						http.Error(w, "remote-detail-token", http.StatusInternalServerError)
+						return
+					}
 					claims := map[string]any{"iss": server.URL, "aud": "kynotes", "sub": "subject-bob", "preferred_username": "bob", "role": "user", "nonce": nonce, "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix()}
 					header := map[string]any{"alg": "RS256", "kid": "one"}
 					switch mode {
@@ -119,6 +128,7 @@ func TestOIDCVerifiedLogin(t *testing.T) {
 				if nonce == "" || nonce == state {
 					t.Fatal("missing independent nonce")
 				}
+				failDiscovery = mode == "callback_discovery"
 				if mode == "changed_settings" {
 					config.ClientID = "changed"
 					if err := settings.Save(config); err != nil {
@@ -148,12 +158,20 @@ func TestOIDCVerifiedLogin(t *testing.T) {
 					if result.Code < 400 {
 						t.Fatalf("invalid login accepted: %d", result.Code)
 					}
+					// Provider failures answer a fixed message: no remote body, host or transport detail.
+					if want := map[string]string{"token_error": "identity provider refused the sign-in", "callback_discovery": "identity provider unreachable"}[mode]; want != "" {
+						var e ErrorBody
+						if result.Code != http.StatusBadGateway || json.Unmarshal(result.Body.Bytes(), &e) != nil || e.Error.Message != want || strings.Contains(result.Body.String(), "remote-detail") || strings.Contains(result.Body.String(), strings.TrimPrefix(server.URL, "https://")) {
+							t.Fatalf("%s: %d %s", mode, result.Code, result.Body.String())
+						}
+					}
 					for _, cookie := range result.Result().Cookies() {
 						if cookie.Name == "kynotes_session" {
 							t.Fatal("invalid login minted session")
 						}
 					}
 				}
+				failDiscovery = false
 				again := httptest.NewRecorder()
 				mux.ServeHTTP(again, req)
 				if again.Code != 400 {

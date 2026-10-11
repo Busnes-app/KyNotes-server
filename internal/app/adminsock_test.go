@@ -1,17 +1,21 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 func TestAdminSocketIsPrivateAndReplacesOnlyStaleSockets(t *testing.T) {
@@ -74,5 +78,42 @@ func TestServeOwnsAdminSocketLifecycle(t *testing.T) {
 	}
 	if _, err := os.Lstat(sock); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("socket left after shutdown")
+	}
+}
+
+// Serving a database whose administrators all became everyday accounts logs the CLI remedy.
+func TestServeWarnsWithoutAdmin(t *testing.T) {
+	c := config.Defaults()
+	c.DataDir = t.TempDir()
+	c.Server.Bind = "127.0.0.1:0"
+	c.Server.DevInsecureCookies = true
+	st, err := storage.Open(filepath.Join(c.DataDir, "kynotes.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('usr_plain','plain','h','s',1,'now','now')`); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	var logged bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Serve(ctx, c, logging.New(&logged, "info", "json"), "test") }()
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		if conn, err := net.Dial("unix", AdminSocketPath(c.DataDir)); err == nil {
+			conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("server never came up")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), "no_active_admin") || !strings.Contains(logged.String(), "user add --admin") {
+		t.Fatalf("no warning logged: %s", logged.String())
 	}
 }

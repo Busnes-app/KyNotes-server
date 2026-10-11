@@ -331,7 +331,7 @@ is still an owner or admin of the live container. Accepting checks the invitatio
 Previously downloaded plaintext cannot be recalled. This is an inherent limit
 of end-to-end encryption and is treated as best-effort revocation.
 
-Team roles are owner, admin, editor, commenter, and viewer. The server
+Team roles are owner, admin, editor, commenter, and viewer. A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members. It holds the `viewer` role meanwhile (`pending_role` keeps the role approval grants; migration `0027_pending_viewer.sql` triggers refuse any other pending state), so no write or delete reaches it either. The server
 enforces membership and operation authorization without decrypting content.
 
 ## 5. Storage architecture
@@ -432,8 +432,9 @@ Self-hosting requirements:
   recovery, and administrative changes.
 - Rate limits for login, pairing, uploads, and notifications.
 
-Administrators may manage users, quotas, backups, and audit access, but cannot
-decrypt user content.
+Administrators use administrator accounts, which are separate from everyday accounts for good: they
+manage users, quotas, teams, backups and audit access, hold no membership, identity, key or device,
+and reach no content route.
 
 ## 11. Verification strategy
 

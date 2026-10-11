@@ -21,6 +21,10 @@ type Session struct {
 	SSOIssuer, SSOClientID, SSOSubject  string
 	CreatedAt, ExpiresAt, HardExpiresAt time.Time
 	StepUpAt                            time.Time // zero until the login secret was re-proven
+	AccountKind                         string    // KindEveryday or KindAdmin, fixed when the account was created
+	// PasswordChangeRequired: a password session on a password someone else set (users.password_admin_known).
+	// SSO sessions never carry it: they did not use the password.
+	PasswordChangeRequired bool
 	// What the request was authorized against, for RecheckUserStepUpTx.
 	stepUpRaw, passwordHash string
 }
@@ -116,10 +120,12 @@ func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error)
 	h := sha256.Sum256(raw)
 	var s Session
 	var created, expires, hard, revoked, status, stepup string
-	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash)
+	var adminKnown int
+	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash,u.account_kind,u.password_admin_known FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash, &s.AccountKind, &adminKnown)
 	if err != nil || revoked != "" || status != "active" {
 		return Session{}, errors.New("unauthenticated")
 	}
+	s.PasswordChangeRequired = adminKnown != 0 && s.SSOIssuer == ""
 	s.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	s.ExpiresAt, _ = time.Parse(time.RFC3339, expires)
 	s.HardExpiresAt, _ = time.Parse(time.RFC3339, hard)

@@ -114,8 +114,8 @@ func memberTx(tx *sql.Tx, cid, userID string) (role string, generation int64, er
 func isSteward(role string) bool { return role == "owner" || role == "admin" }
 
 // insertEnvelopeTx stores one envelope in cid at generation for caller (holding
-// role there). The recipient must be a live device or identity of an active
-// member; non-stewards may write only for their own. Insert-only: an existing
+// role there). The recipient must be a live device or identity of an active,
+// approved member; non-stewards may write only for their own. Insert-only: an existing
 // (container, recipient, generation) row is errEnvelopeExists, except the
 // caller's own identity, which may be re-wrapped but never first-written by a
 // non-steward (a steward or an invitation supplies the first one).
@@ -128,7 +128,7 @@ func insertEnvelopeTx(tx *sql.Tx, cid string, generation int64, caller, role str
 		return errGenerationMoved
 	}
 	var owner, platform string
-	err := tx.QueryRow(`SELECT d.user_id,d.platform FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.id=? AND d.revoked_at=''`, cid, v.DeviceID).Scan(&owner, &platform)
+	err := tx.QueryRow(`SELECT d.user_id,d.platform FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=? AND m.revoked_at='' AND m.approved=1 JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.id=? AND d.revoked_at=''`, cid, v.DeviceID).Scan(&owner, &platform)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errEnvelopeInvalid
 	}
@@ -192,11 +192,11 @@ func putGenerationTx(tx *sql.Tx, cid string, current, requested int64) (int64, e
 // an envelope at the generation. Args: user, container, generation.
 const ownIdentityEnvelopeSQL = `SELECT EXISTS(SELECT 1 FROM key_envelopes e JOIN devices d ON d.id=e.device_id AND d.platform='identity' AND d.revoked_at='' AND d.user_id=? WHERE e.container_id=? AND e.key_generation=?)`
 
-// uncoveredIdentitiesSQL counts active members' identities without an envelope
+// uncoveredIdentitiesSQL counts active, approved members' identities without an envelope
 // at the generation. Args: container, generation.
-const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND d.revoked_at='' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
+const uncoveredIdentitiesSQL = `SELECT COUNT(*) FROM devices d JOIN memberships m ON m.user_id=d.user_id AND m.container_id=?1 AND m.revoked_at='' AND m.approved=1 JOIN users u ON u.id=d.user_id AND u.status='active' WHERE d.platform='identity' AND d.revoked_at='' AND NOT EXISTS(SELECT 1 FROM key_envelopes e WHERE e.container_id=?1 AND e.device_id=d.id AND e.key_generation=?2)`
 
-func TeamKeyRoutes(mux *http.ServeMux, db *sql.DB) {
+func TeamKeyRoutes(mux RouteMux, db *sql.DB) {
 	mux.Handle("POST /api/v1/containers/{id}/key-rotations", auth.RequireUserActionStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -373,12 +373,13 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 	return nil
 }
 
-// retireKeysTx advances key_generation in every keyed container userID is a live member of, as a
+// retireKeysTx advances key_generation in every keyed container userID is a live, approved member of
+// (an unapproved member never held a key), as a
 // member removal does: a self-service reset may follow a stolen browser, so the old identity's
 // keys must open nothing written afterwards. The new generation has no envelopes; writes wait
 // until a steward mints it. It returns how many containers it retired.
 func retireKeysTx(tx *sql.Tx, userID, now string) (int64, error) {
-	const scope = `(SELECT container_id FROM memberships WHERE user_id=?1 AND revoked_at='')`
+	const scope = `(SELECT container_id FROM memberships WHERE user_id=?1 AND revoked_at='' AND approved=1)`
 	res, err := tx.Exec(`UPDATE containers SET key_generation=key_generation+1,change_seq=change_seq+1,updated_at=?2 WHERE shared_generation>0 AND deleted_at='' AND id IN `+scope, userID, now)
 	if err != nil {
 		return 0, err
@@ -393,8 +394,10 @@ func retireKeysTx(tx *sql.Tx, userID, now string) (int64, error) {
 // role, recording invitedBy (empty for a server-admin add). Rows a removal revoked
 // are reactivated (the unique index keeps one row per container and user) and
 // keep no keys; errMembershipExists when any row in the team scope is live.
-// readmit reports that a revoked row came back.
-func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy, now string) (readmit bool, err error) {
+// readmit reports that a revoked row came back. approved is false only for the
+// server-admin add: that member holds the viewer role and no key until a steward
+// approves it, and role is kept as its pending_role (0027_pending_viewer.sql).
+func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy string, approved bool, now string) (readmit bool, err error) {
 	var live int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM memberships WHERE user_id=?1 AND revoked_at='' AND container_id IN (SELECT id FROM containers WHERE id=?2 OR team_id=?2)`, userID, cid).Scan(&live); err != nil {
 		return false, err
@@ -403,11 +406,15 @@ func admitMemberTx(tx *sql.Tx, cid, userID, role, invitedBy, now string) (readmi
 		return false, errMembershipExists
 	}
 	const scope = `(SELECT id FROM containers WHERE (id=?2 OR team_id=?2) AND deleted_at='')`
+	effective, pending := role, ""
+	if !approved {
+		effective, pending = "viewer", role
+	}
 	for i, q := range []string{
-		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5 WHERE user_id=?1 AND container_id IN ` + scope,
-		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
+		`UPDATE memberships SET role=?3,created_at=?4,revoked_at='',invited_by=?5,approved=?6,pending_role=?7 WHERE user_id=?1 AND container_id IN ` + scope,
+		`INSERT INTO memberships(id,container_id,user_id,role,created_at,invited_by,approved,pending_role) SELECT 'mem_' || lower(hex(randomblob(12))),c.id,?1,?3,?4,?5,?6,?7 FROM containers c WHERE c.id IN ` + scope + ` AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.container_id=c.id AND m.user_id=?1)`,
 	} {
-		res, err := tx.Exec(q, userID, cid, role, now, invitedBy)
+		res, err := tx.Exec(q, userID, cid, effective, now, invitedBy, approved, pending)
 		if err != nil {
 			return false, err
 		}

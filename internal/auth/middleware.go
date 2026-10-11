@@ -19,7 +19,14 @@ type Device struct{ ID, UserID string }
 
 var deviceLockout = NewLockout(10, 15*time.Minute, 50000)
 
-func RequireSession(db *sql.DB, next http.Handler) http.Handler {
+const (
+	KindEveryday = "user"
+	KindAdmin    = "admin"
+)
+
+// RequireAccount admits a live session of either kind, also one whose password must still change.
+// Only the account's own routes use it: session, logout, password change and step-up.
+func RequireAccount(db *sql.DB, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, err := ResolveSession(db, r, time.Now().UTC())
 		if err != nil {
@@ -30,22 +37,49 @@ func RequireSession(db *sql.DB, next http.Handler) http.Handler {
 	})
 }
 
-func RequireFresh(db *sql.DB, next http.Handler) http.Handler {
-	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s, _ := SessionFromContext(r)
-		if time.Since(s.CreatedAt) >= 5*time.Minute {
-			WriteAuthError(w, "forbidden", "re-authentication required")
+// RequireSession admits an everyday session on its own password: every content route.
+func RequireSession(db *sql.DB, next http.Handler) http.Handler {
+	return RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s, _ := SessionFromContext(r); refuseSession(w, s, KindEveryday) {
 			return
 		}
 		next.ServeHTTP(w, r)
 	}))
 }
 
+// RequireEveryday admits an everyday session even while its password must change. Only
+// GET /api/v1/me/identity uses it: the change screen reads the live identity before the change.
+func RequireEveryday(db *sql.DB, next http.Handler) http.Handler {
+	return RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s, _ := SessionFromContext(r); refuseSession(w, Session{AccountKind: s.AccountKind}, KindEveryday) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// refuseSession answers for a session of the wrong kind, or one whose password someone else set.
+func refuseSession(w http.ResponseWriter, s Session, kind string) bool {
+	switch {
+	case s.AccountKind != kind && kind == KindEveryday:
+		WriteAuthError(w, "admin_account", "administrator accounts cannot open notes; sign in with your everyday account")
+	case s.AccountKind != kind:
+		WriteAuthError(w, "forbidden", "administrator access required")
+	case s.PasswordChangeRequired:
+		WriteAuthError(w, "password_change_required", "change the password an administrator set first")
+	default:
+		return false
+	}
+	return true
+}
+
 func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
-	return RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
-		role, err := SessionRole(db, s)
-		if err != nil || role != "admin" {
+		if refuseSession(w, s, KindAdmin) {
+			return
+		}
+		if role, err := SessionRole(db, s); err != nil || role != "admin" {
 			WriteAuthError(w, "forbidden", "administrator access required")
 			return
 		}
@@ -57,7 +91,7 @@ func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
 // A local role edit or another login cannot turn a user-scoped SSO token into admin.
 func SessionRole(db *sql.DB, s Session) (string, error) {
 	var role string
-	err := db.QueryRow(`SELECT CASE WHEN u.role='admin' AND (s.sso_issuer='' OR s.sso_app_admin=1) THEN 'admin' ELSE 'user' END
+	err := db.QueryRow(`SELECT CASE WHEN u.role='admin' AND u.account_kind='admin' AND (s.sso_issuer='' OR s.sso_app_admin=1) THEN 'admin' ELSE 'user' END
  FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.id=? AND u.id=? AND s.revoked_at='' AND u.status='active'`, s.ID, s.UserID).Scan(&role)
 	return role, err
 }
@@ -152,6 +186,9 @@ func RequireEither(db *sql.DB, next http.Handler) http.Handler {
 			}
 		}
 		if s, e := ResolveSession(db, r, time.Now().UTC()); e == nil {
+			if refuseSession(w, s, KindEveryday) {
+				return
+			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, s)))
 			return
 		}
@@ -166,8 +203,10 @@ func WriteAuthError(w http.ResponseWriter, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	status := http.StatusUnauthorized
 	switch code {
-	case "forbidden", "step_up_required":
+	case "forbidden", "step_up_required", "admin_account":
 		status = http.StatusForbidden
+	case "password_change_required":
+		status = http.StatusConflict
 	case "rate_limited":
 		status = http.StatusTooManyRequests
 	case "payload_too_large":
@@ -185,7 +224,7 @@ func resolveDevice(db *sql.DB, r *http.Request) (Device, bool) {
 	var d Device
 	var stored, status, revoked string
 	now := time.Now().UTC()
-	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=? AND d.platform<>'identity' AND (d.sso_session_id='' OR EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.sso_session_id AND s.user_id=d.user_id AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>?))`, id, now.Format(time.RFC3339), now.Format(time.RFC3339)).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
+	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id AND u.account_kind='user' WHERE d.id=? AND d.platform<>'identity' AND (d.sso_session_id='' OR EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.sso_session_id AND s.user_id=d.user_id AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>?))`, id, now.Format(time.RFC3339), now.Format(time.RFC3339)).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
 		return Device{}, false
 	}
 	key := id + "\x00" + clientIP(r)

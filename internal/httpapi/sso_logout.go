@@ -12,7 +12,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
-func registerSSOLogout(mux *http.ServeMux, db *sql.DB, store *sso.Store, cfg config.Config) {
+func registerSSOLogout(mux RouteMux, db *sql.DB, store *sso.Store, cfg config.Config) {
 	failures := newLimiter()
 	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
 	reject := func(w http.ResponseWriter, r *http.Request, status int, message string) {

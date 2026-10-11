@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser team keys check (`npm run e2e`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser checks (`npm run e2e`: team keys and `web/e2e/admin-separation.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 
 ## Shared browser UI
@@ -68,10 +68,32 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
 - `internal/app` owns the `.kynotes.lock` data-directory lock and first-run
-  admin bootstrap (`BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the admin only when
-  no users exist; otherwise the web UI prompts, or use `user add`);
+  bootstrap: only when no users exist, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the administrator
+  account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS` the everyday account (different
+  usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, or use
+  `user add [--admin | --everyday]` (default everyday, flagged). Start-up logs `no_active_admin` with the
+  CLI remedy in the message when accounts exist but no active administrator account does (`WarnWithoutAdmin`,
+  `TestServeWarnsWithoutAdmin`). The probe refuses an administrator account at login;
   maintenance backup refuses to copy a live data directory and restore runs an integrity
   check after replacement.
+- Migration `0026_account_kinds.sql`: `users.account_kind` (`user`/`admin`, fixed) and
+  `memberships.approved`; triggers refuse the admin grant on an everyday account and any membership,
+  owned container, device or `user_identities` row (whose device must be the same everyday account's)
+  for anything but an existing everyday account, on insert and re-point. Upgrade keeps mixed administrators' content and drops their grant. Every path
+  that creates an administrator sets `account_kind='admin'`. Verify `TestAccountKinds*`,
+  `TestMixedAdminsKeepTheirNotesAndDropAdmin`, `TestAdminCreatesATeamForAnEverydayOwner`.
+- Account kinds in `internal/auth` (default-deny): `RequireSession`, `RequireEither` and device
+  credentials admit everyday accounts only (`403 admin_account`); `RequireAdmin`/`RequireStepUp` admit
+  admin accounts only; `RequireAccount` (session, logout, logout-all, password change, step-ups) admits
+  both; `RequireEveryday` serves only `GET /me/identity`. A password session on a password someone else
+  set (`password_admin_known`) gets `409 password_change_required` everywhere but those account routes
+  and the identity read. A new route needs a class: route functions register on `RouteMux`, `buildRoutes`
+  records every pattern actually registered, and `internal/httpapi/account_kinds_test.go` fails on any
+  pattern without a standard method or with a host (catch-alls `/`, `/api/`, `/api/v1/` excepted) and
+  drives every other one, API or not, with both kinds and fenced sessions; public, account and device
+  routes are listed there. Verify `TestEveryServedRouteIsClassified`, `TestEveryRouteRefusesTheOtherKind`,
+  `TestEveryAccountRouteServesBothKindsUnfenced`, `TestPasswordChangeIsForcedAtFirstSignIn`,
+  `TestAdminAccountsCannotPairDevices`, `TestKindGatesHoldWithoutTheTriggers`, `TestRefuseSessionKeepsKindsApart`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
@@ -106,7 +128,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   The document loader converts the prior encrypted Tiptap JSON envelope to
   BlockNote blocks on read so existing formatting survives editor remounts.
   The workspace surface
-  labels notebooks explicitly, and the admin surface uses tabbed
+  labels notebooks explicitly, and the administrator console (`components/AdminConsole.tsx`) uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
   seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
@@ -164,11 +186,32 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
-- `POST /api/v1/admin/teams` is the explicit admin team-creation path; it
-  creates the owner membership and records `admin.team.create`. It takes no name
-  (`400` for a non-empty `metaCiphertext`); the owner's browser seals one after the first
-  key. The admin list carries name ciphertext that administrator pages never decrypt (they show
-  only names this browser sealed); it passes through `observeContainers` for the key floors.
+- `POST /api/v1/admin/teams {"ownerUserId"}` (admin step-up) is the explicit admin team-creation path; the
+  team belongs to that active everyday account (the administrator gets no membership) and records
+  `admin.team.create` (object = owner). It takes no name; the owner's browser seals one after the first
+  key. `GET /admin/teams` carries no name ciphertext. The admin member add (step-up) takes an active everyday
+  account as `editor`, `commenter` or `viewer` only. `POST /admin/users` takes `accountKind`; `PATCH` refuses
+  the grant on an everyday account (`409 account_kind_mismatch`). Verify `TestAdminUserRoutesKeepKindsApart`,
+  `TestAdminTeamAccessNeedsStepUpAndListsNoNames`.
+- Steward approval: administrator-added members have `memberships.approved=0` and the `viewer` role, the requested
+  role in `pending_role` (`0027_pending_viewer.sql` triggers keep the three consistent), so no write or delete reaches
+  them; attach, detach and conflict resolve need owner, admin or editor (`TestOnlyWritersAttachDetachAndResolve`) (child workspaces copy it;
+  readmission resets it) and get no envelope, are not required by rotation and retire nothing on a key reset
+  until an approved owner or admin of the team calls `POST /containers/{id}/members/{userID}/approve`
+  (audit `container.member_approve`). The members list reports `approved`; the browser's `planSweep` skips
+  unapproved members and stewards see an approve banner. Verify `TestAdminAddedMembersWaitForApproval`,
+  `TestInvitedMembersAreApproved`, `keyring.test.ts` and `workspaceWiring.test.ts`.
+- SSO account kinds (`ssoKindRefusal`): `kynotes.admin` signs in only to an administrator account and an
+  administrator account only with it (`403 admin_account_not_provisioned`, `admin_role_on_everyday_account`,
+  `admin_role_required`, audited `auth.sso_admin_refused`); automatic provisioning creates everyday accounts
+  only. Directory sync decides the kind at creation and later moves only the grant (an everyday account's is
+  refused, `role_refused=everyday_account`); readback reports `accountKind`; `apply-setup` reports `conflict`
+  for an identity bound to an everyday account. Verify `TestSSOKindsFollowTheToken`,
+  `TestDirectoryNeverGrantsAdminToEverydayAccounts`, `TestDecideAdmin`, `TestApplyAdminNeverPromotesAnEverydayAccount`.
+- Web account kinds: `/setup` takes both accounts (`setup.ts` compares them; the server never sees either
+  password); `App` routes a `passwordChangeRequired` session to `ChoosePassword` and an administrator session
+  to `components/AdminConsole.tsx` before the workspace. The console imports no key, vault, notebook or content
+  crypto module and keeps no vault record (`adminSeparation.test.ts`); the workspace has no admin view.
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
@@ -256,9 +299,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
   The login dummy verifier retries a failed mint; it must never cache or use an empty hash.
-- Backup/recovery mutations, `POST /api/v1/admin/users` and
-  `POST /api/v1/admin/users/{id}/password` use `auth.RequireStepUp`, so a stolen admin
-  cookie cannot mint local credentials. Local sessions re-prove their
+- Backup/recovery mutations, `POST /api/v1/admin/users`,
+  `POST /api/v1/admin/users/{id}/password` and the SSO settings mutations (`POST /admin/sso`,
+  `/admin/sso/pair`, verify `TestAdminSSOAndPairing`) use `auth.RequireStepUp`, so a stolen admin
+  cookie cannot mint local credentials. The SSO client and directory HMAC secrets are write-only:
+  admin responses carry only `clientSecretSet`/`hmacSecretSet` (`ssoView`); an empty field on save keeps
+  the stored secret only for the same issuer (and client, for the client secret), otherwise a new one or
+  `clearClientSecret`/`clearHmacSecret` is required (`mergeSSOSecrets`). Database, transport and remote
+  errors reach clients only as fixed messages; `writeLogged` logs the detail (OIDC login/callback,
+  KySignOn pairing: status code only). Verify `TestDatabaseErrorsNeverReachTheClient`,
+  `TestProviderErrorsNeverReachTheClient`, `TestMergeSSOSecretsKeepsOnlyForTheSameTarget`. Local sessions re-prove their
   derived login secret at `POST /api/v1/auth/step-up` for `auth.StepUpWindow`.
   SSO sessions require a single-use challenge bound to session/method/URI/content-type/body,
   with fresh signed auth_time and ordinary assurance through the existing PKCE callback.
@@ -305,9 +355,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   local administrator through upgrade; resync explicit `kynotes.admin` assignments.
   OIDC ignores singular/global role claims and stores a verified app-admin ceiling
   on each session. `auth.SessionRole` is shared by admin guards and session responses;
-  SSO admin needs both that ceiling and local account permission. Directory roles
+  SSO admin needs both that ceiling and an administrator account with the grant. Directory roles
   map only exact `kynotes.admin` from strings or SCIM value objects to admin;
-  unrelated/missing/malformed role data grants nothing, never blocks login or deactivation.
+  unrelated/missing/malformed role data grants nothing and never blocks deactivation; it blocks an
+  administrator account's login (`admin_role_required`).
   Active demotion retains the last active admin's local grant with `admin_retained=true`
   in the audit, but still revokes credentials and requires the OIDC ceiling. Inactive
   events always disable/revoke, and never preserve an active administrator.
@@ -363,7 +414,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   wrapped identity in one transaction bound to the hash they verified; a change in between gets
   401, no cookie, no step-up and no wrapped key (`Test*RejectsConcurrentPasswordChange`).
   `users.password_admin_known` (admin create/reset, bootstrap, `user add`; cleared by own change or
-  recovery) makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
+  recovery) fences the session (account kinds bullet) and, inside identity actions, makes `PUT` and every local identity-action step-up (`auth.RecheckUserStepUpTx`: envelope `PUT`, rotation,
   invitation keys) answer `409 password_change_required`; the browser then creates the identity
   after the user's own password change. Any new path that sets a password for someone else must
   set the flag. `/setup` accepts only `authSecret`. A password change needs no content warning
@@ -594,7 +645,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   identity, keyService, outbound, DeviceLink) and `npm run e2e --prefix web`.
 
 - Team keys P5: personal keys and the recovery code. Every notebook is keyed at creation (`main.tsx`
-  `createNamed`, also for administrator-created teams); one whose first key was never minted is read-only
+  `createNamed`; an administrator-created team is keyed and named by its everyday owner); one whose first key was never minted is read-only
   until its owner's next open mints it; `planSweep` has no `blocked` plan and refuses a first key while the caller's
   identity is not `recoverable` (password or recovery-code copy); no key module reads `kind` or `teamId`
   (structure test). Waiting edits seal with `waitingKey` (HKDF `kynotes/waiting/v1` over the identity).
@@ -604,7 +655,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `recovery` bucket at `pairing_per_hour` (`ponytail:` in `ratelimit.go`). `PUT /me/identity` with
   `replace` and `expectedDeviceId` is the self-service reset: one transaction swaps the identity, its
   recovery copy and (password users) its password copy, revokes other sessions and paired devices with
-  their envelopes, advances `key_generation` in every keyed container the user belongs to (`retireKeysTx`,
+  their envelopes, advances `key_generation` in every keyed container where the user is an approved member (`retireKeysTx`,
   as a removal; stewards mint the next key), refuses the old key and audits `identity.reset`
   (`containers_retired=N`), at most `identityResetsPerDay` (3) a rolling day (`429`); members lists give stewards
   `keyResetAt`; a minting sweep also wraps history in that pass. Verify `TestIdentityReset*`,

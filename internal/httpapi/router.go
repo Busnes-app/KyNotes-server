@@ -14,8 +14,36 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/web"
 )
 
+// RouteMux is what route functions register on. *http.ServeMux satisfies it; NewRouter passes a
+// recordingMux so the route inventory test reads what is actually served.
+type RouteMux interface {
+	Handle(pattern string, handler http.Handler)
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
+type recordingMux struct {
+	*http.ServeMux
+	patterns []string
+}
+
+func (m *recordingMux) Handle(pattern string, handler http.Handler) {
+	m.patterns = append(m.patterns, pattern)
+	m.ServeMux.Handle(pattern, handler)
+}
+
+func (m *recordingMux) HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
+	m.Handle(pattern, http.HandlerFunc(handler))
+}
+
 func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any) http.Handler {
-	mux := http.NewServeMux()
+	mux, cfg, db := buildRoutes(ready, extras...)
+	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
+	return SecurityHeaders(MiddlewareWithProxies(log, max, proxies)(AccessLog(log, rateLimitMiddleware(cfg, db, mux.ServeMux))))
+}
+
+// buildRoutes registers every network route; the returned mux lists each pattern registered.
+func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config, *sql.DB) {
+	mux := &recordingMux{ServeMux: http.NewServeMux()}
 	var db *sql.DB
 	var blobs *blobstore.Store
 	var cfg config.Config
@@ -86,6 +114,5 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 		}
 		static.ServeHTTP(w, r)
 	}))
-	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
-	return SecurityHeaders(MiddlewareWithProxies(log, max, proxies)(AccessLog(log, rateLimitMiddleware(cfg, db, mux))))
+	return mux, cfg, db
 }

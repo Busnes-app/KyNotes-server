@@ -50,6 +50,14 @@ revision and attributed audit. The setup/upgrade path and OIDC-only explicit loc
 grant option are in docs/SSO.md. Verify role claims, versioned loss/re-grant,
 rollback and pre-0018 upgrade in the app-role tests. Action-bound fresh OIDC
 reauthentication for existing backup/recovery guards is described below; live acceptance is open.
+Account kinds at sign-in (`ssoKindRefusal`, verify `TestSSOKindsFollowTheToken`): a token with
+`kynotes.admin` signs in only to an administrator account and an administrator account only with it;
+each refusal is `403` with the code in §1.7, mints no session and is audited `auth.sso_admin_refused`.
+A subject with no account and no role is provisioned as an everyday account (`account_kind='user'`).
+Directory creation sets the kind from the first event's role; later events move only the grant, and a
+grant for an everyday account is stored as `user`, revokes nothing and is audited
+`role_refused=everyday_account` (`TestDirectoryNeverGrantsAdminToEverydayAccounts`). Readback reports
+`accountKind` (`""` when absent). `apply-setup` reports `conflict` for an identity bound to an everyday account.
 
 
 Lifecycle extension for issue 13, fresh-authorization stage: migration 0019 binds
@@ -355,12 +363,17 @@ user data.
 | `sso_sign_in_required` | 409 | a local session asked for something only a KySignOn confirmation can authorize (changing an administrator-set password on an SSO-linked account); no `challenge`: sign in with KySignOn and retry |
 | `step_up_pending` | 409 | the session has a KySignOn confirmation in progress; carries its `challenge` ID; a new challenge is not minted until it is used, cancelled or expires |
 | `forbidden` | 403 | authenticated but not authorized for this container/object |
+| `admin_account` | 403 | an administrator account reached a content route |
+| `admin_account_not_provisioned` | 403 | an OIDC sign-in carrying `kynotes.admin` for a subject with no account; automatic provisioning never creates an administrator account |
+| `admin_role_on_everyday_account` | 403 | an OIDC sign-in carrying `kynotes.admin` for a subject bound to an everyday account |
+| `admin_role_required` | 403 | an OIDC sign-in without `kynotes.admin` for a subject bound to an administrator account |
+| `account_kind_mismatch` | 409 | the administrator grant was asked for an everyday account |
 | `not_found` | 404 | unknown ID, or an ID the caller may not know exists |
 | `method_not_allowed` | 405 | |
 | `version_conflict` | 409 | `baseVersion` != current version; a conflict record was preserved |
 | `already_exists` | 409 | idempotency or uniqueness violation; also a moved key generation, an existing envelope, or `key rotation incomplete` (§5, §9); a content write or name change without `X-Kynotes-Key-Scheme: shared-v2` (`this notebook uses shared keys: reload the page`) |
 | `identity_exists` | 409 | the account already has an identity (`PUT /me/identity`) |
-| `password_change_required` | 409 | an administrator knows the password; the user must change it before a local step-up can create an identity, write envelopes, rotate keys or send invitation keys |
+| `password_change_required` | 409 | a password session on a password someone else set reached any route other than session, logout, logout-all, password change, step-up or `GET /me/identity`; P5's identity fence still applies inside identity actions |
 | `identity_rewrap_required` | 409 | a password change omitted or mismatched the re-wrapped identity |
 | `pairing_token_used` | 409 | pairing nonce already redeemed |
 | `gone` | 410 | upload session expired or object hard-deleted |
@@ -383,17 +396,21 @@ probing for object existence across accounts.
 | Route class | Session | Device credential | Step-up |
 |---|---|---|---|
 | Login, login-params, recovery | none | none | — |
+| Account (session, logout, logout-all, password, step-up, OIDC step-up) | required, either kind | rejected | — |
 | Device list, revoke, pairing-token mint | required | rejected | fresh session (< 5 min since login) for mint and revoke |
 | Device registration (redeem pairing token) | none | none (mints one) | pairing token |
 | Envelope write and key rotation (`PUT .../envelopes`, `POST .../key-rotations`) | required | rejected | CSRF + fresh step-up (`RequireUserActionStepUp`): local `stepup_at` within `StepUpWindow`, or an SSO KySignOn grant bound to this request (user scope); rechecked in the write transaction |
 | Envelope read (`GET .../envelopes`) | either | either | a device may read only envelopes sealed for **itself** |
 | Container/object/attachment sync | either | either | — |
-| Admin (quota, GC, backup) | required, role `admin` | rejected | fresh session |
+| Admin (quota, GC, backup) | required, an admin account with role `admin` | rejected | admin step-up (`RequireStepUp`) for credential, team, backup and SSO settings mutations (`POST /admin/sso`, `/admin/sso/pair`) |
 | Own identity (`GET`/`PUT /me/identity`) | required | rejected | `PUT`: CSRF + fresh step-up as above; local sessions create `aes-256-gcm`, SSO sessions `none` (device-only) |
 | Device link relay (`/me/link-requests…`) | required | rejected | CSRF on mutations; approve: fresh step-up (`RequireUserActionStepUp`), rechecked in the transaction |
 
-"Fresh session" = `now - session.created_at < 5 * time.Minute`, else `403
-forbidden` with message `re-authentication required`.
+Content route classes admit everyday accounts only (`403 admin_account`); admin routes admit admin accounts only.
+Every pattern the network router registers is recorded as it is registered (`internal/httpapi`
+`recordingMux`, filled by `buildRoutes`); the inventory test fails on a pattern without a standard
+method or with a host, and drives every other one with both kinds and with fenced sessions, so a route
+cannot be added unclassified.
 
 ### 1.9 Configuration contract
 
@@ -574,6 +591,7 @@ Rules:
 * No `CREATE TABLE IF NOT EXISTS` as a migration strategy. KyPost's own comments
   record why that path required a separate additive-column mechanism; do not
   repeat it.
+* `0026_account_kinds.sql`: account kinds, mixed-account upgrade, approval flag, content triggers.
 
 **SQLite DSN** — frozen:
 
@@ -1030,6 +1048,15 @@ CREATE TABLE idempotency_keys (
 CREATE INDEX idx_idempotency_created ON idempotency_keys(created_at);
 ```
 
+Migration 0026 adds `users.account_kind` (`'user'` everyday or `'admin'` administrator, fixed at
+creation: trigger `account_kind_fixed`) and `memberships.approved` (default 1). `role='admin'` needs an
+admin account (`admin_role_needs_admin_account`); `memberships`, `containers.owner_user_id` and
+`devices` (identities included) need an existing everyday account, on insert and on any re-point
+(`admin_account_holds_no_content`). On upgrade an administrator with a membership (revoked included),
+an identity or an owned container keeps it as an everyday account and loses the grant; other
+administrators become admin accounts and lose their device credentials. Each is audited
+`account.kind_upgrade` (`kind=admin` or `kind=user,admin_dropped=true`).
+
 `audit_events` has **no free-text detail column**. Anything worth recording is
 an enum in `event` or `reason_code`. This is how "audit records must remain
 content-blind" (LOGGING.md) is enforced structurally rather than by discipline.
@@ -1139,7 +1166,7 @@ internal/auth/hash.go          # HashAuthSecret, VerifyAuthSecret, kdf slot sema
 internal/auth/session.go       # mint, resolve, slide, revoke, sweep
 internal/auth/lockout.go       # failureLockout: tryAttempt, cancelAttempt, recordSuccess, sweep, shed
 internal/auth/recovery.go
-internal/auth/middleware.go    # RequireSession, RequireDevice, RequireEither, RequireFresh, RequireAdmin
+internal/auth/middleware.go    # RequireAccount, RequireSession, RequireEveryday, RequireDevice, RequireEither, RequireAdmin, RequireStepUp
 internal/httpapi/auth_routes.go
 internal/storage/migrations/0002_auth.sql   # only if Phase 3 needs a column 0001 lacks
 ```
@@ -1153,9 +1180,10 @@ the test hook can never silently become production.
 | Method | Path | Credential | Body → Response |
 |---|---|---|---|
 | POST | `/api/v1/auth/login-params` | none | `{"username":"..."}` → `{"loginSalt":"<b64>","iterations":600000}` |
-| POST | `/api/v1/auth/login` | none | `{"username":"...","authSecret":"<hex64>"}` → sets cookies, `{"user":{"id":"usr_...","role":"user"}}`, plus `"identity":{deviceId,publicKey,fingerprint,wrapAlg,wrappedPrivateKey}` (`no-store`) when one exists |
+| POST | `/api/v1/setup` | none | `{"admin":{"username","authSecret","loginSalt","iterations"},"everyday":{…}}` → creates the administrator account and the everyday account in one transaction, both unflagged (the person at setup chose both passwords), audit `setup.initialized`, and a session for the administrator: `{"ok":true,"user":{"id","role":"admin","accountKind":"admin","username"},"everyday":{"id","username"},…}`; `400` for the old body, a missing account or equal usernames; `403 setup_completed` once any account exists (checked inside the transaction) |
+| POST | `/api/v1/auth/login` | none | `{"username":"...","authSecret":"<hex64>"}` → sets cookies, `{"user":{"id":"usr_...","role":"user","accountKind":"user"},"passwordChangeRequired":false}`, plus `"identity":{deviceId,publicKey,fingerprint,wrapAlg,wrappedPrivateKey}` (`no-store`) when an everyday account has one (administrator accounts never) |
 | POST | `/api/v1/auth/step-up` | session + CSRF | `{"authSecret"}` → `204`, or `200 {"identity":{...}}` (as login) for a local session whose user has an identity; shares the per-user/IP lockout with `POST /auth/password` |
-| GET | `/api/v1/auth/session` | session | → `{"user":{...},"expiresAt":"...","hardExpiresAt":"..."}` |
+| GET | `/api/v1/auth/session` | session | → `{"user":{"id","role","username","accountKind"},"passwordChangeRequired":bool,"sso":bool,"expiresAt":"...","hardExpiresAt":"..."}` |
 | POST | `/api/v1/auth/logout` | session + CSRF | → `204`, clears both cookies, revokes the row |
 | POST | `/api/v1/auth/logout-all` | session + CSRF + fresh | → `204`, revokes every session for the user |
 | POST | `/api/v1/auth/recover` | none | `{"username","recoveryCode","newAuthSecret","newLoginSalt","iterations","newRecoveryCode"}` → `204` |
@@ -1177,11 +1205,14 @@ Recovery, when it succeeds, does all of this in one transaction:
 
 ### 4.3 Middleware semantics
 
-* `RequireSession` — resolves the cookie, hashes it, looks up by `token_hash`,
+* `RequireAccount` — resolves the cookie, hashes it, looks up by `token_hash`,
   rejects when `revoked_at != ""`, `now > expires_at`, or `now >
   hard_expires_at`. Slides `expires_at` only when it has moved by at least
   `sessionSlideGranularity`. Loads the user and rejects when `status !=
-  "active"`.
+  "active"`. Either kind; only the account routes (§1.8) use it.
+* `RequireSession` — `RequireAccount`, then refuses an admin account (`403 admin_account`) and a password
+  session on a password someone else set (`409 password_change_required`). Every content route.
+* `RequireEveryday` — `RequireAccount` plus the kind check, without the password fence; only `GET /me/identity`.
 * `RequireDevice` — §1.5 headers; resolves the device, checks lockout **after**
   resolving the device ID to a real row (resolving first is what stops an
   anonymous caller from minting lockout entries for invented IDs), verifies the
@@ -1189,9 +1220,11 @@ Recovery, when it succeeds, does all of this in one transaction:
   *correct* secret on a revoked device or disabled account calls
   `cancelAttempt`, not a bare return — the strike goes back, so a legitimate
   client is not backed off forever for a condition it cannot fix by retrying.
-* `RequireEither` — tries device headers first, then session; never both.
-* `RequireFresh` — §1.8.
-* `RequireAdmin` — session with `users.role = "admin"`.
+* `RequireEither` — tries device headers first, then session (with `RequireSession`'s checks); never both.
+  Device credentials of admin accounts never resolve (`RequireDevice` too), and registration refuses
+  an admin account's pairing token.
+* `RequireAdmin` — `RequireAccount`, then an admin account (`403 forbidden`), the password fence, and
+  `users.role = "admin"` (for SSO sessions also the verified app-admin ceiling).
 
 ### 4.4 Tests
 
@@ -1243,9 +1276,15 @@ deliberately every phase).
 |---|---|---|---|
 | GET | `/api/v1/containers` | either | containers the caller is a member of; device credential sees only its selected containers; each row carries `keyGeneration` and `sharedGeneration`; a query or scan error is `500`, never a partial `200` (clients treat a notebook missing from a `200` as lost) |
 | POST | `/api/v1/containers` | session + CSRF | `{"kind":"workbook\|project\|team","metaCiphertext":""}` → creates container + `owner` membership + `change_seq` 1; `metaCiphertext` must be empty (`400`); the name is sealed after the first key |
-| POST | `/api/v1/admin/teams` | session + CSRF, server admin | `{}` → creates a `team` container + the caller's `owner` membership, audited `admin.team.create`; `metaCiphertext` must be empty (`400`); the owner's browser seals the name after the first key |
+| POST | `/api/v1/admin/teams` | session + CSRF, server admin + step-up | `{"ownerUserId"}` → creates a team owned by that active everyday account, no membership for the caller; 400 malformed, 404 not an active everyday account; audit admin.team.create (object = owner) |
+| GET | `/api/v1/admin/teams` | session, server admin | `[{"id","ownerUserId","ownerUsername","memberCount","keyed","named"}]`; no name ciphertext: administrator pages hold no team keys |
+| POST | `/api/v1/admin/teams/{id}/members` | session + CSRF, server admin + step-up | `{"userId","role"}`: an active everyday account, role `editor`, `commenter` or `viewer` only (`400` for a steward role: only a steward's invitation makes a team admin); `404` unknown team or not an active everyday account; `409` live member; admits with `approved=0` |
+| POST | `/api/v1/admin/users` | session + CSRF, server admin + step-up | `{"username","authSecret","loginSalt","iterations","accountKind":"user"\|"admin"}` → `{"id"}`; role and kind both from `accountKind`, flagged (`password_admin_known=1`); audit `admin.user.create` reason `kind=<kind>` |
+| PATCH | `/api/v1/admin/users/{id}` | session + CSRF, server admin | `{"role","status","quotaBytes"}`; `404` unknown; `409 account_kind_mismatch` for `role:"admin"` on an everyday account |
+| GET | `/api/v1/admin/users` | session, server admin | rows carry `accountKind` |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n,"keyGeneration":n}` → §1.11 rules on `meta_version`; `keyGeneration` must equal the current generation of a container that has a key (missing, zero, old or future, or no key yet: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
-| GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role"}]`; to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
+| GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role","approved"}]` (`approved` bool; a pending member also carries `pendingRole`, and its `role` reads `viewer`); to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
+| POST | `/api/v1/containers/{id}/members/{userID}/approve` | session + CSRF, approved owner/admin of team `id` | 204; approves the member on the team and its child workspaces; `404` non-member, `403` non-steward; audit `container.member_approve` |
 | DELETE | `/api/v1/containers/{id}` | session + CSRF + fresh | soft delete, role `owner` only |
 | GET | `/api/v1/devices` | session | id, fingerprint, platform, created/last-seen, revoked; never the secret |
 | POST | `/api/v1/devices/pairing-token` | session + CSRF + fresh | → `{"token":"...","expiresAt":"...","deepLink":"kynotes://pair?..."}` |
@@ -1254,7 +1293,7 @@ deliberately every phase).
 | GET | `/api/v1/devices/{id}/containers` | session, or that device | selected container IDs |
 | PUT | `/api/v1/devices/{id}/containers` | session + CSRF, or that device | `{"containerIds":[...]}`, replaces the selection |
 | GET | `/api/v1/me/identity` | session | own identity, public only: `deviceId, publicKey, fingerprint, wrapAlg, recoveryId` (`""` when none)`, recoverySetAt`, and `passwordCopy: "addable"` when a reset stripped the password copy of an account without a KySignOn subject; `404` when absent; `no-store`. The wrapped key is returned only in local `POST /auth/login` and `POST /auth/step-up` bodies |
-| PUT | `/api/v1/me/identity` | session + CSRF + user-action step-up | create only: local `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`, SSO `{"publicKey","wrapAlg":"none"}` (each `400` from the other session kind); `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set (password wraps only); `{…as above…,"replace":true,"expectedDeviceId","recovery":{"wrapAlg","wrappedKey"}}` is the self-service reset (any session kind, the same password or device-only copy rule as a create): a compare-and-swap on the current identity (`expectedDeviceId`, `""` for none; another one is `409 already_exists`); in one transaction it deletes the old identity, its envelopes, copies and link requests, revokes the account's other sessions and device credentials and deletes their envelopes, advances `key_generation` (as a member removal) in every container with `shared_generation > 0` the user is a live member of, leaving the new generation without envelopes until a steward rotates (audit `identity.reset`, `sessions_revoked=N,devices_revoked=N,containers_retired=N`); at most 3 completed resets per account in a rolling 24 hours, counted from the `identity.create` `,reset` audit rows inside the reset transaction (`429 rate_limited` with `Retry-After` beyond that, nothing changed) and creates the new one with its recovery copy (`identity.create` reason ends `,reset`, plus the revoked counts when no identity existed); the old identity's own public key is `409 identity_exists`; create and reset share the per-account `recovery` bucket; `recovery` or `expectedDeviceId` without `replace`, or `replace` without both, is `400` |
+| PUT | `/api/v1/me/identity` | session + CSRF + user-action step-up | create only: local `{"publicKey","wrapAlg":"aes-256-gcm","wrappedPrivateKey"}`, SSO `{"publicKey","wrapAlg":"none"}` (each `400` from the other session kind); `409 identity_exists`; `409 password_change_required` while `users.password_admin_known` is set (password wraps only); `{…as above…,"replace":true,"expectedDeviceId","recovery":{"wrapAlg","wrappedKey"}}` is the self-service reset (any session kind, the same password or device-only copy rule as a create): a compare-and-swap on the current identity (`expectedDeviceId`, `""` for none; another one is `409 already_exists`); in one transaction it deletes the old identity, its envelopes, copies and link requests, revokes the account's other sessions and device credentials and deletes their envelopes, advances `key_generation` (as a member removal) in every container with `shared_generation > 0` the user is a live, approved member of, leaving the new generation without envelopes until a steward rotates (audit `identity.reset`, `sessions_revoked=N,devices_revoked=N,containers_retired=N`); at most 3 completed resets per account in a rolling 24 hours, counted from the `identity.create` `,reset` audit rows inside the reset transaction (`429 rate_limited` with `Retry-After` beyond that, nothing changed) and creates the new one with its recovery copy (`identity.create` reason ends `,reset`, plus the revoked counts when no identity existed); the old identity's own public key is `409 identity_exists`; create and reset share the per-account `recovery` bucket; `recovery` or `expectedDeviceId` without `replace`, or `replace` without both, is `400` |
 | PUT | `/api/v1/me/identity/recovery` | session + CSRF + user-action step-up | `{"deviceId","expectedRecoveryId","wrapAlg":"pbkdf2-sha256-600000/aes-256-gcm","wrappedKey":"<b64 76>"}` → `{"recoveryId"}`; compare-and-swap on the identity row and the recovery ID last seen (`""`: none yet), `409 already_exists` otherwise; a re-send of the byte-identical stored copy for the same identity (a lost response) is `200` with the current `recoveryId`, unchanged, audited `replayed`; `404` without an identity; `409 password_change_required` for a local session while `password_admin_known`; audit `identity.recovery.set` (`created`/`replaced`); per-account `recovery` bucket at `pairing_per_hour` (per IP without a session) |
 | POST | `/api/v1/me/identity/recovery/fetch` | session + CSRF + user-action step-up | no body → `{"deviceId","publicKey","recoveryId","wrapAlg","wrappedKey"}`; the same `404` without an identity or without a copy; `409 password_change_required` for a local session while `password_admin_known`; `no-store`; audit `identity.recovery.fetch` (`recovery=<id>`; a miss is `denied`/`none`); same bucket. An SSO browser holding no identity steps up with a KySignOn confirmation of this exact request. The copy is in no other response |
 | GET | `/api/v1/containers/{id}/envelopes` | either | session: all envelopes for the container. device: **only** the row where `device_id` is the calling device |
@@ -1409,7 +1448,7 @@ deliberately every phase).
 | DELETE | `/api/v1/objects/{id}` | — | soft delete, releases attachment refs |
 | GET | `/api/v1/objects/{id}/conflicts` | — | list of conflict records (metadata only: id, versions, bytes, `keyGeneration`, timestamps, resolved) |
 | GET | `/api/v1/conflicts/{id}` | — | the rejected ciphertext |
-| POST | `/api/v1/conflicts/{id}/resolve` | — | sets `resolved_at`; the blob becomes GC-eligible |
+| POST | `/api/v1/conflicts/{id}/resolve` | — | owner, admin or editor (`403` otherwise); sets `resolved_at`; the blob becomes GC-eligible |
 | GET | `/api/v1/containers/{id}/changes` | — | `?since=&limit=`, §1.11 |
 
 Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
@@ -1495,7 +1534,7 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 | HEAD | `/api/v1/containers/{id}/attachments/by-digest/{digest}` | `200` if that digest is already in **this** container, else `404` |
 | GET | `/api/v1/attachments/{id}` | ciphertext stream, supports `Range` |
 | GET | `/api/v1/attachments/{id}/preview` | preview ciphertext stream |
-| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref |
+| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref; owner, admin or editor (`403` otherwise), as is detaching it |
 | DELETE | `/api/v1/objects/{id}/attachments/{attachmentId}` | removes refs for that object |
 
 ### 7.2 Rules
@@ -1706,7 +1745,7 @@ Rules:
   read inside that transaction: a consumed, expired, void or other account's
   invitation is `404`. A live membership anywhere in the team scope is `409`;
   rows a removal revoked are reactivated with the invitation's role and no keys.
-  The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` from the parent membership.
+  The server-admin add route admits the same way (`admitMemberTx`): `400` for a malformed ID, `404` for an unknown team or user, `409` for a live member, `500` for a database fault, each distinct, with its audit in the transaction. Accept audits `container.member_accept` (object: inviter, reason `role=…,readmit=…`) in the same transaction. A refused accept or add is audited after the rolled-back transaction with outcome `denied` (`failure` for a 500) and the response code as its reason; a refused accept names only the invitation ID, never the team or inviter. Removal also deletes the removed member's pending invitations, for the team and its child workspaces, and the pending invitations the removed member issued. Child workspaces created later copy `invited_by` and `approved` from the parent membership. A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members. It holds the `viewer` role meanwhile (`pending_role` keeps the role approval grants; migration `0027_pending_viewer.sql` triggers refuse any other pending state), so no write or delete reaches it either. Re-admission resets approval.
 * **Known limits** (P2, narrowed in P3b): creating a team invitation to a known
   user ID reveals whether that user is active, at most
   `ratelimit.invitation_per_hour` times an hour per account; invitations may be
@@ -1738,6 +1777,7 @@ Tests:
 - `TestRemovalVoidsPendingInvitationsToTheRemovedMember`
 - `TestAcceptAndAdminAddAreAudited`
 - `TestAdminAddMapsOnlyConflictsTo409`
+- `TestAdminAddedMembersWaitForApproval`, `TestInvitedMembersAreApproved`
 - `TestRetryAfterFollowsRefillInterval`
 - `TestRateLimitEnvRejectsInvalidAndNegative`
 - `TestRemovedMemberCannotReadNewGenerationContent`

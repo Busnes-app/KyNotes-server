@@ -171,7 +171,7 @@ func audit(tx *sql.Tx, r *http.Request, s auth.Session, event, id, outcome, reas
 	return storage.RecordAuditOutcomeTx(tx, s.UserID, event, "", id, outcome, reason, RequestID(r))
 }
 
-func LinkRoutes(mux *http.ServeMux, db *sql.DB) {
+func LinkRoutes(mux RouteMux, db *sql.DB) {
 	step := func(event string, h http.Handler) http.Handler { return linkAudited(db, event, h) }
 	mux.Handle("POST /api/v1/me/link-requests", step("identity.link.request", createLink(db)))
 	mux.Handle("GET /api/v1/me/link-requests", auth.RequireSession(db, listLinks(db)))

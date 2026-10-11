@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
+func DeviceRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	mux.Handle("GET /api/v1/devices/{id}/containers", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		id := r.PathValue("id")
@@ -288,6 +288,11 @@ func DeviceRoutes(mux *http.ServeMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		userID = claim.Sub
+		var everyday bool
+		if db.QueryRow(`SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND account_kind='user' AND status='active')`, userID).Scan(&everyday) != nil || !everyday {
+			WriteError(w, r, 401, "unauthenticated", "invalid pairing token")
+			return
+		}
 		fp := sha256.Sum256(raw)
 		deviceID, _ := ids.Mint("dev")
 		secretBytes := make([]byte, 24)

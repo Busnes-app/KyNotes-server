@@ -47,7 +47,7 @@ describe("content keys", () => {
   });
 
   it("authSecret appears only where it does login work, never on a line with content crypto", () => {
-    const allowed = ["api.ts", "components/RecoveryCode.tsx", "crypto.ts", "identity.ts", "main.tsx", "recovery.ts", "stepup.ts", "storage.ts"];
+    const allowed = ["api.ts", "components/AdminConsole.tsx", "components/RecoveryCode.tsx", "crypto.ts", "identity.ts", "main.tsx", "recovery.ts", "stepup.ts", "storage.ts"];
     for (const file of using(/authsecret/i)) expect(allowed).toContain(file);
     for (const { file, text } of sources.filter(({ text }) => /authsecret/i.test(text))) {
       for (const line of text.split("\n").filter((value) => /authsecret/i.test(value))) {
