@@ -1018,10 +1018,21 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   expect((await vaultOf(restored.page))?.identity).toBeUndefined();
   await restored.page.unroute(fetchPath);
   await field.fill(` ${code.toLowerCase()} `);
+  // Hold Settings' identity re-check (the GET after the recovery fetch) so the restore card is
+  // still mounted: even then only one "Restored" status may show (main.tsx justLinked).
+  let fetched = false;
+  let release = () => {};
+  const refreshHeld = new Promise<void>((resolve) => { release = resolve; });
+  const identityPath = (url: URL) => url.pathname === "/api/v1/me/identity";
+  await restored.page.route(fetchPath, async (route) => { fetched = true; await route.continue(); });
+  await restored.page.route(identityPath, async (route) => { if (fetched && route.request().method() === "GET") await refreshHeld; await route.continue(); });
   await restoreButton.click();
-  // The restore card unmounts once the key is held, so Settings says what a link says (main.tsx justLinked).
   await expect(restored.page.getByRole("status").filter({ hasText: "Restored. This browser now holds your encryption key." })).toBeVisible({ timeout: 30_000 });
+  await expect(restore).toBeVisible();
+  release();
   await expect(restore).toHaveCount(0);
+  await restored.page.unroute(fetchPath);
+  await restored.page.unroute(identityPath);
   const back = (await vaultOf(restored.page))!.identity!;
   expect(back.publicKey).toEqual(editorKey.publicKey);
   expect(back.privateKey).toEqual(editorKey.privateKey);
