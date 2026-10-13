@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // bundle is the file the installer writes. Secrets appear only as paths; an inline secret
@@ -70,27 +71,67 @@ func Load(path string, allowPrivate bool) (Request, error) {
 	return req, req.Validate(allowPrivate)
 }
 
-// readCapped refuses anything but a regular file (a FIFO would block the open) and
-// anything larger than max.
+// readCapped opens every path component without following links. Validate the opened
+// descriptors, rather than checking a path and then reopening a potentially replaced file.
 func readCapped(path string, max int64) ([]byte, error) {
-	if st, err := os.Stat(path); err != nil {
-		return nil, err
-	} else if !st.Mode().IsRegular() {
-		return nil, errors.New("not a regular file")
-	}
-	f, err := os.Open(path)
+	dir, err := openSetupParent(path)
 	if err != nil {
 		return nil, err
 	}
+	defer syscall.Close(dir)
+	fd, err := syscall.Openat(dir, filepath.Base(path), syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, errors.New("cannot open protected setup file")
+	}
+	f := os.NewFile(uintptr(fd), path)
 	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("setup files must be regular and private")
+	}
+	stat, ok := st.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) {
+		return nil, errors.New("setup files must belong to the container user")
+	}
+	if st.Size() > max {
+		return nil, fmt.Errorf("larger than %d bytes", max)
+	}
 	raw, err := io.ReadAll(io.LimitReader(f, max+1))
 	if err != nil {
-		return nil, err
+		return nil, errors.New("cannot read protected setup file")
 	}
 	if int64(len(raw)) > max {
 		return nil, fmt.Errorf("larger than %d bytes", max)
 	}
 	return raw, nil
+}
+
+// openSetupParent returns an owned descriptor for a protected parent, even if the
+// final file is absent. Callers close it; no untrusted user may replace its path.
+func openSetupParent(path string) (int, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return -1, errors.New("want a clean absolute container-local path")
+	}
+	dir, err := syscall.Open("/", syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, errors.New("cannot open protected setup directory")
+	}
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	for _, part := range parts[:len(parts)-1] {
+		next, err := syscall.Openat(dir, part, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+		if err != nil {
+			syscall.Close(dir)
+			return -1, errors.New("cannot open protected setup directory")
+		}
+		syscall.Close(dir)
+		dir = next
+		var st syscall.Stat_t
+		if syscall.Fstat(dir, &st) != nil || (st.Uid != 0 && st.Uid != uint32(os.Geteuid())) || (st.Mode&0022 != 0 && st.Mode&syscall.S_ISVTX == 0) {
+			syscall.Close(dir)
+			return -1, errors.New("setup directories must be owned by root or the container user and protected from other writers")
+		}
+	}
+	return dir, nil
 }
 
 // readSecret names the field, never the content, in every error.

@@ -196,6 +196,14 @@ type SocketResult struct {
 
 func SetupHandler(d SetupDeps) *Setup {
 	s := &Setup{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /v1/check-setup", s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
+		if err != nil {
+			WriteError(w, r, http.StatusBadRequest, "invalid_bundle", "invalid setup bundle")
+			return
+		}
+		writeJSON(w, checkSetup(ctx, d, req))
+	}))
 	s.mux.HandleFunc("POST /v1/apply-setup", s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
 		if err != nil {

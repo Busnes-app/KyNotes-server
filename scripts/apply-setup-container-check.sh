@@ -4,19 +4,19 @@
 # removed on stop.
 # Usage: scripts/apply-setup-container-check.sh IMAGE   (run from the repository root)
 set -euo pipefail
+umask 077
 image=${1:?usage: apply-setup-container-check.sh IMAGE}
-name=kynotes-applysetup-check
 data=$(mktemp -d)
+name=kynotes-applysetup-$(basename "$data" | tr '[:upper:]' '[:lower:]')
 cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$data"; }
 trap cleanup EXIT
-docker rm -f "$name" >/dev/null 2>&1 || true
 
 cp testdata/config-good/kynotes.yaml "$data/"
 mkdir "$data/backups"
 printf '%s\n' '{"version":1,"backup":{"dir":"/data/backups","keep":7,"depositInterval":"24h"}}' >"$data/bundle.json"
 printf '%s\n' '{"version":1,"sso":{"issuerUrl":"https://id.example","clientId":"kynotes","clientSecret":"inline-secret-value","redirectUri":"https://notes.example/api/v1/auth/oidc/callback"}}' >"$data/inline.json"
 
-docker run -d --name "$name" --user "$(id -u):$(id -g)" -e KYNOTES_BACKUP_DIR=/data/backups -e KYNOTES_BACKUP_KEEP=7 \
+docker run -d --name "$name" --memory 768m --memory-swap 768m --cpus 1 --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" -e KYNOTES_BACKUP_DIR=/data/backups -e KYNOTES_BACKUP_KEEP=7 \
   -v "$data:/data" "$image" --config /data/kynotes.yaml >/dev/null
 ready=0
 for _ in $(seq 1 30); do
@@ -27,6 +27,14 @@ test "$ready" -eq 1 || { docker logs "$name"; echo "server never became healthy"
 
 test "$(stat -c %a "$data/admin.sock")" = 600 || { echo "admin.sock is not 0600"; exit 1; }
 
+docker exec "$name" /kynotes-server apply-setup --capabilities >"$data/capabilities.json"
+grep -qF '"check"' "$data/capabilities.json" || { echo "missing inspection capability"; exit 1; }
+set +e
+docker exec "$name" /kynotes-server apply-setup --file /data/bundle.json --config /data/kynotes.yaml --check >"$data/check-before.json"
+rc=$?
+set -e
+test "$rc" -eq 3 || { echo "missing schedule inspection: exit $rc, want 3"; exit 1; }
+
 docker exec "$name" /kynotes-server apply-setup --file /data/bundle.json --config /data/kynotes.yaml >"$data/run1.json"
 grep -qF '"section":"backup.interval","status":"created"' "$data/run1.json" || { cat "$data/run1.json"; exit 1; }
 
@@ -35,6 +43,9 @@ if grep -oE '"status":"[a-z]+"' "$data/run2.json" | grep -vqxF '"status":"presen
   cat "$data/run2.json"; echo "second run not all present"; exit 1
 fi
 test "$(grep -oF '"status":"present"' "$data/run2.json" | wc -l)" -eq 3 || { cat "$data/run2.json"; exit 1; }
+
+docker exec "$name" /kynotes-server apply-setup --file /data/bundle.json --config /data/kynotes.yaml --check >"$data/check-after.json"
+test "$(grep -oF '"status":"present"' "$data/check-after.json" | wc -l)" -eq 3 || { cat "$data/check-after.json"; exit 1; }
 
 # No key is pinned, so the live deposit must fail with the service's precondition code. The
 # offline path would fail on the data-directory lock instead.

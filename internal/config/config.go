@@ -90,11 +90,19 @@ func Defaults() Config {
 
 func Load(path string) (Config, error) { return load(path, false) }
 
+// LoadExisting is for commands that contact an initialized server. Missing keys
+// are errors; inspection must never initialize data directories or credentials.
+func LoadExisting(path string) (Config, error) { return loadMode(path, false, false) }
+
 // LoadBlobTargetProbe permits an absent SFTP pin only for the rejecting discovery
 // handshake. offsite.Test never authenticates to an unpinned host.
 func LoadBlobTargetProbe(path string) (Config, error) { return load(path, true) }
 
 func load(path string, probe bool) (Config, error) {
+	return loadMode(path, probe, true)
+}
+
+func loadMode(path string, probe, createSecrets bool) (Config, error) {
 	c := Defaults()
 	if path != "" {
 		b, err := os.ReadFile(path)
@@ -110,7 +118,7 @@ func load(path string, probe bool) (Config, error) {
 	if err := applyEnv(&c); err != nil {
 		return c, err
 	}
-	if err := loadSecrets(&c); err != nil {
+	if err := loadSecretsMode(&c, createSecrets); err != nil {
 		return c, err
 	}
 	if probe {
@@ -126,9 +134,13 @@ func load(path string, probe bool) (Config, error) {
 		}
 		return c, nil
 	}
-	return c, Validate(c)
+	return c, validate(c, createSecrets)
 }
 func loadSecrets(c *Config) error {
+	return loadSecretsMode(c, true)
+}
+
+func loadSecretsMode(c *Config, create bool) error {
 	if c.DataDir == "" {
 		return nil
 	}
@@ -136,8 +148,10 @@ func loadSecrets(c *Config) error {
 		return nil
 	}
 	dir := filepath.Join(c.DataDir, "secrets")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	if create {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
 	}
 	for name, dst := range map[string]*string{"pairing.key": &c.Secrets.PairingSecret, "serversalt.key": &c.Secrets.ServerSaltKey} {
 		if *dst != "" {
@@ -145,7 +159,11 @@ func loadSecrets(c *Config) error {
 		}
 		// An existing file that does not decode to 32 bytes is an error, never
 		// replaced and never silently an empty secret.
-		raw, err := keyfile.LoadOrCreateEncoded(filepath.Join(dir, name), 32, keyfile.Base64)
+		load := keyfile.LoadEncoded
+		if create {
+			load = keyfile.LoadOrCreateEncoded
+		}
+		raw, err := load(filepath.Join(dir, name), 32, keyfile.Base64)
 		if err != nil {
 			return fmt.Errorf("secrets/%s: %w", name, err)
 		}
@@ -305,6 +323,10 @@ func duration(name, value string) error {
 	return nil
 }
 func Validate(c Config) error {
+	return validate(c, true)
+}
+
+func validate(c Config, probeWrite bool) error {
 	if err := ValidateBlobTarget(c.Backup.BlobTarget); err != nil {
 		return err
 	}
@@ -318,13 +340,15 @@ func Validate(c Config) error {
 	if !st.IsDir() {
 		return errors.New("data_dir: not a directory")
 	}
-	f, err := os.CreateTemp(c.DataDir, ".kynotes-write-")
-	if err != nil {
-		return fmt.Errorf("data_dir: not writable: %w", err)
+	if probeWrite {
+		f, err := os.CreateTemp(c.DataDir, ".kynotes-write-")
+		if err != nil {
+			return fmt.Errorf("data_dir: not writable: %w", err)
+		}
+		name := f.Name()
+		f.Close()
+		os.Remove(name)
 	}
-	name := f.Name()
-	f.Close()
-	os.Remove(name)
 	if _, _, err = net.SplitHostPort(c.Server.Bind); err != nil {
 		return fmt.Errorf("server.bind: invalid: %w", err)
 	}

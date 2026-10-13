@@ -399,6 +399,15 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestApply*`, `TestSetupHandler*`, `TestAdminSocket*`, `TestServeOwnsAdminSocketLifecycle`,
   `TestApplySetupTwiceEndToEnd`, `TestDepositAndDrillOfflineAndLive` and
   `scripts/apply-setup-container-check.sh`.
+  `--capabilities` reads no configuration. `--check` uses socket `/v1/check-setup`
+  (`checkSetup`, `backup.Service.CheckSetup`): read-only, admin presence means
+  `account_kind='admin'`. `--stage` and `--import-client` run without the server through
+  `config.LoadExisting` (never creates keys or data) and write only under
+  `<data_dir>/installer/` with no-clobber private files. Setup files go through
+  `openSetupParent` (descriptor walk, no symlinks, owner/mode checks). Verify
+  `TestApplySetupCapabilities*`, `TestSetupInspection*`, `go test ./internal/applysetup`.
+  `GET /api/v1/installer/network` is public in `account_kinds_test.go` and shares
+  `resolvedClientIP` with the rate limiter.
 - Team keys P1: `internal/httpapi/identity_routes.go` serves `GET`/`PUT /api/v1/me/identity`
   (create-only, `auth.RequireUserActionStepUp`: a local password step-up creates `aes-256-gcm`, an SSO KySignOn confirmation creates device-only `wrap_alg='none'`). `GET`
   is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a

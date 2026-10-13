@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -76,5 +77,69 @@ func TestLoadErrorsNeverEchoSecrets(t *testing.T) {
 	path := writeFile(t, dir, "bundle.json", `{"version":1,"sso":{"issuerUrl":"https://id.example","clientId":"kynotes","clientSecretFile":"`+secret+`","redirectUri":"https://notes.example/api/v1/auth/oidc/callback"}}`)
 	if _, err := Load(path, false); err == nil || strings.Contains(err.Error(), "client-secret-value") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoadRequiresProtectedFiles(t *testing.T) {
+	for _, boundary := range []string{"bundle", "secret"} {
+		for _, kind := range []string{"shared", "symlink", "parent-symlink", "writable-parent", "fifo", "foreign-owner", "relative"} {
+			t.Run(boundary+"/"+kind, func(t *testing.T) {
+				dir := t.TempDir()
+				private := filepath.Join(dir, "private")
+				if err := os.Mkdir(private, 0700); err != nil {
+					t.Fatal(err)
+				}
+				secret := writeFile(t, private, "secret", "never-echo-this-secret")
+				file := secret
+				if boundary == "bundle" {
+					file = writeFile(t, private, "bundle", `{"version":1}`)
+				}
+				switch kind {
+				case "shared":
+					if err := os.Chmod(file, 0644); err != nil {
+						t.Fatal(err)
+					}
+				case "symlink":
+					link := filepath.Join(private, "link")
+					if err := os.Symlink(file, link); err != nil {
+						t.Fatal(err)
+					}
+					file = link
+				case "parent-symlink":
+					link := filepath.Join(dir, "link")
+					if err := os.Symlink(private, link); err != nil {
+						t.Fatal(err)
+					}
+					file = filepath.Join(link, filepath.Base(file))
+				case "writable-parent":
+					if err := os.Chmod(private, 0777); err != nil {
+						t.Fatal(err)
+					}
+				case "fifo":
+					if err := os.Remove(file); err != nil {
+						t.Fatal(err)
+					}
+					if err := syscall.Mkfifo(file, 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "foreign-owner":
+					if os.Geteuid() != 0 {
+						t.Skip("changing file ownership requires root")
+					}
+					if err := os.Chown(file, 65534, -1); err != nil {
+						t.Fatal(err)
+					}
+				case "relative":
+					file = filepath.Base(file)
+				}
+				bundle := file
+				if boundary == "secret" {
+					bundle = writeFile(t, dir, "bundle", fmt.Sprintf(`{"version":1,"sso":{"issuerUrl":"https://id.example","clientId":"kynotes","clientSecretFile":%q,"redirectUri":"https://notes.example/api/v1/auth/oidc/callback"}}`, file))
+				}
+				if _, err := Load(bundle, false); err == nil || strings.Contains(err.Error(), "never-echo-this-secret") {
+					t.Fatalf("unsafe input accepted or disclosed: %v", err)
+				}
+			})
+		}
 	}
 }

@@ -33,7 +33,8 @@ var accountRoutes = map[string]bool{
 }
 var publicRoutes = map[string]bool{
 	"GET /healthz": true, "GET /livez": true, "GET /readyz": true,
-	"POST /api/v1/sync/events": true, "POST /api/sync/events": true, "POST /sync/events": true, // HMAC-signed directory sync
+	"GET /api/v1/installer/network": true,                                                           // the caller's own resolved address and scheme
+	"POST /api/v1/sync/events":      true, "POST /api/sync/events": true, "POST /sync/events": true, // HMAC-signed directory sync
 	"GET /api/v1/theme": true, "GET /api/theme": true, "GET /api/v1/setup": true, "GET /api/setup": true, "POST /api/v1/setup": true, "POST /api/setup": true,
 	"POST /api/v1/auth/login-params": true, "POST /api/auth/login-params": true, "POST /api/v1/auth/login": true, "POST /api/auth/login": true,
 	"POST /api/v1/auth/recover": true, "GET /api/v1/auth/sso-config": true, "GET /api/auth/sso-config": true,

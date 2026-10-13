@@ -87,6 +87,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 			UploadRoutes(mux, db, blobs, cfg)
 		}
 	}
+	mux.HandleFunc("GET /api/v1/installer/network", networkHandler(cfg.Server.BehindProxy, parseTrustedProxies(cfg.Server.TrustedProxies)))
 	mux.Handle("GET /healthz", healthHandler(ready, db))
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
