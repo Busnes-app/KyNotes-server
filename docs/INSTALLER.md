@@ -118,8 +118,12 @@ Bundle, version 1. Every section is optional; unknown fields are rejected:
                "recovery":{"url":"https://kyrecovery.example",
                            "pairingCodeFile":"/run/secrets/kynotes_pair"}}}
 
-- Secrets are absolute paths to files of at most 4 KiB inside the container. Inline secrets
-  are rejected, and no secret is ever printed.
+- Secrets are absolute paths to files of at most 4 KiB inside the container; the bundle is
+  at most 64 KiB. Files must be regular, private (no group/other bits) and owned by the user
+  running `apply-setup`; every parent belongs to root or that user without group/other write
+  (sticky directories allowed). Symlinks in any component are refused, so a default
+  0440/0444 Kubernetes Secret projection is not enough. Inline secrets are rejected, and
+  no secret is ever printed.
 - URLs must be HTTPS. Private address literals need
   `KYNOTES_BACKUP_ALLOW_PRIVATE_RECOVERY`; loopback and link-local are always refused.
 - Admin issuers must equal the SSO issuer, from the bundle or already configured.
@@ -156,6 +160,52 @@ precedence first:
 Rerunning the same bundle, with the same secret files, reports `present` for every section and
 writes no audit rows. A regenerated client or HMAC secret is a `conflict`.
 Each change writes one audit row with actor `system` and request ID `apply-setup`.
+
+### Capabilities and check
+
+`apply-setup --capabilities` prints `ky.setup-capabilities/1` for bundle schema
+`kynotes.setup/1` (the version-1 bundle above) with features `sso`, `issuer-bound-admin`,
+`dedicated-admin`, `protected-setup-files`, `bundle-preparation`,
+`client-credential-import`, `backup` and `check`. It reads no configuration.
+
+`--check` with `--file` compares the running server over the socket without writes. Missing
+SSO, an absent administrator account or unconfigured backup settings are a conflict (exit
+3). A check never creates accounts or grants, writes audit rows or settings, or claims a
+recovery pairing code.
+
+### Preparation
+
+`apply-setup --stage --file <data_dir>/installer/setup.json` reads secret-free version-1
+JSON on stdin and publishes it there; the initialized configuration fixes `data_dir`, and
+no other output path is accepted. The data directory must belong to the container user and
+exclude other writers; `installer` is created 0700 and the bundle 0600, never replacing
+existing bytes. Different retained bytes are refused. `--stage --check` compares without
+writing. Output is `{"schema":"kynotes.setup-preparation/1","status":"created"}` or
+`"present"`. Preparation reads and generates no credential files and configures nothing;
+run apply afterwards.
+
+### Client credential import
+
+After preparation, `apply-setup --import-client --file <data_dir>/installer/setup.json`
+reads one `kyidentity.client-credentials/1` frame (at most 64 KiB) on stdin, as exported by
+KyIdentity's `apply-setup --export-client`. Pass it in memory over protected transport,
+never through argv, logs or workstation state. The retained bundle must name the frame's
+issuer and client, one of its HTTPS callbacks and exactly one owner matching the frame's
+subject and username with role `kynotes.admin`. Secrets land only at
+`<data_dir>/installer/client.secret` and, when selected, `directory.secret` for the
+endpoint `https://<callback host>/api/v1/sync/events`; each must be a canonical 32-byte
+base64url value. A private `client-import.json` holds only SHA-256 digests and is written
+before the secrets, so an interrupted import can recopy the same bytes; changed, linked or
+foreign files are refused and kept. `--check` writes nothing. Output is
+`{"schema":"kynotes.client-import/1","status":"created"}` or `"present"`. Import needs
+initialized keys but no server; it creates no users, grants or settings.
+
+### Forwarded-header self-check (G11)
+
+`GET /api/v1/installer/network` is public and returns the caller's own `clientIp`,
+`proxyHeadersTrusted` and `scheme` with `Cache-Control: no-store`. It resolves the address
+as the rate limiter does, without IPv6 /64 grouping. The edge must overwrite the forwarded
+scheme and append the observed client address.
 
 ## Shutdown
 

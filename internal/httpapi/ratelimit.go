@@ -144,18 +144,26 @@ func parseTrustedProxies(cidrs []string) []*net.IPNet {
 // Walk from the trusted immediate peer toward the client. A sender cannot select
 // its bucket by prepending forged addresses. Invalid suffixes fall back to the peer.
 func rateLimitClientIP(r *http.Request, behindProxy bool, proxies []*net.IPNet) string {
+	if ip := resolvedClientIP(r, behindProxy, proxies); ip != nil {
+		return normalizeClientIP(ip)
+	}
+	return clientIP(r)
+}
+
+// Keep the exact resolved address separate from IPv6 /64 rate-limit grouping.
+func resolvedClientIP(r *http.Request, behindProxy bool, proxies []*net.IPNet) net.IP {
 	if !behindProxy || !trusted(remoteIP(r), proxies) {
-		return clientIP(r)
+		return remoteIP(r)
 	}
 	chain := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
 	for i := len(chain) - 1; i >= 0; i-- {
 		ip := net.ParseIP(strings.TrimSpace(chain[i]))
 		if ip == nil {
-			return clientIP(r)
+			return remoteIP(r)
 		}
 		if !trusted(ip, proxies) {
-			return normalizeClientIP(ip)
+			return ip
 		}
 	}
-	return clientIP(r)
+	return remoteIP(r)
 }

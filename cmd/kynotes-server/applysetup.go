@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -26,25 +27,69 @@ const setupTimeout = 20 * time.Minute
 // applySetupCommand validates the bundle locally, sends it to the running server over the
 // admin socket and prints the server's report. It returns the process exit code.
 func applySetupCommand(args []string, stdout, stderr io.Writer) int {
+	return applySetupCommandInput(args, os.Stdin, stdout, stderr)
+}
+
+func applySetupCommandInput(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("apply-setup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	file := flags.String("file", "", "setup bundle (JSON)")
 	cfgPath := flags.String("config", "/data/kynotes.yaml", "config path")
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *file == "" {
-		fmt.Fprintln(stderr, "usage: apply-setup --file BUNDLE [--config PATH]")
+	check := flags.Bool("check", false, "inspect without changes")
+	caps := flags.Bool("capabilities", false, "advertise setup contract")
+	stage := flags.Bool("stage", false, "prepare a secret-free installer bundle from stdin")
+	importClient := flags.Bool("import-client", false, "import one scoped private client frame from stdin")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *stage && *importClient || *caps && (*file != "" || *check || *stage || *importClient) || !*caps && *file == "" {
+		fmt.Fprintln(stderr, "usage: apply-setup --capabilities | --file BUNDLE [--check] [--stage | --import-client] [--config PATH]")
 		return applysetup.ExitInvalid
 	}
-	c, err := config.Load(*cfgPath)
+	if *caps {
+		_ = json.NewEncoder(stdout).Encode(struct {
+			Schema       string   `json:"schema"`
+			Service      string   `json:"service"`
+			BundleSchema string   `json:"bundleSchema"`
+			Features     []string `json:"features"`
+		}{"ky.setup-capabilities/1", "kynotes", "kynotes.setup/1", []string{"sso", "issuer-bound-admin", "dedicated-admin", "protected-setup-files", "bundle-preparation", "client-credential-import", "backup", "check"}})
+		return applysetup.ExitOK
+	}
+	c, err := config.LoadExisting(*cfgPath)
 	if err != nil {
 		fmt.Fprintln(stderr, "apply-setup:", err)
 		return applysetup.ExitInvalid
+	}
+	if *stage || *importClient {
+		raw, err := io.ReadAll(io.LimitReader(stdin, applysetup.MaxBundleBytes+1))
+		if err != nil {
+			fmt.Fprintln(stderr, "apply-setup: cannot read bounded setup input")
+			return applysetup.ExitInvalid
+		}
+		defer clear(raw)
+		var status string
+		schema := "kynotes.setup-preparation/1"
+		if *importClient {
+			status, err = applysetup.ImportClient(c.DataDir, *file, raw, c.Backup.AllowPrivateRecovery, *check)
+			schema = "kynotes.client-import/1"
+		} else {
+			status, err = applysetup.Stage(c.DataDir, *file, raw, c.Backup.AllowPrivateRecovery, *check)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "apply-setup:", err)
+			return applysetup.ExitInvalid
+		}
+		if json.NewEncoder(stdout).Encode(struct {
+			Schema string `json:"schema"`
+			Status string `json:"status"`
+		}{schema, status}) != nil {
+			return applysetup.ExitError
+		}
+		return applysetup.ExitOK
 	}
 	req, err := applysetup.Load(*file, c.Backup.AllowPrivateRecovery)
 	if err != nil {
 		fmt.Fprintln(stderr, "apply-setup:", err)
 		return applysetup.ExitInvalid
 	}
-	body, code, err := postSetup(app.AdminSocketPath(c.DataDir), req)
+	body, code, err := postSetupMode(app.AdminSocketPath(c.DataDir), req, *check)
 	if err != nil {
 		fmt.Fprintln(stderr, "apply-setup:", err)
 		return code
@@ -54,11 +99,19 @@ func applySetupCommand(args []string, stdout, stderr io.Writer) int {
 }
 
 func postSetup(socket string, req applysetup.Request) ([]byte, int, error) {
+	return postSetupMode(socket, req, false)
+}
+
+func postSetupMode(socket string, req applysetup.Request, check bool) ([]byte, int, error) {
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, applysetup.ExitError, err
 	}
-	status, body, err := socketPost(socket, "/v1/apply-setup", payload)
+	endpoint := "/v1/apply-setup"
+	if check {
+		endpoint = "/v1/check-setup"
+	}
+	status, body, err := socketPost(socket, endpoint, payload)
 	if err != nil {
 		return nil, applysetup.ExitError, err
 	}

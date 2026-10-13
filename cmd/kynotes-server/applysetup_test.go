@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
@@ -28,6 +29,11 @@ func setupCLIFixture(t *testing.T) (cfgPath, bundle, dataDir string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(bundle, []byte(`{"version":1,"backup":{"keep":7}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A setup command contacts an already initialized running server. Prepare
+	// its durable keys in the fixture; the setup CLI itself must not mint them.
+	if _, err := config.Load(cfgPath); err != nil {
 		t.Fatal(err)
 	}
 	return cfgPath, bundle, dataDir
@@ -78,6 +84,98 @@ func TestApplySetupExitCodes(t *testing.T) {
 				t.Fatalf("stderr %q", errb.String())
 			}
 		})
+	}
+}
+
+func TestApplySetupCapabilitiesAndReadOnlyDispatch(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := applySetupCommand([]string{"--capabilities"}, &out, &errb); code != 0 || !strings.Contains(out.String(), `"check"`) || !strings.Contains(out.String(), `"dedicated-admin"`) || !strings.Contains(out.String(), `"protected-setup-files"`) {
+		t.Fatal(code, out.String(), errb.String())
+	}
+	cfgPath, bundle, dataDir := setupCLIFixture(t)
+	l, err := net.Listen("unix", filepath.Join(dataDir, "admin.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/check-setup" {
+			t.Errorf("inspection sent mutation %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"version":1,"results":[{"section":"backup.keep","status":"present"}],"handover":{}}`)
+	})}
+	go srv.Serve(l)
+	defer srv.Close()
+	out.Reset()
+	if code := applySetupCommand([]string{"--file", bundle, "--config", cfgPath, "--check"}, &out, &errb); code != 0 {
+		t.Fatal(code, errb.String())
+	}
+}
+
+func TestApplySetupStagesMetadataWithoutSocketOrCredentials(t *testing.T) {
+	cfg, _, dir := setupCLIFixture(t)
+	file := filepath.Join(dir, "installer", "setup.json")
+	for i, check := range []bool{false, true, false} {
+		args := []string{"--stage", "--file", file, "--config", cfg}
+		if check {
+			args = append(args, "--check")
+		}
+		var out, errb bytes.Buffer
+		code := applySetupCommandInput(args, strings.NewReader(`{"version":1,"backup":{"keep":7}}`), &out, &errb)
+		status := "present"
+		if i == 0 {
+			status = "created"
+		}
+		if code != 0 || !strings.Contains(out.String(), `"schema":"kynotes.setup-preparation/1"`) || !strings.Contains(out.String(), `"status":"`+status+`"`) {
+			t.Fatal(code, out.String(), errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	if code := applySetupCommandInput([]string{"--stage", "--file", file, "--config", cfg}, strings.NewReader(`{"version":1,"clientSecret":"never-echo-preparation-secret"}`), &out, &errb); code != applysetup.ExitInvalid || out.Len() != 0 || strings.Contains(errb.String(), "never-echo-preparation-secret") {
+		t.Fatal(code, out.String(), errb.String())
+	}
+}
+
+func TestApplySetupImportsScopedCredentialsWithoutSocket(t *testing.T) {
+	cfg, _, dir := setupCLIFixture(t)
+	file := filepath.Join(dir, "installer", "setup.json")
+	issuer, callback := "https://identity.example.test", "https://notes.example.test/api/v1/auth/oidc/callback"
+	metadata, _ := json.Marshal(map[string]any{"version": 1, "sso": map[string]string{"issuerUrl": issuer, "clientId": "notes", "redirectUri": callback, "clientSecretFile": filepath.Join(dir, "installer", "client.secret")}, "admins": []applysetup.Admin{{Issuer: issuer, Subject: "owner-subject", Username: "owner-admin"}}})
+	var out, errb bytes.Buffer
+	if code := applySetupCommandInput([]string{"--stage", "--file", file, "--config", cfg}, bytes.NewReader(metadata), &out, &errb); code != 0 {
+		t.Fatal("metadata stage failed", code)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{'s'}, 32))
+	frame, _ := json.Marshal(map[string]any{"schema": "kyidentity.client-credentials/1", "setupId": "271333e2-c221-4601-b249-563b3d828530", "issuerUrl": issuer, "clientId": "notes", "redirectUris": []string{callback}, "clientSecret": secret, "administrator": map[string]string{"subject": "owner-subject", "username": "owner-admin", "role": "kynotes.admin"}})
+	args := []string{"--import-client", "--file", file, "--config", cfg}
+	for i, check := range []bool{false, true, false} {
+		out.Reset()
+		errb.Reset()
+		flags := append([]string(nil), args...)
+		if check {
+			flags = append(flags, "--check")
+		}
+		code := applySetupCommandInput(flags, bytes.NewReader(append([]byte(nil), frame...)), &out, &errb)
+		status := "present"
+		if i == 0 {
+			status = "created"
+		}
+		if code != 0 || out.String() != `{"schema":"kynotes.client-import/1","status":"`+status+`"}`+"\n" || errb.Len() != 0 {
+			t.Fatal("native import dispatch or safe response failed", code)
+		}
+	}
+	req, err := applysetup.Load(file, false)
+	if err != nil || req.SSO.ClientSecret != secret {
+		t.Fatal("native setup cannot read imported credential")
+	}
+	for _, extra := range []string{"--stage", "--capabilities"} {
+		out.Reset()
+		errb.Reset()
+		if code := applySetupCommandInput(append(append([]string(nil), args...), extra), bytes.NewReader(frame), &out, &errb); code != applysetup.ExitInvalid || out.Len() != 0 || strings.Contains(errb.String(), secret) {
+			t.Fatal("invalid combined import mode accepted or disclosed input")
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "admin.sock")); !os.IsNotExist(err) {
+		t.Fatal("credential import created a server socket")
 	}
 }
 

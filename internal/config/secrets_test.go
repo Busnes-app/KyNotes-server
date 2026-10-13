@@ -6,7 +6,44 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestLoadExistingDoesNotInitializeSecrets(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.yaml")
+	data := filepath.Join(dir, "absent-data")
+	if err := os.WriteFile(cfg, []byte("data_dir: "+data+"\nserver:\n  bind: 127.0.0.1:8080\n  dev_insecure_cookies: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadExisting(cfg); err == nil {
+		t.Fatal("absent keys accepted")
+	}
+	if _, err := os.Stat(data); !os.IsNotExist(err) {
+		t.Fatal("inspection initialized data", err)
+	}
+	if _, err := Load(cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(data, "secrets", "pairing.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	past := time.Unix(10, 0)
+	if err = os.Chtimes(data, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = LoadExisting(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(data); err != nil || !info.ModTime().Equal(past) {
+		t.Fatal("inspection performed a directory write probe", err)
+	}
+	after, err := os.ReadFile(filepath.Join(data, "secrets", "pairing.key"))
+	if err != nil || string(before) != string(after) {
+		t.Fatal("existing key changed", err)
+	}
+}
 
 func TestLoadSecretsRefusesUndecodableKeyFile(t *testing.T) {
 	dir := t.TempDir()
