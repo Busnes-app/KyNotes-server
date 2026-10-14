@@ -113,6 +113,6 @@ describe("outbound structure", () => {
     // A conflict without a local copy says so; a failed queue write says the edit is not saved.
     expect(main).toContain("noteConflictMessage(uncached)");
     expect(main).not.toContain("preserved locally");
-    expect(main.match(/await queueSave\(/g)?.length).toBe(main.match(/\)\.catch\(notSaved\)/g)?.length);
+    expect(main.match(/await queueOwn\(/g)?.length).toBe(main.match(/\)\.catch\(notSaved\)/g)?.length);
   });
 });

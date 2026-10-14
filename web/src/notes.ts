@@ -83,3 +83,7 @@ export async function flushUntilStable(
   }
   return "busy";
 }
+
+/** Objects a notebook load could neither read from the server nor from this browser's copy. */
+export const unreadableNotice = (count: number) =>
+  `${count} item(s) in this notebook could not be read or decrypted and are not shown. They remain on the server; reload to try again.`;

@@ -115,7 +115,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   reuse path; it does not alter the frozen server plan.
 - `web/` is the browser client; keep plaintext in browser memory only, send
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
-  shared container keys (`keyring.ts`).
+  shared container keys (`keyring.ts`). It needs WebCrypto (HTTPS or localhost) and shows `NEEDS_HTTPS`
+  otherwise: no hand-rolled cipher, KDF or `Math.random` fallback; sync SHA-256/HKDF come from
+  `@noble/hashes`. Login iterations below `MIN_LOGIN_ITERATIONS` (the server's 100 000) are refused.
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
   `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,
@@ -134,7 +136,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   labels notebooks explicitly, and the administrator console (`components/AdminConsole.tsx`) uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
-  seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
+  seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs. The drain runs in
+  the same `chained` queue as live saves and structure writes; a landed save clears only the
+  queued copy this tab wrote (`clearQueuedSave` compares `updatedAt`). A page in conflict is not
+  autosaved; its edits reach the server as conflict copies on leave/hide or "Keep the other
+  version". A load reports objects it could not read (`unreadableNotice`). Verify
+  `workspaceWiring.test.ts` (save queue wiring) and `storage.test.ts`.
 - `web/` presents containers as notebooks with colored section tabs (`folder` objects) and
   manually ordered pages. Placement lives in each page's encrypted payload
   (`pages.ts`, `order.ts`); decrypted payloads pass `parseObjectPayload` before use.

@@ -113,8 +113,14 @@ export async function pendingSaves(): Promise<PendingSave[]> {
   return result;
 }
 
-export async function clearQueuedSave(owner: string, id: string): Promise<void> {
-  await write("pending", (store) => store.delete([owner, id]));
+/** Deletes owner's queued save of id only while it is the one saved at updatedAt: a newer save (another tab's) stays. */
+export async function clearQueuedSave(owner: string, id: string, updatedAt: string): Promise<void> {
+  await write("pending", (store) => {
+    const read = store.get([owner, id]);
+    read.onsuccess = guarded(store.transaction, () => {
+      if ((read.result as PendingSave | undefined)?.updatedAt === updatedAt) store.delete([owner, id]);
+    });
+  });
 }
 
 /**

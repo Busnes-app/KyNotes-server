@@ -1,6 +1,5 @@
 import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
-import { asContentKey, base64, fromBase64, type KeyRef } from "./crypto";
-import { hkdfSha256, sha256 } from "./fallbackCrypto";
+import { asContentKey, base64, fromBase64, hkdfSha256, sha256, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope, type Identity } from "./teamKeys";
