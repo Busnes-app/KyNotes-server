@@ -26,7 +26,8 @@ export async function person(browser: Browser): Promise<Person> {
 export async function withDialog(who: Person, dialog: Dialog, action: () => Promise<unknown>) {
   who.expected.push(dialog);
   await action();
-  await expect.poll(() => who.expected.length, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
+  // A poll runs no locator handler; this assertion does, so a step-up the action asked for is answered (answerStepUp).
+  await expect.poll(async () => { await expect(stepUpPrompt(who.page)).toBeHidden(); return who.expected.length; }, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
 }
 
 /** An everyday account on its own password: lands in the workspace. */
@@ -36,6 +37,21 @@ export async function signIn(page: Page, username: string, password: string) {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Unlock KyNotes" }).click();
   await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await answerStepUp(page, password);
+}
+
+const stepUpPrompt = (page: Page) => page.getByRole("dialog", { name: "Confirm your password" });
+
+/**
+ * The vault keeps no login secret, so a reloaded tab asks for the password before it shares keys
+ * (stepup.ts stepUpAsking). Answered with password before any action or auto-waiting assertion.
+ */
+export async function answerStepUp(page: Page, password: string) {
+  await page.removeLocatorHandler(stepUpPrompt(page));
+  await page.addLocatorHandler(stepUpPrompt(page), async (dialog) => {
+    await dialog.getByLabel("Password").fill(password);
+    await dialog.getByRole("button", { name: "Confirm" }).click();
+  });
 }
 
 // Copied from main.tsx: a changed string fails the run.
@@ -58,6 +74,7 @@ export async function signInAndChoose(page: Page, username: string, temporary: s
   await page.getByLabel("Password", { exact: true }).fill(temporary);
   await page.getByRole("button", { name: "Unlock KyNotes" }).click();
   await choosePassword(page, temporary, own);
+  await answerStepUp(page, own);
 }
 
 /** KYNOTES_E2E_SHOTS=<dir>: a state in Busnes Light and Dark at 1280x900 and 390x844 (UI-VERIFICATION.md). */

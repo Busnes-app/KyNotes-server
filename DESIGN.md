@@ -136,7 +136,9 @@ wrapped key and never sees `userKEK`. The wrapped key is returned only in the
 bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
-clears it, and logout keeps it. In secure contexts the vault stores the private key
+clears it, and logout keeps it. The vault never holds the login verifier (`authSecret`): what a
+device keeps can open its notes but cannot sign in or step up, so a reopened tab asks for the
+password before its first step-up. In secure contexts the vault stores the private key
 encrypted under a non-extractable WebCrypto key kept in the same record; that is not
 at-rest protection (browsers write the key's bytes into the same profile and page script
 can call `decrypt`), it only keeps the raw key out of the record's plain values. On

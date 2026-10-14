@@ -101,15 +101,21 @@ describe("recovery code wiring (P5 Task 8)", () => {
 
   it("never asks a single sign-on session for a password; a refused password lets no one in (I1)", () => {
     expect(main).toContain("if (res.user.accountKind === \"admin\" || res.passwordChangeRequired) {");
-    expect(main).toContain("if (res.sso) {\n          setAuth({ username: res.user.username, authSecret: await ssoDeviceSecret(res.user.username), user: res.user, sso: true });\n          return;\n        }\n        setSessionUser(res.user);");
+    expect(main).toContain("if (res.sso) {\n          await openVault(res.user.username).catch(() => undefined); // no IndexedDB: the identity cannot be kept\n          setAuth({ username: res.user.username, authSecret: \"\", user: res.user, sso: true });\n          return;\n        }\n        setSessionUser(res.user);");
     expect(main.indexOf("res.passwordChangeRequired) {")).toBeLessThan(main.indexOf("if (res.sso) {"));
-    expect(main).not.toMatch(/master password|Master Password|note-encryption keys|storeDeviceKey/);
+    expect(main).not.toMatch(/master password|Master Password|note-encryption keys|storeDeviceKey|getDeviceKey/);
     const submit = block("  async function submit(");
     expect(submit).not.toMatch(/sso: true/);
     expect(submit.match(/catch/g)).toHaveLength(1); // the error shown on the form; no fallback sign-in
     expect(submit).toContain("const result = await login(activeName, authSecret);");
     // Only an everyday account on its own password keeps a vault record, after the server accepted the password.
-    expect(submit).toContain("if (everyday && !result.passwordChangeRequired) {\n        await rememberAfter(async () => result, activeName, authSecret);");
+    expect(submit).toContain("if (everyday && !result.passwordChangeRequired) {\n        await rememberAfter(async () => result, activeName);");
+  });
+
+  it("a reopened password session holds no login secret: it steps up by asking, and background passes never ask", () => {
+    expect(main).toContain("if (await vaultReady(res.user.username)) setAuth({ username: res.user.username, authSecret: \"\", user: res.user });");
+    expect(main).toContain("asked.current ??= stepUpAsking(auth.username).then((secret) => { onAuthSecret(secret); return secret; });\n      try { await stepUp(await asked.current); } catch (error) { asked.current = undefined; throw error; }");
+    expect(main).toContain("canWrap: share || (!auth.sso && (!background || auth.authSecret !== \"\"))");
   });
 
   it("asks stewards to approve administrator-added members and to name a team an administrator created", () => {

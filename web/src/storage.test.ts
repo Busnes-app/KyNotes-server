@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, storeDeviceKey, storeIdentityKey, storeKeyState, storePins, vaultReady, ssoDeviceSecret, noteResetSent, resetSentKey } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
@@ -17,15 +17,15 @@ vi.stubGlobal("localStorage", { getItem: (key: string) => local.get(key) ?? null
 describe("keys vault identity", () => {
   beforeEach(clearAllDeviceKeys);
 
-  it("caches the identity beside the auth secret for reloads", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+  it("caches the identity for reloads, and nothing that can sign in", async () => {
+    await openVault("alice");
     await storeIdentityKey("alice", userID, held);
     expect(await getIdentityKey("alice", userID)).toEqual(held);
-    expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+    expect(Object.keys((await vaultRow("alice"))!).sort()).toEqual(["identity", "updatedAt", "username"]);
   });
 
   it("returns nothing for another user under the same name", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     await storeIdentityKey("alice", userID, held);
     expect(await getIdentityKey("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz")).toBeUndefined();
   });
@@ -35,44 +35,34 @@ describe("keys vault identity", () => {
     expect(await getIdentityKey("alice", userID)).toBeUndefined();
   });
 
-  it("keeps the identity when the auth secret is replaced", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+  it("keeps the identity when the vault is opened again", async () => {
+    await openVault("alice");
     await storeIdentityKey("alice", userID, held);
-    await storeDeviceKey("alice", "b".repeat(64));
+    await openVault("alice");
     expect(await getIdentityKey("alice", userID)).toEqual(held);
-    expect(await getDeviceKey("alice")).toBe("b".repeat(64));
   });
 
   it("forget this device removes it", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     await storeIdentityKey("alice", userID, held);
     await clearDeviceKey("alice");
     expect(await getIdentityKey("alice", userID)).toBeUndefined();
-    await storeDeviceKey("bob", "b".repeat(64));
+    await openVault("bob");
     await storeIdentityKey("bob", userID, held);
     await clearAllDeviceKeys();
     expect(await getIdentityKey("bob", userID)).toBeUndefined();
   });
 });
 
-describe("a single sign-on session's vault record (I1)", () => {
+describe("opening the vault record", () => {
   beforeEach(clearAllDeviceKeys);
 
-  it("is made from a random per-browser value, kept, and lets the identity be stored", async () => {
-    const first = await ssoDeviceSecret("sam");
-    expect(first).toMatch(/^[0-9a-f]{64}$/);
-    expect(await ssoDeviceSecret("sam")).toBe(first);
-    await clearDeviceKey("sam");
-    expect(await ssoDeviceSecret("sam")).not.toBe(first);
+  it("lets the identity be stored, and forget-device removes it", async () => {
+    await openVault("sam");
     expect(await vaultReady("sam")).toBe(true);
     expect(await storeIdentityKey("sam", userID, held)).toBe(true);
-  });
-
-  it("keeps a record a password sign-in made", async () => {
-    await storeDeviceKey("sam", "a".repeat(64));
-    await storeIdentityKey("sam", userID, held);
-    expect(await ssoDeviceSecret("sam")).toBe("a".repeat(64));
-    expect(await getIdentityKey("sam", userID)).toEqual(held);
+    await clearDeviceKey("sam");
+    expect(await vaultReady("sam")).toBe(false);
   });
 });
 
@@ -80,7 +70,7 @@ describe("a reset this browser sent (M4)", () => {
   beforeEach(clearAllDeviceKeys);
 
   it("is remembered until this browser keeps that key, and only for its user", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     await storeIdentityKey("alice", userID, held);
     const next = { deviceId: "dev_11111111111111111111111111", ...generateIdentity() };
     await noteResetSent("alice", userID, next.publicKey);
@@ -98,16 +88,16 @@ describe("vault writes follow the server and never fail it", () => {
   beforeEach(clearAllDeviceKeys);
 
   it("a refused sign-in leaves the vault, identity included, untouched", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     await storeIdentityKey("alice", userID, held);
-    await expect(rememberAfter(() => Promise.reject(new Error("invalid credentials")), "alice", "b".repeat(64))).rejects.toThrow("invalid credentials");
-    expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+    const before = await vaultRow("alice");
+    await expect(rememberAfter(() => Promise.reject(new Error("invalid credentials")), "alice")).rejects.toThrow("invalid credentials");
+    expect(await vaultRow("alice")).toEqual(before);
     expect(await getIdentityKey("alice", userID)).toEqual(held);
   });
 
   it("stores after a successful call, with the re-wrapped identity", async () => {
-    expect(await rememberAfter(async () => "ok", "alice", "b".repeat(64), { userID, identity: held })).toBe("ok");
-    expect(await getDeviceKey("alice")).toBe("b".repeat(64));
+    expect(await rememberAfter(async () => "ok", "alice", { userID, identity: held })).toBe("ok");
     expect(await getIdentityKey("alice", userID)).toEqual(held);
   });
 
@@ -115,7 +105,7 @@ describe("vault writes follow the server and never fail it", () => {
     const real = globalThis.indexedDB;
     vi.stubGlobal("indexedDB", undefined);
     try {
-      expect(await rememberAfter(async () => "ok", "alice", "b".repeat(64), { userID, identity: held })).toBe("ok");
+      expect(await rememberAfter(async () => "ok", "alice", { userID, identity: held })).toBe("ok");
     } finally {
       vi.stubGlobal("indexedDB", real);
     }
@@ -126,7 +116,7 @@ describe("pin and key-mark writes never downgrade", () => {
   beforeEach(clearAllDeviceKeys);
   const cnt = "cnt_aaaaaaaaaaaaaaaaaaaaaaaaaa";
   it("adds first-contact pins without overwriting, and replaces one only through a confirmation", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     const key = (fill: number) => btoa(String.fromCharCode(...new Uint8Array(32).fill(fill)));
     expect(await storePins("alice", userID, { usr_b: "old" })).toEqual({ ok: true });
     // A different key for a pinned member is a conflict, and nothing in that proposal is written.
@@ -154,7 +144,7 @@ describe("pin and key-mark writes never downgrade", () => {
   it("keeps the highest key mark and first key digests per container, and reports when it cannot", async () => {
     expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: {} })).toBe(false);
     expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 0, digests: {} });
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: { 2: "aa" } })).toBe(true);
     expect(await storeKeyState("alice", userID, cnt, { mark: 2, digests: { 2: "bb", 3: "cc" } })).toBe(true);
     expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 3, digests: { 2: "aa", 3: "cc" }, shared: 0, generation: 0 });
@@ -163,20 +153,20 @@ describe("pin and key-mark writes never downgrade", () => {
     expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 0, digests: {} });
   });
   it("keeps the highest sharing state seen across a reload, so a rollback stays visible", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: {}, shared: 2, generation: 3 })).toBe(true);
     // A later pass that saw a rolled-back server never lowers it.
     expect(await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 0, generation: 1 })).toBe(true);
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ shared: 2, generation: 3 });
   });
   it("key memory keeps only generations, mark and digests", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     await storeKeyState("alice", "usr_0123456789abcdefghjkmnpqrs", cnt, { mark: 2, digests: { 2: "aa" }, shared: 2, generation: 2, closed: 2, reopened: true } as KeyState);
     expect(await getKeyState("alice", "usr_0123456789abcdefghjkmnpqrs", cnt)).toEqual({ mark: 2, digests: { 2: "aa" }, shared: 2, generation: 2 });
   });
 
   it("ignores a closure and reopen mark an older build stored, and drops them on the next write", async () => {
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     const row = await vaultRow("alice");
     await putVaultRow({ ...row, keyStates: { userID, byContainer: { [cnt]: { mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3, closed: 2, reopened: true } } } });
     expect(await getKeyState("alice", userID, cnt)).toEqual({ mark: 1, digests: { 1: "d1" }, shared: 2, generation: 3 });
@@ -190,12 +180,12 @@ describe("colleague key pins", () => {
   it("keeps pins per signed-in user and clears them with the device", async () => {
     expect(await storePins("alice", userID, { usr_b: "key" })).toEqual({ ok: false, conflicts: [] }); // no vault record: not kept
     expect(await getPins("alice", userID)).toEqual({});
-    await storeDeviceKey("alice", "a".repeat(64));
+    await openVault("alice");
     expect(await storePins("alice", userID, { usr_b: "key" })).toEqual({ ok: true });
     expect(await getPins("alice", userID)).toEqual({ usr_b: "key" });
     expect(await getPins("alice", "usr_zzzzzzzzzzzzzzzzzzzzzzzzzz")).toEqual({});
     await storeIdentityKey("alice", userID, held);
-    await storeDeviceKey("alice", "b".repeat(64));
+    await openVault("alice");
     expect(await getPins("alice", userID)).toEqual({ usr_b: "key" });
     await clearDeviceKey("alice");
     expect(await getPins("alice", userID)).toEqual({});
@@ -277,11 +267,11 @@ describe("pending uploads", () => {
   });
 });
 
-describe("version 6 upgrade", () => {
+describe("version 6 and 7 upgrades", () => {
   const CID = `cnt_${"a".repeat(26)}`;
-  /** A v5 database as earlier builds left it: an owner-unknown cached page, a queue entry, an upload and a vault record. */
-  const seedV5 = (factory: IDBFactory) => new Promise<void>((resolve, reject) => {
-    const open = factory.open("kynotes-web", 5);
+  /** A database as earlier builds left it: an owner-unknown cached page, a queue entry, an upload and a vault record holding the login secret. */
+  const seed = (factory: IDBFactory, version: number) => new Promise<void>((resolve, reject) => {
+    const open = factory.open("kynotes-web", version);
     open.onupgradeneeded = () => {
       const db = open.result;
       db.createObjectStore("notes", { keyPath: ["owner", "id"] }).put({ owner: "", id: "obj_a", containerID: CID, version: 1, payload: new Uint8Array(1), updatedAt: "t" });
@@ -292,18 +282,19 @@ describe("version 6 upgrade", () => {
     open.onsuccess = () => { open.result.close(); resolve(); };
     open.onerror = () => reject(open.error);
   });
-  const fresh = async (run: () => Promise<void>) => {
+  const fresh = async (run: () => Promise<void>, version = 5) => {
     const factory = new IDBFactory();
     vi.stubGlobal("indexedDB", factory);
-    try { await seedV5(factory); await run(); } finally { vi.stubGlobal("indexedDB", shared); local.clear(); }
+    try { await seed(factory, version); await run(); } finally { vi.stubGlobal("indexedDB", shared); local.clear(); }
   };
 
-  it("a v5 database opens at v6 with empty stores and its vault", () => fresh(async () => {
+  it("a v5 database opens with empty stores and its vault, minus the login secret", () => fresh(async () => {
     localStorage.setItem("kynotes-pending-saves", "{}");
     expect(await pendingSaves()).toEqual([]);
     expect(await pendingUploads(userID)).toEqual([]);
     expect(await getNote("", "obj_a")).toBeUndefined();
-    expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+    expect(await vaultRow("alice")).not.toHaveProperty("authSecret");
+    expect(await vaultReady("alice")).toBe(true);
     expect(await getPins("alice", userID)).toEqual({ usr_b: "pin" });
     expect(await getKeyState("alice", userID, CID)).toEqual({ mark: 2, digests: { 2: "d2" }, shared: 2, generation: 2 });
     expect(localStorage.getItem("kynotes-pending-saves")).toBeNull();
@@ -313,7 +304,7 @@ describe("version 6 upgrade", () => {
     vi.stubGlobal("localStorage", { getItem: () => { throw new DOMException("denied", "SecurityError"); }, removeItem: () => { throw new DOMException("denied", "SecurityError"); } });
     try {
       expect(await pendingSaves()).toEqual([]);
-      expect(await getDeviceKey("alice")).toBe("a".repeat(64));
+      expect(await vaultReady("alice")).toBe(true);
     } finally {
       vi.stubGlobal("localStorage", { getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => { local.set(key, value); }, removeItem: (key: string) => { local.delete(key); } });
     }
@@ -329,6 +320,12 @@ describe("version 6 upgrade", () => {
     expect(await getNote(userID, save.id)).toEqual(cached);
     expect(localStorage.getItem("kynotes-pending-saves")).toBe("{}");
   }));
+
+  it("a v6 database keeps its queue and vault, and drops only the login secret", () => fresh(async () => {
+    expect(await pendingSaves()).toHaveLength(1);
+    expect(Object.keys((await vaultRow("alice"))!).sort()).toEqual(["keyStates", "pins", "updatedAt", "username"]);
+    expect(await getKeyState("alice", userID, CID)).toEqual({ mark: 2, digests: { 2: "d2" }, shared: 2, generation: 2 });
+  }, 6));
 });
 
 /** Writes a row as stored, bypassing the typed API. */
@@ -366,7 +363,7 @@ const contains = (haystack: Uint8Array, needle: Uint8Array) => haystack.some((_,
 describe("the identity at rest", () => {
   const me = `usr_${"b".repeat(26)}`;
   const held = () => ({ ...generateIdentity(), deviceId: `dev_${"c".repeat(26)}` });
-  beforeEach(async () => { vi.stubGlobal("isSecureContext", true); await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  beforeEach(async () => { vi.stubGlobal("isSecureContext", true); await clearAllDeviceKeys(); await openVault("me"); });
   // Not unstubAllGlobals: that would also drop the file-level localStorage stub.
   afterEach(() => { vi.stubGlobal("isSecureContext", undefined); });
 
@@ -477,7 +474,7 @@ describe("the identity at rest", () => {
     await clearAllDeviceKeys();
     expect(await vaultReady("me")).toBe(false);
     expect(await storeIdentityKey("me", me, held())).toBe(false);
-    await storeDeviceKey("me", "a".repeat(64));
+    await openVault("me");
     expect(await vaultReady("me")).toBe(true);
   });
 
@@ -496,7 +493,7 @@ describe("the identity at rest", () => {
 
 describe("a vault write the browser aborts", () => {
   const me = `usr_${"b".repeat(26)}`;
-  beforeEach(async () => { vi.stubGlobal("isSecureContext", true); await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  beforeEach(async () => { vi.stubGlobal("isSecureContext", true); await clearAllDeviceKeys(); await openVault("me"); });
   afterEach(() => { vi.restoreAllMocks(); vi.stubGlobal("isSecureContext", undefined); });
 
   // A put that throws (DataCloneError here; QuotaExceededError in a browser) aborts the transaction.

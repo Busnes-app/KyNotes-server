@@ -8,7 +8,7 @@ import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, se
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";
 import { confirmFingerprintChange, displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
 import { generateIdentity } from "./teamKeys";
-import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, storeDeviceKey, storeKeyState, storePins, type PinsStored } from "./storage";
+import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, openVault, storeKeyState, storePins, type PinsStored } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;
 const user = (name: string, c: string, role: string, withIdentity = true) => {
@@ -341,7 +341,7 @@ const vault = (u: User): PinStore => ({
 });
 
 describe("sharing-state rollback", () => {
-  beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  beforeEach(async () => { await clearAllDeviceKeys(); await openVault("me"); });
 
   it("never writes, or reads below the first key, once this device has seen the notebook keyed, even after a reload", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
@@ -384,7 +384,7 @@ describe("sharing-state rollback", () => {
 });
 
 describe("conflicting first pins", () => {
-  beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  beforeEach(async () => { await clearAllDeviceKeys(); await openVault("me"); });
 
   it("lets only one of two overlapping passes pin a recipient; the other uploads nothing", async () => {
     const owner = user("owner", "b", "owner"), editor = user("editor", "c", "editor"), substitute = user("editor", "c", "editor");
@@ -434,7 +434,7 @@ describe("conflicting first pins", () => {
 });
 
 describe("keys from a refused first-contact sender", () => {
-  beforeEach(async () => { await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  beforeEach(async () => { await clearAllDeviceKeys(); await openVault("me"); });
 
   it("are never returned, remembered or accepted later when a concurrent pass pinned another key", async () => {
     const owner = user("owner", "b", "owner"), forged = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
@@ -684,7 +684,7 @@ describe("inviteWithKeys", () => {
 
   it("confirms a changed invitee key only while the pin is still the one the dialog showed", async () => {
     await clearAllDeviceKeys();
-    await storeDeviceKey("me", "a".repeat(64));
+    await openVault("me");
     const me = owner.member.userId;
     const stale = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
     const meanwhile = btoa(String.fromCharCode(...new Uint8Array(32).fill(8)));
