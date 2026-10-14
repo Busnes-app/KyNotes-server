@@ -35,7 +35,9 @@ routine automation; testing real cards is a separate custodian-supervised operat
 The command refuses a nonempty target, wrong service, insufficient/invalid shares and
 tampered ciphertext. It verifies the authenticated recipe, table counts, active admin,
 original secrets, key pin and blob inventory. It relocates `data_dir` in the restored
-`kynotes.yaml` and revokes every restored web session. Failure after extraction leaves
+`kynotes.yaml`. In one transaction it revokes every restored web session, paired device,
+share link and sealed share link, and deletes pending invitations, so nothing revoked after
+the snapshot comes back; account encryption identities are kept. Failure after extraction leaves
 the target for inspection; preserve it and use another empty target for another attempt.
 
 For Docker, use the image you run (see the note at the top) and a writable target owned by the
@@ -80,7 +82,7 @@ to a ciphertext-only mirror target. Preserve the source and remote history durin
 ## 3. Start and check identity
 
 Start from the recovered volume and configuration. Log in again; old sessions are
-revoked. Verify account access, device envelopes, a decrypted note and an attachment
+revoked. Pair devices again, re-create share links and re-send invitations. Verify account access, device envelopes, a decrypted note and an attachment
 in a trusted browser. Confirm the original recovery key ID and issuer before depositing.
 A successful deposit is recorded with capsule ID, digest, receipt time and local result.
 Do not re-pair simply to hide a failed token-decryption or key-pin check.
@@ -96,7 +98,7 @@ must follow their owning provider's procedure, not direct edits to encrypted row
 
 `go test ./cmd/kynotes-server -run TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions`
 runs an actual synthetic 2-of-3 restore, verifies the original login verifier and secrets,
-retrieves note-version and attachment ciphertext from a local mirror, checks session revocation, and exercises occupied target, missing shares, tampering and
+retrieves note-version and attachment ciphertext from a local mirror, checks revocation of sessions, devices, share links and invitations, and exercises occupied target, missing shares, tampering and
 foreign-service refusal. `go test ./internal/backup` proves WAL snapshot and opened-recipe
 checks. These are code/fixture proof; they do not claim access to real custodian cards or
 prove a deployment's remote blob coverage.

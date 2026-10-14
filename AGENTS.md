@@ -68,7 +68,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   content-addressed without creating an attachment row. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
-- `internal/app` owns the `.kynotes.lock` data-directory lock and first-run
+- `internal/app` owns the `.kynotes.lock` data-directory lock (`storage.LockDirectory`: an `flock`
+  held for the process lifetime; the file stays and is never copied or replaced, a dead holder never
+  blocks; `TestDirectoryLock*`) and first-run
   bootstrap: only when no users exist, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the administrator
   account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS` the everyday account (different
   usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, or use
@@ -284,7 +286,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   to reject missing, stale or extra assets. The app CSP (`embed.go`) allows `img-src 'self' data: blob:` so decrypted images render.
 - `kynotes-server healthcheck [--config PATH] [--url URL]` is the container HEALTHCHECK
   (distroless has no curl): GET `/healthz` on the configured bind port, 3 s timeout, exit 0
-  only on 200, loopback hosts only, no redirects. `version` is set by
+  only on 200, loopback hosts only, no redirects. It reads only the bind (`config.Bind`): no
+  secrets, no writes (`TestHealthcheckWritesNothing`). Readiness turns false when shutdown starts;
+  `Serve` waits up to `shutdown_grace` for a running GC pass before SQLite closes
+  (`TestShutdownWaitsForRunningGC`). `version` is set by
   `-ldflags "-X main.version=..."`; the Dockerfile takes `ARG VERSION` (CI passes the commit SHA).
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
@@ -298,8 +303,15 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
   owns the same data-directory lock as the server, except `deposit`/`backup-drill`, which
   go through `admin.sock` when the server runs; `restore --in --to` is the only
-  custodian-share/capsule-open entry point and revokes restored sessions. Legacy local
-  plaintext commands are `copy-data-dir` and `restore-data-dir`. Capsules exclude all
+  custodian-share/capsule-open entry point; in one transaction it revokes restored sessions,
+  paired devices (identities stay), share links and sealed share links, and deletes pending
+  invitations. Legacy local plaintext commands are `copy-data-dir` (`--out` absent or empty and
+  outside the data directory) and `restore-data-dir` (`--in` needs `kynotes.sqlite` and both
+  `secrets/*.key`; stages beside the data, integrity-checks, swaps entries by rename and keeps the
+  old ones in `.restore-previous-*`; `TestRestoreDataDir*`). Every offline command that opens the
+  database takes the lock (`openLocked`; `TestOfflineCommandsTakeTheDirectoryLock`) except
+  `gc --now`, which the probe runs beside the live server (`ponytail:` in `gcCommand`); it refuses
+  an unparsable or negative `--retention`. Capsules exclude all
   blob bytes, including note versions; full recovery needs the separate blob store.
   See `docs/RESTORE.md` and `docs/DEPLOYMENT.md`. The scheduler polls each minute,
   counts from last attempt and drains active work before SQLite closes.

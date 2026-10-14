@@ -604,7 +604,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return e
 		})
 		if errors.Is(e, sql.ErrNoRows) {
-			loginLockout.Fail(key, time.Now().UTC())
+			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
