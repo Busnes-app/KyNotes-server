@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
@@ -29,9 +31,10 @@ type uploadClient struct {
 	url, container string
 	csrf           string
 	generation     int64
+	db             *sql.DB
 }
 
-func newUploadClient(t *testing.T) *uploadClient {
+func newUploadClient(t *testing.T, opts ...func(*config.Config)) *uploadClient {
 	t.Helper()
 	root := t.TempDir()
 	s, err := storage.Open(filepath.Join(root, "db.sqlite"))
@@ -52,6 +55,9 @@ func newUploadClient(t *testing.T) *uploadClient {
 	cfg.Limits.ChunkBytes = 4
 	cfg.Limits.AttachmentMaxBytes = 100
 	cfg.Limits.UserQuotaBytes = 1000000
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	h := NewRouter(logging.New(io.Discard, "info", "json"), cfg.Server.MaxRequestBytes, func() bool { return true }, s.DB(), b, cfg)
 	srv := httptest.NewServer(h)
 	jar, _ := cookiejar.New(nil)
@@ -339,4 +345,113 @@ func TestAttachmentHasNoUpdateRoute(t *testing.T) {
 		t.Fatalf("status=%d", res.StatusCode)
 	}
 	res.Body.Close()
+}
+
+func (u *uploadClient) finalize(t *testing.T, id string) int {
+	t.Helper()
+	code, _ := status(t, u.do(t, http.MethodPost, "/api/v1/uploads/"+id+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(u.generation, 10)+`}`), true))
+	return code
+}
+
+// stallReader signals its first Read, then holds the body until release closes.
+type stallReader struct {
+	started, release chan struct{}
+	once             sync.Once
+	body             io.Reader
+}
+
+func (s *stallReader) Read(b []byte) (int, error) {
+	s.once.Do(func() { close(s.started) })
+	<-s.release
+	return s.body.Read(b)
+}
+
+func TestStalledChunkDoesNotBlockAnotherUpload(t *testing.T) {
+	u := newUploadClient(t)
+	a, b := u.upload(t, 4, nil), u.upload(t, 4, nil)
+	stall := &stallReader{started: make(chan struct{}), release: make(chan struct{}), body: strings.NewReader("abcd")}
+	release := sync.OnceFunc(func() { close(stall.release) })
+	defer release()
+	req, _ := http.NewRequest(http.MethodPatch, u.url+"/api/v1/uploads/"+a, stall)
+	req.ContentLength = 4
+	req.Header.Set("Expect", "100-continue") // the body is read only once the handler asks for it
+	req.Header.Set("X-Kynotes-Chunk-Index", "0")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
+	for _, c := range u.hc.Jar.Cookies(req.URL) {
+		req.AddCookie(c)
+		if c.Name == "csrf_token" {
+			req.Header.Set("X-CSRF-Token", c.Value)
+		}
+	}
+	done := make(chan int, 1)
+	go func() {
+		res, err := (&http.Client{Transport: &http.Transport{ExpectContinueTimeout: time.Minute}}).Do(req)
+		if err != nil {
+			done <- 0
+			return
+		}
+		res.Body.Close()
+		done <- res.StatusCode
+	}()
+	<-stall.started
+	u.hc.Timeout = 5 * time.Second
+	if code, body := status(t, u.chunk(t, b, 0, "wxyz")); code != http.StatusOK {
+		t.Fatalf("chunk to another upload=%d %s", code, body)
+	}
+	release()
+	if code := <-done; code != http.StatusOK {
+		t.Fatalf("stalled chunk=%d", code)
+	}
+}
+
+func TestUploadSessionHasAnAbsoluteLifetime(t *testing.T) {
+	u := newUploadClient(t)
+	fresh, complete := u.upload(t, 4, []byte("abcd")), u.upload(t, 4, []byte("abcd"))
+	if code, body := status(t, u.chunk(t, complete, 0, "abcd")); code != http.StatusOK {
+		t.Fatalf("chunk=%d %s", code, body)
+	}
+	// Activity kept expires_at ahead; only the creation time is past the cap.
+	old := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339)
+	if _, err := u.db.Exec(`UPDATE upload_sessions SET created_at=? WHERE id IN (?,?)`, old, fresh, complete); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := status(t, u.chunk(t, fresh, 0, "abcd")); code != http.StatusGone {
+		t.Fatalf("chunk past lifetime=%d %s", code, body)
+	}
+	if code := u.finalize(t, complete); code != http.StatusGone {
+		t.Fatalf("finalize past lifetime=%d", code)
+	}
+}
+
+func TestPendingUploadsCountTowardQuota(t *testing.T) {
+	u := newUploadClient(t, func(c *config.Config) { c.Limits.UserQuotaBytes = 6 })
+	u.upload(t, 4, nil)
+	code, body := status(t, u.do(t, http.MethodPost, "/api/v1/containers/"+u.container+"/uploads", []byte(`{"declaredBytes":4,"kind":"attachment"}`), true))
+	if code != http.StatusRequestEntityTooLarge || !strings.Contains(body, "quota_exceeded") {
+		t.Fatalf("second pending upload=%d %s", code, body)
+	}
+}
+
+func TestTeamQuotaIsEnforced(t *testing.T) {
+	u := newUploadClient(t, func(c *config.Config) { c.Limits.UserQuotaBytes = 0; c.Limits.TeamQuotaBytes = 6 })
+	code, body := status(t, u.do(t, http.MethodPost, "/api/v1/containers", []byte(`{"kind":"team","metaCiphertext":""}`), true))
+	var team struct{ ID string }
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &team) != nil {
+		t.Fatalf("team=%d %s", code, body)
+	}
+	keyForTest(t, u.db, team.ID, "usr_upload_test")
+	if _, err := u.db.Exec(`UPDATE containers SET team_id=? WHERE id=?`, team.ID, u.container); err != nil {
+		t.Fatal(err)
+	}
+	id := u.upload(t, 4, []byte("abcd"))
+	if code, body := status(t, u.chunk(t, id, 0, "abcd")); code != http.StatusOK {
+		t.Fatalf("chunk=%d %s", code, body)
+	}
+	if code := u.finalize(t, id); code != http.StatusOK {
+		t.Fatalf("finalize=%d", code)
+	}
+	code, body = status(t, u.do(t, http.MethodPost, "/api/v1/containers/"+team.ID+"/uploads", []byte(`{"declaredBytes":4,"kind":"attachment"}`), true))
+	if code != http.StatusRequestEntityTooLarge || !strings.Contains(body, "quota_exceeded") {
+		t.Fatalf("upload past team quota=%d %s", code, body)
+	}
 }

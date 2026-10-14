@@ -65,7 +65,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   device-validated envelope writes are covered by the package integration
   tests; password/OIDC login, password change, step-up, recover, device, pairing, and upload
   endpoints use in-memory token buckets. Upload retries are byte-checked, and preview uploads remain
-  content-addressed without creating an attachment row. Admin settings/users,
+  content-addressed without creating an attachment row. Chunks read their body before taking a
+  per-session lock (`lockUpload`); chunk and finalize re-check an editor-or-higher role
+  (`checkUploader`) and the 24-hour session cap (`uploadLive`). `quotaExceeded` charges object
+  saves, upload starts and finalizes to the target container's owner and team, counting live
+  pending sessions. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
 - `internal/app` owns the `.kynotes.lock` data-directory lock (`storage.LockDirectory`: an `flock`

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"io"
 	"net/http"
@@ -49,7 +50,8 @@ func currentCommitReceipt(db *sql.DB, objectID string, version int64) string {
 	return commitReceipt(objectID, digest, version, bytes, generation, baseVersion, changeSeq)
 }
 
-func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
+func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits config.Limits) {
+	max := limits.ObjectMaxBytes
 	mux.Handle("GET /api/v1/objects/{id}/conflicts", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		if ids.Validate("obj", r.PathValue("id")) != nil {
@@ -313,6 +315,15 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 		if e != nil {
 			_ = tx.Rollback()
 			writeTeamKeyError(w, r, e)
+			return
+		}
+		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
+			_ = tx.Rollback()
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+			} else {
+				WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			}
 			return
 		}
 		var live int64

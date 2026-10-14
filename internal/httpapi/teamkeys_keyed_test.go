@@ -264,3 +264,62 @@ func TestAnotherMemberCannotTouchAnUploadSession(t *testing.T) {
 		t.Fatalf("owner finalize=%d %s", code, body)
 	}
 }
+
+// A session opened as an editor stops accepting chunks and finalize once its owner is demoted.
+func TestDemotedEditorCannotContinueAnUpload(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	chunk := func(id string, commit func()) (int, string) {
+		return tm.editor.sendRacing(t, http.MethodPatch, "/api/v1/uploads/"+id, map[string]string{"X-Kynotes-Chunk-Index": "0", keySchemeHeader: keySchemeShared}, []byte("abcd"), commit)
+	}
+	open := func() string {
+		code, body := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", []byte(`{"declaredBytes":4,"kind":"attachment"}`), true, false))
+		var up struct {
+			ID string `json:"uploadId"`
+		}
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &up) != nil {
+			t.Fatalf("upload create=%d %s", code, body)
+		}
+		return up.ID
+	}
+	pending, complete := open(), open()
+	if code, body := chunk(complete, func() {}); code != http.StatusOK {
+		t.Fatalf("chunk=%d %s", code, body)
+	}
+	// The demotion lands while the chunk body streams, after the request was admitted.
+	demote := func() {
+		if _, err := tm.owner.db.Exec(`UPDATE memberships SET role='viewer' WHERE container_id=? AND user_id=?`, tm.id, tm.editor.id); err != nil {
+			t.Error(err)
+		}
+	}
+	if code, body := chunk(pending, demote); code != http.StatusForbidden {
+		t.Fatalf("viewer chunk=%d %s", code, body)
+	}
+	if code, body := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/uploads/"+complete+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":2}`), true, false)); code != http.StatusForbidden {
+		t.Fatalf("viewer finalize=%d %s", code, body)
+	}
+}
+
+// Quota is charged to the container's owner, not to the member who writes into it.
+func TestQuotaChargesTheContainerOwner(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	oid, code := tm.editor.save(t, tm.id, "", 2)
+	if code != http.StatusOK {
+		t.Fatalf("first save=%d", code)
+	}
+	// "ciphertext" is 10 bytes: room for neither a second version nor a 6-byte attachment.
+	if _, err := tm.owner.db.Exec(`UPDATE users SET quota_bytes=15 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("save over owner quota=%d", code)
+	}
+	if code, body := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", []byte(`{"declaredBytes":6,"kind":"attachment"}`), true, false)); code != http.StatusRequestEntityTooLarge || !strings.Contains(body, "quota_exceeded") {
+		t.Fatalf("upload over owner quota=%d %s", code, body)
+	}
+	var versions int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id=?`, oid).Scan(&versions); err != nil || versions != 1 {
+		t.Fatalf("versions=%d %v", versions, err)
+	}
+}
