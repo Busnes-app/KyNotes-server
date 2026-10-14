@@ -307,10 +307,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		if kind == "preview" {
 			now := time.Now().UTC().Format(time.RFC3339)
 			e = dbTx(db, func(tx *sql.Tx) error {
-				if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now); e != nil {
-					return e
-				}
-				if _, e := tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now); e != nil {
+				if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
 					return e
 				}
 				_, e := tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
@@ -338,10 +335,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
-			if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now); e != nil {
-				return e
-			}
-			if _, e := tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now); e != nil {
+			if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
 				return e
 			}
 			var changeSeq int64
@@ -350,6 +344,10 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			}
 			if _, e := tx.Exec(`INSERT INTO attachments(id,container_id,blob_digest,preview_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, att, cid, digest, previewDigest, size, meta, in.KeyGeneration, changeSeq, now); e != nil {
 				if scanErr := tx.QueryRow(`SELECT id FROM attachments WHERE container_id=? AND blob_digest=?`, cid, digest).Scan(&att); scanErr != nil {
+					return e
+				}
+				// Re-uploading the bytes of a deleted attachment revives it; linking refuses tombstones.
+				if _, e := tx.Exec(`UPDATE attachments SET deleted_at='' WHERE id=?`, att); e != nil {
 					return e
 				}
 			}
@@ -449,7 +447,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT id,?,?,? FROM attachments WHERE id=? AND container_id=?`, r.PathValue("id"), in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), in.AttachmentID, cid)
+		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''`, in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.AttachmentID, cid)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -479,7 +477,10 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		_, _ = db.Exec(`DELETE FROM attachment_refs WHERE object_id=? AND attachment_id=?`, r.PathValue("id"), r.PathValue("attachmentId"))
+		if _, e := db.Exec(`DELETE FROM attachment_refs WHERE object_id=? AND attachment_id=?`, r.PathValue("id"), r.PathValue("attachmentId")); e != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
 }

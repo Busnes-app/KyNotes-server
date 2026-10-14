@@ -627,11 +627,15 @@ Reads use the same pool.
   files are removed. Expired sessions stay visible to the owner for 24 hours so
   the client can show a failed upload, then the row is deleted.
 * Pass 2 — **mark**: for every blob with no live reference (no accepted object
-  version, no unresolved conflict, no live attachment), set `unreferenced_since`
-  if unset. If a reference reappears, clear it.
+  version, no unresolved conflict, no live or linked attachment), set
+  `unreferenced_since` if unset. If a reference reappears, clear it; every write
+  that records a blob clears it too.
 * Pass 3 — **sweep**: delete blobs whose `unreferenced_since` is older than
-  `gc.retention`; delete the file first, then the row, and tolerate a missing
-  file.
+  `gc.retention`. Per blob, in one write transaction: re-check it is still
+  unreferenced, delete the tombstones naming it (deleted attachments, resolved
+  conflicts), delete the file, then the row; tolerate a missing file. A write
+  that records a blob confirms its file inside its own transaction, so a save
+  that reuses a blob either commits first and keeps it or fails.
 * Pass 4 — **purge tombstones**: rows soft-deleted longer ago than
   `gc.retention` are removed.
 * `gc.enabled: false` disables passes 2–4 only. Upload expiry always runs —
@@ -1534,7 +1538,7 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 | HEAD | `/api/v1/containers/{id}/attachments/by-digest/{digest}` | `200` if that digest is already in **this** container, else `404` |
 | GET | `/api/v1/attachments/{id}` | ciphertext stream, supports `Range` |
 | GET | `/api/v1/attachments/{id}/preview` | preview ciphertext stream |
-| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref; owner, admin or editor (`403` otherwise), as is detaching it |
+| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref; owner, admin or editor (`403` otherwise), as is detaching it; a deleted attachment or note is `404` |
 | DELETE | `/api/v1/objects/{id}/attachments/{attachmentId}` | removes refs for that object |
 
 ### 7.2 Rules
@@ -1562,7 +1566,8 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 9. Finalize is where dedup happens: if `blobs` already has the digest, no new
    file is written (the temp is discarded); a `blob_containers` row is inserted
    for this container if absent. If the container already has an `attachments`
-   row for that digest, return the existing attachment ID — the unique index
+   row for that digest, return the existing attachment ID, reviving it if it was
+   deleted — the unique index
    `idx_attachments_container_digest` makes this deterministic.
 10. Image attachments must supply `previewUploadId`. The server does not know
     what an image is, so this is a client obligation; the server simply stores
@@ -1579,7 +1584,9 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 2. Delete every `object_versions` row for the object. (Historical versions go
    too — DESIGN.md §Encryption is explicit about this.)
 3. Delete every `attachment_refs` row for the object.
-4. Soft-delete `attachments` rows in this container that now have zero refs.
+4. Soft-delete the `attachments` rows this object referenced that now have zero
+   refs. An attachment it never referenced, such as an upload not linked yet,
+   is untouched.
 5. Commit. **No blob is touched.**
 
 GC (§1.15) later marks the orphaned blobs and deletes them after

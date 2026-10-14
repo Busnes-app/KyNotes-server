@@ -272,8 +272,11 @@ include a client-generated preview, stored as a separately encrypted blob.
 
 Attachment access inherits the permissions of the containing project. When a
 note is deleted, all current and historical versions are deleted and their
-attachment references are released. A blob is deleted when no note references
-it and the garbage-collection retention period has elapsed. Garbage collection
+attachment references are released; only attachments that note referenced and
+nothing else links are deleted. A blob is deleted when no note references
+it and the garbage-collection retention period has elapsed. The sweep re-checks
+references in the transaction that deletes the blob, and a save that reuses a
+blob restarts its retention period. Garbage collection
 is controlled globally and uses a configurable retention period. It may be
 disabled, with unreferenced storage growth as the explicit trade-off.
 
