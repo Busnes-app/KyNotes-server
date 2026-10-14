@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
 import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, withDialog, type Person } from "./people";
-import { asContentKey, decryptComment, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
+import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
 import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
@@ -144,7 +144,8 @@ const storageHolds = (page: Page, needle: string) => page.evaluate(async (text) 
   return dumps.some((dump) => forms.some((form) => dump.toLowerCase().includes(form)));
 }, needle);
 
-type Vault = { authSecret: string; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
+/** fields: the record's stored field names, so a test sees anything kept beyond the identity. */
+type Vault = { fields: string[]; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
 
 /** This browser's keys vault record; a sealed identity is opened in the page with its device key. Never creates the database. */
 function vaultOf(page: Page) {
@@ -159,15 +160,16 @@ function vaultOf(page: Page) {
       all.onsuccess = async () => {
         db.close();
         type Stored = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey?: Uint8Array; sealed?: Uint8Array; deviceKey?: CryptoKey };
-        const row = (all.result as Array<{ authSecret: string; identity?: Stored }>)[0];
+        const row = (all.result as Array<{ identity?: Stored }>)[0];
         if (!row) { resolve(null); return; }
+        const fields = Object.keys(row).sort();
         const stored = row.identity;
-        if (!stored) { resolve({ authSecret: row.authSecret, sealed: false }); return; }
+        if (!stored) { resolve({ fields, sealed: false }); return; }
         try {
           const privateKey = stored.sealed && stored.deviceKey
             ? new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: new TextEncoder().encode(`kynotes/device-identity/v1|${stored.userID}|${stored.deviceId}`) }, stored.deviceKey, stored.sealed.slice(12)))
             : stored.privateKey!;
-          resolve({ authSecret: row.authSecret, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
+          resolve({ fields, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
         } catch (error) { reject(error); }
       };
     };
@@ -240,7 +242,7 @@ async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array
   return new Map(rows.filter((row) => row.deviceId === own.deviceId).map((row) => {
     const envelope = fromBase64(row.envelope);
     const sender = senders.get(envelopeSender(envelope));
-    if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(envelope)}`);
+    if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(envelope)} (generation ${row.keyGeneration} for ${own.deviceId}; known: ${[...senders.keys()].join(", ")})`);
     return [row.keyGeneration, asContentKey(unwrapEnvelope(envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
   }));
 }
@@ -310,7 +312,11 @@ const stashed = (page: Page) => page.evaluate(() => sessionStorage.getItem("kyno
 const titleOf = (key: KeyRef, cid: string, bytes: number[]) => decryptObject(key, cid, Uint8Array.from(bytes)).then((payload) => payload?.title);
 
 /** The key the server could derive from what it sees at sign-in. Test-only: content must never open with it. */
-const loginKey = (authSecret: string) => asContentKey(Uint8Array.from(Buffer.from(authSecret, "hex")));
+async function loginKey(page: Page, username: string, password: string) {
+  const { loginSalt, iterations } = await page.evaluate(async (name) => (await fetch("/api/v1/auth/login-params", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: name }) })).json(), username);
+  const { authSecret } = await deriveLoginKeys(password, loginSalt, iterations);
+  return asContentKey(Uint8Array.from(Buffer.from(authSecret, "hex")));
+}
 
 test("team keys: three people share, a removed member loses new content", async ({ browser }) => {
   const owner = await person(browser);
@@ -349,6 +355,9 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   for (const name of ["editor", "newcomer"]) await createUser(admin, name, TEMPORARY);
   await signIn(owner.page, OWNER.username, OWNER.password);
   await expect.poll(() => vaultOf(owner.page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
+  // The vault keeps the identity and nothing that can sign in.
+  const kept = ["identity", "keyStates", "pins", "resetSent", "updatedAt", "username"];
+  expect((await vaultOf(owner.page))!.fields.filter((field) => !kept.includes(field))).toEqual([]);
   teamID = await createTeamFor(admin, OWNER.username);
   // The owner's first open mints the key; the owner names the notebook.
   await nameTeam(owner, teamID, TEAM);
@@ -376,7 +385,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const ownerKeys = await heldKeys(owner.page, cid, senders);
   const ownerCopy = await serverCopy(owner.page, "Owner page");
   expect(ownerCopy.generation).toBeGreaterThan(0);
-  await expect(titleOf(loginKey((await vaultOf(owner.page))!.authSecret), cid, ownerCopy.bytes)).rejects.toThrow();
+  await expect(titleOf(await loginKey(owner.page, OWNER.username, OWN), cid, ownerCopy.bytes)).rejects.toThrow();
   await expect(titleOf(ownerKeys.get(ownerCopy.generation)!, cid, ownerCopy.bytes)).resolves.toBe("Owner page");
 
   // Editor reads the owner's page, comment and attachment, and writes back.
@@ -391,7 +400,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const editorKeys = await heldKeys(editor.page, cid, senders);
   const editorCopy = await serverCopy(editor.page, "Editor page");
   expect(editorCopy.generation).toBe(ownerCopy.generation);
-  await expect(titleOf(loginKey((await vaultOf(editor.page))!.authSecret), cid, editorCopy.bytes)).rejects.toThrow();
+  await expect(titleOf(await loginKey(editor.page, "editor", OWN), cid, editorCopy.bytes)).rejects.toThrow();
   await expect(titleOf(editorKeys.get(editorCopy.generation)!, cid, editorCopy.bytes)).resolves.toBe("Editor page");
   await expect(titleOf(ownerKeys.get(editorCopy.generation)!, cid, editorCopy.bytes)).resolves.toBe("Editor page");
 
@@ -670,7 +679,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
 const LINK_BANNER = /This browser does not hold your encryption key/;
 const LINK_ENDED = "This link request ended: it was cancelled on the other browser or expired. Start again.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
-const FORGET = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+const FORGET = "Forget this device and sign out? This browser's copy of your encryption key and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 const linkCode = (id: string) => id.slice(-6).toUpperCase();
 
 /** Starts a link on the newcomer's Settings card; returns the request ID the server issued. */
@@ -872,7 +881,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   const editorKey = (await vaultOf(editor.page))!.identity!;
   const editorId = (await ownSettings(editor.page)).userId;
   const senders = new Map([[editorKey.deviceId, Uint8Array.from(editorKey.publicKey)]]);
-  const login = loginKey((await vaultOf(editor.page))!.authSecret);
+  const login = await loginKey(editor.page, "editor", OWN);
 
   // 1. A new personal notebook is keyed before anything is written. No request carries anything the
   //    login-derived key opens; the name and pages open only with the container key.
@@ -881,8 +890,11 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
     if (request.method() !== "GET") writes.push({ method: request.method(), path: new URL(request.url()).pathname, scheme: request.headers()["x-kynotes-key-scheme"], body: request.postDataBuffer() });
   };
   editor.page.on("request", record);
+  const before = editor.page.url();
   await withDialog(editor, { type: "prompt", text: "Notebook name", answer: KEYED }, () => editor.page.getByRole("button", { name: "＋ New notebook" }).click());
   await expect(editor.page.locator(".workspace-title")).toHaveText(KEYED);
+  // The title shows before the load ends; the address names the notebook only once it has (the step-up comes between).
+  await expect.poll(() => editor.page.url()).not.toBe(before);
   const nid = containerOf(editor.page);
   await writePage(editor.page, "Keyed page", "keyed comment");
   editor.page.off("request", record);
@@ -1047,7 +1059,8 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   await shoot(restored.page, "p5", "restored", restored.page.locator(".workspace-title"));
 
   // 5. A browser that ran a build before IndexedDB v6: its cache, queue, uploads and old local queue
-  //    (rows sealed with the login key) are dropped on upgrade, never sent or offered.
+  //    (rows sealed with the login key) are dropped on upgrade, never sent or offered; v7 drops the
+  //    login secret its vault record kept.
   const upgraded = await another();
   const stale = [...await encryptNote(login, nid, { type: "page", title: "Old build edit", body: "" })];
   await upgraded.page.goto("/readyz");
@@ -1061,11 +1074,13 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
       db.createObjectStore("notes", { keyPath: ["owner", "id"] }).put(row);
       db.createObjectStore("pending", { keyPath: ["owner", "id"] }).put(row);
       db.createObjectStore("uploads", { keyPath: "uploadId" }).put({ uploadId: "upl_old", owner, containerID: container, payload: new Uint8Array(payload) });
+      db.createObjectStore("keys", { keyPath: "username" }).put({ username: "editor", authSecret: "a".repeat(64), updatedAt: new Date().toISOString() });
     };
     open.onsuccess = () => { open.result.close(); resolve(); };
   }), { owner: editorId, container: nid, payload: stale });
   await signIn(upgraded.page, "editor", OWN);
-  expect(await upgraded.page.evaluate(() => new Promise<number>((resolve) => { const open = indexedDB.open("kynotes-web"); open.onsuccess = () => { resolve(open.result.version); open.result.close(); }; }))).toBe(6);
+  expect(await upgraded.page.evaluate(() => new Promise<number>((resolve) => { const open = indexedDB.open("kynotes-web"); open.onsuccess = () => { resolve(open.result.version); open.result.close(); }; }))).toBe(7);
+  expect((await vaultOf(upgraded.page))!.fields).not.toContain("authSecret");
   for (const store of ["notes", "pending", "uploads"]) expect(await storeRows(upgraded.page, store), store).toEqual([]);
   expect(await upgraded.page.evaluate(() => localStorage.getItem("kynotes-pending-saves"))).toBeNull();
   await upgraded.page.getByRole("button", { name: "Settings" }).click();

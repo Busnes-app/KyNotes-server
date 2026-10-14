@@ -166,10 +166,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   client path.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
   that expires after 15 seconds.
-- `web/` keeps a vault record per account in IndexedDB (the password sign-in's verifier, or for
-  a KySignOn session a random per-browser value from `ssoDeviceSecret`) beside the identity, with
-  "Forget this device" to clear it. KySignOn sessions are never asked for a password; a local
-  session without a record signs in with its password, and a refused password lets no one in.
+- `web/` keeps a vault record per account in IndexedDB (`openVault`) holding the identity, pins and
+  key memory, never a login secret: nothing on the device can sign in or step up. IndexedDB v7
+  drops the `authSecret` earlier builds kept. A reopened password session holds no login secret in
+  memory; its first step-up asks for the password (`stepUpAsking`) and background key passes defer
+  rather than ask (`workspaceWiring.test.ts`). "Forget this device" clears the record. KySignOn
+  sessions are never asked for a password; a refused password lets no one in.
 - `web/` surfaces server-confirmed save times and treats `version_conflict`
   responses separately from offline failures, preserving the encrypted local
   draft without endlessly retrying a stale version. Server-kept conflicting

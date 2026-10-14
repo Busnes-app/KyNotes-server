@@ -92,11 +92,11 @@ import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUnt
 import { loadGate } from "./loadGate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
+import { stepUpAsking } from "./stepup";
 import {
   clearDeviceKey,
   clearQueuedSave,
   deleteNote as deleteCachedNote,
-  getDeviceKey,
   getIdentityKey,
   getNote,
   getKeyState,
@@ -114,7 +114,7 @@ import {
   replaceQueuedSave,
   noteResetSent,
   resetSentKey,
-  ssoDeviceSecret,
+  openVault,
   storeIdentityKey,
   storeConfirmedPin,
   storeKeyState,
@@ -177,7 +177,7 @@ function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
   if (state === "create") return sso ? " Set up your encryption key from the notebook list." : " Sign in with your password to create it.";
   return "";
 }
-const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key, its saved sign-in and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
+const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 /** A password session's reset: its typed password gives the step-up and the new key's password copy (recovery.ts resetIdentity). */
 const passwordReset = (username: string) => ({
   derive: async (password: string) => { const params = await loginParams(username); return deriveLoginKeys(password, params.loginSalt, params.iterations); },
@@ -214,12 +214,13 @@ function App() {
         }
         // A single sign-on session never asks for a password: nothing it unlocks comes from one (I1).
         if (res.sso) {
-          setAuth({ username: res.user.username, authSecret: await ssoDeviceSecret(res.user.username), user: res.user, sso: true });
+          await openVault(res.user.username).catch(() => undefined); // no IndexedDB: the identity cannot be kept
+          setAuth({ username: res.user.username, authSecret: "", user: res.user, sso: true });
           return;
         }
         setSessionUser(res.user);
-        const cachedKey = await getDeviceKey(res.user.username).catch(() => undefined);
-        if (cachedKey) setAuth({ username: res.user.username, authSecret: cachedKey, user: res.user });
+        // The vault keeps no login secret: this session reopens, and a step-up asks for the password.
+        if (await vaultReady(res.user.username)) setAuth({ username: res.user.username, authSecret: "", user: res.user });
       })
       .catch(() => {
         setSessionUser(null);
@@ -392,7 +393,7 @@ function Login({
       const everyday = result.user.accountKind === "user";
       // Only an everyday account on its own password keeps a vault record, after the server accepted the password.
       if (everyday && !result.passwordChangeRequired) {
-        await rememberAfter(async () => result, activeName, authSecret);
+        await rememberAfter(async () => result, activeName);
         await settleIdentity(activeName, result.user.id, keys, result.identity);
       }
       onLogin({ username: activeName, authSecret: everyday ? authSecret : "", user: result.user, passwordChangeRequired: result.passwordChangeRequired });
@@ -734,6 +735,8 @@ function Workspace({
   const [keyNotice, setKeyNotice] = useState("");
   // The open notebook's members wait for keys this SSO steward did not share on its own (KySync.deferred).
   const [keyDeferred, setKeyDeferred] = useState(false);
+  /** The login secret this tab asked for (keyAPI.stepUp), shared by every caller; dropped when cancelled or refused. */
+  const asked = useRef<Promise<string> | undefined>(undefined);
   // The open notebook's members as its last key pass saw them, and what each holds (informational only).
   const [keyMembers, setKeyMembers] = useState<{ containerID: string; members: MemberKey[]; status: Record<string, MemberKeyStatus> } | undefined>(undefined);
   // Usernames seen in key passes this session, for Settings' colleague keys.
@@ -819,7 +822,13 @@ function Workspace({
     members,
     userIdentity,
     // SSO sessions confirm each protected request with KySignOn (actionFetch); there is no session-wide step-up.
-    stepUp: auth.sso ? async () => {} : async () => { await stepUp(auth.authSecret); },
+    // A reopened password session holds no login secret (the vault keeps none): every caller in this
+    // tab shares one prompt, and its answer stays in memory only. A cancelled prompt asks again next time.
+    stepUp: auth.sso ? async () => {} : async () => {
+      if (auth.authSecret) return void (await stepUp(auth.authSecret));
+      asked.current ??= stepUpAsking(auth.username).then((secret) => { onAuthSecret(secret); return secret; });
+      try { await stepUp(await asked.current); } catch (error) { asked.current = undefined; throw error; }
+    },
     putEnvelopes,
     rotate: rotateKeys,
   };
@@ -877,7 +886,7 @@ function Workspace({
     if (liveRef.current === undefined) await refreshIdentity().catch(() => undefined);
     return serialized(container.id, async () => {
       const confirmChanged = background ? () => false : (changes: PinChange[]) => !superseded() && confirmChangedKeys(container.id)(changes);
-      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: !auth.sso || share, recoverable: recoverable(liveRef.current) }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
+      const result = await syncContainerKeys(keyAPI, container.id, { userId: auth.user.id, identity: await heldIdentity(), canWrap: share || (!auth.sso && (!background || auth.authSecret !== "")), recoverable: recoverable(liveRef.current) }, pinStore, confirmChanged, ringsRef.current[container.id], raiseFloorIn);
       putRing(container.id, result.ring);
       for (const member of result.members) colleagueNames.current[member.userId] = member.username;
       raiseFloorIn(container.id, result.known);
@@ -2566,7 +2575,7 @@ function Workspace({
                   return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
                 })()}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
-                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with KySignOn)</button></div>}
+                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></div>}
                 {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
                 {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
@@ -2948,7 +2957,7 @@ function PasswordSettings({ username, userID, everyday, onAuthSecret, onIdentity
         iterations: 600000,
         identityDeviceId: rewrapped?.identityDeviceId,
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
-      }), name, newKeys.authSecret, rewrapped && { userID, identity: rewrapped.identity });
+      }), name, rewrapped && { userID, identity: rewrapped.identity });
       // No identity yet (e.g. an administrator set the old password): create it under the new one
       // before the workspace opens, so it never caches an absent identity.
       if (!rewrapped) {
@@ -3137,8 +3146,8 @@ function SettingsView({
           <h2>Trusted Device & SSO</h2>
           <p className="config-muted">
             {ownFingerprint
-              ? "This browser holds your local zero-knowledge encryption key to allow instant 1-click SSO login without entering a password."
-              : "This browser keeps your sign-in for instant 1-click SSO login without entering a password."}
+              ? "This browser holds your encryption key, so your notes open here while you are signed in. It keeps nothing that can sign you in."
+              : "This browser keeps nothing that can sign you in."}
           </p>
           <p className="config-muted">Your user ID: <code>{userID}</code>. Team owners need it to invite you.</p>
           <p className="config-muted">

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { newContainerKey, writeKey, type KeyFloor } from "./keyring";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
 import { createKeyed, NOT_CREATED, observeContainer, type FloorSink } from "./observe";
-import { clearAllDeviceKeys, getKeyState, storeDeviceKey, storeKeyState } from "./storage";
+import { clearAllDeviceKeys, getKeyState, openVault, storeKeyState } from "./storage";
 
 vi.stubGlobal("localStorage", { getItem: () => null, removeItem: () => undefined });
 const cnt = `cnt_${"a".repeat(26)}`, me = `usr_${"b".repeat(26)}`;
@@ -15,7 +15,7 @@ const sink = (load: (id: string) => Promise<KeyFloor> = (id) => getKeyState("me"
 });
 
 describe("observeContainer", () => {
-  beforeEach(async () => { clearFloors(); await clearAllDeviceKeys(); await storeDeviceKey("me", "a".repeat(64)); });
+  beforeEach(async () => { clearFloors(); await clearAllDeviceKeys(); await openVault("me"); });
 
   it("raises the stored and in-memory floor when a name refresh sees a generation with no key", async () => {
     const old = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
