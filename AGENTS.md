@@ -178,6 +178,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   versions are recovered as `(conflicting copy)` pages next to the original, one
   per distinct text (text equal to the server is resolved without a copy); the original
   reloads to the server version and a conflict is resolved only after its copy saves.
+- `internal/httpapi` change feeds and listings answer 500 on any unreadable row rather than
+  omit it, `hasMore` reads one row past the page, and conflict resolve takes a fresh
+  `change_seq`. Verify `TestChangesNeverSkipAnUnreadableRow`, `TestResolvedConflictReachesSync`,
+  `TestConflictSaveThatFailsToCommitIsNotAConflict`, `TestListingsFailRatherThanDropARow`.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.
@@ -298,7 +302,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   (scrypt verifiers are refused); login secrets derive through `ky-primitives/derive`
   with label `kynotes/auth/v1`; recovery codes come from `ky-primitives/recoverycode`
   and are minted by the server (`user add` prints one; `POST /api/v1/auth/recover`
-  returns the replacement); key files under `<data>/secrets` load through
+  returns the replacement, spending the code only if its hash is unchanged inside the write:
+  `TestRecoveryCodeIsSpentOnceUnderRace`); key files under `<data>/secrets` load through
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
   The login dummy verifier retries a failed mint; it must never cache or use an empty hash.

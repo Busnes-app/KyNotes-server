@@ -38,7 +38,7 @@ func SyncRoutes(mux RouteMux, db *sql.DB) {
 		if limit > 1000 {
 			limit = 1000
 		}
-		rows, e := db.Query(`SELECT id,'object',change_seq,deleted_at, routing_ciphertext FROM objects WHERE container_id=? AND change_seq>? UNION ALL SELECT id,'attachment',change_seq,deleted_at, x'' FROM attachments WHERE container_id=? AND change_seq>? UNION ALL SELECT id,'comment',change_seq,deleted_at, x'' FROM comments WHERE container_id=? AND change_seq>? UNION ALL SELECT id,'conflict',change_seq,resolved_at, x'' FROM conflicts WHERE container_id=? AND change_seq>? ORDER BY change_seq LIMIT ?`, cid, since, cid, since, cid, since, cid, since, limit)
+		rows, e := db.Query(`SELECT id,'object',change_seq,deleted_at, routing_ciphertext FROM objects WHERE container_id=? AND change_seq>? UNION ALL SELECT id,'attachment',change_seq,deleted_at, x'' FROM attachments WHERE container_id=? AND change_seq>? UNION ALL SELECT id,'comment',change_seq,deleted_at, x'' FROM comments WHERE container_id=? AND change_seq>? UNION ALL SELECT id,'conflict',change_seq,resolved_at, x'' FROM conflicts WHERE container_id=? AND change_seq>? ORDER BY change_seq LIMIT ?`, cid, since, cid, since, cid, since, cid, since, limit+1)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -46,12 +46,19 @@ func SyncRoutes(mux RouteMux, db *sql.DB) {
 		defer rows.Close()
 		out := []map[string]any{}
 		next := since
+		hasMore := false
 		for rows.Next() {
+			if len(out) == limit {
+				hasMore = true
+				break
+			}
 			var id, kind, deleted string
 			var routing []byte
 			var seq int64
+			// A skipped row would be skipped forever: the cursor moves past it.
 			if rows.Scan(&id, &kind, &seq, &deleted, &routing) != nil {
-				continue
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
 			}
 			if seq > next {
 				next = seq
@@ -62,6 +69,10 @@ func SyncRoutes(mux RouteMux, db *sql.DB) {
 			}
 			out = append(out, entry)
 		}
-		writeJSON(w, map[string]any{"changes": out, "nextCursor": strconv.FormatInt(next, 10), "hasMore": len(out) == limit})
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		writeJSON(w, map[string]any{"changes": out, "nextCursor": strconv.FormatInt(next, 10), "hasMore": hasMore})
 	})))
 }

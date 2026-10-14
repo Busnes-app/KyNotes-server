@@ -37,9 +37,15 @@ func PushRoutes(mux RouteMux, db *sql.DB) {
 		out := []map[string]string{}
 		for rows.Next() {
 			var id, objectID, author, created string
-			if rows.Scan(&id, &objectID, &author, &created) == nil {
-				out = append(out, map[string]string{"id": id, "objectId": objectID, "authorUserId": author, "createdAt": created, "kind": "mention"})
+			if rows.Scan(&id, &objectID, &author, &created) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
 			}
+			out = append(out, map[string]string{"id": id, "objectId": objectID, "authorUserId": author, "createdAt": created, "kind": "mention"})
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))
@@ -98,8 +104,15 @@ func PushRoutes(mux RouteMux, db *sql.DB) {
 		for rows.Next() {
 			var cid string
 			var seq int64
-			_ = rows.Scan(&cid, &seq)
+			if rows.Scan(&cid, &seq) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 			out = append(out, map[string]any{"containerId": cid, "changeSeq": seq})
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))
