@@ -31,7 +31,6 @@ type uploadClient struct {
 	url, container string
 	csrf           string
 	generation     int64
-	db             *sql.DB
 }
 
 func newUploadClient(t *testing.T, opts ...func(*config.Config)) *uploadClient {
