@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 
 type uploadClient struct {
 	hc             *http.Client
+	db             *sql.DB
 	url, container string
 	csrf           string
 	generation     int64
@@ -54,7 +56,7 @@ func newUploadClient(t *testing.T) *uploadClient {
 	srv := httptest.NewServer(h)
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar}
-	u := &uploadClient{hc: client, url: srv.URL}
+	u := &uploadClient{hc: client, db: s.DB(), url: srv.URL}
 	t.Cleanup(func() { srv.Close(); s.Close() })
 	res := u.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"upload","authSecret":"`+secret+`"}`), false)
 	if res.StatusCode != http.StatusOK {

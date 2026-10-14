@@ -190,6 +190,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/httpapi` exposes authenticated object attachment listings; the web
   client encrypts attachment bytes and metadata before chunked upload and
   decrypts them only for the current browser session.
+- Blob writes go through `claimBlob` (clears the GC mark, confirms the file in the write
+  transaction); `storage.sweepBlob` re-checks and deletes file then row in one transaction.
+  A note delete tombstones only attachments it referenced; linking refuses deleted attachments
+  and notes; re-uploading a deleted attachment revives it. Verify `TestGCSweep*`, `TestGCKeeps*`,
+  `TestGCDeletesUnreferencedBlobAndItsExpiredTombstones` and `blob_lifecycle_test.go`.
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
