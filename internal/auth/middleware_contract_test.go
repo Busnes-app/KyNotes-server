@@ -26,7 +26,7 @@ func TestDeviceLockoutIPv6Uses64BitKey(t *testing.T) {
 	r1.RemoteAddr = "[2001:db8:1:2:1111:2222:3333:4444]:1234"
 	r2 := httptest.NewRequest("GET", "/", nil)
 	r2.RemoteAddr = "[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:4321"
-	if clientIP(r1) != clientIP(r2) {
-		t.Fatalf("IPv6 addresses were not folded to /64: %q != %q", clientIP(r1), clientIP(r2))
+	if ClientIP(r1) != ClientIP(r2) {
+		t.Fatalf("IPv6 addresses were not folded to /64: %q != %q", ClientIP(r1), ClientIP(r2))
 	}
 }

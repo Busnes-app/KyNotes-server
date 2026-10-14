@@ -8,7 +8,6 @@ import (
 type lockEntry struct {
 	Failures    int
 	LockedUntil time.Time
-	Last        time.Time
 }
 type Lockout struct {
 	mu         sync.Mutex
@@ -36,29 +35,33 @@ func (l *Lockout) Try(key string, now time.Time) bool {
 		delete(l.items, key)
 		return true
 	}
-	if _, ok := l.items[key]; !ok && len(l.items) >= l.max {
-		return false
-	}
-	return true
+	return l.room(key, now)
 }
 func (l *Lockout) Fail(key string, now time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if !l.room(key, now) {
+		return
+	}
 	e := l.items[key]
 	e.Failures++
-	e.Last = now
 	if e.Failures >= l.limit {
 		e.LockedUntil = now.Add(l.cooldown)
 	}
 	l.items[key] = e
 }
 func (l *Lockout) Success(key string) { l.mu.Lock(); delete(l.items, key); l.mu.Unlock() }
-func (l *Lockout) Sweep(now time.Time) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+
+// room reports whether key fits. A full table first drops every entry that is not a live lock;
+// live locks are never evicted (that would be a bypass), so only a table of live locks sheds the key.
+func (l *Lockout) room(key string, now time.Time) bool {
+	if _, ok := l.items[key]; ok || len(l.items) < l.max {
+		return true
+	}
 	for k, e := range l.items {
-		if e.LockedUntil.IsZero() && now.Sub(e.Last) > time.Hour {
+		if !now.Before(e.LockedUntil) {
 			delete(l.items, k)
 		}
 	}
+	return len(l.items) < l.max
 }

@@ -227,7 +227,7 @@ func resolveDevice(db *sql.DB, r *http.Request) (Device, bool) {
 	if e := db.QueryRow(`SELECT d.id,d.user_id,d.secret_hash,u.status,d.revoked_at FROM devices d JOIN users u ON u.id=d.user_id AND u.account_kind='user' WHERE d.id=? AND d.platform<>'identity' AND (d.sso_session_id='' OR EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.sso_session_id AND s.user_id=d.user_id AND s.revoked_at='' AND s.expires_at>? AND s.hard_expires_at>?))`, id, now.Format(time.RFC3339), now.Format(time.RFC3339)).Scan(&d.ID, &d.UserID, &stored, &status, &revoked); e != nil || status != "active" || revoked != "" {
 		return Device{}, false
 	}
-	key := id + "\x00" + clientIP(r)
+	key := id + "\x00" + ClientIP(r)
 	if !deviceLockout.Try(key, now) {
 		return Device{}, false
 	}
@@ -241,15 +241,30 @@ func resolveDevice(db *sql.DB, r *http.Request) (Device, bool) {
 	return d, true
 }
 
-func clientIP(r *http.Request) string {
+type clientIPKey struct{}
+
+// WithClientIP records the client address the HTTP layer resolved through trusted proxies.
+func WithClientIP(ctx context.Context, ip string) context.Context {
+	return context.WithValue(ctx, clientIPKey{}, ip)
+}
+
+// ClientIP is the address lockouts key on: the one WithClientIP recorded, else the socket peer.
+func ClientIP(r *http.Request) string {
+	if ip, ok := r.Context().Value(clientIPKey{}).(string); ok {
+		return ip
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return host
+	if ip := net.ParseIP(host); ip != nil {
+		return NormalizeIP(ip)
 	}
+	return host
+}
+
+// NormalizeIP folds an IPv6 address to its /64 so one host cannot rotate through its prefix.
+func NormalizeIP(ip net.IP) string {
 	if v4 := ip.To4(); v4 != nil {
 		return v4.String()
 	}

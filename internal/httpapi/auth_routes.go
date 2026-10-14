@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -175,8 +174,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		key := strings.ToLower(in.Username) + "\x00" + clientIP(r)
-		if !recoveryLockout.Try(key, time.Now().UTC()) {
+		key := strings.ToLower(in.Username) + "\x00" + auth.ClientIP(r)
+		if !loginLockout.Try(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "login temporarily unavailable")
 			return
 		}
@@ -201,11 +200,11 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		if err != nil || verifyErr != nil || status != "active" {
-			recoveryLockout.Fail(key, time.Now().UTC())
+			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
 		}
-		recoveryLockout.Success(key)
+		loginLockout.Success(key)
 		if afterPasswordVerified != nil {
 			afterPasswordVerified()
 		}
@@ -319,7 +318,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			}
 		}
 		// Shares the step-up budget: both verify the current password for a live session.
-		key := s.UserID + "\x00" + clientIP(r)
+		key := s.UserID + "\x00" + auth.ClientIP(r)
 		if !loginLockout.Try(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
@@ -468,7 +467,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		s, _ := auth.SessionFromContext(r)
-		key := s.UserID + "\x00" + clientIP(r)
+		key := s.UserID + "\x00" + auth.ClientIP(r)
 		if !loginLockout.Try(key, time.Now().UTC()) {
 			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", RequestID(r))
 			WriteError(w, r, 429, "rate_limited", "try again later")
@@ -544,8 +543,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		key := strings.ToLower(in.Username) + "\x00" + clientIP(r)
-		if !loginLockout.Try(key, time.Now().UTC()) {
+		key := strings.ToLower(in.Username) + "\x00" + auth.ClientIP(r)
+		if !recoveryLockout.Try(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "recovery temporarily unavailable")
 			return
 		}
@@ -553,7 +552,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt)
 		if e != nil || usedAt != "" || stored == "" {
 			auth.DummyVerify()
-			loginLockout.Fail(key, time.Now().UTC())
+			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
@@ -561,7 +560,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			authBusy(w, r, "recovery temporarily unavailable")
 			return
 		} else if e != nil {
-			loginLockout.Fail(key, time.Now().UTC())
+			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
@@ -604,31 +603,9 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		loginLockout.Success(key)
+		recoveryLockout.Success(key)
 		writeJSON(w, map[string]string{"recoveryCode": nextCode})
 	})
-}
-
-func clientIP(r *http.Request) string {
-	host, _, e := net.SplitHostPort(r.RemoteAddr)
-	if e != nil {
-		return r.RemoteAddr
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return normalizeClientIP(ip)
-	}
-	return host
-}
-
-func normalizeClientIP(ip net.IP) string {
-	if v4 := ip.To4(); v4 != nil {
-		return v4.String()
-	}
-	ip = ip.To16()
-	for i := 8; i < len(ip); i++ {
-		ip[i] = 0
-	}
-	return ip.String()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

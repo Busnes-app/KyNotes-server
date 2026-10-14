@@ -295,11 +295,11 @@ func applyEnv(c *Config) error {
 	return nil
 }
 
-// parseEnvLimit reads a rate limit; 0 turns that limit off, anything else non-numeric or negative is an error.
+// parseEnvLimit reads a rate limit. Limits cannot be turned off: anything but a positive integer is an error.
 func parseEnvLimit(value string, dst *int, name string) error {
 	n, err := strconv.Atoi(value)
-	if err != nil || n < 0 {
-		return fmt.Errorf("%s: want a non-negative integer (0 disables)", name)
+	if err != nil || n < 1 {
+		return fmt.Errorf("%s: want a positive integer", name)
 	}
 	*dst = n
 	return nil
@@ -367,8 +367,8 @@ func validate(c Config, probeWrite bool) error {
 	if c.Limits.AttachmentMaxBytes < 0 || c.Limits.ObjectMaxBytes < 0 || c.Limits.UserQuotaBytes < 0 || c.Limits.TeamQuotaBytes < 0 || c.Server.MaxRequestBytes < 0 {
 		return errors.New("limits: byte sizes must not be negative")
 	}
-	if r := c.RateLimit; r.LoginPerMinute < 0 || r.PairingPerHour < 0 || r.UploadPerMinute < 0 || r.InvitationPerHour < 0 || r.LinkPollPerMinute < 0 {
-		return errors.New("ratelimit: limits must not be negative (0 disables)")
+	if r := c.RateLimit; r.LoginPerMinute < 1 || r.PairingPerHour < 1 || r.UploadPerMinute < 1 || r.InvitationPerHour < 1 || r.LinkPollPerMinute < 1 {
+		return errors.New("ratelimit: every limit must be a positive integer")
 	}
 	if c.Limits.AttachmentMaxBytes < c.Limits.ChunkBytes {
 		return errors.New("limits.attachment_max_bytes: smaller than chunk_bytes")
