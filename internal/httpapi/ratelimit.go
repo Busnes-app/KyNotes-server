@@ -108,7 +108,8 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		if label == "pairing" || label == "invitation" || label == "accept" || label == "link" || label == "recovery" {
 			refill = float64(rate) / 3600
 		}
-		identity := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)
+		ip := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)
+		identity := ip
 		if label != "" && label != "login" && label != "oidc" && db != nil {
 			if s, err := auth.ResolveSession(db, r, time.Now().UTC()); err == nil {
 				identity = s.UserID
@@ -121,13 +122,14 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		}
 		// SSO step-up challenges are minted by whatever route asked for one: their own bucket at the login rate.
 		challenge := float64(cfg.RateLimit.LoginPerMinute) / 60
-		next.ServeHTTP(w, r.WithContext(auth.WithChallengeLimit(r.Context(), func(userID string) bool {
+		ctx := auth.WithChallengeLimit(auth.WithClientIP(r.Context(), ip), func(userID string) bool {
 			if l.allow("challenge\x00"+userID, challenge, cfg.RateLimit.LoginPerMinute, time.Now().UTC()) {
 				return true
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/challenge))))
 			return false
-		})))
+		})
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -145,9 +147,9 @@ func parseTrustedProxies(cidrs []string) []*net.IPNet {
 // its bucket by prepending forged addresses. Invalid suffixes fall back to the peer.
 func rateLimitClientIP(r *http.Request, behindProxy bool, proxies []*net.IPNet) string {
 	if ip := resolvedClientIP(r, behindProxy, proxies); ip != nil {
-		return normalizeClientIP(ip)
+		return auth.NormalizeIP(ip)
 	}
-	return clientIP(r)
+	return auth.ClientIP(r)
 }
 
 // Keep the exact resolved address separate from IPv6 /64 rate-limit grouping.

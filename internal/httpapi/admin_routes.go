@@ -240,7 +240,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 		}
 		writeJSON(w, out)
 	})))
-	mux.Handle("PATCH /api/v1/admin/users/{id}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PATCH /api/v1/admin/users/{id}", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return

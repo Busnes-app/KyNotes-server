@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
@@ -47,7 +48,18 @@ func TestCredentialRoutesRequireStepUp(t *testing.T) {
 	if rr := do("POST", "/api/v1/admin/users/"+adminID+"/password", reset); rr.Code != 403 || !strings.Contains(rr.Body.String(), "step_up_required") {
 		t.Fatalf("reset without step-up: %d %s", rr.Code, rr.Body)
 	}
+	other, _ := ids.Mint("usr")
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,status,created_at,updated_at) VALUES(?,'bob','x','salt',600000,'user','active','','')`, other); err != nil {
+		t.Fatal(err)
+	}
+	patch := `{"role":"user","status":"disabled","quotaBytes":0}`
+	if rr := do("PATCH", "/api/v1/admin/users/"+other, patch); rr.Code != 403 || !strings.Contains(rr.Body.String(), "step_up_required") {
+		t.Fatalf("patch without step-up: %d %s", rr.Code, rr.Body)
+	}
 	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id=? AND status='active'`, other).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("user changed without step-up: %v %d", err, n)
+	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE username='mallory'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("user created without step-up: %v %d", err, n)
 	}
@@ -68,5 +80,8 @@ func TestCredentialRoutesRequireStepUp(t *testing.T) {
 	}
 	if rr := do("POST", "/api/v1/admin/users/"+victim+"/password", reset); rr.Code != 204 {
 		t.Fatalf("reset after step-up: %d %s", rr.Code, rr.Body)
+	}
+	if rr := do("PATCH", "/api/v1/admin/users/"+other, patch); rr.Code != 204 {
+		t.Fatalf("patch after step-up: %d %s", rr.Code, rr.Body)
 	}
 }

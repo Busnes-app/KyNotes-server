@@ -302,7 +302,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
   The login dummy verifier retries a failed mint; it must never cache or use an empty hash.
-- Backup/recovery mutations, `POST /api/v1/admin/users`,
+- Backup/recovery mutations, `POST /api/v1/admin/users`, `PATCH /api/v1/admin/users/{id}`,
   `POST /api/v1/admin/users/{id}/password` and the SSO settings mutations (`POST /admin/sso`,
   `/admin/sso/pair`, verify `TestAdminSSOAndPairing`) use `auth.RequireStepUp`, so a stolen admin
   cookie cannot mint local credentials. The SSO client and directory HMAC secrets are write-only:
@@ -350,7 +350,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   a trusted immediate peer. Walk the chain from the right to the first untrusted IP;
   malformed suffixes fall back to the socket peer. Preserve IPv6 /64 grouping and
   existing authenticated-user bucket overrides. Verify direct/proxied flood isolation
-  and spoofed/malformed/multiple-header cases in the HTTP API tests.
+  and spoofed/malformed/multiple-header cases in the HTTP API tests. The rate limiter
+  records that address with `auth.WithClientIP`; every lockout keys on `auth.ClientIP`
+  (`TestLoginLockoutKeysOnTrustedForwardedClient`). A full lockout table drops all but
+  live locks before shedding a new key (`TestLockoutFloodOfCountsAdmitsFreshKey`).
 
 - Migration `0018_sso_app_roles.sql` removes unproven linked-account admin roles,
   except active local grants when no unlinked active admin exists; retention is audited.

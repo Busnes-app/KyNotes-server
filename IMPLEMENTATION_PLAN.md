@@ -265,9 +265,11 @@ accounts.
 | Device credential | `10` | `15 * time.Minute` | `deviceID + "\x00" + ipKey(clientIP)` |
 | Recovery code | `3` | `60 * time.Minute` | `username + "\x00" + ipKey(clientIP)` |
 
-`ipKey` folds IPv6 to its /64 and IPv4 to the full address. The lockout table
-sweeps non-locked entries at `10_000` entries and **sheds new keys** past
-`50_000` — live lockouts are never evicted to make room (evicting them is a
+`clientIP` is the address the rate limiter resolves (X-Forwarded-For only from a
+trusted proxy with `behind_proxy`). `ipKey` folds IPv6 to its /64 and IPv4 to the
+full address. A full table (`50_000`) first sweeps every entry that is not a live
+lockout (counts and expired locks), then **sheds new keys** only if still full —
+live lockouts are never evicted to make room (evicting them is a
 bypass, not a memory trade). Shedding answers `429`.
 
 ### 1.4 Session contract
@@ -1280,7 +1282,7 @@ deliberately every phase).
 | GET | `/api/v1/admin/teams` | session, server admin | `[{"id","ownerUserId","ownerUsername","memberCount","keyed","named"}]`; no name ciphertext: administrator pages hold no team keys |
 | POST | `/api/v1/admin/teams/{id}/members` | session + CSRF, server admin + step-up | `{"userId","role"}`: an active everyday account, role `editor`, `commenter` or `viewer` only (`400` for a steward role: only a steward's invitation makes a team admin); `404` unknown team or not an active everyday account; `409` live member; admits with `approved=0` |
 | POST | `/api/v1/admin/users` | session + CSRF, server admin + step-up | `{"username","authSecret","loginSalt","iterations","accountKind":"user"\|"admin"}` → `{"id"}`; role and kind both from `accountKind`, flagged (`password_admin_known=1`); audit `admin.user.create` reason `kind=<kind>` |
-| PATCH | `/api/v1/admin/users/{id}` | session + CSRF, server admin | `{"role","status","quotaBytes"}`; `404` unknown; `409 account_kind_mismatch` for `role:"admin"` on an everyday account |
+| PATCH | `/api/v1/admin/users/{id}` | session + CSRF, server admin + step-up | `{"role","status","quotaBytes"}`; `404` unknown; `409 account_kind_mismatch` for `role:"admin"` on an everyday account |
 | GET | `/api/v1/admin/users` | session, server admin | rows carry `accountKind` |
 | PATCH | `/api/v1/containers/{id}` | session + CSRF | `{"metaCiphertext":"<b64>","baseVersion":n,"keyGeneration":n}` → §1.11 rules on `meta_version`; `keyGeneration` must equal the current generation of a container that has a key (missing, zero, old or future, or no key yet: `409 already_exists`). Role, generation and `baseVersion` are all checked in the write transaction; a stale base is `409 version_conflict` |
 | GET | `/api/v1/containers/{id}/members` | session | live member: `[{"userId","username","role","approved"}]` (`approved` bool; a pending member also carries `pendingRole`, and its `role` reads `viewer`); to an owner or admin each member also carries `keyResetAt` (RFC 3339, the last completed self-service key reset, from the audit) when there was one |
