@@ -76,6 +76,8 @@ import {
   deriveLoginKeys,
   type LoginKeys,
   digestSha256Hex,
+  hasWebCrypto,
+  NEEDS_HTTPS,
   encryptComment,
   encryptContainerMeta,
   encryptNote,
@@ -88,7 +90,7 @@ import {
 } from "./crypto";
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload, unreadableNotice } from "./notes";
 import { loadGate } from "./loadGate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
@@ -648,6 +650,8 @@ function Workspace({
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
   const [attachmentSources, setAttachmentSources] = useState<Record<string, string>>({});
+  // Object URLs resolveFileUrl made for the open page's editor, revoked when the page closes.
+  const resolvedURLs = useRef<string[]>([]);
   const [uploadProgress, setUploadProgress] = useState<Record<string, { name: string; uploaded: number; total: number; failed?: boolean }>>({});
   const cancelledUploads = useRef(new Set<string>());
   const [commentText, setCommentText] = useState("");
@@ -657,7 +661,10 @@ function Workspace({
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
   const draining = useRef(false);
   const drainingUploads = useRef(false);
+  // Live saves, structure writes and the queue drain run one at a time, so no two send the same base version.
   const saveChain = useRef(Promise.resolve());
+  // updatedAt of the last save this tab queued per object: only that entry is cleared once a later save lands.
+  const ownQueued = useRef(new Map<string, string>());
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const selectedNoteRef = useRef<Note | null>(null);
   const selectedRef = useRef<Container | null>(null);
@@ -1039,6 +1046,10 @@ function Workspace({
       setAttachmentSources({});
     };
   }, [attachmentsForNote, rings, selected?.id, selected?.sharedGeneration]);
+  useEffect(() => () => {
+    resolvedURLs.current.forEach((url) => URL.revokeObjectURL(url));
+    resolvedURLs.current = [];
+  }, [selectedNote?.id]);
   const visibleNotes = useMemo(() => {
     const filtered = searchNotes(searchableNotes, query);
     return filtered.map((match) => match.note);
@@ -1212,20 +1223,23 @@ function Workspace({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [selectedNote, selected]);
+  // A page in conflict is not autosaved: each send would be refused and kept as one more conflict copy.
+  const autosaving = dirty && selectedNote !== null && !conflicted.has(selectedNote.id);
   useEffect(() => {
-    if (!dirty || !selectedNote) return;
+    if (!autosaving) return;
     const timer = window.setTimeout(() => {
-      void save(selectedNote, true);
+      void save(selectedNote!, true);
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [selectedNote?.title, selectedNote?.body, dirty]);
+  }, [selectedNote?.title, selectedNote?.body, autosaving]);
   useEffect(() => {
-    if (!dirty || !selectedNote) return;
+    if (!autosaving) return;
+    // save() sends the newest open page; keystrokes must not restart this timer.
     const timer = window.setInterval(() => {
-      void save(selectedNote, true);
+      if (selectedNoteRef.current) void save(selectedNoteRef.current, true);
     }, 15000);
     return () => window.clearInterval(timer);
-  }, [selectedNote, dirty]);
+  }, [selectedNote?.id, autosaving]);
   useEffect(() => {
     const flushDraft = () => {
       const note = selectedNoteRef.current;
@@ -1293,7 +1307,8 @@ function Workspace({
       );
     }
   }
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[] }> {
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number }> {
+    let unreadable = 0;
     const loaded: Note[] = [];
     const found: Section[] = [];
     const foundGroups: Group[] = [];
@@ -1315,13 +1330,12 @@ function Workspace({
           const payload = await openFirst(keys, (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
         } catch {
-          const cached = await getNote(auth.user.id, change.id);
-          if (cached) {
-            try {
-              add(change.id, await openFirst(ownCopyKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt);
-            } catch {
-              /* Ignore an invalid local draft. */
-            }
+          try {
+            const cached = await getNote(auth.user.id, change.id);
+            if (!cached) throw new Error("no local copy");
+            add(change.id, await openFirst(ownCopyKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt);
+          } catch {
+            unreadable += 1;
           }
         }
       }
@@ -1330,7 +1344,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return { notes: loaded, sections: found, groups: foundGroups };
+    return { notes: loaded, sections: found, groups: foundGroups, unreadable };
   }
   /** Null when the open page could not be flushed and stays open. */
   async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
@@ -1379,6 +1393,7 @@ function Workspace({
       setSelected(keyed);
       const objects = await readContainerObjects(keyed);
       if (superseded()) return [];
+      if (objects.unreadable) setError(unreadableNotice(objects.unreadable));
       const loaded = carryAll(objects.notes, loadCarried.current);
       const loadedSections = carryVersions(objects.sections, loadCarried.current);
       patchSections(() => loadedSections);
@@ -1598,14 +1613,14 @@ function Workspace({
       const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
-        await queueSave({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+        await queueOwn({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
         setSyncStatus("local");
         setError(queuedNotice(stewardHere(selected)));
         return note;
       }
       try {
         const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version);
-        await clearQueuedSave(auth.user.id, note.id);
+        await clearOwnQueued(note.id);
         setCommitToastAt(Date.now());
         setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
@@ -1633,7 +1648,7 @@ function Workspace({
           setSyncStatus("attention");
           setError(noteConflictMessage(uncached));
         } else {
-          await queueSave({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
@@ -1650,8 +1665,27 @@ function Workspace({
     }
   }
 
+  function chained<T>(task: () => T | Promise<T>): Promise<T> {
+    const run = saveChain.current.then(task);
+    saveChain.current = run.then(() => {}, () => {});
+    return run;
+  }
+  function queueOwn(item: PendingSave) {
+    ownQueued.current.set(item.id, item.updatedAt);
+    return queueSave(item);
+  }
+  /** A save of id landed: this tab's older queued copy is obsolete; another tab's newer one is not. */
+  async function clearOwnQueued(id: string) {
+    const updatedAt = ownQueued.current.get(id);
+    if (!updatedAt) return;
+    ownQueued.current.delete(id);
+    // ponytail: an entry queued before a reload is unknown here and stays; its later send is a
+    // conflict the user keeps as a copy. Upgrade: record the queueing tab in the entry.
+    await clearQueuedSave(auth.user.id, id, updatedAt);
+  }
+
   function save(note: Note, automatic = false) {
-    const queued = saveChain.current.then(() => {
+    return chained(() => {
       const current = selectedNoteRef.current;
       if (!current || current.id !== note.id) return;
       // Use the latest in-memory note when an older autosave was waiting in
@@ -1659,8 +1693,6 @@ function Workspace({
       // document currently shown in the editor.
       return saveNow(current, automatic);
     });
-    saveChain.current = queued.then(() => {}, () => {});
-    return queued;
   }
 
   /** Leaving the open page. False keeps it open and dirty; callers must not switch away then. */
@@ -1672,9 +1704,13 @@ function Workspace({
     return state === "done";
   }
 
-  async function drainQueue() {
+  /** Queues one drain behind pending saves; a drain already waiting there sees new entries. */
+  function drainQueue() {
     if (draining.current) return;
     draining.current = true;
+    void chained(drainNow);
+  }
+  async function drainNow() {
     try {
       // Only this account's edits: another account's entry could be sent, misattributed, to a notebook both share.
       // previousKey: sealed for a key a reset replaced; never sent (Settings → Unsent edits lists it).
@@ -1786,14 +1822,14 @@ function Workspace({
     const containerID = selected.id;
     const uncached = await cacheMiss(() => putNote(auth.user.id, { id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
     if (write.generation === WAITING_GENERATION) {
-      await queueSave({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+      await queueOwn({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
       setSyncStatus("local");
       setError(queuedNotice(stewardHere(selected)));
       return null;
     }
     try {
       const result = await sendObject({ container: selected, generation: write.generation }, id, encrypted, version);
-      await clearQueuedSave(auth.user.id, id);
+      await clearOwnQueued(id);
       carryDuringLoad(id, { version: result.version, updatedAt });
       if (uncached) setError(UNCACHED);
       return result.version;
@@ -1803,7 +1839,7 @@ function Workspace({
         setSyncStatus("attention");
         setError("This item changed on another device. Reopen the notebook before changing it again.");
       } else {
-        await queueSave({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+        await queueOwn({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
         syncChannel.current?.postMessage({ type: "queued", id });
         setSyncStatus("local");
         if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
@@ -1819,7 +1855,7 @@ function Workspace({
     if (readOnlyForKeys()) return Promise.resolve(false);
     const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
     patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
-    const queued = saveChain.current.then(async () => {
+    return chained(async () => {
       const current = kind === "section" ? sectionsRef.current.find((entry) => entry.id === id) : groupsRef.current.find((entry) => entry.id === id);
       if (!current) return false;
       const { id: _id, version, ...payload } = current;
@@ -1827,8 +1863,6 @@ function Workspace({
       if (saved !== null) patch((value) => value.map((entry) => (entry.id === id ? { ...entry, version: saved } : entry)));
       return saved !== null;
     });
-    saveChain.current = queued.then(() => {}, () => {});
-    return queued;
   }
 
   /** The shared cache's copy of a page; another tab may have written it. */
@@ -2245,7 +2279,9 @@ function Workspace({
     const encrypted = await downloadAttachment(attachment.id);
     const containerID = selected.id;
     const plaintext = await openFirst(readKeysFor(selected, attachment.keyGeneration), (key) => decryptAttachment(key, containerID, encrypted));
-    return URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
+    const objectURL = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
+    resolvedURLs.current.push(objectURL);
+    return objectURL;
   }
   async function openAttachment(attachment: PlainAttachment) {
     if (!selected) return;
@@ -2728,7 +2764,7 @@ function Workspace({
                   : "Ready"}
               </span>
               <span className="encrypted">
-                {dirty
+                {autosaving
                   ? "Autosaving…"
                   : syncStatus === "local"
                     ? "Encrypted locally · waiting to sync"
@@ -3185,7 +3221,5 @@ function SettingsView({
 // An invitation link opens the app at #/invite/…: keep it in this tab for after sign-in, out of the address bar.
 takeInviteLink(location, history, sessionStore());
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  hasWebCrypto() ? <React.StrictMode><App /></React.StrictMode> : <p role="alert">{NEEDS_HTTPS}</p>,
 );

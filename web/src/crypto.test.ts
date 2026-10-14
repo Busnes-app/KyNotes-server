@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { asContentKey, fromBase64, decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload } from "./crypto";
+import { describe, expect, it, vi } from "vitest";
+import { asContentKey, fromBase64, decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload, MIN_LOGIN_ITERATIONS, NEEDS_HTTPS, randomLoginSalt } from "./crypto";
 
 describe("browser crypto", () => {
   it("matches the server auth fixture", async () => {
@@ -61,5 +61,22 @@ describe("content keys", () => {
   });
   it("refuses a key that is not 32 bytes", async () => {
     await expect(encryptNote(new Uint8Array(16) as never, "cnt_a", { title: "", body: "" })).rejects.toThrow("invalid content key");
+  });
+  it("refuses fewer login iterations than the server minimum, whatever the server sends", async () => {
+    for (const iterations of [1, MIN_LOGIN_ITERATIONS - 1, Number.NaN, 1e300]) {
+      await expect(deriveAuthSecret("pw", "MDEyMzQ1Njc4OWFiY2RlZg==", iterations), String(iterations)).rejects.toThrow(/too few password iterations/);
+    }
+  });
+  it("needs WebCrypto: no fallback cipher and no Math.random", async () => {
+    const random = vi.spyOn(Math, "random");
+    vi.stubGlobal("crypto", undefined);
+    try {
+      expect(() => randomLoginSalt()).toThrow(NEEDS_HTTPS);
+      await expect(encryptNote(asContentKey(new Uint8Array(32).fill(7)), "cnt_a", { title: "T", body: "B" })).rejects.toThrow(NEEDS_HTTPS);
+      expect(random).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      random.mockRestore();
+    }
   });
 });

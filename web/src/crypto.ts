@@ -1,32 +1,25 @@
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { parseObjectPayload, type ObjectPayload } from "./pages";
-import {
-  aes256GcmDecrypt,
-  aes256GcmEncrypt,
-  hkdfSha256,
-  pbkdf2Sha256,
-  sha256,
-} from "./fallbackCrypto";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-export function getRandomValues(buffer: Uint8Array): Uint8Array {
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-    crypto.getRandomValues(buffer as any);
-    return buffer;
-  }
-  for (let i = 0; i < buffer.length; i++) {
-    buffer[i] = Math.floor(Math.random() * 256);
-  }
-  return buffer;
+export { sha256 };
+/** HKDF-SHA256 (RFC 5869), synchronous for derivations that cannot await WebCrypto. */
+export const hkdfSha256 = (ikm: Uint8Array, length: number, salt: Uint8Array, info: Uint8Array) => hkdf(sha256, ikm, salt, info, length);
+
+export const NEEDS_HTTPS = "KyNotes needs a secure connection. Open it over HTTPS, or on localhost.";
+/** WebCrypto exists only in secure contexts (HTTPS, localhost); there is no fallback. */
+export const hasWebCrypto = () => typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function" && typeof crypto.subtle?.importKey === "function";
+function subtle(): SubtleCrypto {
+  if (!hasWebCrypto()) throw new Error(NEEDS_HTTPS);
+  return crypto.subtle;
 }
 
-function hasNativeSubtle(): boolean {
-  return (
-    typeof crypto !== "undefined" &&
-    typeof crypto.subtle !== "undefined" &&
-    typeof crypto.subtle.importKey === "function"
-  );
+function getRandomValues(buffer: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+  if (!hasWebCrypto()) throw new Error(NEEDS_HTTPS);
+  return crypto.getRandomValues(buffer);
 }
 
 function base64(bytes: Uint8Array): string {
@@ -46,15 +39,7 @@ function buffer(value: Uint8Array): ArrayBuffer {
 }
 
 export async function digestSha256(data: Uint8Array): Promise<Uint8Array> {
-  if (hasNativeSubtle()) {
-    try {
-      const res = await crypto.subtle.digest("SHA-256", buffer(data));
-      return new Uint8Array(res);
-    } catch {
-      // Fall through to fallback
-    }
-  }
-  return sha256(data);
+  return new Uint8Array(await subtle().digest("SHA-256", buffer(data)));
 }
 
 export async function digestSha256Hex(data: Uint8Array): Promise<string> {
@@ -64,17 +49,10 @@ export async function digestSha256Hex(data: Uint8Array): Promise<string> {
 
 export type LoginKeys = { authSecret: string; userKEK: Uint8Array };
 
-/** PBKDF2-HMAC-SHA256 to 32 bytes: WebCrypto where it exists, the pure fallback on plain-HTTP origins. */
+/** PBKDF2-HMAC-SHA256 to 32 bytes. */
 async function pbkdf2Bits(input: Uint8Array, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
-  if (hasNativeSubtle()) {
-    try {
-      const key = await crypto.subtle.importKey("raw", buffer(input), "PBKDF2", false, ["deriveBits"]);
-      return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: buffer(salt), iterations, hash: "SHA-256" }, key, 256));
-    } catch {
-      // Fall through to fallback
-    }
-  }
-  return pbkdf2Sha256(input, salt, iterations, 32);
+  const key = await subtle().importKey("raw", buffer(input), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await subtle().deriveBits({ name: "PBKDF2", salt: buffer(salt), iterations, hash: "SHA-256" }, key, 256));
 }
 
 const stretchPassword = (password: string, salt: string, iterations: number) => pbkdf2Bits(encoder.encode(password), fromBase64(salt), iterations);
@@ -90,8 +68,12 @@ export function deriveRecoveryKEK(secret: Uint8Array, salt: Uint8Array): Promise
   return pbkdf2Bits(secret, labelled, RECOVERY_ITERATIONS);
 }
 
+/** The server's MinLoginIterations (IMPLEMENTATION_PLAN.md): fewer, from a malicious server, are refused. */
+export const MIN_LOGIN_ITERATIONS = 100_000;
+
 /** One PBKDF2 pass, two HKDF labels: the server sees authSecret, never userKEK. */
 export async function deriveLoginKeys(password: string, salt: string, iterations: number): Promise<LoginKeys> {
+  if (!Number.isSafeInteger(iterations) || iterations < MIN_LOGIN_ITERATIONS) throw new Error("The server asked for too few password iterations; refusing to sign in.");
   const stretched = await stretchPassword(password, salt, iterations);
   const label = (info: string) => hkdfSha256(stretched, 32, new Uint8Array(0), encoder.encode(info));
   const authSecret = [...label("kynotes/auth/v1")].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -109,44 +91,23 @@ export function randomLoginSalt(): string {
 
 async function encryptWithKey(keyBytes: Uint8Array, plaintext: Uint8Array): Promise<Uint8Array> {
   const iv = getRandomValues(new Uint8Array(12));
-  if (hasNativeSubtle()) {
-    try {
-      const key = await crypto.subtle.importKey("raw", buffer(keyBytes), "AES-GCM", false, ["encrypt"]);
-      const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(plaintext));
-      const result = new Uint8Array(iv.byteLength + ciphertext.byteLength);
-      result.set(iv);
-      result.set(new Uint8Array(ciphertext), iv.byteLength);
-      return result;
-    } catch {
-      // Fall through to fallback
-    }
-  }
-  const ciphertextAndTag = aes256GcmEncrypt(keyBytes, iv, plaintext);
-  const result = new Uint8Array(iv.byteLength + ciphertextAndTag.byteLength);
+  const key = await subtle().importKey("raw", buffer(keyBytes), "AES-GCM", false, ["encrypt"]);
+  const ciphertext = await subtle().encrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(plaintext));
+  const result = new Uint8Array(iv.byteLength + ciphertext.byteLength);
   result.set(iv);
-  result.set(ciphertextAndTag, iv.byteLength);
+  result.set(new Uint8Array(ciphertext), iv.byteLength);
   return result;
 }
 
 async function decryptWithKey(keyBytes: Uint8Array, bytes: Uint8Array): Promise<Uint8Array> {
   if (bytes.byteLength < 28) throw new Error("Ciphertext too short");
-  const iv = bytes.slice(0, 12);
-  const ciphertextAndTag = bytes.slice(12);
-
-  if (hasNativeSubtle()) {
-    try {
-      const key = await crypto.subtle.importKey("raw", buffer(keyBytes), "AES-GCM", false, ["decrypt"]);
-      const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buffer(iv) }, key, buffer(ciphertextAndTag));
-      return new Uint8Array(plaintext);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "OperationError") {
-        throw new Error("Unable to decrypt: invalid key or tampered ciphertext");
-      }
-      // Fall through to fallback if subtle failed unexpectedly
-    }
+  const key = await subtle().importKey("raw", buffer(keyBytes), "AES-GCM", false, ["decrypt"]);
+  try {
+    return new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv: buffer(bytes.slice(0, 12)) }, key, buffer(bytes.slice(12))));
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "OperationError") throw new Error("Unable to decrypt: invalid key or tampered ciphertext");
+    throw e;
   }
-
-  return aes256GcmDecrypt(keyBytes, iv, ciphertextAndTag);
 }
 
 declare const contentKey: unique symbol;

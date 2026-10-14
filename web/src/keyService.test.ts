@@ -1,8 +1,7 @@
 import "fake-indexeddb/auto";
 import { bytesToHex } from "@noble/ciphers/utils.js";
-import { sha256 } from "./fallbackCrypto";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { base64, type KeyRef } from "./crypto";
+import { base64, sha256, type KeyRef } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";

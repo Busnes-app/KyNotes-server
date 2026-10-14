@@ -1,6 +1,5 @@
 import { bytesToHex } from "@noble/ciphers/utils.js";
-import { base64, type KeyRef } from "./crypto";
-import { sha256 } from "./fallbackCrypto";
+import { base64, sha256, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import type { Invitation } from "./api";
 import { guardContainer, keysAllowed, mergeFloor, newContainerKey, openKeyring, planSweep, raiseFloor, sealFor, type Envelope, type InvitationEnvelope, type KeyedContainer, type KeyFloor, type KeyState, type Keyring, type Member, type MemberKey, type OpenedKeyring, type ReportedContainer, type SweepPlan } from "./keyring";

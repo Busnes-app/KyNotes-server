@@ -212,9 +212,18 @@ describe("queued saves", () => {
     expect((await pendingSaves()).find((entry) => entry.id === item.id)).toBeUndefined();
   });
 
+  it("clears only the save it was told about: a newer one queued meanwhile stays", async () => {
+    const newer = { ...item, payload: new Uint8Array([2]), updatedAt: "2026-10-07T00:02:00Z" };
+    await queueSave(newer);
+    await clearQueuedSave(userID, item.id, item.updatedAt);
+    expect(await pendingSaves()).toEqual([newer]);
+    await clearQueuedSave(userID, item.id, newer.updatedAt);
+    expect(await pendingSaves()).toEqual([]);
+  });
+
   it("does not resurrect a cleared entry", async () => {
     await queueSave(item);
-    await clearQueuedSave(userID, item.id);
+    await clearQueuedSave(userID, item.id, item.updatedAt);
     expect(await replaceQueuedSave(item, { ...item, keyGeneration: 2 })).toBe(false);
     expect(await pendingSaves()).toEqual([]);
   });
@@ -227,7 +236,7 @@ describe("queued saves", () => {
     await queueSave({ ...item, version: 4 });
     expect(mine(await pendingSaves(), other)).toEqual([theirs]);
     expect(await replaceQueuedSave({ ...item, version: 4 })).toBe(true);
-    await clearQueuedSave(userID, item.id);
+    await clearQueuedSave(userID, item.id, item.updatedAt);
     expect(await pendingSaves()).toEqual([theirs]);
   });
 });
@@ -521,6 +530,6 @@ describe("a vault write the browser aborts", () => {
     const entry = { id: "obj_abort", containerID: "cnt_1", version: 1, payload: new Uint8Array([1]), updatedAt: "2026-10-08T00:00:00Z", keyGeneration: 0, owner: me };
     await queueSave(entry);
     await expect(replaceQueuedSave(entry, { ...entry, version: 2, payload: (() => 1) as never })).rejects.toThrow();
-    await clearQueuedSave(me, entry.id);
+    await clearQueuedSave(me, entry.id, entry.updatedAt);
   });
 });

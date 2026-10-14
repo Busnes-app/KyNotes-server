@@ -4,8 +4,7 @@ import { x25519 } from "@noble/curves/ed25519.js";
 import vectors from "../../testdata/protocol/recovery_vectors.json";
 import { APIRequestError } from "./api";
 import * as cryptoModule from "./crypto";
-import { base64, deriveRecoveryKEK } from "./crypto";
-import { pbkdf2Sha256 } from "./fallbackCrypto";
+import { base64, deriveRecoveryKEK, NEEDS_HTTPS } from "./crypto";
 import { DEVICE_ONLY_WRAP, type HeldIdentity, type IdentityStore, type PublicIdentity } from "./identity";
 import { OTHER_COPY } from "./linkFlow";
 import { CONFIRM_FIRST, confirmRecoverySaved, recheck, RESET_UNCERTAIN, ResetUncertainError, formatRecoveryCode, newRecoveryCode, openRecovery, parseRecoveryCode, prepareRecovery, RECOVERY_ALG, RECOVERY_BYTES, RECOVERY_MOVED, RECOVERY_NONE, RECOVERY_RATE_LIMITED, RECOVERY_STALE, RESET_ACTION, RESET_RATE_LIMITED, RECOVERY_TYPO, RECOVERY_WRONG, RecoveryCodeError, RecoveryMovedError, recoveryRefusal, resetConfirmed, RESET_CONFIRM, RESET_UNCONFIRMED, resetIdentity, restoreIdentity, saveRecovery, sealRecovery, sealRecoveryForVector, type PreparedRecovery, type RecoveryAPI, type ReplaceInput } from "./recovery";
@@ -89,18 +88,16 @@ describe("opening a recovery copy", () => {
     expect(kdf).not.toHaveBeenCalled();
   });
 
-  it("derives the vector KEK on plain-HTTP origins too (no WebCrypto: the pure PBKDF2 fallback)", async () => {
+  it("derives the vector KEK, and refuses without WebCrypto (plain HTTP) instead of falling back", async () => {
     const v = vectors.codes[0];
+    expect(bytesToHex(await deriveRecoveryKEK(h(v.secret), h(v.salt)))).toBe(v.kek);
     vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) });
     try {
-      expect(globalThis.crypto.subtle).toBeUndefined();
-      expect(bytesToHex(await deriveRecoveryKEK(h(v.secret), h(v.salt)))).toBe(v.kek);
+      await expect(deriveRecoveryKEK(h(v.secret), h(v.salt))).rejects.toThrow(NEEDS_HTTPS);
     } finally {
       vi.unstubAllGlobals();
     }
-    const labelled = new Uint8Array([...new TextEncoder().encode("kynotes/recovery-kek/v1"), ...h(v.salt)]);
-    expect(bytesToHex(await pbkdf2Sha256(h(v.secret), labelled, 600_000, 32))).toBe(v.kek);
-  }, 120_000);
+  });
 
   it("opens only with this code, for this user and this public key", async () => {
     const identity = generateIdentity();

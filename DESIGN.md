@@ -141,9 +141,10 @@ device keeps can open its notes but cannot sign in or step up, so a reopened tab
 password before its first step-up. In secure contexts the vault stores the private key
 encrypted under a non-extractable WebCrypto key kept in the same record; that is not
 at-rest protection (browsers write the key's bytes into the same profile and page script
-can call `decrypt`), it only keeps the raw key out of the record's plain values. On
-plain-HTTP origins the key is stored unwrapped and Settings says so (an interim that awaits
-Yoshi's decision: refusing to keep it there is the more secure default); without IndexedDB
+can call `decrypt`), it only keeps the raw key out of the record's plain values. The web
+app needs WebCrypto, which browsers expose only over HTTPS or on localhost: elsewhere it
+says so and does not start (no pure-JS cipher or `Math.random` fallback), so the vault's
+unwrapped `plain` mode (`identityStorage`) is no longer reachable; without IndexedDB
 the browser holds no identity. "Forget this device" keeps the encrypted save queue. Identity rows never authenticate as a device,
 are not listed, revoked or selected through device routes or directory
 deactivation and role changes, and are excluded from the device-envelope save
