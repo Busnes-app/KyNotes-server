@@ -1807,7 +1807,7 @@ Tests:
   A client with no push works by polling this at its own cadence.
 * Rate limits (token bucket, per key, in-memory):
   login `ratelimit.login_per_minute` per IP, pairing `ratelimit.pairing_per_hour`
-  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation and identity create/reset plus recovery-code set/fetch at `ratelimit.pairing_per_hour` (separate buckets), link steps at `ratelimit.login_per_minute` and link collect polls at `ratelimit.link_poll_per_minute` per user in separate buckets (0 disables a limit; negative or non-numeric values are a startup error). Exceeding returns
+  per user, uploads `ratelimit.upload_per_minute` per user, invitation creation `ratelimit.invitation_per_hour` per user, invitation accepts at the same rate in their own bucket per user, device-link creation and identity create/reset plus recovery-code set/fetch at `ratelimit.pairing_per_hour` (separate buckets), link steps at `ratelimit.login_per_minute` and link collect polls at `ratelimit.link_poll_per_minute` per user in separate buckets (every limit must be a positive integer; 0, negative or non-numeric values are a startup error, so a typo can never switch brute-force protection off). Exceeding returns
   `429 rate_limited` with `Retry-After` set to the seconds until one token refills.
 * Admin CLI subcommands on the same binary — no second image:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds
