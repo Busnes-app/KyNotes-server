@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed: two concurrent account recoveries with one code could both succeed; now only the first does.
+  Resolving a conflict now reaches other clients' sync. A sync page, conflict list, notification list
+  or pending-sync list with a row the server cannot read now fails instead of quietly leaving it out,
+  and a conflicting save whose copy fails to store answers 500 instead of reporting a kept copy.
 - Administrator accounts are now separate from everyday accounts. An administrator account manages users,
   teams, single sign-on, backups and the audit log, and cannot open notes; an everyday account cannot reach
   administration. First-run setup creates one of each. A password an administrator set must be changed at

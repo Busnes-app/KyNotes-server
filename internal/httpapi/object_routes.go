@@ -65,8 +65,15 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 		for rows.Next() {
 			var id, created, res string
 			var base, cur, size, generation int64
-			_ = rows.Scan(&id, &base, &cur, &size, &generation, &created, &res)
+			if rows.Scan(&id, &base, &cur, &size, &generation, &created, &res) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 			out = append(out, map[string]any{"id": id, "baseVersion": base, "currentVersion": cur, "bytes": size, "keyGeneration": generation, "createdAt": created, "resolved": res != ""})
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))
@@ -101,17 +108,23 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var role string
-		if db.QueryRow(`SELECT m.role FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&role) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		if role != "owner" && role != "admin" && role != "editor" {
-			WriteError(w, r, 403, "forbidden", "insufficient role")
-			return
-		}
-		if _, e := db.Exec(`UPDATE conflicts SET resolved_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		now := time.Now().UTC().Format(time.RFC3339)
+		e := dbTx(db, func(tx *sql.Tx) error {
+			var cid, role string
+			if e := tx.QueryRow(`SELECT c.container_id,m.role FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&cid, &role); e != nil {
+				return e
+			}
+			if role != "owner" && role != "admin" && role != "editor" {
+				return errInsufficientRole
+			}
+			var seq int64
+			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); e != nil {
+				return e
+			}
+			_, e := tx.Exec(`UPDATE conflicts SET resolved_at=?,change_seq=? WHERE id=?`, now, seq, r.PathValue("id"))
+			return e
+		})
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -324,7 +337,10 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			_ = tx.Commit()
+			if e = tx.Commit(); e != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(409)
 			writeJSON(w, map[string]any{"error": map[string]any{"code": "version_conflict", "message": "base version is stale", "requestId": RequestID(r)}, "currentVersion": live, "conflictId": cidID})
