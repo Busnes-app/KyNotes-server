@@ -134,8 +134,21 @@ then start it. Restore only while stopped, run `integrity-check` and
 
 Migrations run at startup. Make a backup before upgrades. To roll back, stop
 the server, restore the backup directory, run both integrity checks, and start
-again. The server holds a data-directory lock while running, so backup and
-restore commands must be run against a stopped service.
+again. The server holds a data-directory lock (`.kynotes.lock`, a kernel `flock`) while
+running, so `copy-data-dir`, `restore-data-dir`, `user add`, `quota set`, `bootstrap-admin`,
+`integrity-check` and `consistency-check` refuse to run beside it: stop the service first.
+The lock file stays after the server exits; it is the held lock that counts, so a crashed
+server never blocks the next start. Do not delete the file by hand. `gc --now` is the
+exception: it runs beside the live server and refuses an unparsable or negative `--retention`.
+
+`copy-data-dir --out DIR` needs an absent or empty `DIR` outside the data directory.
+`restore-data-dir --in DIR [--force]` refuses an `--in` without `kynotes.sqlite`,
+`secrets/pairing.key` and `secrets/serversalt.key`. It copies `--in` into a staging
+directory inside the data directory, integrity-checks the staged database, then moves the
+current entries into `.restore-previous-<random>` and the staged ones into place by rename,
+so a failed copy or check leaves the data untouched. The data directory itself is never
+renamed because it is usually a mount point. Remove `.restore-previous-*` yourself once the
+restored server checks out.
 
 ## Ciphertext blob mirror
 

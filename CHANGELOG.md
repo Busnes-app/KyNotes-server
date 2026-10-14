@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A server killed by SIGKILL, out-of-memory or a crash no longer leaves a lock that stops it from
+  starting again. `user add`, `quota set`, `bootstrap-admin`, `integrity-check` and `consistency-check`
+  now refuse to run beside the server: stop it first. `restore-data-dir` checks its input and the
+  copied database before touching the data directory and keeps the previous contents in
+  `.restore-previous-*`; `copy-data-dir` refuses a non-empty destination or one inside the data
+  directory. `gc --now` refuses a `--retention` it cannot parse instead of treating it as zero. A sealed
+  capsule restore now also revokes paired devices, share links and pending invitations. The container
+  health check no longer writes into `/data`.
 - Administrator accounts are now separate from everyday accounts. An administrator account manages users,
   teams, single sign-on, backups and the audit log, and cannot open notes; an everyday account cannot reach
   administration. First-run setup creates one of each. A password an administrator set must be changed at

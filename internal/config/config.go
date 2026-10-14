@@ -102,7 +102,13 @@ func load(path string, probe bool) (Config, error) {
 	return loadMode(path, probe, true)
 }
 
-func loadMode(path string, probe, createSecrets bool) (Config, error) {
+// Bind reads only the listen address: no secrets, no validation, no writes.
+func Bind(path string) (string, error) {
+	c, err := parse(path)
+	return c.Server.Bind, err
+}
+
+func parse(path string) (Config, error) {
 	c := Defaults()
 	if path != "" {
 		b, err := os.ReadFile(path)
@@ -115,7 +121,12 @@ func loadMode(path string, probe, createSecrets bool) (Config, error) {
 			}
 		}
 	}
-	if err := applyEnv(&c); err != nil {
+	return c, applyEnv(&c)
+}
+
+func loadMode(path string, probe, createSecrets bool) (Config, error) {
+	c, err := parse(path)
+	if err != nil {
 		return c, err
 	}
 	if err := loadSecretsMode(&c, createSecrets); err != nil {

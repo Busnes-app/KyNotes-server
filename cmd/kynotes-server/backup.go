@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -219,8 +220,22 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 		return err
 	}
 	defer store.Close()
-	// A restored database must not resurrect previously captured session cookies.
-	if _, err = store.DB().Exec(`UPDATE sessions SET revoked_at=? WHERE revoked_at=''`, time.Now().UTC().Format(time.RFC3339)); err != nil {
+	// A snapshot must not resurrect credentials, links or invitations revoked after it was
+	// taken: sessions and paired devices end (identities stay), links and invitations go.
+	now := time.Now().UTC().Format(time.RFC3339)
+	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+		for _, table := range []string{"sessions", "share_links", "sealed_share_links"} {
+			if _, e := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE revoked_at=''`, now); e != nil {
+				return e
+			}
+		}
+		if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE revoked_at='' AND platform<>'identity'`, now); e != nil {
+			return e
+		}
+		_, e := tx.Exec(`DELETE FROM invitations WHERE status='pending'`)
+		return e
+	})
+	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s. Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID))

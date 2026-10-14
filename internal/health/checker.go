@@ -1,5 +1,9 @@
 package health
 
-type Checker struct{ Ready bool }
+import "sync/atomic"
 
-func (c *Checker) IsReady() bool { return c != nil && c.Ready }
+type Checker struct{ ready atomic.Bool }
+
+func (c *Checker) SetReady(ready bool) { c.ready.Store(ready) }
+
+func (c *Checker) IsReady() bool { return c != nil && c.ready.Load() }

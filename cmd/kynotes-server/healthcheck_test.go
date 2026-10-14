@@ -4,6 +4,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -48,6 +50,27 @@ func TestProbeHealthRefusesNonLoopback(t *testing.T) {
 		if probeHealth(u) == nil {
 			t.Fatal("accepted", u)
 		}
+	}
+}
+
+// Docker runs this every 30 s: it must not mint secrets or probe-write the data directory.
+func TestHealthcheckWritesNothing(t *testing.T) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ok.Close()
+	_, port, err := net.SplitHostPort(ok.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "kynotes.yaml")
+	if err = os.WriteFile(cfgPath, []byte("data_dir: "+dir+"\nserver:\n  bind: 127.0.0.1:"+port+"\n  dev_insecure_cookies: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = healthcheckCommand([]string{"--config", cfgPath}); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("healthcheck wrote into the data directory: %v %v", entries, err)
 	}
 }
 

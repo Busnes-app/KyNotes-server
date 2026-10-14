@@ -677,8 +677,8 @@ kynotes.example.yaml
 * `main.go` parses flags (`--config`, `--version`, `--check-config`), loads
   config, builds the logger, calls `app.Serve(ctx, cfg)`, and returns exit code
   `0` on clean shutdown, `2` on configuration failure, `1` on runtime failure.
-* `--check-config` validates and exits without binding a port. This is what the
-  Docker `HEALTHCHECK` and the operator's pre-flight use.
+* `--check-config` validates and exits without binding a port: the operator's
+  pre-flight. The Docker `HEALTHCHECK` is the `healthcheck` subcommand below.
 * Shutdown: `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`, then
   `srv.Shutdown(ctxWithTimeout(server.shutdown_grace))`. In-flight requests
   finish; new ones get connection refusal from the closed listener.
@@ -1811,7 +1811,9 @@ Tests:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds
     the data directory lock; the documented procedure is stop, copy, start.
   * `kynotes-server restore --in <dir>` — refuses to overwrite a non-empty data
-    directory without `--force`, and runs `integrity-check` afterwards.
+    directory without `--force`. (Now `restore-data-dir`: holds the lock, requires the
+    database and both key files in `--in`, integrity-checks a staged copy, then swaps
+    entries by rename and keeps the old ones; see `docs/DEPLOYMENT.md`.)
   * `kynotes-server integrity-check` — `PRAGMA integrity_check` plus the storage
     consistency check below.
   * `kynotes-server consistency-check` — every referenced digest exists on disk;
@@ -1823,7 +1825,8 @@ Tests:
     never sees a password. This is the only account-creation path; there is no
     self-service registration. Needed as soon as Phase 3 is testable, so build
     it there and leave it in the Phase 9 CLI surface.
-  * `kynotes-server gc --now` — runs one sweep and exits.
+  * `kynotes-server gc --now` — runs one sweep and exits; an unparsable or negative
+    `--retention` is an error, never zero.
 
 **The privacy verification suite** (`internal/httpapi/privacy_test.go`) — this is
 the phase's headline deliverable. It drives a full lifecycle (register, pair,

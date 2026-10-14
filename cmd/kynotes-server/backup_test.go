@@ -43,6 +43,20 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 	if _, err = st.DB().Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('sess_fixture','usr_fixture','token','csrf',?,?,?)`, time.Now().Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
+	now, later := time.Now().UTC().Format(time.RFC3339), time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	for _, q := range []string{
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,created_at,updated_at) VALUES('usr_every','alice','x','salt',600000,'user','user','active','','')`,
+		`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('ctr_fixture','personal','usr_every',?1,?1)`,
+		`INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES('obj_fixture','ctr_fixture','note',1,?1,?1)`,
+		`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES('dev_fixture','usr_every','pk','fp','sh','web',?1),('dev_identity','usr_every','pk2','fp2','!','identity',?1)`,
+		`INSERT INTO share_links(id,token_hash,object_id,object_version,expires_at,created_at) VALUES('shl_fixture','th1','obj_fixture',1,?2,?1)`,
+		`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at) VALUES('ssl_fixture','th2',x'00',?2,?1)`,
+		`INSERT INTO invitations(id,container_id,inviter_id,token_hash,role,created_at,expires_at) VALUES('inv_fixture','ctr_fixture','usr_every','th3','viewer',?1,?2)`,
+	} {
+		if _, err = st.DB().Exec(q, now, later); err != nil {
+			t.Fatal(q, err)
+		}
+	}
 	cfg.Backup.BlobTarget.URL = "file://" + t.TempDir()
 	blobs, err := blobstore.New(cfg.DataDir)
 	if err != nil {
@@ -151,6 +165,18 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 	}
 	if err = restored.DB().QueryRow(`SELECT revoked_at FROM sessions WHERE id='sess_fixture'`).Scan(&revoked); err != nil || revoked == "" {
 		t.Fatal("old session resurrected")
+	}
+	for _, q := range []string{
+		`SELECT count(*) FROM devices WHERE id='dev_fixture' AND revoked_at=''`,
+		`SELECT count(*) FROM share_links WHERE revoked_at=''`,
+		`SELECT count(*) FROM sealed_share_links WHERE revoked_at=''`,
+		`SELECT count(*) FROM invitations`,
+		`SELECT count(*)=0 FROM devices WHERE id='dev_identity' AND revoked_at=''`,
+	} {
+		var n int
+		if err = restored.DB().QueryRow(q).Scan(&n); err != nil || n != 0 {
+			t.Fatal("restore left live:", q, n, err)
+		}
 	}
 	if err = restoreCapsule(path, target, strings.NewReader(input), &output); err == nil {
 		t.Fatal("overwrote occupied target")

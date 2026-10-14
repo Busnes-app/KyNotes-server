@@ -346,7 +346,8 @@ The directory can be copied locally with the server stopped. Sealed disaster-rec
 capsules snapshot the live SQLite handle and include effective deployment secrets,
 recovery public key, configuration and blob inventory. `ky-primitives/recoveryclient`
 owns sealing, pairing, destinations, retention and scheduling. The product validates
-restored table counts, keys and inventory and revokes restored sessions. Blob payloads
+restored table counts, keys and inventory and revokes restored sessions, paired devices,
+share links and pending invitations. Blob payloads
 (note-version and attachment ciphertext) require separate mirroring and restoration.
 A database-only restore does not establish that content is recoverable.
 

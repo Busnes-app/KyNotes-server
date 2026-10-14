@@ -76,13 +76,26 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 	if c.Backup.AllowPrivateRecovery {
 		log.Info("backup_private_recovery_enabled", "outcome", "enabled")
 	}
-	go runGC(ctx, store.DB(), blobs, c)
-	h := &health.Checker{Ready: true}
+	gcCtx, stopGC := context.WithCancel(ctx)
+	gcDone := make(chan struct{})
+	go func() { defer close(gcDone); runGC(gcCtx, store.DB(), blobs, c) }()
+	// A GC pass cannot be cancelled; give it the shutdown grace before SQLite closes.
+	defer func() {
+		stopGC()
+		select {
+		case <-gcDone:
+		case <-time.After(parse(c.Server.ShutdownGrace)):
+			log.Error("gc_drain_cut_off", "reason_code", "timeout")
+		}
+	}()
+	h := &health.Checker{}
+	h.SetReady(true)
 	srv := &http.Server{Addr: c.Server.Bind, Handler: httpapi.NewRouter(log, c.Server.MaxRequestBytes, h.IsReady, store.DB(), blobs, c, backups, ssoStore), ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout), ReadTimeout: parse(c.Server.ReadTimeout), WriteTimeout: parse(c.Server.WriteTimeout), IdleTimeout: parse(c.Server.IdleTimeout)}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {
 	case <-ctx.Done():
+		h.SetReady(false)
 		sh, cancel := context.WithTimeout(context.Background(), parse(c.Server.ShutdownGrace))
 		defer cancel()
 		return srv.Shutdown(sh)
@@ -94,6 +107,8 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 	}
 }
 
+var gcPass = storage.RunGC
+
 func runGC(ctx context.Context, db *sql.DB, blobs *blobstore.Store, c config.Config) {
 	ticker := time.NewTicker(parse(c.GC.Interval))
 	defer ticker.Stop()
@@ -102,7 +117,7 @@ func runGC(ctx context.Context, db *sql.DB, blobs *blobstore.Store, c config.Con
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			_, _ = storage.RunGC(db, blobs, now, time.Duration(parse(c.GC.Retention)), c.GC.Enabled)
+			_, _ = gcPass(db, blobs, now, time.Duration(parse(c.GC.Retention)), c.GC.Enabled)
 		}
 	}
 }
