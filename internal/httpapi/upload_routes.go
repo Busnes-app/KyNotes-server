@@ -17,8 +17,39 @@ import (
 	"time"
 )
 
-// ponytail: one process-wide upload lock; upgrade to per-upload locks if concurrent upload throughput matters.
-var uploadMu sync.Mutex
+// uploadMaxLifetime caps a session that keeps refreshing its inactivity expiry.
+const uploadMaxLifetime = 24 * time.Hour
+
+var (
+	uploadLocksMu sync.Mutex
+	uploadLocks   = map[string]*uploadLock{}
+)
+
+type uploadLock struct {
+	sync.Mutex
+	users int
+}
+
+// lockUpload serializes the chunks of one upload session; its entry goes once unused.
+func lockUpload(id string) (unlock func()) {
+	uploadLocksMu.Lock()
+	l := uploadLocks[id]
+	if l == nil {
+		l = &uploadLock{}
+		uploadLocks[id] = l
+	}
+	l.users++
+	uploadLocksMu.Unlock()
+	l.Lock()
+	return func() {
+		l.Unlock()
+		uploadLocksMu.Lock()
+		if l.users--; l.users == 0 {
+			delete(uploadLocks, id)
+		}
+		uploadLocksMu.Unlock()
+	}
+}
 
 func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.Config) {
 	mux.Handle("GET /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -98,13 +129,10 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 413, "payload_too_large", "payload too large")
 			return
 		}
-		quota := cfg.Limits.UserQuotaBytes
-		var configured int64
-		_ = db.QueryRow(`SELECT quota_bytes FROM users WHERE id=?`, s.UserID).Scan(&configured)
-		if configured > 0 {
-			quota = configured
-		}
-		if quota > 0 && quotaUsage(db, s.UserID)+in.DeclaredBytes > quota {
+		if over, err := quotaExceeded(db, cfg.Limits, cid, "", in.DeclaredBytes); err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		} else if over {
 			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
 			return
 		}
@@ -129,8 +157,6 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		writeJSON(w, map[string]any{"uploadId": id, "chunkBytes": cfg.Limits.ChunkBytes, "expiresAt": now.Add(ttl).UTC().Format(time.RFC3339), "nextChunk": 0})
 	})))
 	mux.Handle("PATCH /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		uploadMu.Lock()
-		defer uploadMu.Unlock()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -143,16 +169,13 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		}
 		var uid, cid string
 		var received, next, declared, chunk int64
-		var expires, status string
-		if e := db.QueryRow(`SELECT user_id,container_id,received_bytes,next_chunk,declared_bytes,chunk_bytes,expires_at,status FROM upload_sessions WHERE id=?`, id).Scan(&uid, &cid, &received, &next, &declared, &chunk, &expires, &status); e != nil || uid != s.UserID {
+		var created, expires, status string
+		const sessionSQL = `SELECT user_id,container_id,received_bytes,next_chunk,declared_bytes,chunk_bytes,created_at,expires_at,status FROM upload_sessions WHERE id=?`
+		if e := db.QueryRow(sessionSQL, id).Scan(&uid, &cid, &received, &next, &declared, &chunk, &created, &expires, &status); e != nil || uid != s.UserID {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
-		if _, err := checkContainerKeyed(db, cid, s.UserID, r.Header.Get(keySchemeHeader)); writeTeamKeyError(w, r, err) {
-			return
-		}
-		if status != "pending" || time.Now().After(parseTime(expires)) {
-			WriteError(w, r, 410, "gone", "upload session expired")
+		if writeTeamKeyError(w, r, checkUploader(db, cid, s.UserID, r.Header.Get(keySchemeHeader))) {
 			return
 		}
 		idx, e := strconv.ParseInt(r.Header.Get("X-Kynotes-Chunk-Index"), 10, 64)
@@ -160,9 +183,23 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 400, "invalid_request", "invalid chunk index")
 			return
 		}
+		// Read before locking: a slow body must not stall other chunks.
 		body, e := io.ReadAll(io.LimitReader(r.Body, chunk+1))
 		if e != nil || int64(len(body)) > chunk {
 			WriteError(w, r, 413, "payload_too_large", "payload too large")
+			return
+		}
+		defer lockUpload(id)()
+		if e := db.QueryRow(sessionSQL, id).Scan(&uid, &cid, &received, &next, &declared, &chunk, &created, &expires, &status); e != nil {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		// A removal or demotion may have committed while the body streamed.
+		if writeTeamKeyError(w, r, checkUploader(db, cid, s.UserID, r.Header.Get(keySchemeHeader))) {
+			return
+		}
+		if !uploadLive(status, created, expires) {
+			WriteError(w, r, 410, "gone", "upload session expired")
 			return
 		}
 		if idx < next {
@@ -235,13 +272,16 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var uid, cid, kind, expected, status string
+		var uid, cid, kind, expected, status, created, expires string
 		var received, declared int64
-		if e := db.QueryRow(`SELECT user_id,container_id,kind,expected_digest,received_bytes,declared_bytes,status FROM upload_sessions WHERE id=?`, id).Scan(&uid, &cid, &kind, &expected, &received, &declared, &status); e != nil || uid != s.UserID {
+		if e := db.QueryRow(`SELECT user_id,container_id,kind,expected_digest,received_bytes,declared_bytes,status,created_at,expires_at FROM upload_sessions WHERE id=?`, id).Scan(&uid, &cid, &kind, &expected, &received, &declared, &status, &created, &expires); e != nil || uid != s.UserID {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
-		if status != "pending" {
+		if writeTeamKeyError(w, r, checkUploader(db, cid, s.UserID, r.Header.Get(keySchemeHeader))) {
+			return
+		}
+		if !uploadLive(status, created, expires) {
 			WriteError(w, r, 410, "gone", "upload session expired")
 			return
 		}
@@ -249,13 +289,12 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 422, "digest_mismatch", "ciphertext size mismatch")
 			return
 		}
-		quota := cfg.Limits.UserQuotaBytes
-		var configured int64
-		_ = db.QueryRow(`SELECT quota_bytes FROM users WHERE id=?`, s.UserID).Scan(&configured)
-		if configured > 0 {
-			quota = configured
+		over, err := quotaExceeded(db, cfg.Limits, cid, id, received)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
-		if quota > 0 && quotaUsage(db, s.UserID)+received > quota {
+		if over {
 			_, _ = db.Exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
 			if doomed, openErr := blobs.Reopen(id); openErr == nil {
 				_ = doomed.Abort()
@@ -268,11 +307,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			KeyGeneration      int64  `json:"keyGeneration"`
 			PreviewUploadID    string `json:"previewUploadId"`
 		}
-		if kind == "preview" {
-			if _, err := checkContainerKeyed(db, cid, s.UserID, r.Header.Get(keySchemeHeader)); writeTeamKeyError(w, r, err) {
-				return
-			}
-		} else {
+		if kind != "preview" {
 			if json.NewDecoder(r.Body).Decode(&in) != nil {
 				WriteError(w, r, 400, "invalid_request", "invalid request")
 				return
@@ -336,6 +371,9 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		}
 		e = dbTx(db, func(tx *sql.Tx) error {
 			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); e != nil {
+				return e
+			}
+			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now); e != nil {
@@ -498,10 +536,62 @@ func isHex(s string) bool {
 	}
 	return true
 }
-func quotaUsage(db *sql.DB, userID string) int64 {
-	var n sql.NullInt64
-	_ = db.QueryRow(`SELECT COALESCE((SELECT SUM(v.ciphertext_bytes) FROM object_versions v JOIN objects o ON o.id=v.object_id JOIN containers c ON c.id=o.container_id WHERE c.owner_user_id=?),0)+(SELECT COALESCE(SUM(c.ciphertext_bytes),0) FROM conflicts c JOIN containers x ON x.id=c.container_id WHERE x.owner_user_id=?)+(SELECT COALESCE(SUM(a.ciphertext_bytes),0) FROM attachments a JOIN containers x ON x.id=a.container_id WHERE x.owner_user_id=? AND a.deleted_at='')`, userID, userID, userID).Scan(&n)
-	return n.Int64
+
+// checkUploader admits userID to send bytes into cid: checkContainerKeyed plus an owner, admin or editor role.
+func checkUploader(q rowQuerier, cid, userID, scheme string) error {
+	if _, err := checkContainerKeyed(q, cid, userID, scheme); err != nil {
+		return err
+	}
+	var role string
+	if err := q.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, userID).Scan(&role); err != nil {
+		return err
+	}
+	if role != "owner" && role != "admin" && role != "editor" {
+		return errInsufficientRole
+	}
+	return nil
+}
+
+func uploadLive(status, created, expires string) bool {
+	now := time.Now()
+	return status == "pending" && !now.After(parseTime(expires)) && !now.After(parseTime(created).Add(uploadMaxLifetime))
+}
+
+// quotaExceeded reports whether n more bytes in cid would exceed its owner's quota or, in a team,
+// the team's (IMPLEMENTATION_PLAN.md 1.14). Live pending uploads other than skip count at their
+// declared size.
+func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64) (bool, error) {
+	var owner, kind, team string
+	var userQuota int64
+	if err := q.QueryRow(`SELECT c.owner_user_id,c.kind,c.team_id,u.quota_bytes FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.id=?`, cid).Scan(&owner, &kind, &team, &userQuota); err != nil {
+		return false, err
+	}
+	if userQuota == 0 {
+		userQuota = limits.UserQuotaBytes
+	}
+	if kind == "team" {
+		team = cid
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	over := func(quota int64, scope, key string) (bool, error) {
+		if quota <= 0 {
+			return false, nil
+		}
+		var used int64
+		err := q.QueryRow(`SELECT
+ (SELECT COALESCE(SUM(v.ciphertext_bytes),0) FROM object_versions v JOIN objects o ON o.id=v.object_id WHERE o.container_id IN (`+scope+`))
++(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM conflicts WHERE container_id IN (`+scope+`))
++(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM attachments WHERE deleted_at='' AND container_id IN (`+scope+`))
++(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))`, key, now, skip).Scan(&used)
+		return used+n > quota, err
+	}
+	if exceeded, err := over(userQuota, `SELECT id FROM containers WHERE owner_user_id=?1`, owner); exceeded || err != nil {
+		return exceeded, err
+	}
+	if team == "" {
+		return false, nil
+	}
+	return over(limits.TeamQuotaBytes, `SELECT id FROM containers WHERE id=?1 OR team_id=?1`, team)
 }
 
 func uploadTTL(cfg config.Config) time.Duration {

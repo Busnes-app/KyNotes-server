@@ -608,13 +608,18 @@ Reads use the same pool.
 * A user's usage = sum of `ciphertext_bytes` over: accepted object versions,
   conflict records, and attachments, for every container the user *owns*
   (`containers.owner_user_id`).
-* A team's usage = the same sum over containers whose `team_id` matches.
+* A team's usage = the same sum over the team container and the containers
+  whose `team_id` matches.
+* A write is charged to the target container: its owner's quota, and its team's
+  too when it is in a team. The writer's own containers do not matter.
+* Live `pending` upload sessions count at their `declared_bytes`, so parallel
+  sessions cannot each pass on the same headroom.
 * A blob shared by two containers counts once per container that references it.
   Deduplication saves disk, not quota. This is deliberate: making quota depend
   on other containers' contents leaks their contents.
-* Enforcement happens **twice**: at upload-session creation against the declared
-  size, and at finalize against the actual size. Finalize is the authoritative
-  check.
+* Enforcement happens at upload-session creation against the declared size, at
+  finalize against the actual size (the authoritative check), and inside every
+  object save's write transaction against its ciphertext size.
 * Over quota → `413 quota_exceeded`. The upload session is marked `failed` and
   its temp file is removed.
 * `0` means unlimited.
@@ -1551,8 +1556,9 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 5. `received_bytes` exceeding `declared_bytes` at any point → `413`, session
    `failed`, temp removed.
 6. Expiry is `15m` from the **last** chunk activity, not from creation
-   (`limits.upload_session_ttl`, refreshed on each accepted chunk). A `PATCH`
-   after `expires_at` → `410 gone`.
+   (`limits.upload_session_ttl`, refreshed on each accepted chunk). A session
+   also ends 24 hours after `created_at`, however active. A `PATCH` or finalize
+   after either → `410 gone`.
 7. Finalize verifies the digest against `expected_digest`. Mismatch → `422
    digest_mismatch`, session `failed`, temp removed. This is the ciphertext
    integrity check; the server cannot verify the AEAD tag because it has no key,
@@ -1570,7 +1576,10 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
     are ciphertext and the MIME type is encrypted.
 11. Attachments are immutable. There is no update route.
 12. Attachment permissions derive entirely from the containing container's
-    membership. There is no per-attachment ACL.
+    membership. There is no per-attachment ACL. Every chunk and finalize
+    re-checks that the uploader is still a live owner, admin or editor.
+13. Chunks of one session are serialized; a chunk body is read before that
+    lock, so a slow client stalls only its own request.
 
 ### 7.3 Deletion order (exactly this)
 
@@ -1608,6 +1617,10 @@ GC (§1.15) later marks the orphaned blobs and deletes them after
 - `TestByDigestLookupIsInvisibleAcrossContainers` — the definitive dedup
   isolation test: container A has the digest, container B's HEAD returns 404.
 - `TestQuotaCountsDedupedBlobPerContainer`
+- `TestQuotaChargesTheContainerOwner`, `TestTeamQuotaIsEnforced`,
+  `TestPendingUploadsCountTowardQuota`
+- `TestDemotedEditorCannotContinueAnUpload`, `TestUploadSessionHasAnAbsoluteLifetime`,
+  `TestStalledChunkDoesNotBlockAnotherUpload`
 - `TestLazyDownloadRequiresContainerMembership`
 - `TestRangeRequestOnAttachmentWorks`
 - `TestPreviewIsSeparateBlob`

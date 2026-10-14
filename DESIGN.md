@@ -264,7 +264,9 @@ ciphertext properties required for transport and storage.
 
 Attachments are immutable and content-addressed by their encrypted digest.
 Deduplication is scoped to a container. Uploads use resumable sessions and
-expire after 15 minutes when incomplete. Abandoned uploads remain visible to
+expire after 15 minutes when incomplete, and 24 hours after they start however
+active. An upload in progress holds its declared size against the quota of the
+container's owner and team. Abandoned uploads remain visible to
 the user until they expire. Attachments synchronize separately from notes and
 are optional additions: a note saves even if its attachment upload fails or
 never completes. Clients download attachments lazily. Image attachments must
