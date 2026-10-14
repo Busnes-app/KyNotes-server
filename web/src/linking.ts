@@ -1,7 +1,7 @@
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
-import { hkdfSha256, sha256 } from "./fallbackCrypto";
+import { hkdfSha256, sha256 } from "./crypto";
 import { concat, generateIdentity, idBytes, sameBytes, type Identity } from "./teamKeys";
 
 const LINK_LABEL = "kynotes/link/v1";

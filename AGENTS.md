@@ -65,10 +65,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   device-validated envelope writes are covered by the package integration
   tests; password/OIDC login, password change, step-up, recover, device, pairing, and upload
   endpoints use in-memory token buckets. Upload retries are byte-checked, and preview uploads remain
-  content-addressed without creating an attachment row. Admin settings/users,
+  content-addressed without creating an attachment row. Chunks read their body before taking a
+  per-session lock (`lockUpload`); chunk and finalize re-check an editor-or-higher role
+  (`checkUploader`) and the 24-hour session cap (`uploadLive`). `quotaExceeded` charges object
+  saves, upload starts and finalizes to the target container's owner and team, counting live
+  pending sessions. Admin settings/users,
   audit metadata, team membership, and encrypted comment reads/writes are
   session- and role-gated here.
-- `internal/app` owns the `.kynotes.lock` data-directory lock and first-run
+- `internal/app` owns the `.kynotes.lock` data-directory lock (`storage.LockDirectory`: an `flock`
+  held for the process lifetime; the file stays and is never copied or replaced, a dead holder never
+  blocks; `TestDirectoryLock*`) and first-run
   bootstrap: only when no users exist, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the administrator
   account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS` the everyday account (different
   usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, or use
@@ -113,7 +119,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   reuse path; it does not alter the frozen server plan.
 - `web/` is the browser client; keep plaintext in browser memory only, send
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
-  shared container keys (`keyring.ts`).
+  shared container keys (`keyring.ts`). It needs WebCrypto (HTTPS or localhost) and shows `NEEDS_HTTPS`
+  otherwise: no hand-rolled cipher, KDF or `Math.random` fallback; sync SHA-256/HKDF come from
+  `@noble/hashes`. Login iterations below `MIN_LOGIN_ITERATIONS` (the server's 100 000) are refused.
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
   `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,
@@ -132,7 +140,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   labels notebooks explicitly, and the administrator console (`components/AdminConsole.tsx`) uses tabbed
   server, users, teams, and audit sections. The save queue is kept in the
   existing IndexedDB vault, drains on startup/online recovery and every 15
-  seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs.
+  seconds, and uses a ciphertext-only BroadcastChannel hint for other tabs. The drain runs in
+  the same `chained` queue as live saves and structure writes; a landed save clears only the
+  queued copy this tab wrote (`clearQueuedSave` compares `updatedAt`). A page in conflict is not
+  autosaved; its edits reach the server as conflict copies on leave/hide or "Keep the other
+  version". A load reports objects it could not read (`unreadableNotice`). Verify
+  `workspaceWiring.test.ts` (save queue wiring) and `storage.test.ts`.
 - `web/` presents containers as notebooks with colored section tabs (`folder` objects) and
   manually ordered pages. Placement lives in each page's encrypted payload
   (`pages.ts`, `order.ts`); decrypted payloads pass `parseObjectPayload` before use.
@@ -178,6 +191,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   versions are recovered as `(conflicting copy)` pages next to the original, one
   per distinct text (text equal to the server is resolved without a copy); the original
   reloads to the server version and a conflict is resolved only after its copy saves.
+- `internal/httpapi` change feeds and listings answer 500 on any unreadable row rather than
+  omit it, `hasMore` reads one row past the page, and conflict resolve takes a fresh
+  `change_seq`. Verify `TestChangesNeverSkipAnUnreadableRow`, `TestResolvedConflictReachesSync`,
+  `TestConflictSaveThatFailsToCommitIsNotAConflict`, `TestListingsFailRatherThanDropARow`.
 - `internal/httpapi` commit receipts are deterministic SHA-256 commitments over
   opaque object/version metadata and ciphertext digest; share links store only
   token hashes and serve ciphertext without the URL-fragment decryption key.
@@ -186,6 +203,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/httpapi` exposes authenticated object attachment listings; the web
   client encrypts attachment bytes and metadata before chunked upload and
   decrypts them only for the current browser session.
+- Blob writes go through `claimBlob` (clears the GC mark, confirms the file in the write
+  transaction); `storage.sweepBlob` re-checks and deletes file then row in one transaction.
+  A note delete tombstones only attachments it referenced; linking refuses deleted attachments
+  and notes; re-uploading a deleted attachment revives it. Verify `TestGCSweep*`, `TestGCKeeps*`,
+  `TestGCDeletesUnreferencedBlobAndItsExpiredTombstones` and `blob_lifecycle_test.go`.
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
   foreground refresh cadence in the browser.
@@ -275,7 +297,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   to reject missing, stale or extra assets. The app CSP (`embed.go`) allows `img-src 'self' data: blob:` so decrypted images render.
 - `kynotes-server healthcheck [--config PATH] [--url URL]` is the container HEALTHCHECK
   (distroless has no curl): GET `/healthz` on the configured bind port, 3 s timeout, exit 0
-  only on 200, loopback hosts only, no redirects. `version` is set by
+  only on 200, loopback hosts only, no redirects. It reads only the bind (`config.Bind`): no
+  secrets, no writes (`TestHealthcheckWritesNothing`). Readiness turns false when shutdown starts;
+  `Serve` waits up to `shutdown_grace` for a running GC pass before SQLite closes
+  (`TestShutdownWaitsForRunningGC`). `version` is set by
   `-ldflags "-X main.version=..."`; the Dockerfile takes `ARG VERSION` (CI passes the commit SHA).
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
@@ -289,8 +314,15 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   CSRF and step-up checks gate mutations, and export requires an audit write. The CLI
   owns the same data-directory lock as the server, except `deposit`/`backup-drill`, which
   go through `admin.sock` when the server runs; `restore --in --to` is the only
-  custodian-share/capsule-open entry point and revokes restored sessions. Legacy local
-  plaintext commands are `copy-data-dir` and `restore-data-dir`. Capsules exclude all
+  custodian-share/capsule-open entry point; in one transaction it revokes restored sessions,
+  paired devices (identities stay), share links and sealed share links, and deletes pending
+  invitations. Legacy local plaintext commands are `copy-data-dir` (`--out` absent or empty and
+  outside the data directory) and `restore-data-dir` (`--in` needs `kynotes.sqlite` and both
+  `secrets/*.key`; stages beside the data, integrity-checks, swaps entries by rename and keeps the
+  old ones in `.restore-previous-*`; `TestRestoreDataDir*`). Every offline command that opens the
+  database takes the lock (`openLocked`; `TestOfflineCommandsTakeTheDirectoryLock`) except
+  `gc --now`, which the probe runs beside the live server (`ponytail:` in `gcCommand`); it refuses
+  an unparsable or negative `--retention`. Capsules exclude all
   blob bytes, including note versions; full recovery needs the separate blob store.
   See `docs/RESTORE.md` and `docs/DEPLOYMENT.md`. The scheduler polls each minute,
   counts from last attempt and drains active work before SQLite closes.
@@ -298,7 +330,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   (scrypt verifiers are refused); login secrets derive through `ky-primitives/derive`
   with label `kynotes/auth/v1`; recovery codes come from `ky-primitives/recoverycode`
   and are minted by the server (`user add` prints one; `POST /api/v1/auth/recover`
-  returns the replacement); key files under `<data>/secrets` load through
+  returns the replacement, spending the code only if its hash is unchanged inside the write:
+  `TestRecoveryCodeIsSpentOnceUnderRace`); key files under `<data>/secrets` load through
   `ky-primitives/keyfile` and an undecodable file is a startup error. Password and derive
   admission-control failures surface as `auth.ErrBusy` and answer 503, never a lockout strike.
   The login dummy verifier retries a failed mint; it must never cache or use an empty hash.

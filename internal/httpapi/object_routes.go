@@ -8,9 +8,11 @@ import (
 	"encoding/hex"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -48,7 +50,8 @@ func currentCommitReceipt(db *sql.DB, objectID string, version int64) string {
 	return commitReceipt(objectID, digest, version, bytes, generation, baseVersion, changeSeq)
 }
 
-func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
+func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits config.Limits) {
+	max := limits.ObjectMaxBytes
 	mux.Handle("GET /api/v1/objects/{id}/conflicts", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
 		if ids.Validate("obj", r.PathValue("id")) != nil {
@@ -65,8 +68,15 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 		for rows.Next() {
 			var id, created, res string
 			var base, cur, size, generation int64
-			_ = rows.Scan(&id, &base, &cur, &size, &generation, &created, &res)
+			if rows.Scan(&id, &base, &cur, &size, &generation, &created, &res) != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 			out = append(out, map[string]any{"id": id, "baseVersion": base, "currentVersion": cur, "bytes": size, "keyGeneration": generation, "createdAt": created, "resolved": res != ""})
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))
@@ -101,17 +111,23 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var role string
-		if db.QueryRow(`SELECT m.role FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&role) != nil {
-			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		if role != "owner" && role != "admin" && role != "editor" {
-			WriteError(w, r, 403, "forbidden", "insufficient role")
-			return
-		}
-		if _, e := db.Exec(`UPDATE conflicts SET resolved_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), r.PathValue("id")); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		now := time.Now().UTC().Format(time.RFC3339)
+		e := dbTx(db, func(tx *sql.Tx) error {
+			var cid, role string
+			if e := tx.QueryRow(`SELECT c.container_id,m.role FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&cid, &role); e != nil {
+				return e
+			}
+			if role != "owner" && role != "admin" && role != "editor" {
+				return errInsufficientRole
+			}
+			var seq int64
+			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); e != nil {
+				return e
+			}
+			_, e := tx.Exec(`UPDATE conflicts SET resolved_at=?,change_seq=? WHERE id=?`, now, seq, r.PathValue("id"))
+			return e
+		})
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -141,10 +157,12 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 			if _, e := tx.Exec(`UPDATE objects SET deleted_at=?,change_seq=?,updated_at=? WHERE id=?`, now, seq, now, oid); e != nil {
 				return e
 			}
-			if _, e := tx.Exec(`DELETE FROM attachment_refs WHERE object_id=?`, oid); e != nil {
+			// Only this object's attachments: an upload not yet linked to its note is not orphaned.
+			// ponytail: a never-linked attachment stays live; upgrade path is an age-gated GC tombstone.
+			if _, e := tx.Exec(`UPDATE attachments SET deleted_at=? WHERE deleted_at='' AND id IN (SELECT attachment_id FROM attachment_refs WHERE object_id=?) AND NOT EXISTS(SELECT 1 FROM attachment_refs r WHERE r.attachment_id=attachments.id AND r.object_id!=?)`, now, oid, oid); e != nil {
 				return e
 			}
-			if _, e := tx.Exec(`UPDATE attachments SET deleted_at=? WHERE container_id=? AND deleted_at='' AND NOT EXISTS(SELECT 1 FROM attachment_refs r WHERE r.attachment_id=attachments.id)`, now, cid); e != nil {
+			if _, e := tx.Exec(`DELETE FROM attachment_refs WHERE object_id=?`, oid); e != nil {
 				return e
 			}
 			_, e := tx.Exec(`DELETE FROM object_versions WHERE object_id=?`, oid)
@@ -299,6 +317,15 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 			writeTeamKeyError(w, r, e)
 			return
 		}
+		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
+			_ = tx.Rollback()
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+			} else {
+				WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			}
+			return
+		}
 		var live int64
 		_ = tx.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&live)
 		var changeSeq int64
@@ -309,10 +336,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 		}
 		if base != live {
 			cidID, _ := ids.Mint("cfl")
-			_, e = tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now)
-			if e == nil {
-				_, e = tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now)
-			}
+			e = claimBlob(tx, blobs, digest, cid, size, now)
 			if e == nil {
 				_, e = tx.Exec(`INSERT INTO conflicts(id,object_id,container_id,base_version,current_version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, cidID, oid, cid, base, live, digest, size, generation, changeSeq, now)
 			}
@@ -324,17 +348,17 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			_ = tx.Commit()
+			if e = tx.Commit(); e != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(409)
 			writeJSON(w, map[string]any{"error": map[string]any{"code": "version_conflict", "message": "base version is stale", "requestId": RequestID(r)}, "currentVersion": live, "conflictId": cidID})
 			return
 		}
 		next := live + 1
-		_, e = tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO NOTHING`, digest, size, now)
-		if e == nil {
-			_, e = tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now)
-		}
+		e = claimBlob(tx, blobs, digest, cid, size, now)
 		if e == nil {
 			_, e = tx.Exec(`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,base_version,change_seq,created_at,author_user_id) VALUES(?,?,?,?,?,?,?,?,?)`, oid, next, digest, size, generation, base, changeSeq, now, s.UserID)
 		}
@@ -355,4 +379,20 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, max int64) {
 		}
 		writeJSON(w, map[string]any{"version": next, "digest": digest, "bytes": size, "commitReceipt": commitReceipt(oid, digest, next, size, generation, base, changeSeq)})
 	})))
+}
+
+// claimBlob records a finalized blob for cid and clears its GC mark. GC deletes files only
+// inside its own write transaction (storage.sweepBlob), so a file present here outlives tx.
+func claimBlob(tx *sql.Tx, blobs *blobstore.Store, digest, cid string, size int64, now string) error {
+	if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(digest) DO UPDATE SET unreferenced_since=''`, digest, size, now); e != nil {
+		return e
+	}
+	if _, e := tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now); e != nil {
+		return e
+	}
+	_, ok, e := blobs.Stat(digest)
+	if e == nil && !ok {
+		e = os.ErrNotExist
+	}
+	return e
 }

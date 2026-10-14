@@ -4,7 +4,7 @@ import { bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import vectors from "../../testdata/protocol/envelope_vectors.json";
 import authVectors from "../../testdata/protocol/auth_vectors.json";
-import { deriveLoginKeys } from "./crypto";
+import { deriveLoginKeys, NEEDS_HTTPS } from "./crypto";
 import { ENVELOPE_BYTES, envelopeAAD, envelopeSender, generateIdentity, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
 
 const h = hexToBytes;
@@ -53,12 +53,10 @@ describe("Go cross-implementation vectors", () => {
 
   describe("without WebCrypto", () => {
     afterEach(() => vi.unstubAllGlobals());
-    it("pure-JS fallback derives the same keys", async () => {
+    it("refuses to derive keys (plain HTTP) instead of falling back", async () => {
       vi.stubGlobal("crypto", {});
       const v = vectors.login[0];
-      const keys = await deriveLoginKeys(v.password, v.loginSalt, v.iterations);
-      expect(keys.authSecret).toBe(v.authSecret);
-      expect(bytesToHex(keys.userKEK)).toBe(v.userKEK);
+      await expect(deriveLoginKeys(v.password, v.loginSalt, v.iterations)).rejects.toThrow(NEEDS_HTTPS);
     });
   });
 

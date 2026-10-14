@@ -133,7 +133,7 @@ describe("recovery code wiring (P5 Task 8)", () => {
   });
 
   it("never sends an edit sealed for a key a reset replaced, and explains an unanswered reset (M4, M5)", () => {
-    expect(block("  async function drainQueue(")).toContain(".filter((item) => item.owner === auth.user.id).filter((item) => !item.previousKey);");
+    expect(block("  async function drainNow(")).toContain(".filter((item) => item.owner === auth.user.id).filter((item) => !item.previousKey);");
     expect(main).toContain("onReset={(next) => { void retireWaitingEdits(next)");
     expect(main).toContain("setResetUnfinished(unfinishedReset(local, live, sent));");
     expect(main).toContain("noteReset: (publicKey) => noteResetSent(auth.username, auth.user.id, publicKey)");
@@ -144,5 +144,38 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).toContain("waitingRef.current = identityRef.current && waitingKey(identityRef.current);\n      setWaitingHeld(Boolean(waitingRef.current));");
     expect(main).toContain("waitingHeld={waitingHeld}");
     expect(main).not.toMatch(/=\{[^}]*waitingRef\.current/); // no JSX prop reads the ref during render
+  });
+});
+
+describe("save queue wiring", () => {
+  it("runs the queue drain in the save chain, never beside a live save", () => {
+    expect(block("  function drainQueue(")).toContain("void chained(drainNow);");
+    expect(block("  function save(")).toContain("return chained(");
+    expect(main.match(/saveChain\.current\.then\(/g)).toHaveLength(1); // only chained() appends
+  });
+
+  it("clears after a save only the queued copy this tab wrote", () => {
+    expect(main).not.toMatch(/clearQueuedSave\(auth\.user\.id, (note\.)?id\)/);
+    expect(main.match(/\bqueueSave\(/g)).toHaveLength(1); // only queueOwn writes the queue
+    expect(block("  async function clearOwnQueued(")).toContain("await clearQueuedSave(auth.user.id, id, updatedAt);");
+  });
+
+  it("does not autosave a page in conflict, and keystrokes do not restart the 15 s autosave", () => {
+    expect(main).toContain("const autosaving = dirty && selectedNote !== null && !conflicted.has(selectedNote.id);");
+    expect(main).toContain("}, [selectedNote?.title, selectedNote?.body, autosaving]);");
+    expect(main).toContain("}, [selectedNote?.id, autosaving]);");
+    expect(main).not.toContain("}, [selectedNote, dirty]);");
+  });
+
+  it("says when a notebook load could not read an object instead of dropping it silently", () => {
+    const read = block("  async function readContainerObjects(");
+    expect(read).toContain("unreadable += 1;");
+    expect(read).not.toContain("Ignore an invalid local draft");
+    expect(block("  async function loadContainer(")).toContain("if (objects.unreadable) setError(unreadableNotice(objects.unreadable));");
+  });
+
+  it("revokes the object URLs the editor resolved when the page closes", () => {
+    expect(block("  async function resolveFileUrl(")).toContain("resolvedURLs.current.push(objectURL);");
+    expect(main).toContain("resolvedURLs.current.forEach((url) => URL.revokeObjectURL(url));");
   });
 });

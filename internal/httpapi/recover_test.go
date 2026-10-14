@@ -132,3 +132,52 @@ func TestRecoverRejectPathIsUniformCost(t *testing.T) {
 		t.Fatalf("unknown user reject too cheap: unknown=%s known=%s", unknown, known)
 	}
 }
+
+// Two requests that both verified one code: only the first to commit may spend it.
+func TestRecoveryCodeIsSpentOnceUnderRace(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	mux := http.NewServeMux()
+	AuthRoutes(mux, db, cfg)
+	code, hash, err := auth.NewRecoveryCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	oldHash, _ := auth.HashAuthSecret(strings.Repeat("0", 64))
+	if _, err := db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,recovery_hash,role,status,created_at,updated_at) VALUES('usr_race','racer',?,'salt',600000,?,'user','active',?,?)`, oldHash, hash, now, now); err != nil {
+		t.Fatal(err)
+	}
+	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
+	post := func(secret string) *httptest.ResponseRecorder {
+		body := `{"username":"racer","recoveryCode":"` + code + `","newAuthSecret":"` + strings.Repeat(secret, 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/auth/recover", strings.NewReader(body)))
+		return rec
+	}
+	var first *httptest.ResponseRecorder
+	afterPasswordVerified = func() {
+		afterPasswordVerified = nil
+		first = post("2")
+	}
+	t.Cleanup(func() { afterPasswordVerified = nil })
+	second := post("1")
+	if first == nil || first.Code != 200 {
+		t.Fatalf("first use: %v", first)
+	}
+	if second.Code != 401 {
+		t.Fatalf("second use of a spent code: %d %s", second.Code, second.Body)
+	}
+	var out struct {
+		RecoveryCode string `json:"recoveryCode"`
+	}
+	var stored, secret string
+	if err := json.Unmarshal(first.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT recovery_hash,auth_secret_hash FROM users WHERE id='usr_race'`).Scan(&stored, &secret); err != nil {
+		t.Fatal(err)
+	}
+	if auth.VerifyRecoveryCode(out.RecoveryCode, stored) != nil || auth.VerifyAuthSecret(strings.Repeat("2", 64), secret) != nil {
+		t.Fatal("the losing request overwrote the winner's secret or code")
+	}
+}

@@ -548,9 +548,9 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 429, "rate_limited", "recovery temporarily unavailable")
 			return
 		}
-		var uid, stored, usedAt string
-		e := db.QueryRow(`SELECT id,recovery_hash,recovery_used_at FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored, &usedAt)
-		if e != nil || usedAt != "" || stored == "" {
+		var uid, stored string
+		e := db.QueryRow(`SELECT id,recovery_hash FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored)
+		if e != nil || stored == "" {
 			auth.DummyVerify()
 			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
@@ -563,6 +563,9 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
+		}
+		if afterPasswordVerified != nil {
+			afterPasswordVerified()
 		}
 		newHash, e := auth.HashAuthSecret(in.NewAuthSecret)
 		if e != nil {
@@ -579,7 +582,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		auditID, _ := ids.Mint("aud")
 		e = dbTx(db, func(tx *sql.Tx) error {
-			if _, e := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,recovery_hash=?,recovery_used_at='',password_admin_known=0,updated_at=? WHERE id=?`, newHash, in.NewLoginSalt, in.Iterations, recoveryHash, now, uid); e != nil {
+			// Only the request that still sees the verified code spends it.
+			if e := tx.QueryRow(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,recovery_hash=?,password_admin_known=0,updated_at=? WHERE id=? AND recovery_hash=? RETURNING id`, newHash, in.NewLoginSalt, in.Iterations, recoveryHash, now, uid, stored).Scan(&uid); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=?`, now, uid); e != nil {
@@ -599,6 +603,11 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, RequestID(r), "")
 			return e
 		})
+		if errors.Is(e, sql.ErrNoRows) {
+			recoveryLockout.Fail(key, time.Now().UTC())
+			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
+			return
+		}
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return

@@ -141,9 +141,10 @@ device keeps can open its notes but cannot sign in or step up, so a reopened tab
 password before its first step-up. In secure contexts the vault stores the private key
 encrypted under a non-extractable WebCrypto key kept in the same record; that is not
 at-rest protection (browsers write the key's bytes into the same profile and page script
-can call `decrypt`), it only keeps the raw key out of the record's plain values. On
-plain-HTTP origins the key is stored unwrapped and Settings says so (an interim that awaits
-Yoshi's decision: refusing to keep it there is the more secure default); without IndexedDB
+can call `decrypt`), it only keeps the raw key out of the record's plain values. The web
+app needs WebCrypto, which browsers expose only over HTTPS or on localhost: elsewhere it
+says so and does not start (no pure-JS cipher or `Math.random` fallback), so the vault's
+unwrapped `plain` mode (`identityStorage`) is no longer reachable; without IndexedDB
 the browser holds no identity. "Forget this device" keeps the encrypted save queue. Identity rows never authenticate as a device,
 are not listed, revoked or selected through device routes or directory
 deactivation and role changes, and are excluded from the device-envelope save
@@ -264,7 +265,9 @@ ciphertext properties required for transport and storage.
 
 Attachments are immutable and content-addressed by their encrypted digest.
 Deduplication is scoped to a container. Uploads use resumable sessions and
-expire after 15 minutes when incomplete. Abandoned uploads remain visible to
+expire after 15 minutes when incomplete, and 24 hours after they start however
+active. An upload in progress holds its declared size against the quota of the
+container's owner and team. Abandoned uploads remain visible to
 the user until they expire. Attachments synchronize separately from notes and
 are optional additions: a note saves even if its attachment upload fails or
 never completes. Clients download attachments lazily. Image attachments must
@@ -272,8 +275,11 @@ include a client-generated preview, stored as a separately encrypted blob.
 
 Attachment access inherits the permissions of the containing project. When a
 note is deleted, all current and historical versions are deleted and their
-attachment references are released. A blob is deleted when no note references
-it and the garbage-collection retention period has elapsed. Garbage collection
+attachment references are released; only attachments that note referenced and
+nothing else links are deleted. A blob is deleted when no note references
+it and the garbage-collection retention period has elapsed. The sweep re-checks
+references in the transaction that deletes the blob, and a save that reuses a
+blob restarts its retention period. Garbage collection
 is controlled globally and uses a configurable retention period. It may be
 disabled, with unreferenced storage growth as the explicit trade-off.
 
@@ -346,7 +352,8 @@ The directory can be copied locally with the server stopped. Sealed disaster-rec
 capsules snapshot the live SQLite handle and include effective deployment secrets,
 recovery public key, configuration and blob inventory. `ky-primitives/recoveryclient`
 owns sealing, pairing, destinations, retention and scheduling. The product validates
-restored table counts, keys and inventory and revokes restored sessions. Blob payloads
+restored table counts, keys and inventory and revokes restored sessions, paired devices,
+share links and pending invitations. Blob payloads
 (note-version and attachment ciphertext) require separate mirroring and restoration.
 A database-only restore does not establish that content is recoverable.
 

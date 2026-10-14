@@ -610,13 +610,18 @@ Reads use the same pool.
 * A user's usage = sum of `ciphertext_bytes` over: accepted object versions,
   conflict records, and attachments, for every container the user *owns*
   (`containers.owner_user_id`).
-* A team's usage = the same sum over containers whose `team_id` matches.
+* A team's usage = the same sum over the team container and the containers
+  whose `team_id` matches.
+* A write is charged to the target container: its owner's quota, and its team's
+  too when it is in a team. The writer's own containers do not matter.
+* Live `pending` upload sessions count at their `declared_bytes`, so parallel
+  sessions cannot each pass on the same headroom.
 * A blob shared by two containers counts once per container that references it.
   Deduplication saves disk, not quota. This is deliberate: making quota depend
   on other containers' contents leaks their contents.
-* Enforcement happens **twice**: at upload-session creation against the declared
-  size, and at finalize against the actual size. Finalize is the authoritative
-  check.
+* Enforcement happens at upload-session creation against the declared size, at
+  finalize against the actual size (the authoritative check), and inside every
+  object save's write transaction against its ciphertext size.
 * Over quota → `413 quota_exceeded`. The upload session is marked `failed` and
   its temp file is removed.
 * `0` means unlimited.
@@ -629,11 +634,15 @@ Reads use the same pool.
   files are removed. Expired sessions stay visible to the owner for 24 hours so
   the client can show a failed upload, then the row is deleted.
 * Pass 2 — **mark**: for every blob with no live reference (no accepted object
-  version, no unresolved conflict, no live attachment), set `unreferenced_since`
-  if unset. If a reference reappears, clear it.
+  version, no unresolved conflict, no live or linked attachment), set
+  `unreferenced_since` if unset. If a reference reappears, clear it; every write
+  that records a blob clears it too.
 * Pass 3 — **sweep**: delete blobs whose `unreferenced_since` is older than
-  `gc.retention`; delete the file first, then the row, and tolerate a missing
-  file.
+  `gc.retention`. Per blob, in one write transaction: re-check it is still
+  unreferenced, delete the tombstones naming it (deleted attachments, resolved
+  conflicts), delete the file, then the row; tolerate a missing file. A write
+  that records a blob confirms its file inside its own transaction, so a save
+  that reuses a blob either commits first and keeps it or fails.
 * Pass 4 — **purge tombstones**: rows soft-deleted longer ago than
   `gc.retention` are removed.
 * `gc.enabled: false` disables passes 2–4 only. Upload expiry always runs —
@@ -679,8 +688,8 @@ kynotes.example.yaml
 * `main.go` parses flags (`--config`, `--version`, `--check-config`), loads
   config, builds the logger, calls `app.Serve(ctx, cfg)`, and returns exit code
   `0` on clean shutdown, `2` on configuration failure, `1` on runtime failure.
-* `--check-config` validates and exits without binding a port. This is what the
-  Docker `HEALTHCHECK` and the operator's pre-flight use.
+* `--check-config` validates and exits without binding a port: the operator's
+  pre-flight. The Docker `HEALTHCHECK` is the `healthcheck` subcommand below.
 * Shutdown: `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)`, then
   `srv.Shutdown(ctxWithTimeout(server.shutdown_grace))`. In-flight requests
   finish; new ones get connection refusal from the closed listener.
@@ -1536,7 +1545,7 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 | HEAD | `/api/v1/containers/{id}/attachments/by-digest/{digest}` | `200` if that digest is already in **this** container, else `404` |
 | GET | `/api/v1/attachments/{id}` | ciphertext stream, supports `Range` |
 | GET | `/api/v1/attachments/{id}/preview` | preview ciphertext stream |
-| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref; owner, admin or editor (`403` otherwise), as is detaching it |
+| POST | `/api/v1/objects/{id}/attachments` | `{"attachmentId":"att_...","objectVersion":n}` → creates a ref; owner, admin or editor (`403` otherwise), as is detaching it; a deleted attachment or note is `404` |
 | DELETE | `/api/v1/objects/{id}/attachments/{attachmentId}` | removes refs for that object |
 
 ### 7.2 Rules
@@ -1553,8 +1562,9 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 5. `received_bytes` exceeding `declared_bytes` at any point → `413`, session
    `failed`, temp removed.
 6. Expiry is `15m` from the **last** chunk activity, not from creation
-   (`limits.upload_session_ttl`, refreshed on each accepted chunk). A `PATCH`
-   after `expires_at` → `410 gone`.
+   (`limits.upload_session_ttl`, refreshed on each accepted chunk). A session
+   also ends 24 hours after `created_at`, however active. A `PATCH` or finalize
+   after either → `410 gone`.
 7. Finalize verifies the digest against `expected_digest`. Mismatch → `422
    digest_mismatch`, session `failed`, temp removed. This is the ciphertext
    integrity check; the server cannot verify the AEAD tag because it has no key,
@@ -1564,7 +1574,8 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 9. Finalize is where dedup happens: if `blobs` already has the digest, no new
    file is written (the temp is discarded); a `blob_containers` row is inserted
    for this container if absent. If the container already has an `attachments`
-   row for that digest, return the existing attachment ID — the unique index
+   row for that digest, return the existing attachment ID, reviving it if it was
+   deleted — the unique index
    `idx_attachments_container_digest` makes this deterministic.
 10. Image attachments must supply `previewUploadId`. The server does not know
     what an image is, so this is a client obligation; the server simply stores
@@ -1572,7 +1583,10 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
     are ciphertext and the MIME type is encrypted.
 11. Attachments are immutable. There is no update route.
 12. Attachment permissions derive entirely from the containing container's
-    membership. There is no per-attachment ACL.
+    membership. There is no per-attachment ACL. Every chunk and finalize
+    re-checks that the uploader is still a live owner, admin or editor.
+13. Chunks of one session are serialized; a chunk body is read before that
+    lock, so a slow client stalls only its own request.
 
 ### 7.3 Deletion order (exactly this)
 
@@ -1581,7 +1595,9 @@ Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
 2. Delete every `object_versions` row for the object. (Historical versions go
    too — DESIGN.md §Encryption is explicit about this.)
 3. Delete every `attachment_refs` row for the object.
-4. Soft-delete `attachments` rows in this container that now have zero refs.
+4. Soft-delete the `attachments` rows this object referenced that now have zero
+   refs. An attachment it never referenced, such as an upload not linked yet,
+   is untouched.
 5. Commit. **No blob is touched.**
 
 GC (§1.15) later marks the orphaned blobs and deletes them after
@@ -1610,6 +1626,10 @@ GC (§1.15) later marks the orphaned blobs and deletes them after
 - `TestByDigestLookupIsInvisibleAcrossContainers` — the definitive dedup
   isolation test: container A has the digest, container B's HEAD returns 404.
 - `TestQuotaCountsDedupedBlobPerContainer`
+- `TestQuotaChargesTheContainerOwner`, `TestTeamQuotaIsEnforced`,
+  `TestPendingUploadsCountTowardQuota`
+- `TestDemotedEditorCannotContinueAnUpload`, `TestUploadSessionHasAnAbsoluteLifetime`,
+  `TestStalledChunkDoesNotBlockAnotherUpload`
 - `TestLazyDownloadRequiresContainerMembership`
 - `TestRangeRequestOnAttachmentWorks`
 - `TestPreviewIsSeparateBlob`
@@ -1813,7 +1833,9 @@ Tests:
   * `kynotes-server backup --out <dir>` — refuses to run while a server holds
     the data directory lock; the documented procedure is stop, copy, start.
   * `kynotes-server restore --in <dir>` — refuses to overwrite a non-empty data
-    directory without `--force`, and runs `integrity-check` afterwards.
+    directory without `--force`. (Now `restore-data-dir`: holds the lock, requires the
+    database and both key files in `--in`, integrity-checks a staged copy, then swaps
+    entries by rename and keeps the old ones; see `docs/DEPLOYMENT.md`.)
   * `kynotes-server integrity-check` — `PRAGMA integrity_check` plus the storage
     consistency check below.
   * `kynotes-server consistency-check` — every referenced digest exists on disk;
@@ -1825,7 +1847,8 @@ Tests:
     never sees a password. This is the only account-creation path; there is no
     self-service registration. Needed as soon as Phase 3 is testable, so build
     it there and leave it in the Phase 9 CLI surface.
-  * `kynotes-server gc --now` — runs one sweep and exits.
+  * `kynotes-server gc --now` — runs one sweep and exits; an unparsable or negative
+    `--retention` is an error, never zero.
 
 **The privacy verification suite** (`internal/httpapi/privacy_test.go`) — this is
 the phase's headline deliverable. It drives a full lifecycle (register, pair,

@@ -5,23 +5,30 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 )
 
+// LockFileName is never copied or replaced: the kernel lock lives on its inode.
+const LockFileName = ".kynotes.lock"
+
 // LockDirectory gives server and offline recovery commands the same exclusive owner.
+// The kernel drops the lock when the holder exits, however it exits; the file stays.
 func LockDirectory(dir string) (func(), error) {
-	path := filepath.Join(dir, ".kynotes.lock")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	file, err := os.OpenFile(filepath.Join(dir, LockFileName), os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
-		return nil, fmt.Errorf("data directory is already in use or inaccessible: %w", err)
+		return nil, fmt.Errorf("data directory is inaccessible: %w", err)
 	}
-	if _, err = file.WriteString(strconv.Itoa(os.Getpid())); err != nil {
+	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		file.Close()
-		os.Remove(path)
+		return nil, fmt.Errorf("data directory is already in use: %w", err)
+	}
+	// The PID is for operators only.
+	if err = file.Truncate(0); err == nil {
+		_, err = file.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
+	}
+	if err != nil {
+		file.Close()
 		return nil, err
 	}
-	if err = file.Close(); err != nil {
-		os.Remove(path)
-		return nil, err
-	}
-	return func() { _ = os.Remove(path) }, nil
+	return func() { _ = file.Close() }, nil
 }

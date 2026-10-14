@@ -2,7 +2,7 @@ import { gcm } from "@noble/ciphers/aes.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
-import { hkdfSha256 } from "./fallbackCrypto";
+import { hkdfSha256 } from "./crypto";
 
 export const ENVELOPE_ALG = "x25519-hkdf-sha256-chacha20poly1305";
 export const IDENTITY_WRAP_ALG = "aes-256-gcm";

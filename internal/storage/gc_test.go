@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 )
 
 func TestGCDeletesEnvelopesOfExpiredInvitations(t *testing.T) {
@@ -75,5 +78,130 @@ func TestGCDeletesExpiredLinkRequests(t *testing.T) {
 	var left string
 	if err := db.QueryRow(`SELECT group_concat(id) FROM link_requests`).Scan(&left); err != nil || left != "lnk_live" {
 		t.Fatalf("left=%q %v, want lnk_live", left, err)
+	}
+}
+
+// blobFixture opens a store with one note and returns a helper that writes a blob file
+// and its row, marked unreferenced two hours before now.
+func blobFixture(t *testing.T, now time.Time) (*sql.DB, *blobstore.Store, func(content string) string) {
+	t.Helper()
+	root := t.TempDir()
+	s, err := Open(filepath.Join(root, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	b, err := blobstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := s.DB()
+	for _, q := range []string{
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('usr_a','a','h','s',100000,'now','now')`,
+		`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_a','workbook','usr_a','now','now')`,
+		`INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES('obj_a','cnt_a','note',1,'now','now')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db, b, func(content string) string {
+		t.Helper()
+		tmp, err := b.NewTemp(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tmp.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+		d, size, err := tmp.Finalize("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(`INSERT INTO blobs(digest,size_bytes,created_at,unreferenced_since) VALUES(?,?,'now',?)`, d, size, now.Add(-2*time.Hour).Format(time.RFC3339)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,'cnt_a','now')`, d); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+}
+
+func blobState(t *testing.T, db *sql.DB, b *blobstore.Store, d string) (row, file bool) {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM blobs WHERE digest=?`, d).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	_, file, err := b.Stat(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n == 1, file
+}
+
+func TestGCSweepKeepsABlobReferencedAfterSelection(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	db, b, blob := blobFixture(t, now)
+	d := blob("reused")
+	// GC selected d as a candidate; a save then committed a version that reuses it.
+	if _, err := db.Exec(`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at) VALUES('obj_a',1,?,6,1,1,'now')`, d); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := sweepBlob(db, b, d, now.Add(-time.Hour).Format(time.RFC3339))
+	if err != nil || deleted {
+		t.Fatalf("sweep deleted=%v err=%v", deleted, err)
+	}
+	if row, file := blobState(t, db, b, d); !row || !file {
+		t.Fatalf("referenced blob lost: row=%v file=%v", row, file)
+	}
+}
+
+func TestGCDeletesUnreferencedBlobAndItsExpiredTombstones(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	db, b, blob := blobFixture(t, now)
+	d := blob("orphan")
+	for _, q := range []string{
+		`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at,deleted_at) VALUES('att_gone','cnt_a',?,6,x'00',1,1,'now','then')`,
+		`INSERT INTO conflicts(id,object_id,container_id,base_version,current_version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at,resolved_at) VALUES('cfl_done','obj_a','cnt_a',0,1,?,6,1,1,'now','then')`,
+	} {
+		if _, err := db.Exec(q, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := RunGC(db, b, now, time.Hour, true)
+	if err != nil || st.DeletedBlobs != 1 {
+		t.Fatalf("stats=%+v err=%v", st, err)
+	}
+	if row, file := blobState(t, db, b, d); row || file {
+		t.Fatalf("swept blob left row=%v file=%v", row, file)
+	}
+}
+
+func TestGCKeepsBlobsWithLiveReferencesAndClearsTheirMark(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	db, b, blob := blobFixture(t, now)
+	linked, versioned := blob("linked"), blob("versioned")
+	for _, q := range []string{
+		`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at,deleted_at) VALUES('att_linked','cnt_a','` + linked + `',6,x'00',1,1,'now','then')`,
+		`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) VALUES('att_linked','obj_a',1,'now')`,
+		`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at) VALUES('obj_a',1,'` + versioned + `',9,1,1,'now')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := RunGC(db, b, now, time.Hour, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{linked, versioned} {
+		var mark string
+		if err := db.QueryRow(`SELECT unreferenced_since FROM blobs WHERE digest=?`, d).Scan(&mark); err != nil || mark != "" {
+			t.Fatalf("mark=%q err=%v", mark, err)
+		}
+		if _, file := blobState(t, db, b, d); !file {
+			t.Fatal("referenced blob file deleted")
+		}
 	}
 }

@@ -36,22 +36,70 @@ func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Dur
 		return st, nil
 	}
 	cut := now.Add(-retention).UTC().Format(time.RFC3339)
-	rows, e = db.Query(`SELECT b.digest FROM blobs b WHERE b.unreferenced_since!='' AND b.unreferenced_since<? AND NOT EXISTS(SELECT 1 FROM object_versions v WHERE v.blob_digest=b.digest) AND NOT EXISTS(SELECT 1 FROM conflicts c WHERE c.blob_digest=b.digest AND c.resolved_at='') AND NOT EXISTS(SELECT 1 FROM attachments a WHERE (a.blob_digest=b.digest OR a.preview_digest=b.digest) AND a.deleted_at='')`, cut)
+	rows, e = db.Query(`SELECT digest FROM blobs b WHERE unreferenced_since!='' AND unreferenced_since<? AND `+unreferenced, cut)
 	if e != nil {
 		return st, e
 	}
+	var digests []string
 	for rows.Next() {
 		var d string
 		if rows.Scan(&d) == nil {
-			if e := blobs.Delete(d); e != nil {
-				continue
-			}
-			_, _ = db.Exec(`DELETE FROM blob_containers WHERE digest=?`, d)
-			_, _ = db.Exec(`DELETE FROM blobs WHERE digest=?`, d)
-			st.DeletedBlobs++
+			digests = append(digests, d)
 		}
 	}
 	rows.Close()
-	_, e = db.Exec(`UPDATE blobs SET unreferenced_since=? WHERE unreferenced_since='' AND NOT EXISTS(SELECT 1 FROM object_versions v WHERE v.blob_digest=blobs.digest) AND NOT EXISTS(SELECT 1 FROM conflicts c WHERE c.blob_digest=blobs.digest AND c.resolved_at='') AND NOT EXISTS(SELECT 1 FROM attachments a WHERE (a.blob_digest=blobs.digest OR a.preview_digest=blobs.digest) AND a.deleted_at='')`, now.UTC().Format(time.RFC3339))
-	return st, e
+	var sweepErr error
+	for _, d := range digests {
+		deleted, e := sweepBlob(db, blobs, d, cut)
+		if deleted {
+			st.DeletedBlobs++
+		}
+		if sweepErr == nil {
+			sweepErr = e
+		}
+	}
+	if _, e = db.Exec(`UPDATE blobs AS b SET unreferenced_since='' WHERE unreferenced_since!='' AND NOT (` + unreferenced + `)`); e != nil {
+		return st, e
+	}
+	if _, e = db.Exec(`UPDATE blobs AS b SET unreferenced_since=? WHERE unreferenced_since='' AND `+unreferenced, now.UTC().Format(time.RFC3339)); e != nil {
+		return st, e
+	}
+	return st, sweepErr
+}
+
+// unreferenced holds for blob b with no version, open conflict, or live or linked attachment.
+const unreferenced = `NOT EXISTS(SELECT 1 FROM object_versions v WHERE v.blob_digest=b.digest) AND NOT EXISTS(SELECT 1 FROM conflicts c WHERE c.blob_digest=b.digest AND c.resolved_at='') AND NOT EXISTS(SELECT 1 FROM attachments a WHERE (a.blob_digest=b.digest OR a.preview_digest=b.digest) AND (a.deleted_at='' OR EXISTS(SELECT 1 FROM attachment_refs r WHERE r.attachment_id=a.id)))`
+
+// sweepBlob re-checks d and deletes its file inside the write transaction that drops its row.
+// Writers check the file inside theirs (claimBlob), so a save either commits first and keeps
+// the blob, or finds the file gone and fails. A crash before commit leaves an unreferenced row
+// without a file, which the next sweep removes.
+func sweepBlob(db *sql.DB, blobs *blobstore.Store, d, cut string) (bool, error) {
+	tx, e := db.Begin()
+	if e != nil {
+		return false, e
+	}
+	defer tx.Rollback()
+	var n int
+	if e = tx.QueryRow(`SELECT COUNT(*) FROM blobs b WHERE digest=? AND unreferenced_since!='' AND unreferenced_since<? AND `+unreferenced, d, cut).Scan(&n); e != nil || n == 0 {
+		return false, e
+	}
+	// Tombstones older than the mark still hold the blob's foreign key.
+	for _, q := range []string{
+		`DELETE FROM attachments WHERE blob_digest=? AND deleted_at!=''`,
+		`DELETE FROM conflicts WHERE blob_digest=? AND resolved_at!=''`,
+		`DELETE FROM blob_containers WHERE digest=?`,
+		`DELETE FROM blobs WHERE digest=?`,
+	} {
+		if _, e = tx.Exec(q, d); e != nil {
+			return false, e
+		}
+	}
+	if e = blobs.Delete(d); e != nil {
+		return false, e
+	}
+	if e = tx.Commit(); e != nil {
+		return false, e
+	}
+	return true, nil
 }

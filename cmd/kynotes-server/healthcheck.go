@@ -28,11 +28,11 @@ func healthcheckCommand(args []string) error {
 	}
 	u := *target
 	if u == "" {
-		c, err := config.Load(*cfgPath)
+		bind, err := config.Bind(*cfgPath)
 		if err != nil {
 			return err
 		}
-		u, err = defaultHealthURL(c.Server.Bind)
+		u, err = defaultHealthURL(bind)
 		if err != nil {
 			return err
 		}

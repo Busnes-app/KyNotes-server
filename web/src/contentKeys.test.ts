@@ -14,7 +14,6 @@ const using = (pattern: RegExp) => sources.filter(({ text }) => pattern.test(tex
 const BYPASS = /\bas\s+(?:KeyRef|never|any|unknown\s+as|Parameters\s*<)|(?<![\w.])<\s*KeyRef\s*>|\btype\s+\w+\s*=\s*KeyRef\b/;
 const ALLOWED_CASTS = new Set([
   "crypto.ts: return bytes as KeyRef;", // asContentKey: the one brand-minting function
-  "crypto.ts: crypto.getRandomValues(buffer as any);", // a nonce buffer
   "document.ts: case \"paragraph\": return [{ type: \"paragraph\", content: content as never }];", // editor JSON
   "document.ts: case \"heading\": return [{ type: \"heading\", props: { level: Number(node.attrs?.level) || 1 }, content: content as never }];",
   "knowledge.ts: blocks.forEach((block) => visit(block as Parameters<typeof visit>[0]));", // plaintext text projection
