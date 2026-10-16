@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.4.2 — 2026-10-16
+
+### Upgrading from 0.4.x
+
+- Back up the data directory first. Migrations 0021 to 0025 run on first start; restore that backup to go back.
+- Notebook data written with a password-derived key no longer opens. Start such installs from a fresh data directory.
+- Comment endpoints are gone (`PUT /api/v1/comments/{id}`, `GET /api/v1/containers/{id}/legacy`). Remove any client or script that calls them.
+- Each browser clears its local note cache and unsent edits once on first load. Send pending edits before upgrading.
+- Administrators that also held notes become everyday accounts. If the log then shows `no_active_admin`, run `kynotes-server user add --admin`.
+- Stop the server before `user add`, `quota set`, `bootstrap-admin`, `integrity-check` or `consistency-check`.
+- Source installs without `docker-compose.build.yml` in `COMPOSE_FILE`: run the snippet in that file once before `up -d`.
+
+### Changes
+
 - Fixed: two concurrent account recoveries with one code could both succeed; now only the first does.
   Resolving a conflict now reaches other clients' sync. A sync page, conflict list, notification list
   or pending-sync list with a row the server cannot read now fails instead of quietly leaving it out,
