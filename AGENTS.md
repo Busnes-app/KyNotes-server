@@ -757,3 +757,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Verify `TestUnkeyedContainerRefusesEveryWrite`, `TestEveryWriteNeedsTheCurrentKeyScheme`,
   `TestContainerCreationTakesNoName`, `TestIdentityWrapAgreesWithVectors`, `npm test` (contentKeys,
   keyring, drain, storage, stuckEdits, workspaceWiring) and `npm run e2e --prefix web`.
+- `internal/notecrypto` is the Go port of `web/src/crypto.ts` content sealing (objects, container
+  names, attachment metadata and bytes) for the MCP bridge: `nonce(12) ‖ AES-256-GCM`, no AAD,
+  subkey `HKDF-SHA256(containerKey, salt = containerID, info = label)`; `OpenObject` narrows like
+  `parseObjectPayload`. Change it only together with `crypto.ts`. `go test ./internal/notecrypto
+  -run TestPayloadVectors -update` regenerates `testdata/protocol/payload_vectors.json`;
+  `web/src/payloadVectors.test.ts` opens it and reseals byte-identically (nonce stubbed, no
+  `*ForVector` export). `TestNotLinkedIntoServer` keeps it and `internal/teamkeys` out of
+  `cmd/kynotes-server`. Verify `go test ./internal/notecrypto` and `npm test` (payloadVectors).
