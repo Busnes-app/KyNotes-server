@@ -650,7 +650,7 @@ function Workspace({
     setGroupID(groupOfSection(id, sectionsRef.current, groupParents(groupsRef.current)));
   };
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
-  const [reminderPrefs, setReminderPrefs] = useState<ReminderPrefs>(readReminderPrefs);
+  const [reminderPrefs, setReminderPrefs] = useState<ReminderPrefs>(() => readReminderPrefs(auth.user.id));
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
@@ -3260,7 +3260,7 @@ function SettingsView({
           </label>
           <button onClick={() => applyTheme(theme)}>Apply theme</button>
         </section>
-        <ReminderSettings prefs={reminders} onChange={onReminders} />
+        <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
         <div id="password">
           <PasswordSettings username={username} userID={userID} everyday onAuthSecret={onAuthSecret} onIdentityCreated={onIdentityChanged} />
         </div>

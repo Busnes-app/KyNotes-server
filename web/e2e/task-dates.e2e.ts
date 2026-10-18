@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminConsole, OWNER, person, shoot, signIn, withDialog, type Person } from "./people";
+import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person } from "./people";
 
 const NOTEBOOK = "Task dates E2E";
 const TASK = "Water plants";
@@ -96,11 +96,11 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
   try {
     await adminConsole(admin.page);
     const { page } = owner;
-    // Records notifications instead of showing them; permission is granted on request.
+    // Records notifications instead of showing them; permission is granted on request and kept across loads.
     await page.addInitScript(() => {
       const shown: Array<{ title: string; body?: string }> = [];
       Object.assign(window, { shown });
-      class Recorder { static permission = "default"; static async requestPermission() { Recorder.permission = "granted"; return "granted"; } constructor(title: string, options?: NotificationOptions) { shown.push({ title, body: options?.body }); } }
+      class Recorder { static get permission() { return sessionStorage.getItem("e2e-permission") ?? "default"; } static async requestPermission() { sessionStorage.setItem("e2e-permission", "granted"); return "granted"; } constructor(title: string, options?: NotificationOptions) { shown.push({ title, body: options?.body }); } }
       Object.defineProperty(window, "Notification", { value: Recorder });
     });
     const start = new Date();
@@ -128,6 +128,18 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
     await page.getByRole("button", { name: "Work queue" }).click();
     // It fired here, so it is not missed: a plain undated task.
     await expect(page.locator('[data-task-group="undated"] .note-row', { hasText: "Call the vet" })).toHaveText("Call the vetChores");
+
+    // The opt-in belongs to the account: another account in this browser starts with both off.
+    await createUser(admin, "rem-bob", "temporary rem battery staple");
+    await page.getByRole("button", { name: "Lock" }).click();
+    await signInAndChoose(page, "rem-bob", "temporary rem battery staple", "bob own rem battery staple");
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByLabel("Show reminders while KyNotes is open")).not.toBeChecked();
+    await expect(page.getByLabel("Show task text in reminders")).not.toBeChecked();
+    await page.getByRole("button", { name: "Lock" }).click();
+    await signIn(page, OWNER.username, OWNER.password);
+    await page.getByRole("button", { name: "Settings" }).click();
+    await expect(page.getByLabel("Show reminders while KyNotes is open")).toBeChecked();
     expect(owner.unexpected).toEqual([]);
   } finally {
     await admin.page.context().close();

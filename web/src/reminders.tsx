@@ -14,8 +14,16 @@ export type ReminderTask = { key: string; text: string; remind?: string };
 
 const granted = () => typeof Notification !== "undefined" && Notification.permission === "granted";
 
-export function readReminderPrefs(): ReminderPrefs {
-  return { enabled: readChoice(ENABLED_KEY) === "on" && granted(), showText: readChoice(TEXT_KEY) === "on" };
+// Per account: another account in this browser starts with everything off.
+const choice = (key: string, userID: string) => readChoice(`${key}:${userID}`) === "on";
+
+export function readReminderPrefs(userID: string): ReminderPrefs {
+  return { enabled: choice(ENABLED_KEY, userID) && granted(), showText: choice(TEXT_KEY, userID) };
+}
+
+export function saveReminderPrefs(userID: string, prefs: ReminderPrefs) {
+  saveChoice(`${ENABLED_KEY}:${userID}`, prefs.enabled ? "on" : "off");
+  saveChoice(`${TEXT_KEY}:${userID}`, prefs.showText ? "on" : "off");
 }
 
 /**
@@ -42,11 +50,10 @@ export function useReminders(tasks: ReminderTask[], prefs: ReminderPrefs): Set<s
   return plan.missed;
 }
 
-export function ReminderSettings({ prefs, onChange }: { prefs: ReminderPrefs; onChange: (prefs: ReminderPrefs) => void }) {
+export function ReminderSettings({ userID, prefs, onChange }: { userID: string; prefs: ReminderPrefs; onChange: (prefs: ReminderPrefs) => void }) {
   const [refused, setRefused] = useState(false);
   const save = (next: ReminderPrefs) => {
-    saveChoice(ENABLED_KEY, next.enabled ? "on" : "off");
-    saveChoice(TEXT_KEY, next.showText ? "on" : "off");
+    saveReminderPrefs(userID, next);
     onChange(next);
   };
   async function toggle(on: boolean) {
