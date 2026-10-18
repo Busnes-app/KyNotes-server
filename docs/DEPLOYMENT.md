@@ -150,6 +150,9 @@ so a failed copy or check leaves the data untouched. The data directory itself i
 renamed because it is usually a mount point. Remove `.restore-previous-*` yourself once the
 restored server checks out.
 
+`secrets/vapid.key` (Web Push, created on first start) is optional in a restore: a server without it
+mints a new one, and each browser with push reminders on re-subscribes the next time it opens KyNotes.
+
 ## Ciphertext blob mirror
 
 Capsules exclude both note-version and attachment ciphertext files. Configure one

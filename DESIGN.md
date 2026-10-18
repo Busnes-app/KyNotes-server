@@ -103,6 +103,14 @@ All application communication uses HTTPS. Push delivery may use FCM or APNs;
 push payloads contain notification metadata only and never note content or
 keys.
 
+Task reminder push is opt-in per task (`push:yes` beside `remind:`) and per account and browser. The
+browser sends the server only `{id, at}`: an HMAC id derived from the identity, which the server cannot
+link to a page, and a UTC minute. At that minute the server sends Web Push (VAPID, standard library
+only) with an **empty** body to the account's registered browser endpoints, which must belong to a known
+browser push service (Google, Mozilla, Apple, Microsoft); the service worker shows a fixed "A reminder is
+due". This deliberately leaks reminder times, their count and the owning account to the server, and push
+delivery metadata to the browser's push service. The `kynotes.changes` payload contract is unchanged.
+
 ### Single sign-on and directory trust
 
 OIDC login verifies signed ID tokens using `ky-primitives/oidcverify`, binding the

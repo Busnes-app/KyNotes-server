@@ -52,6 +52,13 @@ days and coordinate a fix and disclosure.
   export and a separate public storage model.
 - Push payloads contain notification metadata only. Clients pull ciphertext
   over HTTPS.
+- Reminder push is off by default. With it on, for each open task marked `push:yes` the server stores
+  an opaque id and the reminder's UTC minute, so it learns when the account has reminders, how many,
+  and which account owns them; never the page, task, notebook or text. The browser's push service
+  (Google for Chrome, Mozilla for Firefox, Apple for Safari, Microsoft for Edge on Windows) sees an empty
+  push to that browser at that minute. Subscription changes are audited with the push service host only;
+  reminder writes are not audited. Subscription endpoints are limited to those push services (https,
+  default port, no redirects, 5 s timeout), so the server cannot be pointed at another host.
 
 ## Deployment requirements
 
