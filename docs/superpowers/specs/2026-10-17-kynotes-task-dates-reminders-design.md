@@ -1,6 +1,11 @@
 # KyNotes tasks: due dates, recurrence, reminders (design, awaiting decision)
 
-Status: **proposed, needs Yoshi's choice (§3).**
+Status: **decided 2026-10-17 by Yoshi: option B (opt-in server reminder time) and plain-word syntax.**
+§1 is amended by the syntax decision: items read `[ ] Pay rent due:2026-11-01 repeat:monthly remind:2026-11-01T09:00`.
+
+Build order:
+1. Plain-word dates, recurrence, the dated work queue and in-tab notifications. These are client-only and leak nothing.
+2. The opt-in "remind me even when KyNotes is closed" store plus content-free delivery. Browsers get Web Push with VAPID, implemented with the standard library and no new dependency. FCM and APNs wait for the KyPost relay (IMPLEMENTATION_PLAN.md §15).
 
 - PROMPT.md and DESIGN.md:88 promise due dates, recurrence and reminders.
 - IMPLEMENTATION_PLAN.md §8 says the server parses no tasks or dates; task views are built in

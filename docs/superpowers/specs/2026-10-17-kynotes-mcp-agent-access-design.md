@@ -1,6 +1,8 @@
 # KyNotes MCP: agent access to one group of notes (design, awaiting decision)
 
-Status: **proposed, needs Yoshi's choice (§4) before any code.** Precedent: KyCalendar
+Status: **decided 2026-10-17 by Yoshi: option A (agent member and local bridge), read and write
+(`create_page`, `append_to_page`), using `modelcontextprotocol/go-sdk`.** The SDK choice amends the
+frozen dependency allowlist (IMPLEMENTATION_PLAN.md §1.2) in the same change that adds it. Precedent: KyCalendar
 `internal/api/mcp.go` (scoped app-password tokens, `mcp:read` / `mcp:write-own`, audit, idle
 revocation, untrusted-text rules). KyNotes cannot copy it as-is: KyCalendar's server reads event
 text, but the KyNotes server holds only ciphertext and must never hold a content key
