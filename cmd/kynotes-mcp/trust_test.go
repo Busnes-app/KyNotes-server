@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/ids"
@@ -75,6 +76,18 @@ func TestTrustRules(t *testing.T) {
 		got, err := openKeyring(cid, []envelopeRow{seal(t, cid, 2, k2, owner, agent)}, me, members, map[string]string{owner.userID: owner.pub()}, keyState{})
 		if err != nil || !bytes.Equal(got.ring[2], k2) || len(got.fresh) != 0 {
 			t.Fatalf("%+v %v", got, err)
+		}
+	})
+	t.Run("owner with a malformed user ID is never trusted", func(t *testing.T) {
+		hostile := owner.as("owner")
+		hostile.UserID = owner.userID + "\n\x1b[2Kkynotes-mcp: trusting usr_fake"
+		got, err := openKeyring(cid, []envelopeRow{seal(t, cid, 2, k2, owner, agent)}, me, []member{agent.as("editor"), hostile}, map[string]string{}, keyState{})
+		if err != nil || len(got.ring) != 0 || len(got.fresh) != 0 {
+			t.Fatalf("%+v %v", got, err)
+		}
+		msg := (&pinChangedError{hostile.UserID, "bad\x1b[31mname\n", owner.pub(), owner.pub()}).Error()
+		if strings.ContainsAny(msg, "\n\x1b\r") {
+			t.Fatalf("control characters reach the operator: %q", msg)
 		}
 	})
 	t.Run("unpinned non-steward refused", func(t *testing.T) {

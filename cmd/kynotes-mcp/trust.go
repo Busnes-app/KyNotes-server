@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 
 	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
@@ -119,7 +120,7 @@ func (e *pinChangedError) Error() string {
 	old, _ := base64.StdEncoding.DecodeString(e.pinned)
 	cur, _ := base64.StdEncoding.DecodeString(e.now)
 	return fmt.Sprintf("the encryption key of %s · %q changed (was %s, now %s). A password reset or account recovery changes it; so would a server substituting its own key. Compare the new fingerprint with that person, then remove their pin from trust.json to accept it",
-		e.userID, clean(e.username), fingerprint(old), fingerprint(cur))
+		clean(e.userID), clean(e.username), fingerprint(old), fingerprint(cur))
 }
 
 // raise is keyring.ts guardContainer plus raiseFloor: a server reporting a lower generation
@@ -207,7 +208,7 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 			key = open(envelope, r.KeyGeneration, me.key.PublicKey().Bytes())
 		} else {
 			for i := range members {
-				if m := &members[i]; m.identity != nil && m.identity.DeviceID == sender && m.UserID != me.userID && isSteward(m.Role) {
+				if m := &members[i]; m.identity != nil && m.identity.DeviceID == sender && m.UserID != me.userID && isSteward(m.Role) && userID.MatchString(m.UserID) {
 					steward = m
 				}
 			}
@@ -272,6 +273,9 @@ func readKey(ring map[int64][]byte, shared, generation int64) []byte {
 	}
 	return ring[generation]
 }
+
+// userID is the server's user ID format; a member reported with any other ID is never trusted or shown.
+var userID = regexp.MustCompile(`^usr_[0-9a-hjkmnp-tv-z]{26}$`)
 
 // clean is pins.ts displayName's sanitizer: one line, no control, bidi or zero-width characters, 64 runes.
 func clean(s string) string {

@@ -85,8 +85,8 @@ func (n *notebook) refresh(ctx context.Context) error {
 			n.role = m.Role
 			continue
 		}
-		if !isSteward(m.Role) {
-			continue // only stewards' keys are ever trusted
+		if !isSteward(m.Role) || !userID.MatchString(m.UserID) {
+			continue // only stewards' keys are ever trusted, and only under a well-formed ID
 		}
 		var id publicIdentity
 		err := n.c.call(ctx, http.MethodGet, "/api/v1/users/"+url.PathEscape(m.UserID)+"/identity", nil, &id, true)
@@ -110,7 +110,7 @@ func (n *notebook) refresh(ctx context.Context) error {
 	}
 	for _, m := range opened.fresh {
 		pub, _ := base64.StdEncoding.DecodeString(m.identity.PublicKey)
-		fmt.Fprintf(n.log, "kynotes-mcp: trusting the %s %s · %q on first contact, key fingerprint %s\n", m.Role, m.UserID, clean(m.Username), fingerprint(pub))
+		fmt.Fprintf(n.log, "kynotes-mcp: trusting the %s %s · %q on first contact, key fingerprint %s\n", clean(m.Role), clean(m.UserID), clean(m.Username), fingerprint(pub))
 		n.trust.Pins[m.UserID] = m.identity.PublicKey
 	}
 	*known = opened.known
