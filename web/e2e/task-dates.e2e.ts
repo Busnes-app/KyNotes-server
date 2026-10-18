@@ -151,7 +151,8 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
 
 test("push reminders send the server only an opaque id and a UTC minute", async ({ browser }) => {
   const admin = await person(browser);
-  const owner = await person(browser);
+  // Off UTC, so the local reminder time and the UTC minute the server gets are different strings.
+  const owner = await person(browser, { timezoneId: "America/New_York" });
   try {
     await adminConsole(admin.page);
     const { page } = owner;

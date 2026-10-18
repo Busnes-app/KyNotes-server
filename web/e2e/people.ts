@@ -1,12 +1,12 @@
-import { expect, type Browser, type Locator, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContextOptions, type Locator, type Page } from "@playwright/test";
 
 /** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
 export type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
 export type Person = { page: Page; expected: Dialog[]; unexpected: string[] };
 
 /** Every dialog must be announced with withDialog; anything else (a fingerprint change included) fails the run. */
-export async function person(browser: Browser): Promise<Person> {
-  const page = await (await browser.newContext()).newPage();
+export async function person(browser: Browser, options?: BrowserContextOptions): Promise<Person> {
+  const page = await (await browser.newContext(options)).newPage();
   const who: Person = { page, expected: [], unexpected: [] };
   page.on("dialog", (dialog) => {
     const next = who.expected[0];
