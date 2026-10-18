@@ -273,8 +273,20 @@ func TestNotLinkedIntoServer(t *testing.T) {
 		t.Fatalf("go list returned no server dependencies: %q", out)
 	}
 	for _, dep := range deps {
-		if strings.HasSuffix(dep, "/internal/notecrypto") || strings.HasSuffix(dep, "/internal/teamkeys") {
+		// Client-only code: content crypto, the MCP bridge and its SDK.
+		if strings.HasSuffix(dep, "/internal/notecrypto") || strings.HasSuffix(dep, "/internal/teamkeys") ||
+			strings.HasSuffix(dep, "/cmd/kynotes-mcp") || strings.HasPrefix(dep, "github.com/modelcontextprotocol/") {
 			t.Fatalf("cmd/kynotes-server depends on %s", dep)
+		}
+	}
+	// The names above are real: the bridge itself links them.
+	bridge, err := exec.Command("go", "list", "-deps", "github.com/Busnes-app/kynotes-server/cmd/kynotes-mcp").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/internal/notecrypto\n", "/internal/teamkeys\n", "github.com/modelcontextprotocol/go-sdk/mcp\n"} {
+		if !strings.Contains(string(bridge), want) {
+			t.Fatalf("cmd/kynotes-mcp does not link %s", want)
 		}
 	}
 }

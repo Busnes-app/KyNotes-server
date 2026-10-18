@@ -107,6 +107,14 @@ delivery still waits for the KyPost relay (§15). Verify `TestReminder*`, `TestS
 `TestServiceWorkerReachesEmbeddedFile`, `go test ./internal/webpush`, `npm test` (reminderPush,
 taskDates) and `web/e2e/task-dates.e2e.ts`.
 
+MCP bridge extension: `cmd/kynotes-mcp` is a local stdio MCP server that gives an AI agent one
+notebook as its own everyday account (design option A,
+`docs/superpowers/specs/2026-10-17-kynotes-mcp-agent-access-design.md`; setup in `docs/MCP.md`).
+It is a client like `cmd/kynotes-probe`: it uses the existing `/api/v1` routes, decrypts with
+`internal/teamkeys` and `internal/notecrypto`, and changes no server route, schema or contract.
+It adds `github.com/modelcontextprotocol/go-sdk` to §1.2, for the bridge only;
+`TestNotLinkedIntoServer` keeps it, the bridge and the client crypto out of `cmd/kynotes-server`.
+
 Source documents: [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md),
 [LOGGING.md](LOGGING.md), [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md).
 
@@ -211,6 +219,7 @@ github.com/Busnes-app/ky-primitives # shared auth, OIDC and sync contracts
 modernc.org/sqlite          # pure-Go SQLite driver; required for CGO_ENABLED=0
 golang.org/x/crypto         # pbkdf2, hkdf, scrypt
 gopkg.in/yaml.v3            # config file
+github.com/modelcontextprotocol/go-sdk # MCP protocol for cmd/kynotes-mcp only; never linked into the server
 ```
 
 Everything else uses the standard library: `net/http` (incl. `http.ServeMux`

@@ -775,5 +775,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `parseObjectPayload`. Change it only together with `crypto.ts`. `go test ./internal/notecrypto
   -run TestPayloadVectors -update` regenerates `testdata/protocol/payload_vectors.json`;
   `web/src/payloadVectors.test.ts` opens it and reseals byte-identically (nonce stubbed, no
-  `*ForVector` export). `TestNotLinkedIntoServer` keeps it and `internal/teamkeys` out of
-  `cmd/kynotes-server`. Verify `go test ./internal/notecrypto` and `npm test` (payloadVectors).
+  `*ForVector` export). `TestNotLinkedIntoServer` keeps it, `internal/teamkeys`, `cmd/kynotes-mcp`
+  and the MCP go-sdk out of `cmd/kynotes-server`. Verify `go test ./internal/notecrypto` and `npm test` (payloadVectors).
+- `cmd/kynotes-mcp` is the local stdio MCP bridge (`docs/MCP.md`, go-sdk `v1.8.0`, allowlisted for it
+  only): one notebook (`--notebook`), signed in as the agent's own everyday account with its
+  password-wrapped identity; no device pairing, no stored session, re-login once on 401. Key trust
+  ports `openKeyring` (own identity, or a current owner/admin matching its TOFU pin; pinned history
+  below the mark; first key per generation wins); a changed pin stops the bridge, a lower reported
+  generation (`keyState.raise`) refuses every tool. State dir `0700`: `trust.json` (pins, floor,
+  digests) and `audit.jsonl` (tool, page IDs, outcome, code; never titles or text), both `0600`.
+  Tools: `list_pages`, `read_page`, `search`; `create_page`, `append_to_page` only for owner/admin/editor
+  without `--read-only`. Writes seal with the current generation, add paragraph and checklist blocks
+  only, and resolve their own `version_conflict` (one re-read). 60 calls a minute. Verify
+  `go test ./cmd/kynotes-mcp` (`TestBridgeEndToEnd` drives a real router through the SDK) and
+  `TestNotLinkedIntoServer`.
