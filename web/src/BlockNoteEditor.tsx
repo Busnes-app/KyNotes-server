@@ -3,6 +3,7 @@ import { useCreateBlockNote } from "@blocknote/react";
 import type { Block, PartialBlock } from "@blocknote/core";
 import { useEffect, useRef } from "react";
 import "@blocknote/mantine/style.css";
+import { localDate, recurrenceEdits } from "./taskDates";
 
 type Props = {
   noteID: string;
@@ -56,7 +57,14 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
         editor={editor}
         editable={editable}
         onChange={(current) => {
-          if (hydratedRef.current) onChangeRef.current(current.document);
+          if (!hydratedRef.current) return;
+          // A ticked repeating item adds its next occurrence; the edit below reports the result.
+          const edits = recurrenceEdits(current.document, localDate(new Date()));
+          if (!edits.length) return onChangeRef.current(current.document);
+          current.transact(() => edits.forEach((edit) => {
+            current.updateBlock(edit.id, { content: edit.content as PartialBlock["content"] });
+            current.insertBlocks([edit.next as PartialBlock], edit.id, "after");
+          }));
         }}
       />
     </div>

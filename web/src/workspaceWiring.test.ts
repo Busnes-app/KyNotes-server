@@ -178,4 +178,13 @@ describe("save queue wiring", () => {
     expect(block("  async function resolveFileUrl(")).toContain("resolvedURLs.current.push(objectURL);");
     expect(main).toContain("resolvedURLs.current.forEach((url) => URL.revokeObjectURL(url));");
   });
+
+  it("an automatic notebook load never closes a work queue opened before it finished", () => {
+    expect(block("  async function loadContainer(")).toContain("if (leaveQueue) setQueueMode(false);");
+    expect(main.match(/setQueueMode\(false\)/g)).toHaveLength(1);
+    expect(main).toContain("await selectContainer(start, start.id === route.container ? route : undefined, false);");
+    expect(main.match(/selectContainer\([^)]*, false\)/g)).toHaveLength(1); // only the sign-in / reload load
+    // A queue opened before the notebook list arrived is rebuilt from it.
+    expect(main).toContain("if ((reminderPrefs.enabled || queueMode) && items.length) void loadWorkQueue()");
+  });
 });

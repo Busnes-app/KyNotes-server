@@ -1,4 +1,5 @@
 import { documentText, structuredBlocks } from "./document";
+import { parseTaskDates, type TaskDates } from "./taskDates";
 
 const MAX_TASK_DEPTH = 100;
 
@@ -18,6 +19,7 @@ export type IndexedNote<T> = NoteProjection & { note: T };
 // creates one new note object and only that page is parsed again.
 const projections = new WeakMap<object, IndexedNote<unknown>>();
 const taskCache = new WeakMap<object, string[]>();
+const datedTaskCache = new WeakMap<object, Array<TaskDates & { raw: string }>>();
 
 export function indexNotes<T extends NoteProjection>(notes: T[]): IndexedNote<T>[] {
   return notes.map((note) => {
@@ -43,6 +45,16 @@ export function noteTasks(note: NoteProjection): string[] {
   if (!found) {
     found = parseTasks(note.sourceBody ?? note.body);
     taskCache.set(note, found);
+  }
+  return found;
+}
+
+/** Open tasks with their date tokens parsed; `raw` is the text as written. */
+export function noteDatedTasks(note: NoteProjection): Array<TaskDates & { raw: string }> {
+  let found = datedTaskCache.get(note);
+  if (!found) {
+    found = noteTasks(note).map((raw) => ({ ...parseTaskDates(raw), raw }));
+    datedTaskCache.set(note, found);
   }
   return found;
 }

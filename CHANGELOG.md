@@ -7,6 +7,14 @@
 - New: "Export notebook" downloads the open notebook as a zip of Markdown pages, canvas pages and
   attachments. The browser decrypts and builds it; the server sees nothing new. The file is not
   encrypted, and the browser asks before writing it. `docs/EXPORT.md` describes the layout.
+- Tasks can carry dates in their text: `due:2026-11-01`, `repeat:weekly` (also `daily`, `monthly`,
+  `yearly`, `every-3-days`, `every-2-weeks`) and `remind:2026-11-01T09:00`, in your browser's time.
+  The work queue groups open tasks into Overdue, Today, Upcoming, Later and No date, and shows each
+  due date and whether it repeats. Ticking a repeating checklist item adds the next one below it. Turn
+  on "Show reminders while KyNotes is open" in Settings to get a notification while a KyNotes tab is
+  open; it says only "A task is due" unless you also turn on "Show task text in reminders". Reminders
+  that passed with no tab open show as missed in the work queue. Dates and reminders stay inside your
+  encrypted pages; the server learns nothing new.
 
 ## 0.4.2 — 2026-10-16
 

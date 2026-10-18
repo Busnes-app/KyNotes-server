@@ -49,7 +49,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser checks (`npm run e2e`: team keys and `web/e2e/admin-separation.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser checks (`npm run e2e`: team keys, `web/e2e/admin-separation.e2e.ts` and `web/e2e/task-dates.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 - Publishing a GitHub release `vX.Y.Z` runs `release-image.yml`. It refuses a malformed tag, a tag that disagrees with `web/package.json` (the binary takes the tag as its `VERSION` build arg), and any commit on which a ci.yml job in its `REQUIRED` list (`test`) did not pass. It then builds `:X.Y.Z` with provenance and SBOM, attests and verifies it (identity `release-image.yml@refs/tags/vX.Y.Z`), and moves `:stable` to that digest only for the highest non-prerelease. It never moves `:latest`; `master` CI owns that. A job added to ci.yml must be added to `REQUIRED` too.
 
@@ -181,7 +181,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/` exposes a client-only work queue for open checklist items across
   personal notebooks; task parsing remains browser-side because the server
   never sees plaintext. Inbox folders still require the planned folder-object
-  client path.
+  client path. Items carry plain-word dates in their text (`taskDates.ts`: `due:YYYY-MM-DD`,
+  `repeat:daily|weekly|monthly|yearly|every-N-days|every-N-weeks`, `remind:YYYY-MM-DDTHH:MM`, local
+  time; invalid tokens stay text) and the queue groups them Overdue / Today / Upcoming (7 days) /
+  Later / No date. Ticking a `repeat:` checklist item adds the next unchecked occurrence after it and
+  drops `repeat:` from the done one in the same edit (`recurrenceEdits`, applied in
+  `BlockNoteEditor.tsx`), so a re-check or reload never repeats it. Reminders (`reminders.tsx`) are
+  in-tab notifications only, opt-in from Settings, saying "A task is due" unless task text is turned
+  on; reminders passed before the tab opened fire nothing and show as missed. Nothing new reaches the
+  server (the opt-in server reminder store is a later step). Verify `taskDates.test.ts` and
+  `web/e2e/task-dates.e2e.ts`.
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
   that expires after 15 seconds.
 - `web/` keeps a vault record per account in IndexedDB (`openVault`) holding the identity, pins and

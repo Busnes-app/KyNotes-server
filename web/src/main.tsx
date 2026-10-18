@@ -140,7 +140,9 @@ import {
   THEME_OPTIONS,
   type ThemeName,
 } from "./theme";
-import { contextualNotes, graphEdges, indexNotes, noteTasks, openTaskNotes, searchNotes } from "./knowledge";
+import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
+import { classifyTask, TASK_GROUPS } from "./taskDates";
+import { readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
 import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
@@ -648,6 +650,7 @@ function Workspace({
     setGroupID(groupOfSection(id, sectionsRef.current, groupParents(groupsRef.current)));
   };
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
+  const [reminderPrefs, setReminderPrefs] = useState<ReminderPrefs>(() => readReminderPrefs(auth.user.id));
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
@@ -1056,18 +1059,40 @@ function Workspace({
     const filtered = searchNotes(searchableNotes, query);
     return filtered.map((match) => match.note);
   }, [searchableNotes, query]);
+  // The queue snapshot with this tab's newer copies of its pages, plus the open personal notebook's other pages.
+  const liveQueue = useMemo(() => {
+    const live = new Map(notes.map((note) => [note.id, note]));
+    if (selectedNote) live.set(selectedNote.id, selectedNote);
+    const queued = new Set(queueEntries.map((entry) => entry.note.id));
+    const added = selected && selected.kind !== "team" && !selected.teamId
+      ? [...live.values()].filter((note) => !queued.has(note.id)).map((note) => ({ note, container: selected }))
+      : [];
+    return [...queueEntries.map((entry) => ({ ...entry, note: live.get(entry.note.id) ?? entry.note })), ...added];
+  }, [queueEntries, notes, selectedNote, selected]);
   const visibleQueueEntries = useMemo(() => {
-    const indexed = indexNotes(queueEntries.map((entry) => entry.note));
+    const indexed = indexNotes(liveQueue.map((entry) => entry.note));
     const matches = openTaskNotes(searchNotes(indexed, query));
-    const entriesByID = new Map(queueEntries.map((entry) => [entry.note.id, entry]));
+    const entriesByID = new Map(liveQueue.map((entry) => [entry.note.id, entry]));
     return matches.map((match) => entriesByID.get(match.note.id)).filter((entry): entry is QueueEntry => Boolean(entry));
-  }, [queueEntries, query]);
+  }, [liveQueue, query]);
+  const queueTasks = useMemo(() => liveQueue.flatMap((entry) => noteDatedTasks(indexNotes([entry.note])[0])
+    .map((task) => ({ ...task, entry, key: `${entry.note.id}\n${task.raw}` }))), [liveQueue]);
+  const missedReminders = useReminders(queueTasks, reminderPrefs);
+  // Reminders read the same personal notebooks as the work queue, loaded once they are on.
+  // A queue opened before the notebook list arrived is reloaded with it.
+  useEffect(() => {
+    if ((reminderPrefs.enabled || queueMode) && items.length) void loadWorkQueue().catch(() => undefined);
+  }, [reminderPrefs.enabled, items.length]);
   const listEntries = queueMode
     ? visibleQueueEntries
     : (query.trim() ? visibleNotes : sectionPages)
         .map((note) => ({ note, container: selected }))
         .filter((entry): entry is QueueEntry => Boolean(entry.container));
   const reorderable = !queueMode && !query.trim();
+  const queueShown = new Set(visibleQueueEntries.map((entry) => entry.note.id));
+  const queueRows = queueMode ? queueTasks.filter((task) => queueShown.has(task.entry.note.id))
+    .map((task) => ({ ...task, missed: missedReminders.has(task.key), group: classifyTask(task, new Date(), missedReminders.has(task.key)) }))
+    .sort((a, b) => (a.due ?? "~").localeCompare(b.due ?? "~")) : [];
   // An open group with no sections: the strip has no tab for sectionID, so no page list or new page.
   const sectionHidden = !queueMode && groupOfSection(sectionID, sections, parents) !== groupID;
   const groupEmpty = sectionHidden && reorderable;
@@ -1302,7 +1327,7 @@ function Workspace({
       setItems(loaded);
       const route = parseRoute(location.hash);
       const start = loaded.find((item) => item.id === route.container) ?? loaded[0];
-      if (start) await selectContainer(start, start.id === route.container ? route : undefined);
+      if (start) await selectContainer(start, start.id === route.container ? route : undefined, false);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to load notebooks",
@@ -1349,13 +1374,14 @@ function Workspace({
     return { notes: loaded, sections: found, groups: foundGroups, unreadable };
   }
   /** Null when the open page could not be flushed and stays open. */
-  async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
+  /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
+  async function selectContainer(container: Container, route?: Route, leaveQueue = true): Promise<Note[] | null> {
     // Every call supersedes the ones before it, a second load of the same notebook included.
     const load = loads.begin();
     loadingContainerID.current = container.id;
     setLoadingContainer(true);
     try {
-      return await loadContainer(container, route, load.superseded);
+      return await loadContainer(container, route, load.superseded, leaveQueue);
     } finally {
       // A later load owns the flag now.
       if (!load.superseded()) {
@@ -1364,7 +1390,7 @@ function Workspace({
       }
     }
   }
-  async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean): Promise<Note[] | null> {
+  async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean, leaveQueue: boolean): Promise<Note[] | null> {
     // Workspace navigation destroys the current editor. Finish its latest
     // encrypted save before replacing the note list so the next load cannot
     // fall back to an older plain document.
@@ -1373,7 +1399,7 @@ function Workspace({
     if (superseded()) return [];
     // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
-    setQueueMode(false);
+    if (leaveQueue) setQueueMode(false);
     selectedNoteRef.current = null;
     setSelectedNote(null);
     patchNotes(() => []);
@@ -1413,23 +1439,26 @@ function Workspace({
       return [];
     }
   }
+  async function loadWorkQueue() {
+    const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
+    const results = await Promise.allSettled(personalContainers.map(async (container) => ({
+      container,
+      notes: (await readContainerObjects(container)).notes,
+    })));
+    if (results.some((result) => result.status === "rejected")) {
+      setError("Some personal notebooks could not be loaded; the work queue may be incomplete.");
+    }
+    const entries = results.flatMap((result) => result.status === "fulfilled"
+      ? result.value.notes.map((note) => ({ note, container: result.value.container }))
+      : []);
+    setQueueEntries(entries);
+  }
   async function openWorkQueue() {
     setView("workspace");
     setQueueMode(true);
     setBusy(true);
     try {
-      const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
-      const results = await Promise.allSettled(personalContainers.map(async (container) => ({
-        container,
-        notes: (await readContainerObjects(container)).notes,
-      })));
-      if (results.some((result) => result.status === "rejected")) {
-        setError("Some personal notebooks could not be loaded; the work queue may be incomplete.");
-      }
-      const entries = results.flatMap((result) => result.status === "fulfilled"
-        ? result.value.notes.map((note) => ({ note, container: result.value.container }))
-        : []);
-      setQueueEntries(entries);
+      await loadWorkQueue();
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to load work queue");
     } finally {
@@ -2670,7 +2699,7 @@ function Workspace({
                     <button className="quiet" onClick={dropInvitation}>Not now</button>
                   </div>
                 )}
-                {selected && <h3 className="notes-heading">{queueMode ? `${listEntries.length} task note${listEntries.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
+                {selected && <h3 className="notes-heading">{queueMode ? `${queueRows.length} open task${queueRows.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
               </div>
               <div className="list-actions">
                 <input
@@ -2691,10 +2720,24 @@ function Workspace({
                 </button>
               </div>
             </div>
-            {listRows.map(({ note, container, row }) => {
-              // Work queue rows are a snapshot; show the open page live there.
-              const shown = queueMode && selectedNote?.id === note.id ? selectedNote : note;
-              const title = shown.title || "Untitled page";
+            {queueMode && TASK_GROUPS.map(([group, label]) => {
+              const rows = queueRows.filter((task) => task.group === group);
+              return rows.length > 0 && (
+                <div className="task-group" key={group} data-task-group={group}>
+                  <h3 className="notes-heading">{label}</h3>
+                  {rows.map((task, index) => (
+                    <div className={`note-row-wrap ${selectedNote?.id === task.entry.note.id ? "selected" : ""}`} key={`${task.key}\n${index}`}>
+                      <button className="note-row" onClick={() => void selectQueueNote(task.entry)}>
+                        <strong>{task.text || "Untitled task"}</strong>
+                        <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {!queueMode && listRows.map(({ note, row }) => {
+              const title = note.title || "Untitled page";
               return (
               <div
                 className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
@@ -2723,7 +2766,7 @@ function Workspace({
                 <button
                   className="note-row"
                   data-page-id={note.id}
-                  draggable={!queueMode}
+                  draggable
                   onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
                     if (!reorderable) return;
@@ -2746,7 +2789,7 @@ function Workspace({
                       document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
                   }}
                   aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
-                  onClick={() => void (queueMode ? selectQueueNote({ note, container }) : selectNote(note))}
+                  onClick={() => void selectNote(note)}
                 >
                   <strong>{title}</strong>
                   {row && (row.level > 0 || row.hasChildren) && (
@@ -2756,8 +2799,8 @@ function Workspace({
                     </span>
                   )}
                   <span>
-                    {query.trim() && !queueMode && <em className="page-section">{sectionTitle(note.section)} · </em>}
-                    {(queueMode ? noteTasks(indexNotes([shown])[0]).slice(0, 2).join(" · ") : indexNotes([shown])[0].body.slice(0, 64)) || "Empty page"}
+                    {query.trim() && <em className="page-section">{sectionTitle(note.section)} · </em>}
+                    {indexNotes([note])[0].body.slice(0, 64) || "Empty page"}
                   </span>
                 </button>
               </div>
@@ -2970,6 +3013,8 @@ function Workspace({
             onReset={(next) => { void retireWaitingEdits(next).catch(() => undefined).finally(() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }); }}
             resetUnfinished={resetUnfinished}
             waitingHeld={waitingHeld}
+            reminders={reminderPrefs}
+            onReminders={setReminderPrefs}
           />
         )}
       </>
@@ -3126,6 +3171,8 @@ function SettingsView({
   waitingHeld,
   live,
   recoveryPrompt,
+  reminders,
+  onReminders,
 }: {
   onBack: () => void;
   username: string;
@@ -3152,6 +3199,8 @@ function SettingsView({
   waitingHeld: boolean;
   live: PublicIdentity | null | undefined;
   recoveryPrompt: boolean;
+  reminders: ReminderPrefs;
+  onReminders: (prefs: ReminderPrefs) => void;
 }) {
   const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
   const [ownFingerprint, setOwnFingerprint] = useState("");
@@ -3179,6 +3228,7 @@ function SettingsView({
         <div className="section-label">SETTINGS</div>
         <nav className="settings-nav">
           <a href="#appearance">Appearance</a>
+          <a href="#reminders">Reminders</a>
           <a href="#password">Password</a>
           <a href="#device">Trusted Device</a>
           {identityState === "link" && <a href="#link-this-browser">Link this browser</a>}
@@ -3212,6 +3262,7 @@ function SettingsView({
           </label>
           <button onClick={() => applyTheme(theme)}>Apply theme</button>
         </section>
+        <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
         <div id="password">
           <PasswordSettings username={username} userID={userID} everyday onAuthSecret={onAuthSecret} onIdentityCreated={onIdentityChanged} />
         </div>
