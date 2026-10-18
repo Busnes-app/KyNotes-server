@@ -22,6 +22,10 @@
   names what the server and the push service learn. Reminder settings are now per account. The server
   creates `secrets/vapid.key` on first start (migration 0028 adds two tables) and needs outbound HTTPS to
   the browser push services for this feature.
+- New: `kynotes-mcp`, a local MCP server that lets an AI agent read one notebook, and with the
+  editor role add pages and append text, as its own KyNotes account. It decrypts on your machine;
+  the server still sees only ciphertext. It cannot delete or change existing text. Removing the
+  agent from the team revokes it. `docs/MCP.md` describes setup.
 
 ## 0.4.2 — 2026-10-16
 
