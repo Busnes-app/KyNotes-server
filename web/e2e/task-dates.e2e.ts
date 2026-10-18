@@ -148,3 +148,82 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
     await owner.page.context().close();
   }
 });
+
+test("push reminders send the server only an opaque id and a UTC minute", async ({ browser }) => {
+  const admin = await person(browser);
+  // Off UTC, so the local reminder time and the UTC minute the server gets are different strings.
+  const owner = await person(browser, { timezoneId: "America/New_York" });
+  try {
+    await adminConsole(admin.page);
+    const { page } = owner;
+    // Headless Chromium has no push service: subscribe() is stubbed with a fixed FCM-shaped endpoint;
+    // notification permission is granted. The service worker itself is the real /sw.js.
+    await page.addInitScript(() => {
+      class Granted { static permission = "granted"; static async requestPermission() { return "granted"; } }
+      Object.defineProperty(window, "Notification", { value: Granted });
+      let current: unknown = null;
+      PushManager.prototype.subscribe = async function (options?: PushSubscriptionOptionsInit) {
+        current = { endpoint: "https://fcm.googleapis.com/fcm/send/e2e-stub", options: { applicationServerKey: options?.applicationServerKey }, unsubscribe: async () => { current = null; return true; } };
+        return current as PushSubscription;
+      };
+      PushManager.prototype.getSubscription = async () => current as PushSubscription | null;
+    });
+    const sent: Array<{ method: string; url: string; body: string }> = [];
+    page.on("request", (request) => {
+      if (/\/api\/v1\/(push|reminders)/.test(request.url())) sent.push({ method: request.method(), url: new URL(request.url()).pathname, body: request.postData() ?? "" });
+    });
+    await signIn(page, OWNER.username, OWNER.password);
+    await newTextPage(owner, "Push E2E");
+    const remind = `${day(2)}T09:00`;
+    await page.keyboard.type(`[] Feed the cat remind:${remind} push:yes`);
+    await page.keyboard.press("Escape"); // ":" opens the emoji menu
+    await expect(items(page)).toHaveCount(1);
+    await page.getByRole("button", { name: "Work queue" }).click();
+    const row = page.locator('[data-task-group="undated"] .note-row', { hasText: "Feed the cat" });
+    await expect(row).toContainText("push · Chores");
+    // Nothing reaches the server until the setting is on.
+    expect(sent.filter((request) => request.method !== "GET")).toEqual([]);
+
+    await page.getByRole("button", { name: "Settings" }).click();
+    const setting = page.getByLabel("Also remind me when KyNotes is closed (sends reminder times to the server)");
+    await expect(setting).not.toBeChecked();
+    await setting.click(); // checked once the subscription is registered, so not check()
+    await expect(setting).toBeChecked();
+    await expect.poll(() => sent.filter((request) => request.method === "PUT" && request.url === "/api/v1/push/web/subscriptions").map((request) => request.body)).toContainEqual('{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-stub"}');
+    expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration("/"))?.active?.scriptURL)).toMatch(/\/sw\.js$/);
+    await shoot("task-dates", page, "settings", "push", page.locator("#reminders"));
+    await page.getByRole("button", { name: "← Workspace" }).click();
+
+    // The reconcile after the notebooks load puts exactly one reminder: id and UTC minute only.
+    const at = await page.evaluate((value) => { const [d, t] = value.split("T"); const [y, m, day] = d.split("-").map(Number); const [h, min] = t.split(":").map(Number); return new Date(y, m - 1, day, h, min).toISOString().slice(0, 16) + ":00Z"; }, remind);
+    const reminderPuts = () => sent.filter((request) => request.method === "PUT" && request.url.startsWith("/api/v1/reminders/"));
+    await expect.poll(() => reminderPuts().length).toBe(1);
+    const [put] = reminderPuts();
+    expect(put.url).toMatch(/^\/api\/v1\/reminders\/[0-9abcdefghjkmnpqrstvwxyz]{26}$/);
+    expect(put.body).toBe(JSON.stringify({ at }));
+    const listed = await (await page.request.get("/api/v1/reminders")).json();
+    expect(listed).toEqual([{ id: put.url.split("/").pop(), at }]);
+
+    // Ticking the task removes the server reminder.
+    await row.click();
+    const ticked = objectSave(page);
+    await items(page).first().locator('input[type="checkbox"]').check();
+    await ticked;
+    await expect.poll(() => sent.some((request) => request.method === "DELETE" && request.url === put.url)).toBe(true);
+
+    // Turning push off removes this browser's endpoint.
+    await page.getByRole("button", { name: "Settings" }).click();
+    await setting.uncheck();
+    await expect.poll(() => sent.filter((request) => request.method === "DELETE" && request.url === "/api/v1/push/web/subscriptions").map((request) => request.body)).toContainEqual('{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-stub"}');
+
+    // No push or reminder request carried task text, a page or object ID, or the local reminder time.
+    for (const request of sent) {
+      expect(request.body + request.url).not.toMatch(/Feed the cat|Chores|obj_|cnt_|push:yes/);
+      expect(request.body).not.toContain(remind);
+    }
+    expect(owner.unexpected).toEqual([]);
+  } finally {
+    await admin.page.context().close();
+    await owner.page.context().close();
+  }
+});

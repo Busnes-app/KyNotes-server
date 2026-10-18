@@ -1,8 +1,9 @@
-// Plain-word task dates inside checklist text: due:2026-11-01 repeat:monthly remind:2026-11-01T09:00.
+// Plain-word task dates inside checklist text: due:2026-11-01 repeat:monthly remind:2026-11-01T09:00,
+// and push:yes beside a remind: to have the server push it while KyNotes is closed.
 // Everything here is pure and runs on decrypted text in the browser only.
 
 export type Repeat = { unit: "day" | "week" | "month" | "year"; every: number };
-export type TaskDates = { text: string; due?: string; repeat?: Repeat; remind?: string };
+export type TaskDates = { text: string; due?: string; repeat?: Repeat; remind?: string; push?: boolean };
 export type TaskGroup = "overdue" | "today" | "upcoming" | "later" | "undated";
 export const TASK_GROUPS: Array<[TaskGroup, string]> = [["overdue", "Overdue"], ["today", "Today"], ["upcoming", "Upcoming"], ["later", "Later"], ["undated", "No date"]];
 
@@ -29,17 +30,18 @@ export function repeatToken(repeat: Repeat): string {
   return `repeat:every-${repeat.every}-${repeat.unit}s`;
 }
 
-type Token = { key: "due" | "repeat" | "remind"; start: number; end: number };
+type Token = { key: "due" | "repeat" | "remind" | "push"; start: number; end: number };
 
 /** Valid tokens with their character ranges; the first valid token of each key wins, later ones stay text. */
 export function findTokens(text: string): Array<Token & { value: string }> {
   const found: Array<Token & { value: string }> = [];
   for (const match of text.matchAll(/\S+/g)) {
-    const word = /^(due|repeat|remind):(\S+)$/.exec(match[0]);
+    const word = /^(due|repeat|remind|push):(\S+)$/.exec(match[0]);
     if (!word || found.some((token) => token.key === word[1])) continue;
     const [, key, value] = word;
     const valid = key === "due" ? validDate(value)
       : key === "repeat" ? Boolean(parseRepeat(value))
+      : key === "push" ? value === "yes"
       : /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):[0-5]\d$/.test(value) && validDate(value.slice(0, 10));
     if (valid) found.push({ key: key as Token["key"], value, start: match.index, end: match.index + match[0].length });
   }
@@ -51,10 +53,13 @@ export function parseTaskDates(raw: string): TaskDates {
   let text = raw;
   for (const token of findTokens(raw).reverse()) {
     if (token.key === "repeat") task.repeat = parseRepeat(token.value);
+    else if (token.key === "push") task.push = true;
     else task[token.key] = token.value;
     text = text.slice(0, token.start) + text.slice(token.end);
   }
   task.text = text.replace(/\s+/g, " ").trim();
+  // push:yes means nothing without a reminder time.
+  if (!task.remind) delete task.push;
   return task;
 }
 
@@ -173,7 +178,7 @@ export function recurrenceEdits(blocks: TaskBlock[], today: string): RecurrenceE
       const repeat = tokens.find((token) => token.key === "repeat");
       if (repeat) {
         const next = nextOccurrence(parseTaskDates(text), today);
-        const advanced = tokens.flatMap(({ key, start, end }) => key === "repeat" ? [] : [{ start, end, text: `${key}:${next[key]}` }]);
+        const advanced = tokens.flatMap(({ key, start, end }) => key === "repeat" || key === "push" ? [] : [{ start, end, text: `${key}:${next[key]}` }]);
         if (!tokens.some((token) => token.key === "due")) advanced.push({ start: text.length, end: text.length, text: `${/\S$/.test(text) ? " " : ""}due:${next.due}` });
         edits.push({ id: block.id, content: rewrite(content, [{ ...cut(text, repeat), text: "" }]), next: { type: "checkListItem", props: { checked: false }, content: rewrite(content, advanced) } });
       }

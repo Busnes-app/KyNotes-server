@@ -185,6 +185,6 @@ describe("save queue wiring", () => {
     expect(main).toContain("await selectContainer(start, start.id === route.container ? route : undefined, false);");
     expect(main.match(/selectContainer\([^)]*, false\)/g)).toHaveLength(1); // only the sign-in / reload load
     // A queue opened before the notebook list arrived is rebuilt from it.
-    expect(main).toContain("if ((reminderPrefs.enabled || queueMode) && items.length) void loadWorkQueue()");
+    expect(main).toContain("if ((reminderPrefs.enabled || reminderPrefs.push || queueMode) && items.length) void loadWorkQueue()");
   });
 });

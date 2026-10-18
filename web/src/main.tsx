@@ -51,11 +51,14 @@ import {
   identityAPI,
   myIdentity,
   putDeviceOnlyIdentity,
+  serverReminders,
+  putReminder,
+  deleteReminder,
 } from "./api";
 import { currentCopy, identityStatus, recoverable, rewrapIdentity, settlePasswordIdentity, settleSSOIdentity, unfinishedReset, type HeldIdentity, type IdentityRecord, type IdentityStatus, type IdentityStore, type PublicIdentity } from "./identity";
 import { LinkRequests, LinkStatus, LinkThisBrowser, type Status as LinkRefusal } from "./components/DeviceLink";
 import { linkRefusal } from "./linkFlow";
-import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type Member, type MemberKey, type ReportedContainer } from "./keyring";
+import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, reminderIDKey, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type Member, type MemberKey, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
@@ -142,7 +145,8 @@ import {
 } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { classifyTask, TASK_GROUPS } from "./taskDates";
-import { readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
+import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
+import { desiredReminders, planReconcile } from "./reminderPush";
 import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
@@ -235,8 +239,10 @@ function App() {
   }, []);
   if (checking) return <main className="center">Loading KyNotes…</main>;
   if (location.pathname.startsWith("/share/")) return <SharedNote />;
+  // A browser's push subscription belongs to the signed-in account: it ends with the session.
+  const endSession = () => dropPushSubscription().catch(() => undefined).then(logout);
   const signOut = () => {
-    void logout().finally(() => {
+    void endSession().finally(() => {
       clearFloors();
       setAuth(null);
       setSessionUser(null);
@@ -253,7 +259,7 @@ function App() {
       onLogout={signOut}
       onForgetDevice={() => {
         void clearDeviceKey(auth.username).then(() => {
-          void logout().finally(() => {
+          void endSession().finally(() => {
             clearFloors();
             setAuth(null);
             setSessionUser(null);
@@ -265,11 +271,11 @@ function App() {
     <Login
       sessionUser={sessionUser}
       onClearSession={() => {
-        void logout().finally(() => setSessionUser(null));
+        void endSession().finally(() => setSessionUser(null));
       }}
       onForgetDevice={(username) => {
         void clearDeviceKey(username).then(() => {
-          void logout().finally(() => setSessionUser(null));
+          void endSession().finally(() => setSessionUser(null));
         });
       }}
       onLogin={setAuth}
@@ -651,6 +657,8 @@ function Workspace({
   };
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
   const [reminderPrefs, setReminderPrefs] = useState<ReminderPrefs>(() => readReminderPrefs(auth.user.id));
+  // The last work-queue load read every personal notebook, every object included.
+  const [queueComplete, setQueueComplete] = useState(false);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
@@ -1081,8 +1089,25 @@ function Workspace({
   // Reminders read the same personal notebooks as the work queue, loaded once they are on.
   // A queue opened before the notebook list arrived is reloaded with it.
   useEffect(() => {
-    if ((reminderPrefs.enabled || queueMode) && items.length) void loadWorkQueue().catch(() => undefined);
-  }, [reminderPrefs.enabled, items.length]);
+    if ((reminderPrefs.enabled || reminderPrefs.push || queueMode) && items.length) void loadWorkQueue().catch(() => undefined);
+  }, [reminderPrefs.enabled, reminderPrefs.push, items.length]);
+  // On open: re-registers this browser for this account (a server that lost the subscription or replaced
+  // its key), or, with push off for this account, drops whatever subscription another account left here.
+  useEffect(() => { void (reminderPrefs.push ? ensurePushSubscription() : dropPushSubscription()).catch(() => undefined); }, []);
+  // Push reminders: the server holds {id, at} for exactly the open push:yes tasks with a future time.
+  const pushTasks = useMemo(() => queueTasks.filter((task) => task.push).map((task) => ({ noteID: task.entry.note.id, remind: task.remind, push: true })), [queueTasks]);
+  const pushTaskKey = pushTasks.map((task) => `${task.noteID}\n${task.remind}`).sort().join("\n");
+  const reconciling = useRef(Promise.resolve());
+  useEffect(() => {
+    if (!reminderPrefs.push || !queueComplete) return;
+    reconciling.current = reconciling.current.then(async () => {
+      const identity = await heldIdentity();
+      if (!identity) return;
+      const plan = planReconcile(desiredReminders(reminderIDKey(identity), pushTasks, Date.now()), await serverReminders(), queueComplete);
+      for (const id of plan.deletes) await deleteReminder(id);
+      for (const row of plan.puts) await putReminder(row.id, row.at);
+    }).catch(() => undefined);
+  }, [reminderPrefs.push, queueComplete, pushTaskKey]);
   const listEntries = queueMode
     ? visibleQueueEntries
     : (query.trim() ? visibleNotes : sectionPages)
@@ -1441,13 +1466,14 @@ function Workspace({
   }
   async function loadWorkQueue() {
     const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
-    const results = await Promise.allSettled(personalContainers.map(async (container) => ({
-      container,
-      notes: (await readContainerObjects(container)).notes,
-    })));
+    const results = await Promise.allSettled(personalContainers.map(async (container) => {
+      const { notes, unreadable } = await readContainerObjects(container);
+      return { container, notes, unreadable };
+    }));
     if (results.some((result) => result.status === "rejected")) {
       setError("Some personal notebooks could not be loaded; the work queue may be incomplete.");
     }
+    setQueueComplete(results.every((result) => result.status === "fulfilled" && result.value.unreadable === 0));
     const entries = results.flatMap((result) => result.status === "fulfilled"
       ? result.value.notes.map((note) => ({ note, container: result.value.container }))
       : []);
@@ -2729,7 +2755,7 @@ function Workspace({
                     <div className={`note-row-wrap ${selectedNote?.id === task.entry.note.id ? "selected" : ""}`} key={`${task.key}\n${index}`}>
                       <button className="note-row" onClick={() => void selectQueueNote(task.entry)}>
                         <strong>{task.text || "Untitled task"}</strong>
-                        <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
+                        <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.push && "push", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
                       </button>
                     </div>
                   ))}

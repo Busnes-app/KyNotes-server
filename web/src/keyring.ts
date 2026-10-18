@@ -178,6 +178,13 @@ export const waitingKey = (identity: Pick<Identity, "privateKey">): KeyRef =>
   asContentKey(hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1")));
 
 /**
+ * The HMAC key behind reminder ids (reminderPush.ts): from the identity alone, so every browser of the
+ * account derives the same id for a task, and the server cannot link an id to a page. Not a content key.
+ */
+export const reminderIDKey = (identity: Pick<Identity, "privateKey">): Uint8Array =>
+  hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/reminder-id/v1"));
+
+/**
  * The one key a server row may be read with: the container key of the row's own generation, at or
  * above the first keyed generation (the higher of the server's report and this device's floor).
  * A missing, malformed, waiting or older generation gets no key; nothing else is ever tried.

@@ -188,9 +188,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   drops `repeat:` from the done one in the same edit (`recurrenceEdits`, applied in
   `BlockNoteEditor.tsx`), so a re-check or reload never repeats it. Reminders (`reminders.tsx`) are
   in-tab notifications only, opt-in from Settings, saying "A task is due" unless task text is turned
-  on; reminders passed before the tab opened fire nothing and show as missed. Nothing new reaches the
-  server (the opt-in server reminder store is a later step). Verify `taskDates.test.ts` and
-  `web/e2e/task-dates.e2e.ts`.
+  on; reminders passed before the tab opened fire nothing and show as missed. Reminder preferences are
+  per account (`readReminderPrefs(userID)`). Verify `taskDates.test.ts` and `web/e2e/task-dates.e2e.ts`.
+- Reminder push (opt-in, `IMPLEMENTATION_PLAN.md` "Reminder push extension"): `push:yes` beside `remind:`
+  opts a task in; the Settings checkbox "Also remind me when KyNotes is closed" registers `web/public/sw.js`
+  (shows a fixed "A reminder is due", opens `/#/`; no cache, fetch or storage; `/sw.js` is on the router
+  allowlist) and PUTs the endpoint. Ids are `reminderID` (`reminderPush.ts`, HMAC under `reminderIDKey` in
+  `keyring.ts`, not a content key); `main.tsx` reconciles `{id, at}` only after a work-queue load that read
+  every personal notebook and object (`planReconcile` does nothing on a partial load), deletes before puts.
+  Sign-out drops the browser's subscription; an account with push off drops one another account left.
+  Server: `internal/httpapi/reminder_routes.go` (everyday session, CSRF, caps 10/500, `409 already_exists`),
+  `internal/webpush` (endpoint allowlist `ParseEndpoint` checked at PUT and before every send; VAPID key
+  `secrets/vapid.key`; `Fire` once a minute from `internal/app`, drained before SQLite closes). Never send a
+  payload or log/audit an endpoint URL. Verify `TestReminder*`, `TestSubscriptionsRefuse*`,
+  `TestServiceWorkerReachesEmbeddedFile`, `TestReminderRowsAreEverydayOnly`, `go test ./internal/webpush`,
+  `npm test` (reminderPush, taskDates) and `web/e2e/task-dates.e2e.ts` (push subscribe is stubbed there).
 - `web/` shows server commit receipts as a short `Last Committed Ns ago` toast
   that expires after 15 seconds.
 - `web/` keeps a vault record per account in IndexedDB (`openVault`) holding the identity, pins and

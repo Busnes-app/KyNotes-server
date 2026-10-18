@@ -78,6 +78,35 @@ The backup API is `/api/v1/admin/backup/{status,pin-key,pair-remote,unpair,sched
 deposit,drill,export-capsule}`; status is GET; all other operations, including export, are POST. Mutations
 use admin+CSRF+step-up. Backup errors retain the existing envelope.
 
+Reminder push extension (task dates step 2, design option B decided 2026-10-17): opt-in, per task
+(`push:yes` beside `remind:`), "remind me even when KyNotes is closed". Migration 0028 adds
+`reminders(id, user_id, at, created_at)` and `web_push_subscriptions(id, user_id, endpoint UNIQUE,
+created_at, last_ok_at)`, everyday accounts only (triggers as 0026). The server learns only that an
+account has a reminder at a UTC minute under an opaque id: the browser derives the id as HMAC-SHA256
+over `noteID + "\n" + remind` with a key HKDF'd from the identity (label `kynotes/reminder-id/v1`), 130
+bits as 26 lowercase Crockford symbols. Routes (everyday session, CSRF on mutations, no new rate bucket:
+caps bound them): `GET /api/v1/push/web/key` (`{"publicKey"}`, base64url uncompressed P-256),
+`PUT`/`DELETE /api/v1/push/web/subscriptions` `{"endpoint"}` (idempotent, 10 per account; an endpoint
+another account holds moves to the caller; p256dh/auth are ignored, no payload is ever sent),
+`GET /api/v1/reminders` (`[{"id","at"}]`), `PUT /api/v1/reminders/{id}` `{"at"}` (exactly
+`YYYY-MM-DDTHH:MM:00Z`, at most one hour past and 400 days ahead, 500 per account) and
+`DELETE /api/v1/reminders/{id}`. Over a cap: `409 already_exists`. An id another account holds answers
+`404`. An endpoint must be `https`, no userinfo, no port, host exactly or a subdomain of
+`fcm.googleapis.com`, `push.services.mozilla.com`, `web.push.apple.com` or `notify.windows.com`
+(`internal/webpush` `ParseEndpoint`, rechecked before every send; only tests override it). The VAPID key
+is `<data_dir>/secrets/vapid.key` (`ky-primitives/keyfile`, created on first start, not in sealed
+capsules: a restored server mints a new one and browsers re-subscribe on their next open). Once a
+minute the server sends one empty `POST` (`TTL: 3600`, `Urgency: high`, `Authorization: vapid t=<ES256
+JWT, aud = endpoint origin, exp 1 h, sub = the project URL>, k=<key>`, 5 s timeout, no redirects) to
+every subscription of each active account with a reminder due, however many are due, and deletes those
+reminders; 404/410 deletes the subscription; when every subscription failed transiently (network, 429,
+5xx) they are retried for an hour. Subscription add/remove is audited (`push.subscription.add|remove`,
+object = subscription id, reason `host=<push service host>`, never the URL); reminders are not audited
+(volume). The Phase 9 `kynotes.changes` payload and `/push/registrations` are unchanged; FCM/APNs native
+delivery still waits for the KyPost relay (§15). Verify `TestReminder*`, `TestSubscriptionsRefuse*`,
+`TestServiceWorkerReachesEmbeddedFile`, `go test ./internal/webpush`, `npm test` (reminderPush,
+taskDates) and `web/e2e/task-dates.e2e.ts`.
+
 Source documents: [DESIGN.md](DESIGN.md), [SECURITY.md](SECURITY.md),
 [LOGGING.md](LOGGING.md), [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md).
 
@@ -512,6 +541,7 @@ Secrets are 32 random bytes generated on first start with mode `0600` under
 | invitation | `inv` |
 | comment | `cmt` |
 | device link request | `lnk` |
+| web push subscription | `wps` |
 
 IDs are opaque, log-safe, and never encode user data. `ids.Validate(prefix, s)`
 checks prefix, separator, length (26 chars of base32), and alphabet. Every

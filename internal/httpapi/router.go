@@ -12,6 +12,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/web"
+	"github.com/Busnes-app/kynotes-server/internal/webpush"
 )
 
 // RouteMux is what route functions register on. *http.ServeMux satisfies it; NewRouter passes a
@@ -49,6 +50,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 	var cfg config.Config
 	var backups *backup.Service
 	var ssoStore *sso.Store
+	var push *webpush.Sender
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case *sql.DB:
@@ -61,6 +63,8 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 			cfg = v
 		case *sso.Store:
 			ssoStore = v
+		case *webpush.Sender:
+			push = v
 		}
 	}
 	if db != nil {
@@ -77,6 +81,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		SyncRoutes(mux, db)
 		CollabRoutes(mux, db)
 		PushRoutes(mux, db)
+		ReminderRoutes(mux, db, push)
 		DeviceRoutes(mux, db, cfg)
 		IdentityRoutes(mux, db)
 		LinkRoutes(mux, db)
@@ -109,7 +114,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 	})
 	static := web.Handler()
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.png" && r.URL.Path != "/app-icon.png" && r.URL.Path != "/app-icon-192.png" && r.URL.Path != "/app-icon-512.png" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") && !strings.HasPrefix(r.URL.Path, "/auth/") {
+		if r.URL.Path != "/" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/favicon.ico" && r.URL.Path != "/sw.js" && r.URL.Path != "/favicon.svg" && r.URL.Path != "/favicon.png" && r.URL.Path != "/app-icon.png" && r.URL.Path != "/app-icon-192.png" && r.URL.Path != "/app-icon-512.png" && !strings.HasPrefix(r.URL.Path, "/share/") && !strings.HasPrefix(r.URL.Path, "/assets/") && !strings.HasPrefix(r.URL.Path, "/fonts/") && !strings.HasPrefix(r.URL.Path, "/auth/") {
 			WriteError(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}

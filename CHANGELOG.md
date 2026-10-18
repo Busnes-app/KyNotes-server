@@ -15,6 +15,13 @@
   open; it says only "A task is due" unless you also turn on "Show task text in reminders". Reminders
   that passed with no tab open show as missed in the work queue. Dates and reminders stay inside your
   encrypted pages; the server learns nothing new.
+- Optional push reminders: add `push:yes` beside a `remind:` time and turn on "Also remind me when
+  KyNotes is closed" in Settings. The browser then sends the server only each reminder's time and an id
+  the server cannot link to a task, and at that time the server sends an empty push through your
+  browser's push service; the notification says only "A reminder is due". Off by default; the setting
+  names what the server and the push service learn. Reminder settings are now per account. The server
+  creates `secrets/vapid.key` on first start (migration 0028 adds two tables) and needs outbound HTTPS to
+  the browser push services for this feature.
 
 ## 0.4.2 — 2026-10-16
 

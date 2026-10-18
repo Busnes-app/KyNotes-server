@@ -268,3 +268,10 @@ export async function fetchShareCiphertext(token: string) {
 }
 
 export const deleteObject = (objectID: string) => request<void>(`/api/v1/objects/${encodeURIComponent(objectID)}`, { method: "DELETE" });
+// Reminder push (opt-in): an empty push at a UTC minute; the server never sees which task.
+export const pushKey = () => request<{ publicKey: string }>("/api/v1/push/web/key");
+export const putPushSubscription = (endpoint: string) => request<void>("/api/v1/push/web/subscriptions", { method: "PUT", body: JSON.stringify({ endpoint }) });
+export const deletePushSubscription = (endpoint: string) => request<void>("/api/v1/push/web/subscriptions", { method: "DELETE", body: JSON.stringify({ endpoint }) });
+export const serverReminders = () => request<Array<{ id: string; at: string }>>("/api/v1/reminders");
+export const putReminder = (id: string, at: string) => request<void>(`/api/v1/reminders/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ at }) });
+export const deleteReminder = (id: string) => request<void>(`/api/v1/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });

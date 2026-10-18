@@ -178,3 +178,35 @@ func TestMixedAdminsKeepTheirNotesAndDropAdmin(t *testing.T) {
 		t.Fatalf("audits %v", reasons)
 	}
 }
+
+// Reminder push rows (0028) belong to an everyday account only, and go with it.
+func TestReminderRowsAreEverydayOnly(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "reminders.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	db := st.DB()
+	for _, q := range []string{
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,created_at,updated_at) VALUES('usr_admin','admin','h','s',1,'admin','admin','now','now')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('usr_plain','plain','h','s',1,'now','now')`,
+		`INSERT INTO reminders(id,user_id,at,created_at) VALUES('r1','usr_plain','2030-01-01T09:00:00Z','now')`,
+		`INSERT INTO web_push_subscriptions(id,user_id,endpoint,created_at) VALUES('wps_1','usr_plain','https://fcm.googleapis.com/x','now')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	mustFail(t, db, "admin_account_holds_no_content", `INSERT INTO reminders(id,user_id,at,created_at) VALUES('r2','usr_admin','2030-01-01T09:00:00Z','now')`)
+	mustFail(t, db, "admin_account_holds_no_content", `INSERT INTO web_push_subscriptions(id,user_id,endpoint,created_at) VALUES('wps_2','usr_admin','https://fcm.googleapis.com/y','now')`)
+	mustFail(t, db, "admin_account_holds_no_content", `UPDATE reminders SET user_id='usr_admin'`)
+	mustFail(t, db, "admin_account_holds_no_content", `UPDATE web_push_subscriptions SET user_id='usr_admin'`)
+	mustFail(t, db, "UNIQUE", `INSERT INTO web_push_subscriptions(id,user_id,endpoint,created_at) VALUES('wps_3','usr_plain','https://fcm.googleapis.com/x','now')`)
+	if _, err := db.Exec(`DELETE FROM users WHERE id='usr_plain'`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM reminders)+(SELECT COUNT(*) FROM web_push_subscriptions)`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("rows outlived their account: %d %v", n, err)
+	}
+}

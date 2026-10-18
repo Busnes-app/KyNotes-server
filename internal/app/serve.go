@@ -18,6 +18,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
+	"github.com/Busnes-app/kynotes-server/internal/webpush"
 )
 
 func Serve(ctx context.Context, c config.Config, log *logging.Logger, version string) error {
@@ -88,9 +89,29 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 			log.Error("gc_drain_cut_off", "reason_code", "timeout")
 		}
 	}()
+	vapid, err := webpush.LoadKey(c.DataDir)
+	if err != nil {
+		return fmt.Errorf("secrets/vapid.key: %w", err)
+	}
+	push, err := webpush.New(vapid)
+	if err != nil {
+		return err
+	}
+	pushCtx, stopPush := context.WithCancel(ctx)
+	pushDone := make(chan struct{})
+	go func() { defer close(pushDone); runReminderPush(pushCtx, store.DB(), push, log) }()
+	// Cancelling aborts in-flight pushes (unsent reminders stay for the next start); SQLite outlives the pass.
+	defer func() {
+		stopPush()
+		select {
+		case <-pushDone:
+		case <-time.After(parse(c.Server.ShutdownGrace)):
+			log.Error("reminder_push_drain_cut_off", "reason_code", "timeout")
+		}
+	}()
 	h := &health.Checker{}
 	h.SetReady(true)
-	srv := &http.Server{Addr: c.Server.Bind, Handler: httpapi.NewRouter(log, c.Server.MaxRequestBytes, h.IsReady, store.DB(), blobs, c, backups, ssoStore), ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout), ReadTimeout: parse(c.Server.ReadTimeout), WriteTimeout: parse(c.Server.WriteTimeout), IdleTimeout: parse(c.Server.IdleTimeout)}
+	srv := &http.Server{Addr: c.Server.Bind, Handler: httpapi.NewRouter(log, c.Server.MaxRequestBytes, h.IsReady, store.DB(), blobs, c, backups, ssoStore, push), ReadHeaderTimeout: parse(c.Server.ReadHeaderTimeout), ReadTimeout: parse(c.Server.ReadTimeout), WriteTimeout: parse(c.Server.WriteTimeout), IdleTimeout: parse(c.Server.IdleTimeout)}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {
@@ -121,6 +142,23 @@ func runGC(ctx context.Context, db *sql.DB, blobs *blobstore.Store, c config.Con
 		}
 	}
 }
+
+// runReminderPush fires due reminders once a minute.
+func runReminderPush(ctx context.Context, db *sql.DB, push *webpush.Sender, log *logging.Logger) {
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-tick.C:
+			if err := push.Fire(ctx, db, now); err != nil && ctx.Err() == nil {
+				log.Error("reminder_push_failed", "reason_code", "fire_error")
+			}
+		}
+	}
+}
+
 func parse(s string) time.Duration { d, _ := time.ParseDuration(s); return d }
 
 func runBackupLoop(ctx context.Context, service *backup.Service, log *logging.Logger) {
