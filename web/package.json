@@ -12,15 +12,15 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@blocknote/core": "^0.55.0",
-    "@blocknote/mantine": "^0.55.0",
-    "@blocknote/react": "^0.55.0",
+    "@blocknote/core": "^0.56.0",
+    "@blocknote/mantine": "^0.56.0",
+    "@blocknote/react": "^0.56.0",
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "perfect-freehand": "1.2.3",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
