@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"io"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ type bridge struct {
 	audit    *os.File
 	readOnly bool
 	fatal    func(error) // a changed steward key stops the bridge
+	unlock   func()      // releases the state directory lock
 }
 
 // newBridge signs in, opens the notebook's keys once and opens the audit log. The state
@@ -44,34 +46,48 @@ func newBridge(ctx context.Context, c config, log io.Writer) (*bridge, error) {
 	} else if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("%s: mode %o; others can reach it, run chmod 700", c.stateDir, info.Mode().Perm())
 	}
-	trustPath := filepath.Join(c.stateDir, "trust.json")
-	trust, err := loadTrust(trustPath)
+	// One bridge per state directory: trust.json is read once and replaced whole, so a second
+	// process would overwrite the first one's newer pins and generation floors.
+	unlock, err := storage.LockDirectory(c.stateDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: another kynotes-mcp is using this state directory: %w", c.stateDir, err)
 	}
-	auditPath := filepath.Join(c.stateDir, "audit.jsonl")
-	audit, err := os.OpenFile(auditPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if info, err := audit.Stat(); err != nil || info.Mode().Perm() != 0o600 {
-		audit.Close()
-		return nil, fmt.Errorf("%s: want mode 600", auditPath)
-	}
-	cl := newClient(c.server, c.username, c.password)
-	b := &bridge{nb: &notebook{c: cl, id: c.notebook, trustPath: trustPath, trust: trust, log: log}, limit: newBucket(60, time.Minute), audit: audit, readOnly: c.readOnly, fatal: func(error) {}}
-	if err := cl.login(ctx); err != nil {
-		audit.Close()
-		return nil, err
-	}
-	if err := b.nb.refresh(ctx); err != nil {
-		audit.Close()
+	b := &bridge{limit: newBucket(60, time.Minute), readOnly: c.readOnly, fatal: func(error) {}, unlock: unlock}
+	if err := b.open(ctx, c, log); err != nil {
+		b.close()
 		return nil, err
 	}
 	return b, nil
 }
 
-func (b *bridge) close() { b.audit.Close() }
+func (b *bridge) open(ctx context.Context, c config, log io.Writer) error {
+	trustPath := filepath.Join(c.stateDir, "trust.json")
+	trust, err := loadTrust(trustPath)
+	if err != nil {
+		return err
+	}
+	auditPath := filepath.Join(c.stateDir, "audit.jsonl")
+	if b.audit, err = os.OpenFile(auditPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600); err != nil {
+		return err
+	}
+	if info, err := b.audit.Stat(); err != nil || info.Mode().Perm() != 0o600 {
+		return fmt.Errorf("%s: want mode 600", auditPath)
+	}
+	cl := newClient(c.server, c.username, c.password)
+	b.nb = &notebook{c: cl, id: c.notebook, trustPath: trustPath, trust: trust, log: log}
+	if err := cl.login(ctx); err != nil {
+		return err
+	}
+	return b.nb.refresh(ctx)
+}
+
+// close releases the state directory last, after the audit log.
+func (b *bridge) close() {
+	if b.audit != nil {
+		b.audit.Close()
+	}
+	b.unlock()
+}
 
 // bucket is a token bucket: n calls per period, refilled continuously.
 type bucket struct {

@@ -84,7 +84,7 @@ If it changed again, the bridge refuses and nothing is appended.
 | `--username` | The agent's everyday account. |
 | `--password-file` | File with the password, mode `0600`. Or set `KYNOTES_MCP_PASSWORD`, not both. |
 | `--notebook` | The one notebook (`cnt_…`) the bridge touches. Every tool refuses everything else. |
-| `--state-dir` | Default: your config directory, `kynotes-mcp/<host>/<username>`. Must be `0700`. |
+| `--state-dir` | Default: your config directory, `kynotes-mcp/<host>/<username>`. Must be `0700`. Only one bridge runs per state directory at a time (it holds `.kynotes.lock`); give a second agent its own. |
 | `--read-only` | Read tools only. |
 
 ## Whose keys the bridge trusts

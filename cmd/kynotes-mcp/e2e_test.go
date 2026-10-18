@@ -446,3 +446,32 @@ func grep(t *testing.T, dir, s string) string {
 	}))
 	return found
 }
+
+// A second bridge on the same state directory is refused while the first runs: each replaces
+// trust.json whole, so the stale one would erase the newer pins and generation floors.
+func TestOneBridgePerStateDirectory(t *testing.T) {
+	ctx := context.Background()
+	s := newStack(t)
+	owner := s.browser(t, "owner", "owner password")
+	agent := s.browser(t, "agent", "agent password")
+	cid, _ := owner.team(t, agent, "editor")
+	stateDir := privateDir(t)
+	c := config{server: s.url, username: "agent", password: "agent password", notebook: cid, stateDir: stateDir}
+
+	first, err := newBridge(ctx, c, io.Discard)
+	must(t, err)
+	if _, err := newBridge(ctx, c, io.Discard); err == nil || !strings.Contains(err.Error(), "another kynotes-mcp") {
+		t.Fatalf("a second bridge on the same state directory: %v", err)
+	}
+	first.close()
+
+	again, err := newBridge(ctx, c, io.Discard)
+	must(t, err)
+	defer again.close()
+	if again.nb.trust.Pins[owner.userID] == "" {
+		t.Fatalf("the owner's pin did not survive a restart: %+v", again.nb.trust.Pins)
+	}
+	if k := again.nb.trust.Containers[cid]; k == nil || k.Generation < 2 || k.Mark < 2 {
+		t.Fatalf("the generation floor did not survive a restart: %+v", k)
+	}
+}
