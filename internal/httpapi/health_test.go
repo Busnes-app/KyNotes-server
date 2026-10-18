@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,5 +143,64 @@ func TestCookieBearingProbesBypassSessionLookup(t *testing.T) {
 		if blocked {
 			<-done
 		}
+	}
+}
+
+// TestHealthzWireContract pins ky.health/1 as KyPulse reads it, through the full router:
+// exact fields, no version or error text, headers, HEAD served, other methods refused.
+func TestHealthzWireContract(t *testing.T) {
+	s, err := storage.Open(filepath.Join(t.TempDir(), "notes.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	h := NewRouter(logging.New(io.Discard, "info", "json"), 1024, func() bool { return true }, s.DB())
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("GET /healthz = %d %q %q", w.Code, w.Header().Get("Content-Type"), w.Header().Get("Cache-Control"))
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	keys := func(m map[string]json.RawMessage) []string {
+		out := make([]string, 0, len(m))
+		for k := range m {
+			out = append(out, k)
+		}
+		sort.Strings(out)
+		return out
+	}
+	if got := strings.Join(keys(body), ","); got != "checks,schema,service,status,time" {
+		t.Fatalf("top-level fields = %s", got)
+	}
+	var stamp string
+	if err := json.Unmarshal(body["time"], &stamp); err != nil {
+		t.Fatal(err)
+	}
+	if ts, err := time.Parse(time.RFC3339, stamp); err != nil || !strings.HasSuffix(stamp, "Z") || ts.Nanosecond() != 0 {
+		t.Fatalf("time = %q, want UTC RFC 3339 whole seconds", stamp)
+	}
+	var checks []map[string]json.RawMessage
+	if err := json.Unmarshal(body["checks"], &checks); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range checks {
+		if got := strings.Join(keys(c), ","); got != "name,status" {
+			t.Fatalf("healthy check fields = %s", got)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodHead, "/healthz", nil))
+	if w.Code != 200 || w.Body.Len() != 0 {
+		t.Fatalf("HEAD /healthz = %d with %d body bytes", w.Code, w.Body.Len())
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	if w.Code < 400 {
+		t.Fatalf("POST /healthz = %d, want refused", w.Code)
 	}
 }
