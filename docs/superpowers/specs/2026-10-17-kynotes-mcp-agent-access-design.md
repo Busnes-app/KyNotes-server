@@ -1,4 +1,4 @@
-# KyNotes MCP: agent access to one group of notes (design, awaiting decision)
+# KyNotes MCP: agent access to one group of notes (design, decided)
 
 Status: **decided 2026-10-17 by Yoshi: option A (agent member and local bridge), read and write
 (`create_page`, `append_to_page`), using `modelcontextprotocol/go-sdk`.** The SDK choice amends the

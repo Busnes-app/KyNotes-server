@@ -1,4 +1,4 @@
-# KyNotes tasks: due dates, recurrence, reminders (design, awaiting decision)
+# KyNotes tasks: due dates, recurrence, reminders (design, decided)
 
 Status: **decided 2026-10-17 by Yoshi: option B (opt-in server reminder time) and plain-word syntax.**
 §1 is amended by the syntax decision: items read `[ ] Pay rent due:2026-11-01 repeat:monthly remind:2026-11-01T09:00`.
