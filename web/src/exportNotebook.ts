@@ -9,6 +9,8 @@ import type { ZipEntry } from "./zip";
 export const EXPORT_FORMAT = "kynotes.export.v1";
 const ATTACHMENT_URL = "attachment://";
 const ATTACHMENTS = "attachments";
+// No fetch: browsers load no image from an unknown scheme.
+const PLACEHOLDER = "kynotes-export:";
 const MAX_NAME = 100;
 
 export type ExportedAttachment = { id: string; name: string; type: string; bytes: Uint8Array };
@@ -67,17 +69,27 @@ function isCanvas(body: string): boolean {
   try { return (JSON.parse(body) as { format?: unknown }).format === CANVAS_FORMAT; } catch { return false; }
 }
 
-/** Points inline attachment URLs at the exported files; unknown ids are left as they were. */
-function relink(blocks: PartialBlock[], paths: Map<string, string>, from: string): PartialBlock[] {
-  return blocks.map((block) => {
+/**
+ * Markdown for one page, with inline attachment URLs pointing at the exported files (unknown ids
+ * stay as they were). BlockNote's serializer renders media into the live document, which would
+ * fetch any URL it sees: it gets inert placeholders and the real URLs go in afterwards.
+ */
+function pageMarkdown(blocks: PartialBlock[], toMarkdown: (blocks: PartialBlock[]) => string, paths: Map<string, string>, from: string): string {
+  const urls: string[] = [];
+  const hide = (list: PartialBlock[]): PartialBlock[] => list.map((block) => {
     const url = (block.props as { url?: unknown } | undefined)?.url;
-    const target = typeof url === "string" && url.startsWith(ATTACHMENT_URL) ? paths.get(url.slice(ATTACHMENT_URL.length)) : undefined;
+    let placeholder: string | undefined;
+    if (typeof url === "string" && url) {
+      const target = url.startsWith(ATTACHMENT_URL) ? paths.get(url.slice(ATTACHMENT_URL.length)) : undefined;
+      placeholder = `${PLACEHOLDER}${urls.push(target ? linkTo(from, target) : url) - 1}`;
+    }
     return {
       ...block,
-      ...(target ? { props: { ...block.props, url: linkTo(from, target) } } : {}),
-      ...(block.children ? { children: relink(block.children, paths, from) } : {}),
+      ...(placeholder ? { props: { ...block.props, url: placeholder } } : {}),
+      ...(block.children ? { children: hide(block.children) } : {}),
     } as PartialBlock;
   });
+  return toMarkdown(hide(blocks)).replace(new RegExp(`${PLACEHOLDER}(\\d+)`, "g"), (_, index: string) => urls[Number(index)] ?? "");
 }
 
 /**
@@ -157,7 +169,7 @@ export async function buildNotebookExport<T extends { id: string }>(input: Noteb
       const path = join(dir, `${base}.md`);
       const attachments = await pageAttachments(page.id);
       const canvas = isCanvas(page.body);
-      let markdown = `# ${title.replace(/\s+/g, " ")}\n\n${input.toMarkdown(relink(pageBlocks(page.body), attachmentPaths, path)).trim()}\n`;
+      let markdown = `# ${title.replace(/\s+/g, " ")}\n\n${pageMarkdown(pageBlocks(page.body), input.toMarkdown, attachmentPaths, path).trim()}\n`;
       if (canvas) markdown += `\n_Canvas page: positions and ink are in [${base}.canvas.json](${linkTo(path, join(dir, `${base}.canvas.json`))})._\n`;
       if (attachments.length) markdown += `\n## Attachments\n\n${attachments.map((entry) => `- [${entry.name.replace(/[[\]\\]/g, "\\$&")}](${linkTo(path, entry.path)})`).join("\n")}\n`;
       entries.push({ path, data: encoder.encode(markdown) });

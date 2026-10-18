@@ -5,6 +5,9 @@ import { adminConsole, OWNER, person, signIn, withDialog } from "./people";
 const NOTEBOOK = "Export E2E";
 const BODY = "Plaintext only in this browser";
 const ATTACHED = "attached bytes ✓";
+const INLINE = "inline-secret-name.png";
+// A 1x1 PNG.
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 // Copied from main.tsx: a changed string fails the run.
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
@@ -48,12 +51,24 @@ test("a notebook exports as Markdown and attachments, decrypted only in the brow
     await page.locator(".bn-editor").first().click();
     await page.keyboard.type(BODY);
     await written;
-    await page.locator('input[type="file"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from(ATTACHED) });
+    // An inline image, through BlockNote's own upload panel.
+    const pictured = objectSave(page);
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/image");
+    await page.keyboard.press("Enter");
+    const chooser = page.waitForEvent("filechooser");
+    await page.locator('[data-test="upload-input"]').click();
+    await (await chooser).setFiles({ name: INLINE, mimeType: "image/png", buffer: PNG });
+    await expect(page.locator(".bn-editor img")).toBeVisible();
+    await pictured;
+    await page.locator(".attachment-picker input").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from(ATTACHED) });
     await expect(page.getByText("Attachment uploaded and encrypted.")).toBeVisible();
 
-    // Export sends nothing: every request it makes is a read.
+    // Export sends nothing: every request it makes is a read, and none names a decrypted file.
     const sent: string[] = [];
-    const record = (request: Request) => { if (request.method() !== "GET") sent.push(`${request.method()} ${request.url()}`); };
+    const record = (request: Request) => {
+      if (request.method() !== "GET" || decodeURIComponent(request.url()).includes("inline-secret")) sent.push(`${request.method()} ${request.url()}`);
+    };
     page.on("request", record);
     const download = page.waitForEvent("download");
     await withDialog(owner, { type: "confirm", text: `${EXPORT_WARNING}\n\nExport "${NOTEBOOK}"?` }, () => page.getByRole("button", { name: "⇩ Export notebook" }).click());
@@ -71,7 +86,10 @@ test("a notebook exports as Markdown and attachments, decrypted only in the brow
     expect(markdown).toContain("# Exported page");
     expect(markdown).toContain(BODY);
     expect(JSON.parse(files.get(`${NOTEBOOK}/${manifest.pages[0].canvas}`)!.toString())).toMatchObject({ format: "kynotes.canvas.v1" });
-    const [attachment] = manifest.pages[0].attachments;
+    const image = manifest.pages[0].attachments.find((entry: { name: string }) => entry.name === INLINE);
+    expect(files.get(`${NOTEBOOK}/${image.path}`)!.equals(PNG)).toBe(true);
+    expect(markdown).toContain(`(../attachments/${image.id}/${INLINE})`);
+    const attachment = manifest.pages[0].attachments.find((entry: { name: string }) => entry.name === "notes.txt");
     expect(attachment).toMatchObject({ name: "notes.txt", type: "text/plain" });
     expect(files.get(`${NOTEBOOK}/${attachment.path}`)!.toString()).toBe(ATTACHED);
     expect(markdown).toContain(`](../attachments/${attachment.id}/notes.txt)`);

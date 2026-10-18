@@ -66,7 +66,11 @@ describe("notebook export", () => {
 
   it("points inline images at the exported file and lists every attachment, each decrypted once", async () => {
     const opened: string[] = [];
-    const result = await buildNotebookExport(input({}, opened));
+    const serialized: string[] = [];
+    const result = await buildNotebookExport(input({ toMarkdown: (blocks) => { serialized.push(JSON.stringify(blocks)); return toMarkdown(blocks); } }, opened));
+    // The serializer renders into the live document: it must never see a URL the browser would fetch.
+    expect(serialized.join()).not.toMatch(/photo one|attachments\/|attachment:\/\//);
+    expect(serialized.join()).toContain('"url":"kynotes-export:0"');
     expect(opened).toEqual([IMG, BAD, PDF]);
     const first = decode(result.entries.find((entry) => entry.path.endsWith("001 First.md"))!.data);
     expect(first).toContain(`"url":"../attachments/${IMG}/photo%20one.png"`);
