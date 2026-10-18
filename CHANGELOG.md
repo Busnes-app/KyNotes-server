@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changes
+
+- New: "Export notebook" downloads the open notebook as a zip of Markdown pages, canvas pages and
+  attachments. The browser decrypts and builds it; the server sees nothing new. The file is not
+  encrypted, and the browser asks before writing it. `docs/EXPORT.md` describes the layout.
+
 ## 0.4.2 — 2026-10-16
 
 ### Upgrading from 0.4.x

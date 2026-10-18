@@ -173,6 +173,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   group reparents its children first and stops before the delete on any failed write. An
   open group without sections shows no page list and disables new pages. "Move to section"
   labels sections with their group path (`sectionTargets`). Verify `outline.test.ts`.
+- `web/` notebook export (`exportNotebook.ts`, `zip.ts`, docs/EXPORT.md `kynotes.export.v1`): the browser reads the
+  notebook through `readContainerObjects` and attachments with `readKeysFor`, converts pages with BlockNote's
+  `blocksToMarkdownLossy` (lazy-loaded) and downloads a stored zip; it sends nothing. Names pass `safeName`
+  (no path escapes or clashes); unreadable items are counted, not fatal. Verify `exportNotebook.test.ts`,
+  `zip.test.ts` and `web/e2e/export.e2e.ts` (real browser: GET-only requests, zip read back).
 - `web/` exposes a client-only work queue for open checklist items across
   personal notebooks; task parsing remains browser-side because the server
   never sees plaintext. Inbox folders still require the planned folder-object

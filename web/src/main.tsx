@@ -2,6 +2,7 @@ import { AdminConsole } from "./components/AdminConsole";
 import { setupProblem } from "./setup";
 import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
+import { zip } from "./zip";
 import { exportUnsent, retireWaiting } from "./stuckEdits";
 import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -148,6 +149,7 @@ import "./ky-ui/navigation.css";
 
 const MAX_CHANGE_PAGES = 100;
 const FLUSH_ROUNDS = 5;
+const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
 const CanvasPage = lazy(() => import("./CanvasPage"));
 
@@ -1571,6 +1573,36 @@ function Workspace({
       setBusy(false);
     }
   }
+  /** Decrypts the notebook here and downloads it as a plaintext zip; nothing new is sent to the server. */
+  async function exportWorkspace() {
+    if (!selected) return;
+    const container = selected;
+    const name = nameOf(container);
+    if (!confirm(`${EXPORT_WARNING}\n\nExport "${name}"?`)) return;
+    setBusy(true);
+    try {
+      const { blockNoteMarkdown, buildNotebookExport, safeName } = await import("./exportNotebook");
+      const loaded = await readContainerObjects(container);
+      const result = await buildNotebookExport({
+        name, ...loaded, toMarkdown: await blockNoteMarkdown(),
+        attachments: {
+          list: (pageID) => objectAttachments(pageID),
+          open: async (item) => {
+            const keys = readKeysFor(container, item.keyGeneration);
+            const metadata = await openFirst(keys, (key) => decryptAttachmentMetadata(key, container.id, fromBase64(item.metadataCiphertext)));
+            const encrypted = await downloadAttachment(item.id);
+            return { id: item.id, ...metadata, bytes: await openFirst(keys, (key) => decryptAttachment(key, container.id, encrypted)) };
+          },
+        },
+      });
+      downloadFile(`${safeName(name, "notebook")}.zip`, zip(result.entries), "application/zip");
+      setError(`Exported ${result.pages} pages.${result.unreadable ? ` ${result.unreadable} items could not be read and are not in the file.` : ""}`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to export notebook");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function newNote() {
     if (!selected || keyWait) return;
     setBusy(true);
@@ -2536,6 +2568,11 @@ function Workspace({
                 onClick={() => void renameWorkspace()}
               >
                 ✎ Rename notebook
+              </button>
+            )}
+            {selected && (
+              <button className="new-workspace" disabled={busy} onClick={() => void exportWorkspace()}>
+                ⇩ Export notebook
               </button>
             )}
             {selected?.kind === "team" && (
