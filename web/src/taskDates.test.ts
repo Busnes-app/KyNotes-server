@@ -33,6 +33,22 @@ describe("task date tokens", () => {
     expect(parseTaskDates("a repeat:every-365-days").repeat).toEqual({ unit: "day", every: 365 });
   });
 
+  it("opts a reminder into push with push:yes only beside a remind: time", () => {
+    expect(parseTaskDates("Pay rent remind:2026-11-01T09:00 push:yes")).toEqual({ text: "Pay rent", remind: "2026-11-01T09:00", push: true });
+    expect(parseTaskDates("push:yes Pay rent remind:2026-11-01T09:00").push).toBe(true);
+    // Without a reminder time it means nothing.
+    expect(parseTaskDates("Pay rent due:2026-11-01 push:yes")).toEqual({ text: "Pay rent", due: "2026-11-01" });
+    // Anything but push:yes stays text and opts nothing in.
+    for (const raw of ["a remind:2026-11-01T09:00 push:no", "a remind:2026-11-01T09:00 push:Yes", "a remind:2026-11-01T09:00 push:true", "a remind:2026-11-01T24:00 push:yes"])
+      expect(parseTaskDates(raw).push, raw).toBeUndefined();
+  });
+
+  it("keeps push:yes on the next occurrence and the done item", () => {
+    const [edit] = recurrenceEdits([item("a", [text("Pay rent remind:2026-11-01T09:00 push:yes repeat:monthly")])], "2026-10-17");
+    expect(joined({ content: edit.next.content })).toBe("Pay rent remind:2026-12-01T09:00 push:yes repeat:monthly due:2026-11-17");
+    expect(joined({ content: edit.content })).toBe("Pay rent remind:2026-11-01T09:00 push:yes");
+  });
+
   it("keeps a second token of the same key as text", () => {
     expect(parseTaskDates("a due:2026-01-01 due:2026-02-01")).toEqual({ text: "a due:2026-02-01", due: "2026-01-01" });
   });
