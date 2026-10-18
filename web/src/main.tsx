@@ -1079,8 +1079,9 @@ function Workspace({
     .map((task) => ({ ...task, entry, key: `${entry.note.id}\n${task.raw}` }))), [liveQueue]);
   const missedReminders = useReminders(queueTasks, reminderPrefs);
   // Reminders read the same personal notebooks as the work queue, loaded once they are on.
+  // A queue opened before the notebook list arrived is reloaded with it.
   useEffect(() => {
-    if (reminderPrefs.enabled && items.length) void loadWorkQueue().catch(() => undefined);
+    if ((reminderPrefs.enabled || queueMode) && items.length) void loadWorkQueue().catch(() => undefined);
   }, [reminderPrefs.enabled, items.length]);
   const listEntries = queueMode
     ? visibleQueueEntries
@@ -1326,7 +1327,7 @@ function Workspace({
       setItems(loaded);
       const route = parseRoute(location.hash);
       const start = loaded.find((item) => item.id === route.container) ?? loaded[0];
-      if (start) await selectContainer(start, start.id === route.container ? route : undefined);
+      if (start) await selectContainer(start, start.id === route.container ? route : undefined, false);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to load notebooks",
@@ -1373,13 +1374,14 @@ function Workspace({
     return { notes: loaded, sections: found, groups: foundGroups, unreadable };
   }
   /** Null when the open page could not be flushed and stays open. */
-  async function selectContainer(container: Container, route?: Route): Promise<Note[] | null> {
+  /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
+  async function selectContainer(container: Container, route?: Route, leaveQueue = true): Promise<Note[] | null> {
     // Every call supersedes the ones before it, a second load of the same notebook included.
     const load = loads.begin();
     loadingContainerID.current = container.id;
     setLoadingContainer(true);
     try {
-      return await loadContainer(container, route, load.superseded);
+      return await loadContainer(container, route, load.superseded, leaveQueue);
     } finally {
       // A later load owns the flag now.
       if (!load.superseded()) {
@@ -1388,7 +1390,7 @@ function Workspace({
       }
     }
   }
-  async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean): Promise<Note[] | null> {
+  async function loadContainer(container: Container, route: Route | undefined, superseded: () => boolean, leaveQueue: boolean): Promise<Note[] | null> {
     // Workspace navigation destroys the current editor. Finish its latest
     // encrypted save before replacing the note list so the next load cannot
     // fall back to an older plain document.
@@ -1397,7 +1399,7 @@ function Workspace({
     if (superseded()) return [];
     // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
-    setQueueMode(false);
+    if (leaveQueue) setQueueMode(false);
     selectedNoteRef.current = null;
     setSelectedNote(null);
     patchNotes(() => []);
