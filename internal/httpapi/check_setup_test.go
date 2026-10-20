@@ -68,3 +68,19 @@ func TestSetupInspectionDoesNotCreateOrPromoteAccounts(t *testing.T) {
 		t.Fatal("inspection promoted", role, err)
 	}
 }
+
+func TestSetupHandoverReportsBlobTarget(t *testing.T) {
+	for _, url := range []string{"", "file:///mnt/backup/kynotes"} {
+		db, cfg := setupTestDB(t)
+		cfg.Backup.BlobTarget.URL = url
+		h := SetupHandler(SetupDeps{DB: db, Config: cfg, SSO: sso.NewStore(db), Log: logging.New(io.Discard, "info", "json")})
+		for _, path := range []string{"/v1/check-setup", "/v1/apply-setup"} {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest("POST", path, bytes.NewReader([]byte(`{"version":1}`))))
+			var report applysetup.Report
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &report) != nil || report.Handover.BlobTargetConfigured != (url != "") {
+				t.Fatal(url, path, w.Code, w.Body.String())
+			}
+		}
+	}
+}

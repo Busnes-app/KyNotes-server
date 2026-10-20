@@ -21,7 +21,9 @@ type Handover struct {
 	AdminUsernames         []string `json:"adminUsernames"`
 	RecoveryKeyFingerprint string   `json:"recoveryKeyFingerprint"`
 	BackupDir              string   `json:"backupDir"`
-	Version                string   `json:"version"`
+	// False means the capsule is the only copy KyNotes makes: note ciphertext needs restic of /data/blobs.
+	BlobTargetConfigured bool   `json:"blobTargetConfigured"`
+	Version              string `json:"version"`
 }
 
 type Report struct {

@@ -34,7 +34,7 @@ func TestReportJSONShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"version":1,"results":[],"handover":{"url":"https://notes.example","adminUsernames":[],"recoveryKeyFingerprint":"","backupDir":"","version":"v1"}}`
+	want := `{"version":1,"results":[],"handover":{"url":"https://notes.example","adminUsernames":[],"recoveryKeyFingerprint":"","backupDir":"","blobTargetConfigured":false,"version":"v1"}}`
 	if string(b) != want {
 		t.Fatalf("got %s", b)
 	}

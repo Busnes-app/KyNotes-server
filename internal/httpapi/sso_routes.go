@@ -41,12 +41,35 @@ var ssoKindMessages = map[string]string{
 	"admin_role_required":            "this administrator account needs the KyNotes administrator role at sign-in",
 }
 
-func isRequestSecure(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+// forwardedFromProxy reports whether r's forwarded headers come from a trusted proxy,
+// the same rule X-Forwarded-For follows.
+func forwardedFromProxy(cfg config.Config) func(*http.Request) bool {
+	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
+	return func(r *http.Request) bool { return cfg.Server.BehindProxy && trusted(remoteIP(r), proxies) }
 }
 
-func requestHost(r *http.Request) string {
-	if host := r.Header.Get("X-Forwarded-Host"); host != "" {
+// lastForwarded returns the value the nearest proxy appended to a forwarded header.
+func lastForwarded(r *http.Request, name string) string {
+	parts := strings.Split(strings.Join(r.Header.Values(name), ","), ",")
+	return strings.TrimSpace(parts[len(parts)-1])
+}
+
+func requestScheme(r *http.Request, viaProxy bool) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if viaProxy {
+		switch last := lastForwarded(r, "X-Forwarded-Proto"); last {
+		case "http", "https":
+			scheme = last
+		}
+	}
+	return scheme
+}
+
+func requestHost(r *http.Request, viaProxy bool) string {
+	if host := lastForwarded(r, "X-Forwarded-Host"); viaProxy && host != "" {
 		return host
 	}
 	return r.Host
@@ -55,6 +78,8 @@ func requestHost(r *http.Request) string {
 // SSORoutes registers OIDC SSO and directory sync endpoints.
 func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
 	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
+	viaProxy := forwardedFromProxy(cfg)
+	isRequestSecure := func(r *http.Request) bool { return requestScheme(r, viaProxy(r)) == "https" }
 	registerSSOLogout(mux, db, ssoStore, cfg)
 	handleSSOConfig := func(w http.ResponseWriter, r *http.Request) {
 		settings := ssoStore.Load()
@@ -112,17 +137,14 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			return
 		}
 
-		scheme := "http"
-		if isRequestSecure(r) {
-			scheme = "https"
-		}
+		scheme := requestScheme(r, viaProxy(r))
 		redirectURI := settings.RedirectURI
 		if redirectURI == "" {
 			callbackPath := strings.Replace(r.URL.Path, "/login", "/callback", 1)
 			if challengeID != "" {
 				callbackPath = "/api/v1/auth/oidc/callback"
 			}
-			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r), callbackPath)
+			redirectURI = fmt.Sprintf("%s://%s%s", scheme, requestHost(r, viaProxy(r)), callbackPath)
 		}
 
 		state, nonce := sso.GenerateState(), sso.GenerateState()

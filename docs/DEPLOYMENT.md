@@ -2,9 +2,13 @@
 
 Run the container behind an HTTPS reverse proxy on the same Docker network. The
 embedded web client is served at `/`; `/api/` is served by the same process.
-The compose service does not publish a host port. Set `server.behind_proxy`
-and list only the proxy networks in `trusted_proxies`; the proxy must forward
-the client address through `X-Forwarded-For`.
+The compose service joins the external `kypost-net` network (`KYPOST_NETWORK`) at
+`KYNOTES_IP` (default `10.89.0.7`); the network must exist, with a subnet holding that
+address, before `docker compose up`. It also publishes `5870` on `KYNOTES_BIND` (default
+`127.0.0.1`). Set `TRUSTED_PROXY_CIDRS` to the proxy's own address (see
+[Trusted proxy addresses](#trusted-proxy-addresses)); in YAML that is `server.behind_proxy`
+and `server.trusted_proxies`. The proxy must forward the client address through
+`X-Forwarded-For`.
 
 For local/LAN access without a reverse proxy, use the development override. Overlays are
 selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-compose.build.yml`;
@@ -28,7 +32,7 @@ It publishes `8081` on the host's loopback address and forwards it to the server
 internal port `8080`. For LAN access set `KYNOTES_LOCAL_BIND=0.0.0.0` in `.env`; the
 listener is plaintext HTTP. Do not use this override for an internet-facing deployment.
 
-The default compose file uses the named `kynotes-data` volume for `/data`.
+The default compose file uses the named `kynotes_data` volume for `/data`.
 Restart without `--volumes` to preserve notes:
 
 ```bash
@@ -222,7 +226,13 @@ only actual proxy networks, not all Internet addresses. IPv6 identities retain /
 
 ## Trusted proxy addresses
 
-For compatibility, the compose file defaults `TRUSTED_PROXY_CIDRS` to loopback plus all
-RFC1918 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). Any host on those networks
-can then set the client address seen by IP-keyed rate limits. Set `TRUSTED_PROXY_CIDRS` to the
-reverse proxy's own address (for example `172.20.0.5/32`). An installer must supply it.
+The compose file leaves `TRUSTED_PROXY_CIDRS` empty, so KyNotes trusts no proxy (only the
+container's own loopback). `X-Forwarded-For` is then ignored, and IP-keyed rate limits count
+every request through the proxy as the proxy's address: one shared bucket for all users. Set
+`TRUSTED_PROXY_CIDRS` to the reverse proxy's own address (for example `172.20.0.5/32`). An
+installer must supply it. Releases up to 0.4.2 defaulted to loopback plus all RFC1918 ranges,
+which let any host on those networks choose its rate-limit address.
+
+`X-Forwarded-Proto` and `X-Forwarded-Host` follow the same rule: KyNotes reads them, last value
+first, only from a trusted proxy. They shape the SSO callback and KySignOn pairing URL when none
+is configured, and the SSO state cookie's `Secure` flag.

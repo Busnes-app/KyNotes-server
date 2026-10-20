@@ -189,3 +189,17 @@ func TestLinkPollLimitEnvAndValidation(t *testing.T) {
 		t.Fatal("negative link_poll_per_minute accepted")
 	}
 }
+
+// Compose passes TRUSTED_PROXY_CIDRS="" by default: it must load and trust only the container's loopback.
+func TestEmptyTrustedProxyCIDRsTrustsNoProxy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("data_dir: "+dir+"\nserver:\n  bind: 127.0.0.1:8080\n  dev_insecure_cookies: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRUSTED_PROXY_CIDRS", "")
+	c, err := Load(path)
+	if err != nil || !c.Server.BehindProxy || len(c.Server.TrustedProxies) != 1 || c.Server.TrustedProxies[0] != "127.0.0.1/32" {
+		t.Fatalf("%v %#v", err, c.Server)
+	}
+}

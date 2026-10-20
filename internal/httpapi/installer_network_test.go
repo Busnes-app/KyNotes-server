@@ -41,3 +41,20 @@ func TestInstallerNetworkSharesTrustWithoutIPv6Grouping(t *testing.T) {
 		}
 	}
 }
+
+// The compose default (no TRUSTED_PROXY_CIDRS) leaves only the built-in loopback trust.
+func TestDefaultTrustIgnoresForwardedForFromPrivatePeer(t *testing.T) {
+	h := NewRouter(logging.New(io.Discard, "info", "json"), 1024, func() bool { return true }, config.Defaults())
+	r := httptest.NewRequest("GET", "/api/v1/installer/network", nil)
+	r.RemoteAddr = "192.168.1.20:9000"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var got struct {
+		ClientIP string `json:"clientIp"`
+		Trusted  bool   `json:"proxyHeadersTrusted"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.ClientIP != "192.168.1.20" || got.Trusted {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}

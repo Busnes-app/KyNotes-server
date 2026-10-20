@@ -14,6 +14,10 @@ for the KyNotes client at the issuer (replace `notes.example.com`):
 - Login callback: `https://notes.example.com/api/v1/auth/oidc/callback`
 - Back-channel logout: `https://notes.example.com/api/v1/auth/oidc/backchannel-logout`
 
+Sign-in starts at `GET /api/v1/auth/oidc/login` (aliases `/api/auth/oidc/login` and
+`/auth/oidc/login`). It redirects (302) to the issuer with PKCE `S256`, or returns 503
+`sso_disabled` when SSO is not configured. It is not registered at the issuer.
+
 Register the back-channel URI in KySignOn's client settings. KySignOn advertises
 session support in discovery; KyNotes then requires a
 nonempty `sid` in every verified ID token. Other OIDC providers that do not

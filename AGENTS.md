@@ -474,7 +474,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `openSetupParent` (descriptor walk, no symlinks, owner/mode checks). Verify
   `TestApplySetupCapabilities*`, `TestSetupInspection*`, `go test ./internal/applysetup`.
   `GET /api/v1/installer/network` is public in `account_kinds_test.go` and shares
-  `resolvedClientIP` with the rate limiter.
+  `resolvedClientIP` with the rate limiter. Compose leaves `TRUSTED_PROXY_CIDRS` empty, which
+  keeps the loopback-only default (`TestEmptyTrustedProxyCIDRsTrustsNoProxy`,
+  `TestDefaultTrustIgnoresForwardedForFromPrivatePeer`). Both handovers report
+  `blobTargetConfigured` from `backup.blob_target.url` (`TestSetupHandoverReportsBlobTarget`).
+  `X-Forwarded-Proto`/`X-Forwarded-Host` count only from a trusted peer (`forwardedFromProxy`,
+  `requestScheme`, `requestHost`), shared by SSO login, KySignOn pairing and the installer
+  network check. Verify `TestSSOForwardedHeadersNeedTrustedProxy`.
 - Team keys P1: `internal/httpapi/identity_routes.go` serves `GET`/`PUT /api/v1/me/identity`
   (create-only, `auth.RequireUserActionStepUp`: a local password step-up creates `aes-256-gcm`, an SSO KySignOn confirmation creates device-only `wrap_alg='none'`). `GET`
   is public-only; the wrapped key rides only in local login/step-up bodies. The identity is a

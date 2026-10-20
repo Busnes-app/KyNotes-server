@@ -41,7 +41,7 @@ func checkSetup(ctx context.Context, d SetupDeps, req applysetup.Request) applys
 		}
 		results = append(results, r)
 	}
-	h := applysetup.Handover{URL: applysetup.Origin(have.RedirectURI), AdminUsernames: names, BackupDir: d.Config.Backup.Dir, Version: d.Version}
+	h := applysetup.Handover{URL: applysetup.Origin(have.RedirectURI), AdminUsernames: names, BackupDir: d.Config.Backup.Dir, BlobTargetConfigured: d.Config.Backup.BlobTarget.URL != "", Version: d.Version}
 	if d.Backups != nil {
 		if req.Backup != nil {
 			results = append(results, d.Backups.CheckSetup(*req.Backup)...)
