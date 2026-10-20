@@ -624,6 +624,7 @@ function Workspace({
   onAuthSecret: (authSecret: string) => void;
 }) {
   const [items, setItems] = useState<Container[]>([]);
+  const [showNotebookNavigation, setShowNotebookNavigation] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -2556,8 +2557,9 @@ function Workspace({
       </header>
       <>
         <div className={`workspace-view ${view !== "workspace" ? "workspace-view-hidden" : ""}`}>
-          <div className="workspace">
-          <aside className="sidebar">
+          <div className={`workspace${showNotebookNavigation ? " show-notebook-navigation" : ""}`}>
+          <button type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}>Notebooks and account</button>
+          <aside id="notebook-navigation" className="sidebar">
             <div className="section-label">FOCUS</div>
             <button
               className={`ky-nav-item nav-item ${queueMode ? "selected" : ""}`}
@@ -2692,9 +2694,6 @@ function Workspace({
           <section className="note-list" aria-busy={loadingContainer}>
             <div className="list-header">
               <div>
-                <div className="section-label">
-                  {selected ? nameOf(selected) : "NOTEBOOK"}
-                </div>
                 <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
