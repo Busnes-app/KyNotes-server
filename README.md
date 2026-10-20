@@ -1,14 +1,19 @@
 # KyNotes Server
 
-## Health probes
+KyNotes is a browser-based notebook for encrypted text, handwriting, attachments and tasks, with shared team notebooks. Content is decrypted in the browser; an administrator manages accounts and the service rather than reading people’s notes.
 
-`GET /healthz` is public `ky.health/1` JSON. It returns 200 when startup is
-ready and SQLite responds to a ping, or 503 when either check fails. The
-shared handler caches each evaluation for five seconds and bounds each check
-to two seconds. Its response exposes fixed check names and statuses, never
-database errors or user data. `GET /livez` preserves the former alive-only
-`200 {"status":"ok"}` response. `GET /readyz` retains its startup-readiness
-response. A router created without a database checks startup only.
+**Start here:** [Standalone installation](INSTALL.md), [deployment settings](docs/DEPLOYMENT.md), [SSO](docs/SSO.md), [complete recovery](docs/RESTORE.md).
+Local administrator and everyday accounts work without KyIdentity. A complete backup needs both the sealed capsule and a separate ciphertext blob mirror.
+
+## Features
+
+- Notebooks and pages with text and ink, attachments, and task/work-queue views.
+- Encrypted content and team sharing with browser-held content keys.
+- Separate administrator/everyday accounts, optional KyIdentity SSO and access synchronization.
+- Sealed recovery capsules plus a separately configured encrypted-blob mirror.
+- MCP integration: [capabilities and access setup](docs/MCP.md).
+
+## Operation and recovery
 
 KyNotes stores encrypted notes and attachments; browsers own content decryption.
 See [deployment](docs/DEPLOYMENT.md) for setup and configuration, including the `COMPOSE_FILE`
@@ -38,6 +43,35 @@ Ciphertext blobs have their own mirror: configure `KYNOTES_BLOB_TARGET`, then us
 after capsule restore. See [deployment](docs/DEPLOYMENT.md#ciphertext-blob-mirror) for
 S3, pinned SFTP, SMB and local-mount settings and [restore](docs/RESTORE.md) for the order.
 
+## Health probes
+
+`GET /healthz` is public `ky.health/1` JSON. It returns 200 when startup is
+ready and SQLite responds to a ping, or 503 when either check fails. The
+shared handler caches each evaluation for five seconds and bounds each check
+to two seconds. Its response exposes fixed check names and statuses, never
+database errors or user data. `GET /livez` preserves the former alive-only
+`200 {"status":"ok"}` response. `GET /readyz` retains its startup-readiness
+response. A router created without a database checks startup only.
+
 ## Upgrading from ghcr.io/busness-app
 
 The GitHub organisation was renamed on 2026-09-16 and the image now lives at `ghcr.io/busnes-app/kynotes-server`. The project no longer controls `ghcr.io/busness-app`; GHCR does not redirect it, and anything served under that name must be treated as untrusted. If `KYNOTES_IMAGE` in `.env` still names the old namespace, re-pinning is required, not optional: run the digest procedure in `docs/RESTORE.md`, which resolves the commit you choose to a digest, verifies its attestation and writes the pin, then `docker compose pull`.
+
+## Development and test scope
+
+Use Go matching `go.mod` and Node 26 as pinned by CI. From the repository root:
+
+```sh
+npm ci --prefix web
+npm test --prefix web
+npm run build --prefix web
+go build ./...
+go vet ./...
+go test -race -count=1 ./...
+```
+
+These checks are not the complete release gate. CI also runs browser regressions, fuzz
+checks, the Docker/installer probe and vulnerability checks; see
+[the workflow](.github/workflows/ci.yml). Browser fixtures do not prove a live KyIdentity
+rollout or complete recovery. Test the real blob mirror and actual capsule-plus-blob
+restore separately before relying on them.

@@ -797,3 +797,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   only, and resolve their own `version_conflict` (one re-read). 60 calls a minute. Verify
   `go test ./cmd/kynotes-mcp` (`TestBridgeEndToEnd` drives a real router through the SDK) and
   `TestNotLinkedIntoServer`.
+
+## Operator documentation
+
+`INSTALL.md` is the root-owned standalone entry point. When installation prerequisites, bootstrap, persistence or verification change, update it together with `README.md` and the linked operator guides.
