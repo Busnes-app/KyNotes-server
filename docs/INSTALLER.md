@@ -14,12 +14,14 @@ and how it configures KyNotes with `apply-setup`.
   local sealed capsules.
 - **Blob copy:** the capsule holds no note or attachment ciphertext. Configure restic of
   `/data/blobs` or `KYNOTES_BLOB_TARGET` (see [Backups](#backups)); without one, a restored
-  capsule brings back accounts and settings but no note content.
+  capsule brings back accounts and settings but no note content. The apply-setup handover
+  reports `blobTargetConfigured`; when it is `false`, KyNotes copies no blobs itself, so the
+  installer must run restic or tell the owner the backup is incomplete.
 - **Stop timeout:** at least 17 minutes (`stop_grace_period: 17m` in `docker-compose.yml`,
   `terminationGracePeriodSeconds: 1020` in Kubernetes). See [Shutdown](#shutdown).
 - **Environment** the installer sets:
   - `TRUSTED_PROXY_CIDRS`: the reverse proxy's address only. Setting it also turns on
-    `X-Forwarded-For` handling.
+    `X-Forwarded-For` handling. The compose default is empty: no proxy is trusted.
   - `KYNOTES_BACKUP_DIR=/backups` and `KYNOTES_BACKUP_KEEP=<n>`. These are deployment
     settings read at start; `apply-setup` cannot change them. It compares them with the
     bundle and reports `conflict` when they differ.
@@ -154,7 +156,8 @@ Output on stdout:
 
     {"version":1,"results":[{"section":"sso","status":"created"}, ...],
      "handover":{"url":"https://notes.example","adminUsernames":["owner-admin"],
-                 "recoveryKeyFingerprint":"<key id>","backupDir":"/backups","version":"<sha>"}}
+                 "recoveryKeyFingerprint":"<key id>","backupDir":"/backups",
+                 "blobTargetConfigured":false,"version":"<sha>"}}
 
 Statuses are `created`, `present`, `conflict`, `invalid` and `failed`. Exit codes, highest
 precedence first:

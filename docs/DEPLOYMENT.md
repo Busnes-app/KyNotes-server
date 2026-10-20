@@ -226,7 +226,9 @@ only actual proxy networks, not all Internet addresses. IPv6 identities retain /
 
 ## Trusted proxy addresses
 
-For compatibility, the compose file defaults `TRUSTED_PROXY_CIDRS` to loopback plus all
-RFC1918 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). Any host on those networks
-can then set the client address seen by IP-keyed rate limits. Set `TRUSTED_PROXY_CIDRS` to the
-reverse proxy's own address (for example `172.20.0.5/32`). An installer must supply it.
+The compose file leaves `TRUSTED_PROXY_CIDRS` empty, so KyNotes trusts no proxy (only the
+container's own loopback). `X-Forwarded-For` is then ignored, and IP-keyed rate limits count
+every request through the proxy as the proxy's address: one shared bucket for all users. Set
+`TRUSTED_PROXY_CIDRS` to the reverse proxy's own address (for example `172.20.0.5/32`). An
+installer must supply it. Releases up to 0.4.2 defaulted to loopback plus all RFC1918 ranges,
+which let any host on those networks choose its rate-limit address.

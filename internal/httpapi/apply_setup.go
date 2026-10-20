@@ -285,7 +285,7 @@ func applySetup(ctx context.Context, d SetupDeps, req applysetup.Request) applys
 			admins = append(admins, username)
 		}
 	}
-	h := applysetup.Handover{URL: applysetup.Origin(d.SSO.Load().RedirectURI), AdminUsernames: admins, BackupDir: d.Config.Backup.Dir, Version: d.Version}
+	h := applysetup.Handover{URL: applysetup.Origin(d.SSO.Load().RedirectURI), AdminUsernames: admins, BackupDir: d.Config.Backup.Dir, BlobTargetConfigured: d.Config.Backup.BlobTarget.URL != "", Version: d.Version}
 	switch {
 	case d.Backups != nil:
 		if req.Backup != nil {

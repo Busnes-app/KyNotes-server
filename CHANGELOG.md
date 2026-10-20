@@ -2,7 +2,18 @@
 
 ## Unreleased
 
+### Upgrade notes
+
+- `docker-compose.yml` no longer trusts every private network as a reverse proxy: the
+  `TRUSTED_PROXY_CIDRS` default is now empty. Set it in `.env` to your proxy's own address (for
+  example `TRUSTED_PROXY_CIDRS=172.20.0.5/32`) before upgrading. Otherwise every user shares the
+  proxy's login rate-limit bucket. `GET /api/v1/installer/network` shows whether the proxy is
+  trusted.
+
 ### Changes
+
+- The apply-setup and `--check` handover adds `blobTargetConfigured`. `false` means KyNotes
+  copies no note ciphertext itself, so the capsule alone is not a full backup.
 
 - New: "Export notebook" downloads the open notebook as a zip of Markdown pages, canvas pages and
   attachments. The browser decrypts and builds it; the server sees nothing new. The file is not
