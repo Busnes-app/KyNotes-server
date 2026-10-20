@@ -63,8 +63,12 @@ the everyday account (a different username); both must change their password at 
 sign-in. If the log shows `no_active_admin`, no administrator account is left: create one
 with the CLI below.
 
-`kynotes-server user add --username <name> --password <pass> [--admin | --everyday]`
-creates an account (everyday unless `--admin`; it changes its password at first sign-in)
+Prefer the web account setup: putting a real password in a CLI flag exposes it to shell
+history and process listings. The maintenance CLI still supports
+`kynotes-server user add --username <name> --password <pass> [--admin | --everyday]`;
+use only with that exposure understood, or supply the supported derived-secret JSON on
+stdin as described by the CLI usage. Never paste a real command/password into a report.
+The command creates an account (everyday unless `--admin`; it changes its password at first sign-in)
 and prints its recovery code once:
 
 ```
@@ -75,8 +79,14 @@ Store it offline. It is single-use, it unlocks the account without the password,
 and the server keeps only an Argon2id hash of it. `POST /api/v1/auth/recover`
 consumes it and returns a fresh one in the response.
 
-Passwords are stored as Argon2id (64 MiB, t=3, p=4). Databases created before this
-change hold scrypt verifiers, which are refused; recreate them.
+Authentication verifiers use Argon2id (64 MiB, t=3, p=4). Legacy scrypt verifiers are
+refused by the current verifier. This is an upgrade compatibility limit, **not an
+instruction to delete or recreate an existing database**. Preserve a complete backup of
+the database, encrypted blobs and deployment keys, and retain the old application revision
+before attempting an upgrade. Test account access and content recovery on a scratch copy;
+if the legacy accounts cannot authenticate, stop and obtain a supported migration/recovery
+procedure before switching the live instance. This guide does not establish an automatic
+scrypt-to-Argon2id migration.
 
 ## Backup settings
 

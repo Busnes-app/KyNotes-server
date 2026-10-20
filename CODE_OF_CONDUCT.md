@@ -34,7 +34,7 @@ interchangeable would be lying about what it is.
   reasoning, link the evidence, and let the maintainers decide.
 - **Credit work.** Say whose idea it was. This includes crediting a bug report
   that led to a fix, and disclosing AI assistance as
-  [CONTRIBUTING](CONTRIBUTING.md#ai-attribution-is-mandatory) requires.
+  [CONTRIBUTING](CONTRIBUTING.md#ai-attribution) requires.
 
 ## What We Won't Accept
 
