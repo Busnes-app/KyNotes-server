@@ -19,7 +19,7 @@ func TestCredentialRoutesRequireStepUp(t *testing.T) {
 	db, cfg := setupTestDB(t)
 	mux := http.NewServeMux()
 	AuthRoutes(mux, db, cfg)
-	AdminRoutes(mux, db, sso.NewStore(db))
+	AdminRoutes(mux, db, sso.NewStore(db), cfg)
 
 	adminID, _ := createAdminUser(t, db) // secret is 64 x "a"
 	rec := httptest.NewRecorder()

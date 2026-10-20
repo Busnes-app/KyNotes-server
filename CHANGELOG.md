@@ -7,8 +7,12 @@
 - `docker-compose.yml` no longer trusts every private network as a reverse proxy: the
   `TRUSTED_PROXY_CIDRS` default is now empty. Set it in `.env` to your proxy's own address (for
   example `TRUSTED_PROXY_CIDRS=172.20.0.5/32`) before upgrading. Otherwise every user shares the
-  proxy's login rate-limit bucket. `GET /api/v1/installer/network` shows whether the proxy is
-  trusted.
+  proxy's login rate-limit bucket, and an SSO callback or KySignOn pairing URL derived from the
+  request (no redirect URI configured) uses KyNotes' own scheme and host. `GET
+  /api/v1/installer/network` shows whether the proxy is trusted.
+- `X-Forwarded-Proto` and `X-Forwarded-Host` now count only from a trusted proxy, like
+  `X-Forwarded-For`. Before, any client could choose the SSO callback host and the state cookie's
+  `Secure` flag when no redirect URI was configured.
 
 ### Changes
 

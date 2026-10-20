@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
@@ -31,7 +32,8 @@ func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, re
 
 // AdminRoutes exposes metadata-only administration. It never returns secrets,
 // ciphertext, request bodies, or raw process logs.
-func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
+func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Config) {
+	viaProxy := forwardedFromProxy(cfg)
 	mux.Handle("POST /api/v1/admin/teams", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -410,11 +412,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store) {
 
 			callbackURL := in.CallbackURL
 			if callbackURL == "" {
-				scheme := "http"
-				if isRequestSecure(r) {
-					scheme = "https"
-				}
-				callbackURL = fmt.Sprintf("%s://%s/api/v1/sync/events", scheme, requestHost(r))
+				proxied := viaProxy(r)
+				callbackURL = fmt.Sprintf("%s://%s/api/v1/sync/events", requestScheme(r, proxied), requestHost(r, proxied))
 			}
 
 			resp, err := sso.PairWithKySignOn(r.Context(), in.IssuerURL, in.PairingToken, callbackURL)

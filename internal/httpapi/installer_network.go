@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net"
 	"net/http"
-	"strings"
 )
 
 // networkHandler discloses only this request's resolved network metadata. It
@@ -16,17 +15,7 @@ func networkHandler(behindProxy bool, proxies []*net.IPNet) http.HandlerFunc {
 			return
 		}
 		accepted := behindProxy && trusted(remoteIP(r), proxies)
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
-		if accepted {
-			parts := strings.Split(strings.Join(r.Header.Values("X-Forwarded-Proto"), ","), ",")
-			switch last := strings.TrimSpace(parts[len(parts)-1]); last {
-			case "http", "https":
-				scheme = last
-			}
-		}
+		scheme := requestScheme(r, accepted)
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, struct {
 			ClientIP string `json:"clientIp"`
