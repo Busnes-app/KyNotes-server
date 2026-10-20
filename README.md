@@ -53,10 +53,6 @@ database errors or user data. `GET /livez` preserves the former alive-only
 `200 {"status":"ok"}` response. `GET /readyz` retains its startup-readiness
 response. A router created without a database checks startup only.
 
-## Upgrading from ghcr.io/busness-app
-
-The GitHub organisation was renamed on 2026-09-16 and the image now lives at `ghcr.io/busnes-app/kynotes-server`. The project no longer controls `ghcr.io/busness-app`; GHCR does not redirect it, and anything served under that name must be treated as untrusted. If `KYNOTES_IMAGE` in `.env` still names the old namespace, re-pinning is required, not optional: run the digest procedure in `docs/RESTORE.md`, which resolves the commit you choose to a digest, verifies its attestation and writes the pin, then `docker compose pull`.
-
 ## Development and test scope
 
 Use Go matching `go.mod` and Node 26 as pinned by CI. From the repository root:
