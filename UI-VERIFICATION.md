@@ -287,3 +287,8 @@ Not captured as screenshots: the "Notebook name" prompt and the administrator's 
 Findings, not fixed here:
 
 - The console sidebar shows the administrator's username as muted text directly above Sign out, with no label.
+
+
+## Approved interface polish — 2026-10-19
+
+See [UI-POLISH.md](UI-POLISH.md) for the implemented changes, preservation scope, checks, actual before/after screenshots and disposable capture conditions. Earlier captures above remain historical evidence.

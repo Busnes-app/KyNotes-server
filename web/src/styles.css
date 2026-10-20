@@ -380,3 +380,41 @@ body { color: var(--ink-strong); background: var(--bg); }
   body.print-recovery .recovery-sheet { position: absolute; inset: 0; }
   body.print-recovery .recovery-actions { display: none; }
 }
+
+/* Notebook hierarchy: navigation stays compact, the page gets the working space. */
+.workspace { grid-template-columns: 220px 260px minmax(0, 1fr); }
+.workspace > .sidebar, .workspace > .note-list { min-width: 0; padding: 24px 16px; }
+.workspace > .sidebar { background: var(--sidebar-start); gap: 2px; }
+.workspace .section-label { font-family: Space, system-ui, sans-serif; letter-spacing: .03em; font-size: 11px; font-weight: 600; }
+.workspace .note-list .list-header h2.workspace-title { font-size: 24px; line-height: 1.2; letter-spacing: -.02em; margin-top: 0; overflow-wrap: anywhere; }
+.workspace-kind { font-family: Space, system-ui, sans-serif; font-size: 12px; line-height: 1.5; letter-spacing: normal; }
+.notes-heading { font-family: Space, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; color: var(--ink-strong); }
+.note-row { border-radius: 6px; padding: 13px 10px; }
+.note-row strong { font-size: 14px; line-height: 1.45; }
+.workspace > .editor { padding: 24px clamp(20px, 3vw, 48px); }
+.editor-meta { flex-wrap: wrap; gap: 8px 20px; font-family: Space, system-ui, sans-serif; font-size: 12px; line-height: 1.5; }
+.title-input { margin-top: 28px; font-size: clamp(26px, 3vw, 38px); letter-spacing: -.03em; }
+.section-tabs { padding-top: 14px; gap: 8px; }
+.section-tab { border-top-width: 2px; padding: 10px 14px; }
+.admin-settings-layout .settings-content { max-width: 1200px; padding-inline: clamp(24px, 4vw, 56px); }
+.admin-settings-layout .settings-header h1 { font-size: clamp(30px, 4vw, 40px); letter-spacing: -.025em; line-height: 1.15; }
+.admin-settings-layout .settings-header > .section-label { display: none; }
+.admin-settings-layout .settings-header > p { max-width: 70ch; line-height: 1.6; }
+.admin-settings-layout .settings-nav a { font-family: Space, system-ui, sans-serif; font-size: 13px; }
+.admin-settings-layout .admin-user { gap: 12px; padding-block: 16px; }
+.admin-settings-layout .admin-user strong, .admin-settings-layout .audit-row strong { overflow-wrap: anywhere; min-width: 0; }
+.admin-settings-layout .config-card h2 { letter-spacing: -.015em; }
+.admin-settings-layout .audit-row { align-items: flex-start; flex-wrap: wrap; gap: 8px 20px; line-height: 1.6; }
+@media (max-width: 1100px) and (min-width: 801px) { .workspace { grid-template-columns: 190px 230px minmax(0, 1fr); } }
+@media (max-width: 800px) { .workspace { grid-template-columns: minmax(0, 1fr); } .workspace > .sidebar { padding: 16px; } .sidebar-bottom { display: block; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); } .workspace > .note-list { max-height: 50vh; } .workspace > .editor { padding: 24px 16px; } .admin-settings-layout .settings-content { padding: 24px 16px; } }
+
+.notebook-navigation-toggle { display: none; }
+@media (max-width: 800px) {
+  .workspace { grid-template-areas: "switcher" "nav" "tabs" "pages" "page"; }
+  .notebook-navigation-toggle { display: flex; grid-area: switcher; justify-content: space-between; align-items: center; width: 100%; padding: 14px 16px; text-align: left; border-radius: 0; border-bottom: 1px solid var(--line); }
+  .notebook-navigation-toggle::after { content: '+'; font-size: 20px; }
+  .notebook-navigation-toggle[aria-expanded="true"]::after { content: '−'; }
+  .workspace > .sidebar { display: none; }
+  .workspace.show-notebook-navigation > .sidebar { display: flex; }
+  .workspace > .note-list { max-height: 16rem; overflow-y: auto; }
+}
