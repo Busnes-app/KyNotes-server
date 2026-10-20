@@ -2,9 +2,13 @@
 
 Run the container behind an HTTPS reverse proxy on the same Docker network. The
 embedded web client is served at `/`; `/api/` is served by the same process.
-The compose service does not publish a host port. Set `server.behind_proxy`
-and list only the proxy networks in `trusted_proxies`; the proxy must forward
-the client address through `X-Forwarded-For`.
+The compose service joins the external `kypost-net` network (`KYPOST_NETWORK`) at
+`KYNOTES_IP` (default `10.89.0.7`); the network must exist, with a subnet holding that
+address, before `docker compose up`. It also publishes `5870` on `KYNOTES_BIND` (default
+`127.0.0.1`). Set `TRUSTED_PROXY_CIDRS` to the proxy's own address (see
+[Trusted proxy addresses](#trusted-proxy-addresses)); in YAML that is `server.behind_proxy`
+and `server.trusted_proxies`. The proxy must forward the client address through
+`X-Forwarded-For`.
 
 For local/LAN access without a reverse proxy, use the development override. Overlays are
 selected once through `COMPOSE_FILE` in `.env` (a source build adds `docker-compose.build.yml`;
@@ -28,7 +32,7 @@ It publishes `8081` on the host's loopback address and forwards it to the server
 internal port `8080`. For LAN access set `KYNOTES_LOCAL_BIND=0.0.0.0` in `.env`; the
 listener is plaintext HTTP. Do not use this override for an internet-facing deployment.
 
-The default compose file uses the named `kynotes-data` volume for `/data`.
+The default compose file uses the named `kynotes_data` volume for `/data`.
 Restart without `--volumes` to preserve notes:
 
 ```bash

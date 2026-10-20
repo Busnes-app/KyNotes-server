@@ -12,6 +12,9 @@ and how it configures KyNotes with `apply-setup`.
   reverse proxy.
 - **Volumes:** `/data` (database, secrets, blob store, the admin socket) and `/backups` for
   local sealed capsules.
+- **Blob copy:** the capsule holds no note or attachment ciphertext. Configure restic of
+  `/data/blobs` or `KYNOTES_BLOB_TARGET` (see [Backups](#backups)); without one, a restored
+  capsule brings back accounts and settings but no note content.
 - **Stop timeout:** at least 17 minutes (`stop_grace_period: 17m` in `docker-compose.yml`,
   `terminationGracePeriodSeconds: 1020` in Kubernetes). See [Shutdown](#shutdown).
 - **Environment** the installer sets:
@@ -100,19 +103,23 @@ credentials once: users sign in again.
 
 Run it after the health check passes:
 
-    docker exec <container> /kynotes-server apply-setup --file /run/secrets/kynotes_setup.json
+    docker exec <container> /kynotes-server apply-setup --file /data/installer/setup.json
 
 (`kubectl exec` works the same way.) The command talks to the running server over
 `/data/admin.sock` (mode 0600, server uid or root only, never a network listener). It fails
 with exit 1 if the server is not running.
 
+The file is the bundle published by [Preparation](#preparation) (`/data` is `data_dir` in the
+stock image). The root filesystem is read-only and the stock compose file mounts nothing at
+`/run/secrets`, so any other bundle or secret file needs a mount you add.
+
 Bundle, version 1. Every section is optional; unknown fields are rejected:
 
     {"version":1,
      "sso":{"issuerUrl":"https://id.example","clientId":"kynotes",
-            "clientSecretFile":"/run/secrets/kynotes_oidc",
+            "clientSecretFile":"/data/installer/client.secret",
             "redirectUri":"https://notes.example/api/v1/auth/oidc/callback",
-            "directoryHmacSecretFile":"/run/secrets/kynotes_scim_hmac"},
+            "directoryHmacSecretFile":"/data/installer/directory.secret"},
      "admins":[{"issuer":"https://id.example","subject":"<sub>","username":"owner-admin"}],
      "backup":{"dir":"/backups","keep":7,"depositInterval":"24h",
                "recovery":{"url":"https://kyrecovery.example",
@@ -191,7 +198,9 @@ reads one `kyidentity.client-credentials/1` frame (at most 64 KiB) on stdin, as 
 KyIdentity's `apply-setup --export-client`. Pass it in memory over protected transport,
 never through argv, logs or workstation state. The retained bundle must name the frame's
 issuer and client, one of its HTTPS callbacks and exactly one owner matching the frame's
-subject and username with role `kynotes.admin`. Secrets land only at
+subject and username with role `kynotes.admin`, and must set `clientSecretFile` (and
+`directoryHmacSecretFile`, when used) to the paths below; import refuses any other path.
+Secrets land only at
 `<data_dir>/installer/client.secret` and, when selected, `directory.secret` for the
 endpoint `https://<callback host>/api/v1/sync/events`; each must be a canonical 32-byte
 base64url value. A private `client-import.json` holds only SHA-256 digests and is written
