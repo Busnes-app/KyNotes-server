@@ -11,7 +11,7 @@ export function AdminBackup({ username }: { username: string }) {
   const [message, setMessage] = useState("");
   const [password, setPassword] = useState("");
   const [minutes, setMinutes] = useState("1440");
-  const [remoteURL, setRemoteURL] = useState("https://kyrecovery.urlxl.us");
+  const [remoteURL, setRemoteURL] = useState("");
   const [code, setCode] = useState("");
   const [publicKey, setPublicKey] = useState("");
   const [threshold, setThreshold] = useState("2");
@@ -60,7 +60,7 @@ export function AdminBackup({ username }: { username: string }) {
     <details><summary>Pair with KyRecovery</summary>
       <p>Generate a six-digit pairing code in KyRecovery. Compare the suite key fingerprint out of band, or pin it below before pairing. HTTPS protects the incoming key, token and receipt.</p>
       <form onSubmit={event => { event.preventDefault(); const pairingCode = code; setCode(""); void act(async () => { await backupAction("pair-remote", { url: remoteURL, pairing_code: pairingCode }); }); }}>
-        <label>KyRecovery HTTPS URL<input type="url" value={remoteURL} onChange={event => setRemoteURL(event.target.value)} required /></label>
+        <label>KyRecovery HTTPS URL<input type="url" placeholder="https://kyrecovery.example.com" value={remoteURL} onChange={event => setRemoteURL(event.target.value)} required /></label>
         <label>Six-digit pairing code<input inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={event => setCode(event.target.value)} required /></label>
         <button disabled={busy}>Pair KyRecovery</button>
       </form>
