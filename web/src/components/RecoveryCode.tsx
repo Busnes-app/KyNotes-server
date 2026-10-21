@@ -8,10 +8,10 @@ import { generateIdentity } from "../teamKeys";
 
 export { RESET_CONFIRM, resetConfirmed };
 
-export const RECOVERY_MISSING = "Save a recovery code so you can get your encryption key back if you lose this browser.";
-export const RECOVERY_INTRO = "A recovery code gets your encryption key back on a new browser when no other browser holds it. KyNotes shows it once and cannot show it again. The server keeps only a copy of your key locked with the code, which it cannot open.";
+export const RECOVERY_MISSING = "Save a recovery code so you can get your encryption key back if no browser holds it and your password cannot open it.";
+export const RECOVERY_INTRO = "A recovery code gets your encryption key back when no browser holds it and your password cannot open it: after an administrator resets your password, or always on a single sign-on account, whose key has no password copy. KyNotes shows it once and cannot show it again. The server keeps only a copy of your key locked with the code, which it cannot open.";
 export const RECOVERY_KEEP = "Write this code down or store it in a password manager. Anyone who has it and can sign in as you can read your notebooks.";
-export const RECOVERY_LAST = "If every browser that holds your key is lost, this code is the only way back to your notebooks.";
+export const RECOVERY_LAST = "If no browser holds your key and your password cannot open it, this code is the only way back to your notebooks.";
 export const RECOVERY_SAVED = "Recovery code saved. Keep it somewhere safe.";
 export const RECOVERY_REPLACED = "New recovery code saved. Your previous code no longer works here, but older server backups still hold a copy it opens: if it may have leaked, reset your encryption key instead.";
 export const RECOVERY_RESTORE = "No other browser holds your key? Enter your recovery code.";

@@ -26,6 +26,12 @@ describe("administrator accounts (sub-project A)", () => {
     expect(sources["./observe.ts"]).not.toMatch(/adminTeams|createAdminTeam/);
   });
 
+  it("the console opens at its top, not at the setup or sign-in page's scroll offset", () => {
+    const mount = adminConsole.slice(adminConsole.indexOf("useEffect(() => {"));
+    expect(mount.indexOf("window.scrollTo(0, 0);")).toBeGreaterThan(-1);
+    expect(mount.indexOf("window.scrollTo(0, 0);")).toBeLessThan(mount.indexOf("}, []);"));
+  });
+
   it("teams are created for an everyday owner picked from active everyday users", () => {
     expect(adminConsole).toContain('users.filter((entry) => entry.status === "active" && entry.accountKind === "user")');
     expect(adminConsole).toContain("await createAdminTeam(owner)");

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { OTHER_COPY } from "../linkFlow";
 import { newRecoveryCode, RECOVERY_TYPO } from "../recovery";
-import { checkedPasswordKeys, CodeShown, IdentityReset, RESET_WRONG_PASSWORD, normalizeCodeInput, RECOVERY_LAST, RECOVERY_REPLACED, recoveryFileText, RecoveryRestore, restoreAfterStepUp, resetConfirmed, RESET_CONFIRM, TypeBack } from "./RecoveryCode";
+import { checkedPasswordKeys, CodeShown, IdentityReset, RESET_WRONG_PASSWORD, normalizeCodeInput, RECOVERY_INTRO, RECOVERY_LAST, RECOVERY_MISSING, RECOVERY_REPLACED, recoveryFileText, RecoveryRestore, restoreAfterStepUp, resetConfirmed, RESET_CONFIRM, TypeBack } from "./RecoveryCode";
 
 const sources = import.meta.glob<string>(["../**/*.ts", "../**/*.tsx", "!../**/*.test.ts", "!../**/*.test.tsx"], { query: "?raw", import: "default", eager: true });
 const component = sources["./RecoveryCode.tsx"];
@@ -26,6 +26,11 @@ describe("recovery code UI", () => {
     expect(html).toMatch(/shows it once/);
     expect(html).toContain(RECOVERY_LAST);
     expect(RECOVERY_LAST).toMatch(/only way back/);
+    // A password account's key opens with its password on any browser: the code matters when that fails.
+    for (const copy of [RECOVERY_MISSING, RECOVERY_INTRO, RECOVERY_LAST]) {
+      expect(copy).toContain("your password cannot open it");
+      expect(copy).not.toMatch(/every browser|lose this browser|on a new browser when no other/);
+    }
     expect(html).toContain("Print");
     expect(html).toContain("Download as a text file");
     expect(recoveryFileText(code)).toContain(code);
