@@ -41,6 +41,12 @@
   editor role add pages and append text, as its own KyNotes account. It decrypts on your machine;
   the server still sees only ciphertext. It cannot delete or change existing text. Removing the
   agent from the team revokes it. `docs/MCP.md` describes setup.
+- Fixed: after restoring your key with a recovery code (or linking this browser, or resetting
+  your key), notebooks and pages that could not be read before now appear without a reload.
+- The recovery-code text now says when you need the code: no browser holds your key and your
+  password cannot open it, as after an administrator resets your password, and always on a single
+  sign-on account.
+- Fixed: the admin console opens at its top after first-run setup instead of partway down.
 
 ## 0.4.2 — 2026-10-16
 

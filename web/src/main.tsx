@@ -815,6 +815,16 @@ function Workspace({
     }, replaceQueuedSave);
   }
   useEffect(() => { void refreshIdentity().catch(() => undefined); void heldIdentity().catch(() => undefined); }, []);
+  /**
+   * A created, restored, linked or reset identity: the notebook list and the open notebook are read
+   * again, so names and items that could not be decrypted without it appear without a reload.
+   */
+  const afterIdentityChange = () => {
+    setRecoveryPrompt(false);
+    // The open notebook's "could not be read" notice is shown again if it still applies.
+    setError("");
+    void refreshIdentity().then(() => loadContainers(), () => undefined);
+  };
   // A refused SSO key set-up or key share (an open KySignOn confirmation can be cancelled from it).
   const [identityRefusal, setIdentityRefusal] = useState<LinkRefusal>();
   const identityStore: IdentityStore = { load: () => loadIdentityRecord(auth.username, auth.user.id), save: (identity, expected) => storeIdentityKey(auth.username, auth.user.id, identity, expected), noteReset: (publicKey) => noteResetSent(auth.username, auth.user.id, publicKey) };
@@ -3034,8 +3044,8 @@ function Workspace({
             stepUp={keyAPI.stepUp}
             live={live}
             recoveryPrompt={recoveryPrompt}
-            onIdentityChanged={() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }}
-            onReset={(next) => { void retireWaitingEdits(next).catch(() => undefined).finally(() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }); }}
+            onIdentityChanged={afterIdentityChange}
+            onReset={(next) => { void retireWaitingEdits(next).catch(() => undefined).finally(afterIdentityChange); }}
             resetUnfinished={resetUnfinished}
             waitingHeld={waitingHeld}
             reminders={reminderPrefs}

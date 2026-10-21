@@ -29,6 +29,8 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
   useEffect(() => {
+    // The console replaces the setup or sign-in page in the same window: start at its top, not their scroll offset.
+    window.scrollTo(0, 0);
     void Promise.all([adminUsers(), adminAudit(), serviceStatus()])
       .then(([nextUsers, nextAudit, nextStatus]) => {
         setUsers(nextUsers);

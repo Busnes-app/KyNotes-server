@@ -83,8 +83,14 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).toContain("exportWaiting={exportWaiting}");
   });
 
-  it("re-reads the identity and runs a key pass after a link, restore, reset or saved code", () => {
-    expect(main).toContain("onIdentityChanged={() => { setRecoveryPrompt(false); void refreshIdentity().then(() => refreshKeys.current(), () => undefined); }}");
+  it("re-reads the identity and the notebooks after a link, restore, reset or saved code", () => {
+    expect(main).toContain("onIdentityChanged={afterIdentityChange}");
+    expect(main).toContain(".finally(afterIdentityChange); }}");
+    // A key pass alone left the names and items it could not decrypt hidden until a reload.
+    const after = block("  const afterIdentityChange");
+    expect(after).toContain("void refreshIdentity().then(() => loadContainers(), () => undefined);");
+    expect(after.indexOf('setError("")')).toBeLessThan(after.indexOf("loadContainers()"));
+    expect(main).not.toContain("refreshIdentity().then(() => refreshKeys.current()");
     expect(main).not.toMatch(/onLinked\(identity\)/);
     // The first SSO browser is shown its code right away.
     expect(main).toContain('if (settled.kind === "held") { setRecoveryPrompt(true); setView("settings"); }');
