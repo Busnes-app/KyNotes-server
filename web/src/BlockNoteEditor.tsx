@@ -1,9 +1,11 @@
 import { BlockNoteView } from "@blocknote/mantine";
-import { useCreateBlockNote } from "@blocknote/react";
-import type { Block, PartialBlock } from "@blocknote/core";
-import { useEffect, useRef } from "react";
+import { GridSuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
+import { getDefaultEmojiPickerItems, type Block, type PartialBlock } from "@blocknote/core";
+import { SuggestionMenu, type SuggestionMenuOptions } from "@blocknote/core/extensions";
+import { useCallback, useEffect, useRef } from "react";
 import "@blocknote/mantine/style.css";
 import { localDate, recurrenceEdits } from "./taskDates";
+import { emojiQueryReady, emojiTriggerStartsWord } from "./emoji";
 
 type Props = {
   noteID: string;
@@ -33,6 +35,16 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
     resolveFileUrl: (url) => resolveRef.current(url),
   }, [noteID]);
 
+  // Stable, so the menu does not reload its items (and drop an Enter) on every re-render.
+  const emojiShouldOpen: NonNullable<SuggestionMenuOptions["shouldOpen"]> = useCallback((tr) => emojiTriggerStartsWord(tr.selection.$from.parent.textBetween(0, tr.selection.$from.parentOffset, undefined, " ")), []);
+  const emojiItems = useCallback(async (query: string) => {
+    if (!emojiQueryReady(query)) {
+      editor.getExtension(SuggestionMenu)?.closeMenu();
+      return [];
+    }
+    return (await getDefaultEmojiPickerItems(editor, query)).map(({ id, onItemClick }) => ({ id, onItemClick, icon: <>{id}</> }));
+  }, [editor]);
+
   useEffect(() => {
     hydratedRef.current = false;
     if (legacyMarkdown) {
@@ -56,6 +68,7 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
       <BlockNoteView
         editor={editor}
         editable={editable}
+        emojiPicker={false}
         onChange={(current) => {
           if (!hydratedRef.current) return;
           // A ticked repeating item adds its next occurrence; the edit below reports the result.
@@ -66,7 +79,16 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
             current.insertBlocks([edit.next as PartialBlock], edit.id, "after");
           }));
         }}
-      />
+      >
+        {/* BlockNote's own picker opens on any ':' ("due:"); this one waits for a word start and two letters. */}
+        <GridSuggestionMenuController
+          triggerCharacter=":"
+          columns={10}
+          minQueryLength={2}
+          shouldOpen={emojiShouldOpen}
+          getItems={emojiItems}
+        />
+      </BlockNoteView>
     </div>
   );
 }
