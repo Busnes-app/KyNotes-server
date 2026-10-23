@@ -42,9 +42,9 @@ export const sendContainerName = (sealed: Sealed, metaCiphertext: string, baseVe
   sendCiphertext(sealed);
   return updateContainer(sealed.container.id, metaCiphertext, baseVersion, sealed.generation);
 };
-export const sendComment = (sealed: Sealed, objectID: string, bodyCiphertext: string) => {
+export const sendComment = (sealed: Sealed, objectID: string, bodyCiphertext: string, mentions: string[]) => {
   sendCiphertext(sealed);
-  return createComment(objectID, bodyCiphertext, sealed.generation);
+  return createComment(objectID, bodyCiphertext, sealed.generation, mentions);
 };
 export const sendUploadStart = (sealed: Sealed, declaredBytes: number, expectedDigest: string) => {
   sendCiphertext(sealed);

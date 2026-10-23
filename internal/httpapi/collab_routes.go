@@ -307,9 +307,14 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			if _, e := tx.Exec(`INSERT INTO comments(id,container_id,object_id,author_user_id,body_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?)`, id, cid, oid, s.UserID, body, in.KeyGeneration, seq, now); e != nil {
 				return e
 			}
+			// Only a current member of the notebook can be mentioned; anyone else refuses the comment.
 			for _, uid := range in.Mentions {
-				if _, e := tx.Exec(`INSERT INTO mentions(comment_id,mentioned_user_id) VALUES(?,?)`, id, uid); e != nil {
+				res, e := tx.Exec(`INSERT INTO mentions(comment_id,mentioned_user_id) SELECT ?,user_id FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, id, cid, uid)
+				if e != nil {
 					return e
+				}
+				if n, _ := res.RowsAffected(); n != 1 {
+					return errMentionNotMember
 				}
 			}
 			return nil

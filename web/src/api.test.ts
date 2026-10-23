@@ -158,4 +158,10 @@ describe("writes and creation", () => {
     expect(createContainer.length).toBe(0);
     expect(createAdminTeam.length).toBe(1);
   });
+
+  it("sends a comment's mentioned user IDs", async () => {
+    const sent = capture();
+    await createComment(obj, "AA==", 2, ["usr_bob"]);
+    expect(sent[0].body).toEqual({ bodyCiphertext: "AA==", keyGeneration: 2, mentions: ["usr_bob"] });
+  });
 });
