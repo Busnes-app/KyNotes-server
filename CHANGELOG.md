@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.3 — 2026-10-23
+
 ### Upgrade notes
 
 - `docker-compose.yml` no longer trusts every private network as a reverse proxy: the
