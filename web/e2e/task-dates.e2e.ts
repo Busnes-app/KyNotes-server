@@ -106,7 +106,8 @@ test("':' opens the emoji menu only where it starts a word and two letters follo
     await page.keyboard.type(" :s");
     await expect(emojiMenu(page)).toHaveCount(0);
     await page.keyboard.type("mile");
-    await expect(emojiMenu(page)).toBeVisible();
+    // Enter picks nothing until the menu's items have loaded.
+    await expect(emojiMenu(page).locator(".bn-grid-suggestion-menu-item").first()).toBeVisible();
     await page.keyboard.press("Enter");
     await expect(emojiMenu(page)).toHaveCount(0);
     await expect(page.locator(".bn-editor").first()).not.toContainText(":smile");
