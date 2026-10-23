@@ -1,7 +1,6 @@
 {
   "name": "kynotes-web",
   "private": true,
-  "version": "0.4.2",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -21,8 +21,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var version = "dev"
-
 var notebookID = regexp.MustCompile(`^cnt_[0-9a-hjkmnp-tv-z]{26}$`)
 
 type config struct {
