@@ -19,6 +19,7 @@ var (
 	errNotMember             = errors.New("not a member")
 	errInsufficientRole      = errors.New("insufficient role")
 	errEnvelopeInvalid       = errors.New("invalid envelope")
+	errMentionNotMember      = errors.New("mention of a non-member")
 	errEnvelopeExists        = errors.New("envelope exists")
 	errGenerationMoved       = errors.New("key generation changed")
 	errKeyRotationIncomplete = errors.New("key rotation incomplete")
@@ -73,6 +74,8 @@ func teamKeyError(err error) (status int, code, message string) {
 		return 403, "forbidden", "insufficient role"
 	case errors.Is(err, errEnvelopeInvalid):
 		return 400, "invalid_request", "invalid request"
+	case errors.Is(err, errMentionNotMember):
+		return 400, "invalid_request", "a mentioned user is not a member of this notebook"
 	case errors.Is(err, errEnvelopeExists):
 		return 409, "already_exists", "envelope already exists"
 	case errors.Is(err, errGenerationMoved):

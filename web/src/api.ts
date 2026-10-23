@@ -204,7 +204,7 @@ export function inviteMember(containerID: string, inviteeID: string, role: strin
 export const acceptInvitation = (id: string, token: string) => request<void>(`/api/v1/invitations/${encodeURIComponent(id)}/accept`, { method: "POST", body: JSON.stringify({ token }) });
 export function removeMember(containerID: string, userID: string) { return request<void>(`/api/v1/containers/${encodeURIComponent(containerID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" }); }
 export const comments = (objectID: string): Promise<Comment[]> => request<Comment[]>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`).then(withGeneration);
-export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions: [] }) }); }
+export function createComment(objectID: string, bodyCiphertext: string, keyGeneration: number, mentions: string[] = []) { return request<{ id: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}/comments`, { method: "POST", body: JSON.stringify({ bodyCiphertext, keyGeneration, mentions }) }); }
 
 export async function changes(containerID: string, since = 0) {
   return request<{ changes: Change[]; nextCursor: string; hasMore: boolean }>(

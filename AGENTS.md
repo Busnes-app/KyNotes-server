@@ -240,7 +240,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestGCDeletesUnreferencedBlobAndItsExpiredTombstones` and `blob_lifecycle_test.go`.
 - `internal/httpapi` presence is TTL-only in memory and membership-gated;
   notifications expose mention metadata only and use the existing 90-second
-  foreground refresh cadence in the browser.
+  foreground refresh cadence in the browser. The web client sends the user IDs of
+  the members a comment names as `@username` (`web/src/mentions.ts`); a mention of
+  anyone who is not a current member refuses the comment (`400`,
+  `TestCommentMentionsOnlyMembers`).
 - `POST /api/v1/admin/teams {"ownerUserId"}` (admin step-up) is the explicit admin team-creation path; the
   team belongs to that active everyday account (the administrator gets no membership) and records
   `admin.team.create` (object = owner). It takes no name; the owner's browser seals one after the first

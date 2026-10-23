@@ -61,6 +61,7 @@ import { linkRefusal } from "./linkFlow";
 import { keysAllowed, memberKeyStatus, NO_FLOOR, ownCopyKeys, type KeyFloor, type MemberKeyStatus, openFirst, readKeys, reminderIDKey, WAITING_GENERATION, waitingKey, writeKey, type Keyring, type Member, type MemberKey, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type InviteKeys, type KeyAPI, type KeySync, type PinStore } from "./keyService";
 import { attachmentStep, noteConflictMessage, notSaved, readyToSend, sealAttachment, type AttachmentFile } from "./drain";
+import { mentionedUserIDs } from "./mentions";
 import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploadChunk, sendUploadFinal, sendUploadStart, setWriteKeySource } from "./outbound";
 import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, sessionStore, takeInviteLink } from "./invitations";
 import { PinnedKeys } from "./components/PinnedKeys";
@@ -2403,7 +2404,8 @@ function Workspace({
       if (!write) throw new Error(WAITING);
       const encrypted = await encryptComment(write.key, selected.id, commentText.trim(), commentSection.trim());
       try {
-        await sendComment({ container: selected, generation: write.generation }, selectedNote.id, base64(encrypted));
+        const mentionable = keyMembers?.containerID === selected.id ? keyMembers.members : membersForTeam;
+        await sendComment({ container: selected, generation: write.generation }, selectedNote.id, base64(encrypted), mentionedUserIDs(commentText, mentionable, auth.user.id));
       } catch (error) {
         if (!(error instanceof APIRequestError && error.code === "already_exists")) throw error;
         // The notebook was re-keyed meanwhile: pick up the new key; the text stays in the box.
