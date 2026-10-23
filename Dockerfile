@@ -14,8 +14,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /src/web/dist /src/internal/web/dist
-ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=${VERSION}" -o /kynotes-server ./cmd/kynotes-server
+# Release builds pass the tag's version (X.Y.Z or X.Y.Z.N) and CI passes the commit SHA;
+# a build without VERSION reports internal/appversion/VERSION.
+ARG VERSION=
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-X github.com/Busnes-app/kynotes-server/internal/appversion.release=${VERSION}" \
+    -o /kynotes-server ./cmd/kynotes-server
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /kynotes-server /kynotes-server

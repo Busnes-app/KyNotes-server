@@ -53,7 +53,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - CI (`.github/workflows/ci.yml`, `verify`) builds, vets, tests, runs the browser checks (`npm run e2e`: team keys, `web/e2e/admin-separation.e2e.ts` and `web/e2e/task-dates.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
-- Publishing a GitHub release `vX.Y.Z` runs `release-image.yml`. It refuses a malformed tag, a tag that disagrees with `web/package.json` (the binary takes the tag as its `VERSION` build arg), and any commit on which a ci.yml job in its `REQUIRED` list (`test`) did not pass. It then builds `:X.Y.Z` with provenance and SBOM, attests and verifies it (identity `release-image.yml@refs/tags/vX.Y.Z`), and moves `:stable` to that digest only for the highest non-prerelease. It never moves `:latest`; `master` CI owns that. A job added to ci.yml must be added to `REQUIRED` too.
+- The version has one source: `internal/appversion/VERSION` (`X.Y.Z`, the release line; `web/package.json` has no version). Go code (`kynotes-server`, `kynotes-mcp`) calls `appversion.String()`; the Dockerfile's `VERSION` build arg sets `-ldflags -X …/internal/appversion.release`, so release images report `X.Y.Z` or `X.Y.Z.N`, CI images the commit SHA, and source builds the line.
+- Publishing a GitHub release `vX.Y.Z` or `vX.Y.Z.N` runs `release-image.yml` (a dispatch on a published release's tag runs it too). It refuses a malformed tag, a tag whose `X.Y.Z` disagrees with `internal/appversion/VERSION`, and any commit on which a ci.yml job in its `REQUIRED` list (`test`) did not pass. It then builds `:X.Y.Z[.N]` with provenance and SBOM, attests and verifies it (identity `release-image.yml@refs/tags/<tag>`), and moves `:stable` to that digest only for the highest non-prerelease. It never moves `:latest`; `master` CI owns that. A job added to ci.yml must be added to `REQUIRED` too.
+- `dependency-release.yml` runs daily at 23:00 UTC: if Dependabot commits landed on `master` since the newest release on the current line and the push CI run on `master`'s tip succeeded, it publishes the next `vX.Y.Z.N` (one per day however many PRs merged) and dispatches `release-image.yml` on it, since a `GITHUB_TOKEN` release raises no release event. Run by hand, it releases `master` without the Dependabot condition. It waits while the line in `VERSION` has no `vX.Y.Z` release: bump `VERSION` and publish `vX.Y.Z` by hand for a new line.
 
 ## Shared browser UI
 
@@ -328,8 +330,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   only on 200, loopback hosts only, no redirects. It reads only the bind (`config.Bind`): no
   secrets, no writes (`TestHealthcheckWritesNothing`). Readiness turns false when shutdown starts;
   `Serve` waits up to `shutdown_grace` for a running GC pass before SQLite closes
-  (`TestShutdownWaitsForRunningGC`). `version` is set by
-  `-ldflags "-X main.version=..."`; the Dockerfile takes `ARG VERSION` (CI passes the commit SHA).
+  (`TestShutdownWaitsForRunningGC`). The reported version is
+  `appversion.String()`: `-ldflags "-X …/internal/appversion.release=..."` overrides
+  `internal/appversion/VERSION`; the Dockerfile takes `ARG VERSION` (CI passes the commit SHA).
 - Verification for server changes: `go test -race ./...`, `go vet ./...`, and
   `gofmt -l .`.
 - `internal/httpapi` serves public `GET /healthz` as cached `ky.health/1`: startup

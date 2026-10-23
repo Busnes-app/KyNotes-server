@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"io"
 	"os"
@@ -250,7 +251,7 @@ type idOut struct {
 }
 
 func (b *bridge) server() *mcp.Server {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "kynotes", Version: version}, &mcp.ServerOptions{Instructions: instructions})
+	srv := mcp.NewServer(&mcp.Implementation{Name: "kynotes", Version: appversion.String()}, &mcp.ServerOptions{Instructions: instructions})
 	closed := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(false)}
 	mcp.AddTool(srv, &mcp.Tool{Name: "list_pages", Description: "List the notebook's pages in notebook order. " + untrustedNote, Annotations: closed},
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listOut, error) {

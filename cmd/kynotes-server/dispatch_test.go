@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 )
 
 func TestUnknownSubcommandIsRejected(t *testing.T) {
@@ -22,11 +24,8 @@ func TestUnknownSubcommandIsRejected(t *testing.T) {
 	}
 }
 
-func TestVersionLineUsesVariable(t *testing.T) {
-	old := version
-	defer func() { version = old }()
-	version = "abc123"
-	if got := versionLine(); got != "kynotes-server abc123" {
-		t.Fatal(got)
+func TestVersionLineUsesAppVersion(t *testing.T) {
+	if got, want := versionLine(), "kynotes-server "+appversion.String(); got != want {
+		t.Fatalf("versionLine() = %q, want %q", got, want)
 	}
 }

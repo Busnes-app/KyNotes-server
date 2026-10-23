@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/app"
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -22,8 +23,6 @@ import (
 	"syscall"
 	"time"
 )
-
-var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "apply-setup" {
@@ -133,13 +132,13 @@ func main() {
 	log := logging.New(os.Stdout, c.Log.Level, c.Log.Format)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if e = app.Serve(ctx, c, log, version); e != nil {
+	if e = app.Serve(ctx, c, log, appversion.String()); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}
 }
 
-func versionLine() string { return "kynotes-server " + version }
+func versionLine() string { return "kynotes-server " + appversion.String() }
 
 func commandConfig(args []string) string {
 	for i := 0; i+1 < len(args); i++ {
