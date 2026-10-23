@@ -26,6 +26,7 @@ async function newTextPage(owner: Person, notebook: string) {
   await page.getByRole("button", { name: "Add text" }).click();
   await page.locator(".bn-editor").first().click();
 }
+const emojiMenu = (page: Page) => page.locator(".bn-grid-suggestion-menu");
 const queueRow = (page: Page, group: string) => page.locator(`[data-task-group="${group}"] .note-row`, { hasText: TASK });
 
 test("a repeating checklist item rolls forward when ticked, and the work queue groups it by date", async ({ browser }) => {
@@ -39,7 +40,7 @@ test("a repeating checklist item rolls forward when ticked, and the work queue g
     await newTextPage(owner, NOTEBOOK);
     // "[] " at line start makes a checklist item.
     await page.keyboard.type(`[] ${TASK} due:${yesterday} repeat:daily`);
-    await page.keyboard.press("Escape"); // ":" opens the emoji menu
+    await expect(emojiMenu(page)).toHaveCount(0); // ":" inside a word never opens the emoji menu
     await expect(items(page)).toHaveCount(1);
     await expect(items(page).first()).toContainText(`${TASK} due:${yesterday} repeat:daily`);
 
@@ -86,6 +87,29 @@ test("a repeating checklist item rolls forward when ticked, and the work queue g
     await expect(queueRow(page, "today")).toHaveCount(1);
     await shoot("task-dates", page, "queue", "grouped", queueRow(page, "today"));
     expect(owner.unexpected).toEqual([]);
+  } finally {
+    await admin.page.context().close();
+    await owner.page.context().close();
+  }
+});
+
+test("':' opens the emoji menu only where it starts a word and two letters follow", async ({ browser }) => {
+  const admin = await person(browser);
+  const owner = await person(browser);
+  try {
+    await adminConsole(admin.page);
+    await signIn(owner.page, OWNER.username, OWNER.password);
+    const { page } = owner;
+    await newTextPage(owner, "Emoji menu E2E");
+    await page.keyboard.type("due:today at 10:30 :1a");
+    await expect(emojiMenu(page)).toHaveCount(0);
+    await page.keyboard.type(" :s");
+    await expect(emojiMenu(page)).toHaveCount(0);
+    await page.keyboard.type("mile");
+    await expect(emojiMenu(page)).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(emojiMenu(page)).toHaveCount(0);
+    await expect(page.locator(".bn-editor").first()).not.toContainText(":smile");
   } finally {
     await admin.page.context().close();
     await owner.page.context().close();
