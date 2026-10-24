@@ -29,6 +29,20 @@ Run the checks that apply to the files changed. At minimum, validate Markdown
 links and CSS asset paths, and run the project test suite once implementation
 exists. Record the commands and results in the pull request.
 
+## Coding standard
+
+Contributions follow these style guides. CI (`.github/workflows/ci.yml`, job `test`) enforces
+the parts a tool can check, so a style failure is a red build, not a review comment.
+
+| Language | Style guide | Enforced by |
+|---|---|---|
+| Go | [Effective Go](https://go.dev/doc/effective_go) and the [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments) | `go vet ./...` and `test -z "$(gofmt -l .)"` |
+| TypeScript (`web/`) | The TypeScript compiler in `strict` mode with `noUnusedLocals` | `tsc --noEmit` in `npm run build --prefix web` (step `Verify frontend and embedded asset set`) |
+| Shared UI (`web/src/ky-ui/`) | Vendored from Busnes-app/ky-ui; never edited here | `check-vendor.mjs`, run before every `npm run build` and `npm test` |
+
+Beyond what the tools check: keep to the comment density and naming of the file you are
+editing, reuse existing code and prefer the standard library ([AGENTS.md](AGENTS.md)).
+
 ## AI attribution
 
 Disclose material AI assistance in the pull request, including the tool, what
