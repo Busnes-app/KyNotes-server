@@ -80,7 +80,7 @@ downloaded by a member before revocation.
 | Username enumeration | A synthetic login salt for unknown usernames | `SyntheticLoginSalt` in `internal/auth/derive.go` |
 | Credential guessing | 3 failed logins lock for 15 minutes, 3 failed recoveries for 60; per-minute rate limits on login, pairing and uploads | `internal/httpapi/auth_routes.go`, `internal/httpapi/ratelimit.go` |
 | Session theft or fixation | A fresh 32-byte `crypto/rand` token per sign-in, only its SHA-256 stored; `HttpOnly`, `SameSite=Lax`, `Secure` unless configured insecure; 24-hour sliding and 7-day hard expiry | `internal/auth/session.go` |
-| CSRF | `SameSite=Lax` session cookie, plus a double-submit check: state-changing requests with a session cookie must send `X-CSRF-Token` equal to the `csrf` cookie (constant-time compare). The check runs in each handler, not in middleware | `CheckCSRF` in `internal/auth/middleware.go` |
+| CSRF | `SameSite=Lax` session cookie, plus a session-bound token: state-changing requests with a session cookie must send `X-CSRF-Token` equal to an HMAC-SHA256 of that session cookie under a server key derived from `secrets/pairing.key` (constant-time compare). The `csrf_token` cookie only tells the web app the value and is never trusted, so a token or cookie pair from another session, or one tossed in from a sibling origin, is refused. Requests without a session cookie (sign-in) carry no session to forge and are not CSRF-checked. The check runs in each handler, not in middleware | `CheckCSRF` in `internal/auth/csrf.go` |
 | Device secret theft | Device secrets stored as SHA-256, compared in constant time, with a lockout per device and address | `internal/auth/middleware.go` |
 | Cross-site scripting | No `dangerouslySetInnerHTML` or `innerHTML` assignment in `web/src`; the web app's CSP has `script-src 'self'` and `frame-ancestors 'none'`; every other response gets `default-src 'none'` and `X-Frame-Options: DENY` | `internal/web/embed.go`, `SecurityHeaders` in `internal/httpapi/middleware.go` |
 | SQL injection | `database/sql` with `?` parameters; the one concatenated statement joins a constant | `internal/storage/gc.go` |
@@ -102,7 +102,8 @@ deactivation until they expire. Each is in
 ## Evidence
 
 - **Tests:** package tests for every security-sensitive route, including
-  `TestMutatingRequestWithoutCSRFHeaderIsRejected` and the route-level CSRF and step-up tests in
+  `TestMutatingRequestWithoutCSRFHeaderIsRejected`, `TestCSRFTokenIsBoundToSession`,
+  `TestCSRFTokenFromAnotherSessionIsRefused` and the route-level CSRF and step-up tests in
   `internal/httpapi`; SECURITY.md requires attack-path tests for security changes. CI runs the
   Go suite under the race detector, the web unit tests, and Playwright browser regressions on
   every push and pull request.

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -25,6 +26,7 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 	if err := config.Validate(c); err != nil {
 		return err
 	}
+	auth.SetCSRFKey(c.Secrets.PairingSecret)
 	unlock, err := storage.LockDirectory(c.DataDir)
 	if err != nil {
 		return err
