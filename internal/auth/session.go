@@ -42,17 +42,15 @@ func prepareSession(userID string, now time.Time) (sessionCredentials, error) {
 		return sessionCredentials{}, err
 	}
 	token := make([]byte, 32)
-	csrf := make([]byte, 32)
 	if _, err = rand.Read(token); err != nil {
 		return sessionCredentials{}, err
 	}
-	if _, err = rand.Read(csrf); err != nil {
-		return sessionCredentials{}, err
-	}
+	raw := base64.RawURLEncoding.EncodeToString(token)
 	hash := sha256.Sum256(token)
-	csrfHash := sha256.Sum256(csrf)
-	s := Session{ID: id, UserID: userID, CSRF: base64.RawURLEncoding.EncodeToString(csrf), CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour), HardExpiresAt: now.Add(7 * 24 * time.Hour)}
-	return sessionCredentials{session: s, token: base64.RawURLEncoding.EncodeToString(token), tokenHash: hex.EncodeToString(hash[:]), csrfHash: hex.EncodeToString(csrfHash[:])}, nil
+	csrf := CSRFToken(raw) // bound to this session; CheckCSRF recomputes it from the cookie
+	csrfHash := sha256.Sum256([]byte(csrf))
+	s := Session{ID: id, UserID: userID, CSRF: csrf, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour), HardExpiresAt: now.Add(7 * 24 * time.Hour)}
+	return sessionCredentials{session: s, token: raw, tokenHash: hex.EncodeToString(hash[:]), csrfHash: hex.EncodeToString(csrfHash[:])}, nil
 }
 
 func (c sessionCredentials) setCookies(w http.ResponseWriter, insecure bool) {

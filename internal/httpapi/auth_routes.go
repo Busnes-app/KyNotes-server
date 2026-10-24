@@ -245,7 +245,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 401, "unauthenticated", "session no longer active")
 			return
 		}
-
+		auth.RefreshCSRFCookie(w, r, cfg.Server.DevInsecureCookies)
 		writeJSON(w, map[string]any{"sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	}))
 	mux.Handle("GET /api/v1/auth/session", handleSession)

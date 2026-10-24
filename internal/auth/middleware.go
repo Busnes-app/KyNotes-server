@@ -287,22 +287,6 @@ func DeviceFromContext(r *http.Request) (Device, bool) {
 	d, ok := r.Context().Value(deviceKey{}).(Device)
 	return d, ok
 }
-func CheckCSRF(r *http.Request) error {
-	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-		return nil
-	}
-	if _, err := r.Cookie(sessionCookie); err != nil {
-		return nil
-	}
-	csrf, err := r.Cookie(csrfCookie)
-	if err != nil {
-		return errors.New("csrf")
-	}
-	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(csrf.Value)) != 1 {
-		return errors.New("csrf")
-	}
-	return nil
-}
 
 var (
 	ErrSessionInvalid = errors.New("session no longer valid")

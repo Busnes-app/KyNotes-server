@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Security
+
+- The CSRF token is now bound to its session: `X-CSRF-Token` must equal an HMAC of the session
+  cookie under a server key derived from `secrets/pairing.key`. Before, any matching
+  `csrf_token` cookie and header passed, so a sibling subdomain that could set a cookie could
+  forge state-changing requests. Open sessions get the bound token the next time the web app
+  reads `GET /api/v1/auth/session`; other clients that cached the old cookie value must re-read
+  the `csrf_token` cookie.
+
 ## 0.4.3 — 2026-10-23
 
 ### Upgrade notes
