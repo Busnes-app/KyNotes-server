@@ -27,6 +27,10 @@ local sealed copies, download capsules and run synthetic restore drills. Capsule
 the database and deployment secrets, while ciphertext blobs require separate recovery.
 Read the [restore runbook](docs/RESTORE.md) before relying on a backup.
 
+To check that a release image came from this repository's release workflow, and to rebuild its
+binary to the same bytes, see [verifying releases](docs/VERIFYING-RELEASES.md). The security
+argument as a whole is in the [assurance case](docs/ASSURANCE-CASE.md).
+
 TLS protects the public key received at pairing, the deposit token and receipts even
 though the capsule is sealed. Pin the suite public key by hand or compare its fingerprint
 out of band. A product process never holds recovery private keys or custodian shares.

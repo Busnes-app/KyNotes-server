@@ -66,6 +66,20 @@ jobs:
           check-latest: true
       - run: go build ./...
       - run: go vet ./...
+      # The release binary must not depend on where it is built: build it the way the
+      # Dockerfile does (no .git in the context, -trimpath) from two directories and require
+      # identical bytes. docs/VERIFYING-RELEASES.md tells users how to repeat this.
+      - name: release binary is repeatable
+        run: |
+          set -euo pipefail
+          ld="-X github.com/Busnes-app/kynotes-server/internal/appversion.release=0.0.0"
+          for d in "$RUNNER_TEMP/a" "$RUNNER_TEMP/elsewhere/b"; do
+            mkdir -p "$d/src"
+            git archive HEAD | tar -x -C "$d/src"
+            (cd "$d/src" && CGO_ENABLED=0 go build -trimpath -ldflags="$ld" -o "$d/kynotes-server" ./cmd/kynotes-server)
+          done
+          sha256sum "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
+          cmp "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
       - run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
       - name: Team keys in three real browsers

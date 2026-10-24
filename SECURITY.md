@@ -87,6 +87,8 @@ the relevant failure or attack path. Review the verification strategy in
 - [DESIGN.md](DESIGN.md) — architecture, encryption, storage, and deployment
 - [LOGGING.md](LOGGING.md) — privacy-safe logging rules
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution and review requirements
+- [docs/VERIFYING-RELEASES.md](docs/VERIFYING-RELEASES.md) — verify a release image and rebuild its binary
+- [docs/ASSURANCE-CASE.md](docs/ASSURANCE-CASE.md) — threat model and the argument that the protections above hold
 
 ### SSO last-administrator recovery grant
 
