@@ -517,6 +517,7 @@ func TestBridgeFollowsTheMigrationMarker(t *testing.T) {
 		for _, p := range list.Pages {
 			out = append(out, p.Title)
 		}
+		slices.Sort(out) // unordered pages sort by ID, which is random within a millisecond
 		return out, msg
 	}
 
