@@ -1,10 +1,11 @@
 import { APIRequestError, loginParams, stepUp } from "./api";
 import { deriveAuthSecret } from "./crypto";
+import { loginFloor } from "./loginUpgrade";
 
 /** Derives the login secret from a typed password, exactly as at login, re-proves it for this session and returns it. */
 export async function stepUpWithPassword(username: string, password: string): Promise<string> {
   const { loginSalt, iterations } = await loginParams(username);
-  const authSecret = await deriveAuthSecret(password, loginSalt, iterations);
+  const authSecret = await deriveAuthSecret(password, loginSalt, iterations, loginFloor(username));
   await stepUp(authSecret);
   return authSecret;
 }

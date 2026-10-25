@@ -505,7 +505,7 @@ func userCommand(args []string) error {
 	defer done()
 
 	var authSecret, loginSalt string
-	iterations := 600000
+	iterations := auth.LoginIterations
 
 	if password != "" {
 		loginSalt = auth.SyntheticLoginSalt(c.Secrets.ServerSaltKey, username)
@@ -528,8 +528,11 @@ func userCommand(args []string) error {
 		}
 		authSecret = in.AuthSecret
 		loginSalt = in.LoginSalt
-		if in.Iterations > 0 {
+		if in.Iterations != 0 {
 			iterations = in.Iterations
+		}
+		if iterations < auth.LoginIterations || iterations > 1000000 {
+			return fmt.Errorf("iterations must be between %d and 1000000", auth.LoginIterations)
 		}
 	}
 

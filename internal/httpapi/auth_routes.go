@@ -76,7 +76,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	}
 	valid := func(a *setupAccount) bool {
 		a.Username = strings.ToLower(strings.TrimSpace(a.Username))
-		return a.Username != "" && len(a.AuthSecret) == 64 && a.LoginSalt != "" && a.Iterations >= 100000 && a.Iterations <= 1000000
+		return a.Username != "" && len(a.AuthSecret) == 64 && a.LoginSalt != "" && a.Iterations >= auth.LoginIterations && a.Iterations <= 1000000
 	}
 	// First-run setup creates the administrator account and the everyday account that writes notes,
 	// both with passwords the person at setup chose, and signs this browser in as the administrator.
@@ -301,7 +301,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			IdentityDeviceID                               string `json:"identityDeviceId"`
 			Iterations                                     int    `json:"iterations"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.CurrentAuthSecret) != 64 || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.CurrentAuthSecret) != 64 || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < auth.LoginIterations || in.Iterations > 1000000 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -435,6 +435,108 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	mux.Handle("POST /api/v1/auth/password", auth.RequireAccount(db, changePassword))
+	// Replaces a verifier stretched with fewer than auth.LoginIterations, once, from the browser that
+	// just proved the password. It revokes nothing and keeps password_admin_known: no new party
+	// learns anything, and a password change through here gains nothing POST /auth/password lacks.
+	mux.Handle("POST /api/v1/auth/login-upgrade", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		var in struct {
+			CurrentAuthSecret, NewAuthSecret, NewLoginSalt string
+			WrappedIdentityKey                             string `json:"wrappedIdentityKey"`
+			IdentityDeviceID                               string `json:"identityDeviceId"`
+			Iterations                                     int    `json:"iterations"`
+		}
+		var wrapped []byte
+		ok := json.NewDecoder(r.Body).Decode(&in) == nil && len(in.CurrentAuthSecret) == 64 && len(in.NewAuthSecret) == 64 && in.NewLoginSalt != "" &&
+			in.Iterations >= auth.LoginIterations && in.Iterations <= 1000000 && (in.WrappedIdentityKey == "") == (in.IdentityDeviceID == "")
+		if ok && in.WrappedIdentityKey != "" {
+			wrapped, ok = decodeWrappedIdentity(in.WrappedIdentityKey)
+		}
+		if !ok {
+			WriteError(w, r, 400, "invalid_request", "invalid request")
+			return
+		}
+		key := s.UserID + "\x00" + auth.ClientIP(r)
+		if !loginLockout.Try(key, time.Now().UTC()) {
+			WriteError(w, r, 429, "rate_limited", "try again later")
+			return
+		}
+		var stored string
+		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
+		verifyErr := auth.VerifyAuthSecret(in.CurrentAuthSecret, stored)
+		if errors.Is(verifyErr, auth.ErrBusy) {
+			authBusy(w, r, "upgrade temporarily unavailable")
+			return
+		}
+		if err != nil || verifyErr != nil {
+			loginLockout.Fail(key, time.Now().UTC())
+			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
+			return
+		}
+		loginLockout.Success(key)
+		hash, err := auth.HashAuthSecret(in.NewAuthSecret)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		var from int
+		err = dbTx(db, func(tx *sql.Tx) error {
+			current, err := auth.RecheckSessionTx(tx, s, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if current != stored {
+				return errPasswordChanged
+			}
+			if err := tx.QueryRow(`SELECT login_iterations FROM users WHERE id=?`, s.UserID).Scan(&from); err != nil {
+				return err
+			}
+			// Already upgraded (another tab, or a retry after a lost response): nothing to do.
+			if from >= auth.LoginIterations {
+				return errUpgraded
+			}
+			var identities int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM user_identities WHERE user_id=? AND wrap_alg=?`, s.UserID, identityWrapAlg).Scan(&identities); err != nil {
+				return err
+			}
+			// A password copy moves with the verifier or the upgrade is refused; none is added here.
+			if (identities == 1) != (wrapped != nil) {
+				return errIdentityRewrap
+			}
+			if _, err := tx.Exec(`UPDATE users SET auth_secret_hash=?,login_salt=?,login_iterations=?,updated_at=? WHERE id=?`, hash, in.NewLoginSalt, in.Iterations, now, s.UserID); err != nil {
+				return err
+			}
+			if wrapped != nil {
+				res, err := tx.Exec(`UPDATE user_identities SET wrapped_private_key=?,updated_at=? WHERE user_id=? AND device_id=? AND wrap_alg=?`, wrapped, now, s.UserID, in.IdentityDeviceID, identityWrapAlg)
+				if err != nil {
+					return err
+				}
+				if n, _ := res.RowsAffected(); n != 1 {
+					return errIdentityRewrap
+				}
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "account.login_upgrade", "", "", "success", fmt.Sprintf("iterations=%d,to=%d", from, in.Iterations), RequestID(r))
+		})
+		switch {
+		case errors.Is(err, auth.ErrSessionInvalid):
+			auth.WriteAuthError(w, "unauthenticated", "authentication required")
+		case errors.Is(err, errPasswordChanged):
+			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
+		case errors.Is(err, errUpgraded):
+			WriteError(w, r, 409, "already_exists", "the password is already stretched enough")
+		case errors.Is(err, errIdentityRewrap):
+			WriteError(w, r, 409, "identity_rewrap_required", "reload KyNotes and sign in again")
+		case err != nil:
+			WriteError(w, r, 500, "internal", "internal server error")
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})))
 	mux.Handle("POST /api/v1/auth/logout-all", auth.RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -532,7 +634,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			Username, RecoveryCode, NewAuthSecret, NewLoginSalt string
 			Iterations                                          int `json:"iterations"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.NewAuthSecret) != 64 {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.NewAuthSecret) != 64 || in.Iterations < auth.LoginIterations || in.Iterations > 1000000 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}

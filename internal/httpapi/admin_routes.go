@@ -178,7 +178,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			Iterations                      int
 			AccountKind                     string `json:"accountKind"`
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.AuthSecret) != 64 || in.LoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 || (in.AccountKind != auth.KindEveryday && in.AccountKind != auth.KindAdmin) {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || in.Username == "" || len(in.AuthSecret) != 64 || in.LoginSalt == "" || in.Iterations < auth.LoginIterations || in.Iterations > 1000000 || (in.AccountKind != auth.KindEveryday && in.AccountKind != auth.KindAdmin) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
@@ -301,7 +301,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			NewAuthSecret, NewLoginSalt string
 			Iterations                  int
 		}
-		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < 100000 || in.Iterations > 1000000 {
+		if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.NewAuthSecret) != 64 || in.NewLoginSalt == "" || in.Iterations < auth.LoginIterations || in.Iterations > 1000000 {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}

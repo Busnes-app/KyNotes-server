@@ -45,6 +45,7 @@ var (
 	errIdentityExists  = errors.New("identity exists")
 	errIdentityRewrap  = errors.New("identity rewrap mismatch")
 	errPasswordChanged = errors.New("password changed concurrently")
+	errUpgraded        = errors.New("login already upgraded")
 	errIdentityMissing = errors.New("no identity")
 	errRecoveryMoved   = errors.New("recovery copy changed")
 )

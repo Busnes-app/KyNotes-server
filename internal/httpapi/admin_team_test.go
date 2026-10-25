@@ -57,7 +57,7 @@ func TestAdminUserRoutesKeepKindsApart(t *testing.T) {
 	admin := p.addAdmin(t, "server-admin")
 	admin.stepUp(t)
 	create := func(name, kind string) (int, string) {
-		body := `{"username":` + quote(name) + `,"authSecret":"` + strings.Repeat("c", 64) + `","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000,"accountKind":` + quote(kind) + `}`
+		body := `{"username":` + quote(name) + `,"authSecret":"` + strings.Repeat("c", 64) + `","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000,"accountKind":` + quote(kind) + `}`
 		return status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users", []byte(body), true, false))
 	}
 	if code, out := create("x", "root"); code != http.StatusBadRequest {

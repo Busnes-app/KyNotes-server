@@ -76,7 +76,7 @@ downloaded by a member before revocation.
 
 | Weakness | Counter | Where |
 |---|---|---|
-| Password theft from the server | The browser derives the login secret with PBKDF2-SHA256 (600,000 iterations when it sets a password; the server refuses fewer than 100,000) and HKDF; the server stores that as Argon2id | `web/src/crypto.ts`, `internal/auth/hash.go`, `internal/httpapi/auth_routes.go` |
+| Password theft from the server | The browser derives the login secret with PBKDF2-SHA256 (600,000 iterations; every password write refuses fewer, and the browser signs in to an older account at no fewer than 100,000 only until it has upgraded that account and pinned it) and HKDF; the server stores that as Argon2id | `web/src/crypto.ts`, `internal/auth/hash.go`, `internal/httpapi/auth_routes.go` |
 | Username enumeration | A synthetic login salt for unknown usernames | `SyntheticLoginSalt` in `internal/auth/derive.go` |
 | Credential guessing | 3 failed logins lock for 15 minutes, 3 failed recoveries for 60; per-minute rate limits on login, pairing and uploads | `internal/httpapi/auth_routes.go`, `internal/httpapi/ratelimit.go` |
 | Session theft or fixation | A fresh 32-byte `crypto/rand` token per sign-in, only its SHA-256 stored; `HttpOnly`, `SameSite=Lax`, `Secure` unless configured insecure; 24-hour sliding and 7-day hard expiry | `internal/auth/session.go` |

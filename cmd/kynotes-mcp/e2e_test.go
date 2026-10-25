@@ -33,7 +33,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
-const iterations = 100000
+const iterations = auth.LoginIterations
 
 // stack is a real KyNotes router with its database and blobs in one temp directory.
 type stack struct {

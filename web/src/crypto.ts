@@ -68,20 +68,22 @@ export function deriveRecoveryKEK(secret: Uint8Array, salt: Uint8Array): Promise
   return pbkdf2Bits(secret, labelled, RECOVERY_ITERATIONS);
 }
 
-/** The server's MinLoginIterations (IMPLEMENTATION_PLAN.md): fewer, from a malicious server, are refused. */
-export const MIN_LOGIN_ITERATIONS = 100_000;
+/** What every password write uses, and the default floor: fewer, from a malicious server, are refused. */
+export const LOGIN_ITERATIONS = 600_000;
+/** The server's MinLoginIterations: only an account this browser has not pinned may sign in at it, to be upgraded (loginUpgrade.ts). */
+export const LEGACY_LOGIN_ITERATIONS = 100_000;
 
 /** One PBKDF2 pass, two HKDF labels: the server sees authSecret, never userKEK. */
-export async function deriveLoginKeys(password: string, salt: string, iterations: number): Promise<LoginKeys> {
-  if (!Number.isSafeInteger(iterations) || iterations < MIN_LOGIN_ITERATIONS) throw new Error("The server asked for too few password iterations; refusing to sign in.");
+export async function deriveLoginKeys(password: string, salt: string, iterations: number, floor = LOGIN_ITERATIONS): Promise<LoginKeys> {
+  if (!Number.isSafeInteger(iterations) || iterations < floor) throw new Error("The server asked for too few password iterations; refusing to sign in.");
   const stretched = await stretchPassword(password, salt, iterations);
   const label = (info: string) => hkdfSha256(stretched, 32, new Uint8Array(0), encoder.encode(info));
   const authSecret = [...label("kynotes/auth/v1")].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   return { authSecret, userKEK: label("kynotes/user-kek/v1") };
 }
 
-export async function deriveAuthSecret(password: string, salt: string, iterations: number): Promise<string> {
-  return (await deriveLoginKeys(password, salt, iterations)).authSecret;
+export async function deriveAuthSecret(password: string, salt: string, iterations: number, floor = LOGIN_ITERATIONS): Promise<string> {
+  return (await deriveLoginKeys(password, salt, iterations, floor)).authSecret;
 }
 
 export function randomLoginSalt(): string {

@@ -127,7 +127,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
   shared container keys (`keyring.ts`). It needs WebCrypto (HTTPS or localhost) and shows `NEEDS_HTTPS`
   otherwise: no hand-rolled cipher, KDF or `Math.random` fallback; sync SHA-256/HKDF come from
-  `@noble/hashes`. Login iterations below `MIN_LOGIN_ITERATIONS` (the server's 100 000) are refused.
+  `@noble/hashes`. Login iterations below `LOGIN_ITERATIONS` (600 000) are refused, except that an account this browser has
+  not pinned may sign in at `LEGACY_LOGIN_ITERATIONS` (the server's 100 000) once: login then re-derives at 600 000
+  and swaps the verifier and password copy through `POST /auth/login-upgrade` (`loginUpgrade.ts`), and a sign-in
+  at 600 000 pins the username in `localStorage`. Verify `loginUpgrade.test.ts`, `TestLoginUpgradeReplacesALegacyVerifierOnce`.
 - `web/` also contains the encrypted local save queue, client-only search,
   contextual resurfacing, graph projections, and a lazy-loaded canvas page (`CanvasPage.tsx`): positioned BlockNote boxes and
   `perfect-freehand` ink in the `kynotes.canvas.v1` body (`document.ts` parses and caps it,

@@ -686,7 +686,7 @@ func TestAdminPasswordResetRevokesPairedDevices(t *testing.T) {
 	}
 	admin.stepUp(t)
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	if code, out := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+victim.id+"/password", []byte(body), true, false)); code != http.StatusNoContent {
 		t.Fatal("admin reset", code, out)
 	}

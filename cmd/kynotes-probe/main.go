@@ -443,6 +443,9 @@ func (p *client) login() error {
 	if err = decode(res, &params); err != nil {
 		return err
 	}
+	if params.Iterations < auth.LoginIterations {
+		return fmt.Errorf("the server asked for %d password iterations, fewer than %d; sign in on the web once to upgrade the account", params.Iterations, auth.LoginIterations)
+	}
 	p.iterations, p.loginSalt = params.Iterations, params.LoginSalt
 	if p.authSecret, err = auth.DeriveAuthSecret(p.password, params.LoginSalt, params.Iterations); err != nil {
 		return err

@@ -140,7 +140,9 @@ Each user also holds an X25519 identity keypair, represented on the server as a
 private key is wrapped (AES-256-GCM, AAD `kynotes/identity/v1` || user ID) under
 a `userKEK` that the browser derives from the same PBKDF2 output as the login
 verifier, with HKDF label `kynotes/user-kek/v1`. The server stores only the
-wrapped key and never sees `userKEK`. The wrapped key is returned only in the
+wrapped key and never sees `userKEK`. The browser derives at 600 000 PBKDF2 iterations and refuses
+fewer, except to sign in to an older account (at least 100 000) it has not pinned, which
+it then upgrades in place with its password copy (`POST /auth/login-upgrade`). The wrapped key is returned only in the
 bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
