@@ -9,7 +9,7 @@ const LOST = `cnt_${"a".repeat(26)}`, LIVE = `cnt_${"b".repeat(26)}`;
 const key = newContainerKey(), other = newContainerKey();
 const alice = "usr_aaaaaaaaaaaaaaaaaaaaaaaaaa", bob = "usr_bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const save = async (id: string, containerID: string, title: string, owner: string, sealedWith = key): Promise<PendingSave> =>
-  ({ id, containerID, version: 1, updatedAt: "2026-10-07T00:00:00Z", keyGeneration: 2, owner, payload: await encryptNote(sealedWith, containerID, { type: "page", title, body: "[]" }) });
+  ({ id, containerID, version: 1, updatedAt: "2026-10-07T00:00:00Z", keyGeneration: 2, owner, payload: await encryptNote(sealedWith, containerID, id, { type: "page", title, body: "[]" }) });
 
 describe("stuck edits", () => {
   it("are the queued edits of notebooks the server no longer lists, and none when the list is unknown", async () => {
@@ -28,7 +28,7 @@ describe("stuck edits", () => {
 
   it("exports what the key opens and counts the rest", async () => {
     const items = [await save(`obj_${"c".repeat(26)}`, LOST, "gone", alice), await save(`obj_${"e".repeat(26)}`, LOST, "sealed elsewhere", alice, other)];
-    const file = await exportUnsent(items, (item) => decryptObject(key, item.containerID, item.payload));
+    const file = await exportUnsent(items, (item) => decryptObject(key, item.containerID, item.id, item.payload, false));
     expect(file.unreadable).toBe(1);
     expect(JSON.parse(file.json)).toEqual([{ id: items[0].id, notebook: LOST, updatedAt: "2026-10-07T00:00:00Z", content: expect.objectContaining({ title: "gone" }) }]);
   });

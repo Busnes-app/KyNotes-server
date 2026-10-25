@@ -53,7 +53,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - In the note editor, ':' opens the emoji menu only where it starts a word (start of text or after whitespace) and two letters follow (`web/src/emoji.ts`), so `due:` and `10:30` never open it; `web/e2e/task-dates.e2e.ts` checks both and that Enter still picks an emoji.
 
-- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, proves the release binary is repeatable (two `git archive` builds with `-trimpath` must be byte-identical), tests, runs the browser checks (`npm run e2e`: team keys, `web/e2e/admin-separation.e2e.ts` and `web/e2e/task-dates.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
+- CI (`.github/workflows/ci.yml`, `verify`) builds, vets, proves the release binary is repeatable (two `git archive` builds with `-trimpath` must be byte-identical), tests, runs the browser checks (`npm run e2e`: team keys, `web/e2e/admin-separation.e2e.ts`, `web/e2e/task-dates.e2e.ts` and `web/e2e/migration.e2e.ts`), the Docker probe, the apply-setup container check (same image) and govulncheck on every push and pull request.
 - On a push to `master` that passes every job, `publish` pushes the exact image the Docker check ran against (handed over as an artifact, no rebuild) to `ghcr.io/busnes-app/kynotes-server:<commit sha>`, attests it and verifies the attestation pinned to this workflow on `master`; `promote` then moves `:latest` to that digest, only at the tip of `master`, and asserts the tag resolves to the attested digest. `docker-compose.yml` names the published image and never builds; source installs add `docker-compose.build.yml` to the `COMPOSE_FILE` chain in `.env` (overlay tags `kynotes-server:local`) so every compose command, recovery docs included, uses the local build.
 - The version has one source: `internal/appversion/VERSION` (`X.Y.Z`, the release line; `web/package.json` has no version). Go code (`kynotes-server`, `kynotes-mcp`) calls `appversion.String()`; the Dockerfile's `VERSION` build arg sets `-ldflags -X …/internal/appversion.release`, so release images report `X.Y.Z` or `X.Y.Z.N`, CI images the commit SHA, and source builds the line.
 - Publishing a GitHub release `vX.Y.Z` or `vX.Y.Z.N` runs `release-image.yml` (a dispatch on a published release's tag runs it too). It refuses a malformed tag, a tag whose `X.Y.Z` disagrees with `internal/appversion/VERSION`, and any commit on which a ci.yml job in its `REQUIRED` list (`test`) did not pass. It then builds `:X.Y.Z[.N]` with provenance and SBOM, attests and verifies it (identity `release-image.yml@refs/tags/<tag>`), and moves `:stable` to that digest only for the highest non-prerelease. It never moves `:latest`; `master` CI owns that. A job added to ci.yml must be added to `REQUIRED` too.
@@ -127,7 +127,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
   shared container keys (`keyring.ts`). It needs WebCrypto (HTTPS or localhost) and shows `NEEDS_HTTPS`
   otherwise: no hand-rolled cipher, KDF or `Math.random` fallback; sync SHA-256/HKDF come from
-  `@noble/hashes`. Login iterations below `LOGIN_ITERATIONS` (600 000) are refused, except that an account this browser has
+  `@noble/hashes`. Content is sealed v2, bound by AAD to container, object (or page) and kind; v1 is
+  read only until a notebook migrates (see Content v2 migration below). Login iterations below `LOGIN_ITERATIONS` (600 000) are refused, except that an account this browser has
   not pinned may sign in at `LEGACY_LOGIN_ITERATIONS` (the server's 100 000) once: login then re-derives at 600 000
   and swaps the verifier and password copy through `POST /auth/login-upgrade` (`loginUpgrade.ts`), and a sign-in
   at 600 000 pins the username in `localStorage`. Verify `loginUpgrade.test.ts`, `TestLoginUpgradeReplacesALegacyVerifierOnce`.
@@ -789,13 +790,33 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestContainerCreationTakesNoName`, `TestIdentityWrapAgreesWithVectors`, `npm test` (contentKeys,
   keyring, drain, storage, stuckEdits, workspaceWiring) and `npm run e2e --prefix web`.
 - `internal/notecrypto` is the Go port of `web/src/crypto.ts` content sealing (objects, container
-  names, attachment metadata and bytes) for the MCP bridge: `nonce(12) ‖ AES-256-GCM`, no AAD,
-  subkey `HKDF-SHA256(containerKey, salt = containerID, info = label)`; `OpenObject` narrows like
-  `parseObjectPayload`. Change it only together with `crypto.ts`. `go test ./internal/notecrypto
-  -run TestPayloadVectors -update` regenerates `testdata/protocol/payload_vectors.json`;
-  `web/src/payloadVectors.test.ts` opens it and reseals byte-identically (nonce stubbed, no
-  `*ForVector` export). `TestNotLinkedIntoServer` keeps it, `internal/teamkeys`, `cmd/kynotes-mcp`
-  and the MCP go-sdk out of `cmd/kynotes-server`. Verify `go test ./internal/notecrypto` and `npm test` (payloadVectors).
+  names, attachment metadata and bytes) for the MCP bridge. Writes are content v2 (`IMPLEMENTATION_PLAN.md`
+  §1.3 "Content sealing"): `0x02 ‖ nonce(12) ‖ AES-256-GCM`, subkey `HKDF-SHA256(containerKey, salt =
+  containerID, info = "kynotes/content/v2")`, AAD binding container, bound ID (the object; the page for
+  comments and attachments; the container for its name) and kind. Seal* take the bound ID; Open* take it
+  and whether v1 (unbound, per-label subkeys, no AAD) may be read; `OpenContainerName` also reports the
+  migration marker (`objects: 2`, v2 only). `Payload.Legacy` (a page's v1-child pins) round-trips:
+  `{}` is written, absent is not. `OpenObject` narrows like `parseObjectPayload`. Change it only
+  together with `crypto.ts`. `go test ./internal/notecrypto -run TestPayloadVectors -update` regenerates
+  `testdata/protocol/payload_vectors.json` (v1 vectors for the read path, v2 for every kind with its
+  AAD); `web/src/payloadVectors.test.ts` opens it and reseals the v2 vectors byte-identically (nonce
+  stubbed, no `*ForVector` export). `TestNotLinkedIntoServer` keeps it, `internal/teamkeys`,
+  `cmd/kynotes-mcp` and the MCP go-sdk out of `cmd/kynotes-server`. Verify `go test ./internal/notecrypto`
+  (`TestSwappedObjectIsRejected`, `TestCrossKindSwapIsRejected`, `TestV1OnlyBeforeTheMarker`,
+  `TestLegacyPins`, `TestV2VectorsOpen`) and `npm test` (payloadVectors).
+- Content v2 migration (web): every save seals v2 bound to its object; a writer's notebook load queues
+  one background pass (`web/src/migrate.ts` `migrateNotebook`, run by `main.tsx` `migrateOpen` after the
+  load renders) that re-saves v1 objects through `writeObject`/`updateStructure`/`pinPage` (the
+  `chained` queue) and pins each page's v1 children (`childPins`: SHA-256 of the stored ciphertext,
+  attachment bytes downloaded) in its `legacy`; only then the name is rewritten v2 with `objects: 2`.
+  The marker is pinned per user and notebook in the vault (`KeyState.objects`, add-only); after it,
+  server copies open v2 only (`readContainerObjects`), children need a pin (`legacyChildOpens`) and a
+  name without the marker is refused (`OLDER_META`). Local copies (cache, queue, pending uploads) may
+  be v1 and are re-sealed v2 before upload (`readyToSend`, `attachmentStep`). New notebooks are named
+  with the marker. Verify `npm test` (crypto, migrate, drain, pages, notes, storage, payloadVectors,
+  workspaceWiring "content v2 refusal point") and `npm run e2e --prefix web` (`web/e2e/migration.e2e.ts`:
+  an older notebook migrates in a second browser, then an unpinned v1 comment, an injected v1 page
+  and an older name are refused).
 - `cmd/kynotes-mcp` is the local stdio MCP bridge (`docs/MCP.md`, go-sdk `v1.8.0`, allowlisted for it
   only): one notebook (`--notebook`), signed in as the agent's own everyday account with its
   password-wrapped identity; no device pairing, no stored session, re-login once on 401. Key trust
@@ -807,7 +828,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   without `--read-only`. Writes seal with the current generation, add paragraph and checklist blocks
   only, and resolve their own `version_conflict` (one re-read). 60 calls a minute. Verify
   `go test ./cmd/kynotes-mcp` (`TestBridgeEndToEnd` drives a real router through the SDK) and
-  `TestNotLinkedIntoServer`.
+  `TestNotLinkedIntoServer`. Pages are sealed v2 (new pages with `legacy: {}`, edits keep `legacy`);
+  v1 objects are read only until the notebook's name (from the containers listing) carries the
+  migration marker, which `trust.json` then pins per notebook (`objects: 2`); a name without it
+  afterwards is `errOlderMeta` for every tool (`TestBridgeFollowsTheMigrationMarker`).
 
 ## Operator documentation
 

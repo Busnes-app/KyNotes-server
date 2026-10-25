@@ -46,10 +46,11 @@ func isSteward(role string) bool { return role == "owner" || role == "admin" }
 
 // keyState is what the bridge remembers per notebook; every field only rises (keyring.ts KeyState).
 type keyState struct {
-	Mark       int64             `json:"mark"`       // highest generation accepted from itself or a current steward
-	Shared     int64             `json:"shared"`     // highest sharedGeneration seen
-	Generation int64             `json:"generation"` // highest keyGeneration seen
-	Digests    map[string]string `json:"digests"`    // generation → SHA-256 of the key accepted for it
+	Mark       int64             `json:"mark"`              // highest generation accepted from itself or a current steward
+	Shared     int64             `json:"shared"`            // highest sharedGeneration seen
+	Generation int64             `json:"generation"`        // highest keyGeneration seen
+	Digests    map[string]string `json:"digests"`           // generation → SHA-256 of the key accepted for it
+	Objects    int64             `json:"objects,omitempty"` // 2 once the migration marker was seen
 }
 
 // trustState is state-dir/trust.json: TOFU pins (user ID → identity public key, base64) and key

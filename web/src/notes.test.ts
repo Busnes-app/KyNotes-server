@@ -185,6 +185,17 @@ describe("page levels", () => {
     expect(editEntry(notes, A, { level: 2 })[0].level).toBe(2);
   });
 
+  it("keeps legacy pins through edits, saves, other-tab drafts and the payload round-trip", () => {
+    const legacy = { [`cmt_${"0".repeat(26)}`]: "a".repeat(64) };
+    let notes = [{ ...page(A, "body"), legacy }, page(B, "other")];
+    notes = carrySaved(editEntry(notes, A, { body: "edited" }), A, { version: 2 });
+    const kept = newestCopy(find(notes, A), { version: 2, title: "t", body: "draft" });
+    expect(parseObjectPayload(JSON.parse(JSON.stringify(notePayload(kept))))).toMatchObject({ body: "draft", legacy });
+    expect(parseObjectPayload(JSON.parse(JSON.stringify(notePayload({ ...kept, legacy: {} }))))).toMatchObject({ legacy: {} });
+    expect(parseObjectPayload(JSON.parse(JSON.stringify(notePayload(page(B, "x")))))).not.toHaveProperty("legacy");
+    expect(samePayload(kept, { ...kept, legacy: {} })).toBe(false);
+  });
+
   it("treats a level change as unsaved", () => {
     expect(samePayload(page(A, "x"), { ...page(A, "x"), level: 1 })).toBe(false);
   });

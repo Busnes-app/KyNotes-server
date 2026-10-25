@@ -18,7 +18,7 @@ export function UnsentEdits({ username, userID, keysFor, waitingHeld }: { userna
   const [lost, setLost] = useState<PendingSave[]>([]);
   const [previous, setPrevious] = useState<PendingSave[]>([]);
   const unsent = [...lost, ...previous];
-  const open = (item: PendingSave) => openFirst(keysFor(item), (key) => decryptObject(key, item.containerID, item.payload));
+  const open = (item: PendingSave) => openFirst(keysFor(item), (key) => decryptObject(key, item.containerID, item.id, item.payload, true));
   async function find(): Promise<{ lost: PendingSave[]; previous: PendingSave[] }> {
     // Through the observer, like every container read: the generations it reports raise this device's floor.
     const sink = { load: (id: string) => getKeyState(username, userID, id), save: (id: string, state: KeyState) => storeKeyState(username, userID, id, state) };

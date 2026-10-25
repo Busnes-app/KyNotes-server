@@ -194,3 +194,23 @@ describe("save queue wiring", () => {
     expect(main).toContain("if ((reminderPrefs.enabled || reminderPrefs.push || queueMode) && items.length) void loadWorkQueue()");
   });
 });
+
+describe("content v2 refusal point", () => {
+  it("server copies open v1 only before the marker, and the pinned marker is loaded before any read", () => {
+    const read = block("  async function readContainerObjects(");
+    expect(read).toContain("const v1 = !migrated.current.has(container.id);");
+    expect(read).toContain(": await server(v1).then(");
+    const load = block("  async function loadContainer(");
+    expect(load.indexOf("if ((await pinStore.loadKeyState(keyed.id)).objects === 2) migrated.current.add(keyed.id);")).toBeGreaterThan(-1);
+    expect(load.indexOf("loadKeyState(keyed.id)")).toBeLessThan(load.indexOf("readContainerObjects(keyed)"));
+    // A pinned notebook's name without the marker is refused, as a rollback.
+    expect(block("  async function loadContainers(")).toContain("if (migrated.current.has(item.id) && meta.objects !== 2) olderMeta = true;");
+  });
+
+  it("opens with v1 forced on only this browser's own copies, the name it then judges, and the pre-marker pass", () => {
+    const lines = main.split("\n").filter((line) => /(?:decrypt\w+|openObject)\(key[^;]*, true\)/.test(line));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toMatch(/cached!?\.payload, true|item\.payload, true|old, item\.containerID|fromBase64\(container\.metaCiphertext\), true|decryptAttachment\(key, container\.id, pageID, bytes, true\)/);
+    expect(block("  async function childPins(")).toContain("decryptAttachment(key, container.id, pageID, bytes, true)");
+  });
+});

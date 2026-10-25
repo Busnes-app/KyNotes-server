@@ -6,7 +6,9 @@ export const SECTION_COLORS = ["orange", "blue", "green", "purple", "red", "teal
 export type SectionColor = (typeof SECTION_COLORS)[number];
 export type SectionPayload = { type: "section"; title: string; color: SectionColor; order?: string; group?: string };
 export type GroupPayload = { type: "group"; title: string; color: SectionColor; order?: string; group?: string };
-export type PagePayload = { type: "page"; title: string; body: string; section?: string; order?: string; level?: 0 | 1 | 2 };
+/** A migrated page's pins: comment or attachment ID → SHA-256 hex of that v1 child's ciphertext as stored. */
+export type Legacy = Record<string, string>;
+export type PagePayload = { type: "page"; title: string; body: string; section?: string; order?: string; level?: 0 | 1 | 2; legacy?: Legacy };
 export type ObjectPayload = SectionPayload | GroupPayload | PagePayload;
 export type Section = SectionPayload & { id: string; version: number };
 export type Group = GroupPayload & { id: string; version: number };
@@ -15,6 +17,14 @@ type Placed = { id: string; section?: string; order?: string; level?: number };
 // Crockford base32, lowercase, as minted by internal/ids.
 const OBJECT_ID = /^obj_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
 const CONTAINER_ID = /^cnt_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
+const CHILD_ID = /^(cmt|att)_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
+const DIGEST = /^[0-9a-f]{64}$/;
+
+/** Only valid pins survive; present but malformed is {}, so the page still refuses unpinned v1 children. */
+function parseLegacy(value: unknown): Legacy {
+  const pins = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.entries(value) : [];
+  return Object.fromEntries(pins.filter(([id, digest]) => CHILD_ID.test(id) && typeof digest === "string" && DIGEST.test(digest)));
+}
 
 /** Decrypted object JSON is untrusted: narrow it here and nowhere else. */
 export function parseObjectPayload(value: unknown): ObjectPayload | undefined {
@@ -36,6 +46,7 @@ export function parseObjectPayload(value: unknown): ObjectPayload | undefined {
   if ("section" in v) page.section = typeof v.section === "string" && OBJECT_ID.test(v.section) ? v.section : undefined;
   if ("order" in v) page.order = order;
   if ("level" in v) page.level = v.level === 0 || v.level === 1 || v.level === 2 ? v.level : undefined;
+  if ("legacy" in v) page.legacy = parseLegacy(v.legacy);
   return page;
 }
 
@@ -98,6 +109,8 @@ export function conflictCopy<T extends Placed>(list: T[], original: T, rejected:
     section: original.section,
     order: updates.find((update) => update.id === copyID)?.order,
     level: index < 0 ? undefined : levels[index],
+    // A new page: it has no v1 children to pin.
+    legacy: {},
   };
   return { page, moves: updates.filter((update) => update.id !== copyID) };
 }

@@ -105,6 +105,12 @@ fingerprint with that person, then delete their entry under `pins` in `trust.jso
 The bridge also remembers the highest key generation it has seen for the notebook. If the server
 later reports a lower one (a rollback), every tool refuses.
 
+Pages are bound to their own ID (content v2). The bridge reads pages in the older, unbound format
+only until the notebook's name carries the migration marker the web app writes; it then remembers
+that in `trust.json` and refuses older-format pages, and every tool refuses if the server serves the
+name without the marker again. Bridges from an earlier release write the older format: upgrade
+them before the notebook migrates.
+
 ## Revoking access
 
 - **Remove the agent from the team** in its member list. This rotates the notebook key, so

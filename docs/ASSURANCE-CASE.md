@@ -86,7 +86,7 @@ downloaded by a member before revocation.
 | SQL injection | `database/sql` with `?` parameters; the one concatenated statement joins a constant | `internal/storage/gc.go` |
 | Command injection | The server starts no subprocess; `exec.Command` appears only in the test probe | `cmd/kynotes-probe` |
 | Server-side request forgery | Push endpoints restricted to five hosts; other outbound targets are operator configuration | `internal/webpush/webpush.go` |
-| Content disclosure from the server | Content sealed with AES-256-GCM under per-container keys, subkeys from HKDF-SHA256 bound to the container ID; keys wrapped to X25519 device and identity keys | `web/src/crypto.ts`, `internal/notecrypto/notecrypto.go`, [DESIGN.md](../DESIGN.md#encryption) |
+| Content disclosure or substitution by the server | Content sealed with AES-256-GCM under per-container keys, subkeys from HKDF-SHA256 bound to the container ID, and associated data binding each ciphertext to its object (or page) and kind; older unbound content refused once its notebook migrates; keys wrapped to X25519 device and identity keys | `web/src/crypto.ts`, `internal/notecrypto/notecrypto.go`, [DESIGN.md](../DESIGN.md#encryption) |
 | Secrets in logs | A logging contract that allows only opaque IDs and outcomes | [LOGGING.md](../LOGGING.md) |
 | Vulnerable dependencies | Dependabot for Go, npm, Actions and the base image; `govulncheck` in CI | `.github/dependabot.yml`, `.github/workflows/ci.yml` |
 | Supply-chain tampering | Actions pinned by commit; base images pinned by digest; release images attested and built only from a commit that passed CI; the binary rebuilds to the same bytes | [VERIFYING-RELEASES.md](VERIFYING-RELEASES.md) |
@@ -95,7 +95,8 @@ downloaded by a member before revocation.
 
 Known limitations are listed, not hidden: the server sees routing metadata, sizes and timing;
 removed members keep what they downloaded; deterministic attachment encryption reveals equal
-ciphertexts; reminder push leaks reminder times to the server; and share links survive directory
+ciphertexts; the server can roll an object back to its own older revision or swap one page's
+comments and attachments among themselves; reminder push leaks reminder times to the server; and share links survive directory
 deactivation until they expire. Each is in
 [SECURITY.md](../SECURITY.md#trust-boundaries-and-limitations).
 

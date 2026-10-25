@@ -1,10 +1,10 @@
 import type { Note } from "./api";
 import type { PagePayload } from "./pages";
 
-type Content = Partial<Pick<Note, "title" | "body" | "section" | "order" | "level">>;
+type Content = Partial<Pick<Note, "title" | "body" | "section" | "order" | "level" | "legacy">>;
 
 export const notePayload = (note: Note): PagePayload =>
-  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order, level: note.level });
+  ({ type: "page", title: note.title, body: note.body, section: note.section, order: note.order, level: note.level, legacy: note.legacy });
 
 /** In-memory pages always hold the newest local content: edits and placement land here first. */
 export function editEntry(notes: Note[], id: string, change: Content): Note[] {
@@ -32,7 +32,7 @@ export function carrySaved(notes: Note[], id: string, saved: { version: number; 
 }
 
 export const samePayload = (a: Note, b: Note) =>
-  a.title === b.title && a.body === b.body && a.section === b.section && a.order === b.order && a.level === b.level;
+  a.title === b.title && a.body === b.body && a.section === b.section && a.order === b.order && a.level === b.level && a.legacy === b.legacy;
 
 /**
  * A page that is not open: another tab may hold a newer draft in the shared cache. This tab's

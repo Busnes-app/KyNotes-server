@@ -193,8 +193,8 @@ describe("keyring", () => {
     for (const generation of [undefined, Number.NaN, 0, 1, 5]) expect(readKeys(shared, ring, generation, NO_FLOOR)).toEqual([]);
     for (const generation of [undefined, 0, 1, 2, 5]) expect(readKeys({ sharedGeneration: 0 }, ring, generation, NO_FLOOR)).toEqual([]);
     // A server relabelling generation-2 ciphertext as generation 3 cannot make it open.
-    const old = await encryptNote(k2, cnt, { title: "L", body: "" });
-    await expect(openFirst(readKeys(shared, ring, 3, NO_FLOOR), (key) => decryptNote(key, cnt, old))).rejects.toThrow();
+    const old = await encryptNote(k2, cnt, "obj", { title: "L", body: "" });
+    await expect(openFirst(readKeys(shared, ring, 3, NO_FLOOR), (key) => decryptNote(key, cnt, "obj", old, false))).rejects.toThrow();
   });
 
   it("seals an edit made while keys are missing for this device only, and reads it back only as its own copy", async () => {
@@ -204,8 +204,8 @@ describe("keyring", () => {
     const waiting = { key: seal, generation: WAITING_GENERATION }; // main.tsx localKeyFor
     // Never a generation the server would accept, and never the current key's slot.
     expect(WAITING_GENERATION).toBeLessThan(1);
-    const sealed = await encryptNote(waiting.key, cnt, { title: "W", body: "" });
-    await expect(openFirst(ownCopyKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR, seal), (key) => decryptNote(key, cnt, sealed))).resolves.toEqual({ title: "W", body: "" });
+    const sealed = await encryptNote(waiting.key, cnt, "obj", { title: "W", body: "" });
+    await expect(openFirst(ownCopyKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR, seal), (key) => decryptNote(key, cnt, "obj", sealed, false))).resolves.toEqual({ title: "W", body: "" });
     expect(readKeys(shared, new Map(), WAITING_GENERATION, NO_FLOOR)).toEqual([]);
     const k3 = newContainerKey();
     expect(writeKey(shared, new Map([[3, k3]]), NO_FLOOR)).toEqual({ key: k3, generation: 3 });
@@ -214,9 +214,9 @@ describe("keyring", () => {
   it("never opens a newer row with a removed member's older key", async () => {
     const k2 = newContainerKey();
     const removed = new Map([[2, k2]]); // keys a member held before removal re-keyed to generation 3
-    const forged = await encryptNote(k2, cnt, { title: "F", body: "" });
+    const forged = await encryptNote(k2, cnt, "obj", { title: "F", body: "" });
     expect(readKeys({ sharedGeneration: 2 }, removed, 3, NO_FLOOR)).toEqual([]);
-    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, 3, NO_FLOOR), (key) => decryptNote(key, cnt, forged))).rejects.toThrow();
+    await expect(openFirst(readKeys({ sharedGeneration: 2 }, removed, 3, NO_FLOOR), (key) => decryptNote(key, cnt, "obj", forged, false))).rejects.toThrow();
   });
 });
 
@@ -322,7 +322,8 @@ describe("main.tsx key wiring", () => {
 
   it("never hands content crypto the login secret", () => {
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*(?:auth\.)?authSecret\b/);
-    expect(main).not.toMatch(/\blegacy\b/);
+    // The removed login-key path; `legacy` alone is now a page's v1-child pins, never a key.
+    expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*legacy\b|\blegacy(?:Key|Read|Row)|markLegacy/);
   });
 
   it("never seals with anything but a write key or the waiting key", () => {
