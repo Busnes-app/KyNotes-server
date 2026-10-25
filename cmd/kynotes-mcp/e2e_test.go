@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdh"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -146,7 +150,7 @@ func (b browser) put(t *testing.T, cid string, key []byte, generation int64, p n
 	t.Helper()
 	var obj struct{ ID string }
 	must(t, b.call(context.Background(), http.MethodPost, "/api/v1/containers/"+cid+"/objects", map[string]string{"kind": "note"}, &obj, false))
-	sealed, err := notecrypto.SealObject(key, cid, p)
+	sealed, err := notecrypto.SealObject(key, cid, obj.ID, p)
 	must(t, err)
 	must(t, b.saveObject(context.Background(), obj.ID, sealed, 0, generation))
 	return obj.ID
@@ -156,7 +160,7 @@ func (b browser) open(t *testing.T, cid string, key []byte, id string) (notecryp
 	t.Helper()
 	body, version, _, err := b.readObject(context.Background(), id)
 	must(t, err)
-	p, err := notecrypto.OpenObject(key, cid, body)
+	p, err := notecrypto.OpenObject(key, cid, id, body, false)
 	must(t, err)
 	return p, version
 }
@@ -304,7 +308,7 @@ func TestBridgeEndToEnd(t *testing.T) {
 		t.Fatal(msg)
 	}
 	p, _ := owner.open(t, cid, key, created.ID)
-	if p.Title != agentTitle || p.Section != plans || p.Order != "k" || pageMarkdown(p.Body) != agentText+"\n\n- [ ] follow up" || !strings.Contains(p.Body, `"format":"kynotes.blocknote.v1"`) {
+	if p.Title != agentTitle || p.Section != plans || p.Order != "k" || pageMarkdown(p.Body) != agentText+"\n\n- [ ] follow up" || !strings.Contains(p.Body, `"format":"kynotes.blocknote.v1"`) || p.Legacy == nil || len(p.Legacy) != 0 {
 		t.Fatalf("created page %+v", p)
 	}
 	if msg := callTool(t, cs, "create_page", createIn{"x", "", "No such section"}, nil); !strings.Contains(msg, "no section") {
@@ -334,7 +338,7 @@ func TestBridgeEndToEnd(t *testing.T) {
 	race := &racer{base: http.DefaultTransport, before: func() {
 		p, version := owner.open(t, cid, key, gamma)
 		p.Body, _ = appendBlocks(p.Body, markdownBlocks("owner edit"))
-		sealed, _ := notecrypto.SealObject(key, cid, p)
+		sealed, _ := notecrypto.SealObject(key, cid, gamma, p)
 		must(t, owner.saveObject(ctx, gamma, sealed, version, gen))
 	}}
 	b.nb.c.hc.Transport = race
@@ -400,7 +404,7 @@ func TestBridgeEndToEnd(t *testing.T) {
 	sealed, _, _, err := owner.readObject(ctx, after)
 	must(t, err)
 	for g, k := range held {
-		if _, err := notecrypto.OpenObject(k, cid, sealed); err == nil {
+		if _, err := notecrypto.OpenObject(k, cid, after, sealed, true); err == nil {
 			t.Fatalf("held key of generation %d opens content written after removal", g)
 		}
 	}
@@ -473,5 +477,73 @@ func TestOneBridgePerStateDirectory(t *testing.T) {
 	}
 	if k := again.nb.trust.Containers[cid]; k == nil || k.Generation < 2 || k.Mark < 2 {
 		t.Fatalf("the generation floor did not survive a restart: %+v", k)
+	}
+}
+
+// sealV1 writes the pre-v2 form an older client wrote: nonce ‖ AES-256-GCM(HKDF(key, cid, label)), no AAD.
+func sealV1(t *testing.T, key []byte, cid, label string, plaintext []byte) []byte {
+	t.Helper()
+	subkey, err := hkdf.Key(sha256.New, key, []byte(cid), label, 32)
+	must(t, err)
+	block, _ := aes.NewCipher(subkey)
+	gcm, _ := cipher.NewGCM(block)
+	nonce := make([]byte, gcm.NonceSize())
+	_, _ = rand.Read(nonce)
+	return gcm.Seal(nonce, nonce, plaintext, nil)
+}
+
+// The bridge reads v1 pages only until it sees the migration marker, pins the marker in
+// trust.json, and from then on refuses a name without it, across restarts.
+func TestBridgeFollowsTheMigrationMarker(t *testing.T) {
+	ctx := context.Background()
+	s := newStack(t)
+	owner := s.browser(t, "owner", "owner password")
+	agent := s.browser(t, "agent", "agent password")
+	cid, key := owner.team(t, agent, "editor")
+	const gen = 2
+	var obj struct{ ID string }
+	must(t, owner.call(ctx, http.MethodPost, "/api/v1/containers/"+cid+"/objects", map[string]string{"kind": "note"}, &obj, false))
+	must(t, owner.saveObject(ctx, obj.ID, sealV1(t, key, cid, "kynotes/object/v1", []byte(`{"type":"page","title":"Old","body":""}`)), 0, gen))
+	owner.put(t, cid, key, gen, notecrypto.Payload{Type: "page", Title: "New", Body: blocknote("new"), Legacy: map[string]string{}})
+	metaVersion := int64(0)
+	name := func(sealed []byte) {
+		var out struct{ MetaVersion int64 }
+		must(t, owner.call(ctx, http.MethodPatch, "/api/v1/containers/"+cid, map[string]any{"metaCiphertext": base64.StdEncoding.EncodeToString(sealed), "baseVersion": metaVersion, "keyGeneration": gen}, &out, false))
+		metaVersion = out.MetaVersion
+	}
+	titles := func(cs *mcp.ClientSession) (out []string, msg string) {
+		var list listOut
+		msg = callTool(t, cs, "list_pages", map[string]any{}, &list)
+		for _, p := range list.Pages {
+			out = append(out, p.Title)
+		}
+		slices.Sort(out) // unordered pages sort by ID, which is random within a millisecond
+		return out, msg
+	}
+
+	unmarked, _ := notecrypto.SealContainerName(key, cid, "Notes", false)
+	name(unmarked)
+	stateDir := privateDir(t)
+	b, cs := agentSession(t, s, "agent password", cid, false, stateDir, io.Discard)
+	if got, msg := titles(cs); msg != "" || !slices.Equal(got, []string{"New", "Old"}) {
+		t.Fatalf("before the marker: %v %s", got, msg)
+	}
+
+	marked, _ := notecrypto.SealContainerName(key, cid, "Notes", true)
+	name(marked)
+	if got, msg := titles(cs); msg != "" || !slices.Equal(got, []string{"New"}) {
+		t.Fatalf("after the marker the v1 page must be refused: %v %s", got, msg)
+	}
+	if k := b.nb.trust.Containers[cid]; k == nil || k.Objects != 2 {
+		t.Fatalf("marker not pinned: %+v", k)
+	}
+	b.close()
+
+	// A server serving the older name again, unmarked v2 or v1, is refused, also after a restart.
+	for _, older := range [][]byte{unmarked, sealV1(t, key, cid, "kynotes/container-meta/v1", []byte(`{"name":"Notes"}`))} {
+		name(older)
+		if _, err := newBridge(ctx, config{server: s.url, username: "agent", password: "agent password", notebook: cid, stateDir: stateDir}, io.Discard); !errors.Is(err, errOlderMeta) {
+			t.Fatalf("older name after the marker: %v", err)
+		}
 	}
 }

@@ -25,6 +25,7 @@ type notebook struct {
 
 	role                   string
 	keyGeneration, shared  int64 // as reported, raised to the stored floor
+	migrated               bool  // the notebook's migration marker was seen: v1 objects are refused
 	ring                   map[int64][]byte
 	cache                  map[string]cached // object ID → payload at a change sequence
 	sections, pages, other []entry           // filled by index
@@ -45,9 +46,13 @@ type container struct {
 	ID               string `json:"id"`
 	KeyGeneration    int64  `json:"keyGeneration"`
 	SharedGeneration int64  `json:"sharedGeneration"`
+	MetaCiphertext   string `json:"metaCiphertext"`
 }
 
-var errNotMember = errors.New("the agent account is not a member of this notebook (removed, or a wrong --notebook)")
+var (
+	errNotMember = errors.New("the agent account is not a member of this notebook (removed, or a wrong --notebook)")
+	errOlderMeta = errors.New("the server serves this notebook's name from before its encryption upgrade, which this bridge has seen (possible rollback); refusing")
+)
 
 // refresh re-reads the notebook's key state, members and envelopes and opens the keys this
 // identity accepts. Nothing is used before the raised floor and new pins are stored.
@@ -114,10 +119,25 @@ func (n *notebook) refresh(ctx context.Context) error {
 		n.trust.Pins[m.UserID] = m.identity.PublicKey
 	}
 	*known = opened.known
+	// The migration marker (a v2 name carrying objects: 2) is pinned in trust.json. After it, a
+	// name without it (v1, which then fails to open, or v2 unmarked) is a rollback. Without the
+	// name's key nothing is decided.
+	if meta, _ := base64.StdEncoding.DecodeString(reported.MetaCiphertext); len(meta) > 0 {
+		if key := readKey(opened.ring, n.shared, n.keyGeneration); key != nil {
+			if _, migrated, _ := notecrypto.OpenContainerName(key, n.id, meta, known.Objects < 2); migrated {
+				known.Objects = 2
+			} else if known.Objects == 2 {
+				return errOlderMeta
+			}
+		}
+	}
 	if err := n.trust.save(n.trustPath); err != nil {
 		return err
 	}
-	n.ring = opened.ring
+	if known.Objects == 2 && !n.migrated {
+		n.cache = nil // pages read as v1 before the marker are read again
+	}
+	n.ring, n.migrated = opened.ring, known.Objects == 2
 	return nil
 }
 
@@ -209,7 +229,7 @@ func (n *notebook) open(ctx context.Context, id string) (opened, error) {
 	if key == nil {
 		return opened{}, errUnreadable
 	}
-	p, err := notecrypto.OpenObject(key, n.id, body)
+	p, err := notecrypto.OpenObject(key, n.id, id, body, !n.migrated)
 	if err != nil {
 		return opened{}, errUnreadable
 	}
@@ -323,7 +343,7 @@ func (n *notebook) create(ctx context.Context, title, body, section string) (str
 	if err := n.c.call(ctx, http.MethodPost, "/api/v1/containers/"+n.id+"/objects", map[string]string{"kind": "note"}, &obj, true); err != nil {
 		return "", err
 	}
-	sealed, err := notecrypto.SealObject(key, n.id, notecrypto.Payload{Type: "page", Title: title, Body: body, Section: section, Order: order})
+	sealed, err := notecrypto.SealObject(key, n.id, obj.ID, notecrypto.Payload{Type: "page", Title: title, Body: body, Section: section, Order: order, Legacy: map[string]string{}})
 	if err != nil {
 		return "", err
 	}
@@ -352,7 +372,7 @@ func (n *notebook) appendTo(ctx context.Context, id string, blocks []any) error 
 		if p.Body, err = appendBlocks(p.Body, blocks); err != nil {
 			return err
 		}
-		sealed, err := notecrypto.SealObject(key, n.id, p.Payload)
+		sealed, err := notecrypto.SealObject(key, n.id, id, p.Payload)
 		if err != nil {
 			return err
 		}

@@ -79,6 +79,9 @@ import {
   decryptContainerMeta,
   decryptObject,
   decryptSharePayload,
+  legacyChildOpens,
+  metaPin,
+  openObject,
   deriveLoginKeys,
   LOGIN_ITERATIONS,
   type LoginKeys,
@@ -95,7 +98,8 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type Legacy, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { migrateNotebook, type LoadedObject } from "./migrate";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload, unreadableNotice } from "./notes";
 import { loadGate } from "./loadGate";
@@ -190,9 +194,11 @@ type PlainComment = {
   section?: string;
   createdAt: string;
 };
-type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number };
+/** page: the page it was listed for and is bound to. */
+type PlainAttachment = { id: string; name: string; type: string; size: number; keyGeneration?: number; page: string };
 type QueueEntry = { note: Note; container: Container };
 const ROLLBACK = "The server reported an older key state for this notebook than this device has seen; writes are paused.";
+const OLDER_META = "The server sent an older copy of a notebook's encrypted name than this device has seen (from before its encryption upgrade); it is not shown. Rename the notebook to replace it.";
 const NOT_KEYED = "The notebook was created, but its key is not set up yet. Open it again to finish.";
 const NO_KEY_HERE = "This browser does not hold your encryption key, so it cannot create a notebook. Link it, or restore your key with your recovery code, in Settings.";
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
@@ -748,6 +754,23 @@ function Workspace({
   };
   // The outbound gate (outbound.ts) re-checks every ciphertext upload against this at send time.
   useEffect(() => setWriteKeySource(writeKeyFor), []);
+  // Notebooks whose migration marker (a v2 name carrying objects: 2) this device has seen, pinned in
+  // its KeyState: their v1 objects, v1 names and unpinned v1 children are refused from then on.
+  const migrated = useRef(new Set<string>());
+  async function noteMigrated(containerID: string) {
+    migrated.current.add(containerID);
+    await pinStore.saveKeyState(containerID, { mark: 0, digests: {}, objects: 2 }).catch(() => false);
+  }
+  /** The listed name, opened (v1 too: callers refuse it after the marker); a marker found is pinned. */
+  async function openMeta(container: Container) {
+    // Container meta has no row generation: it is sealed with the current one.
+    const meta = await openFirst(readKeysFor(container, container.keyGeneration), (key) => decryptContainerMeta(key, container.id, fromBase64(container.metaCiphertext), true));
+    if (meta.objects === 2) await noteMigrated(container.id);
+    return meta;
+  }
+  /** legacyChildOpens for a child of pageID as this tab holds the page. */
+  const v1ChildOpens = (containerID: string, pageID: string, childID: string, ciphertext: Uint8Array) =>
+    legacyChildOpens(notesRef.current.find((note) => note.id === pageID), migrated.current.has(containerID), childID, ciphertext);
   /**
    * Local copies: the write key, or the identity's waiting seal at generation 0 that only this device sends
    * later. Never the login key: with no identity held here, there is no local copy (undefined).
@@ -829,8 +852,8 @@ function Workspace({
     const old = waitingRef.current;
     const fresh = waitingKey(next);
     await retireWaiting((await pendingSaves()).filter((item) => item.owner === auth.user.id), auth.user.id, async (item) => {
-      const payload = old && (await decryptObject(old, item.containerID, item.payload));
-      return payload ? encryptNote(fresh, item.containerID, payload) : undefined;
+      const payload = old && (await decryptObject(old, item.containerID, item.id, item.payload, true));
+      return payload ? encryptNote(fresh, item.containerID, item.id, payload) : undefined;
     }, replaceQueuedSave);
   }
   useEffect(() => { void refreshIdentity().catch(() => undefined); void heldIdentity().catch(() => undefined); }, []);
@@ -977,7 +1000,8 @@ function Workspace({
       const write = writeKeyFor(latest);
       if (!write || !latest.metaCiphertext) return [current, ""];
       const meta = fromBase64(latest.metaCiphertext);
-      const opened = (keys: KeyRef[]) => openFirst(keys, (key) => decryptContainerMeta(key, container.id, meta)).then((value) => value.name, () => undefined);
+      // A marker found here is kept: a reseal never drops it.
+      const opened = (keys: KeyRef[]) => openFirst(keys, (key) => decryptContainerMeta(key, container.id, meta, !migrated.current.has(container.id))).then(async (value) => { if (value.objects === 2) await noteMigrated(container.id); return value.name; }, () => undefined);
       if ((await opened([write.key])) !== undefined) return [current, ""];
       const ring = ringsRef.current[container.id] ?? noKeys;
       let name = namesRef.current[container.id];
@@ -993,7 +1017,7 @@ function Workspace({
         const shown = name;
         setNames((value) => ({ ...value, [container.id]: shown }));
       }
-      const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
+      const encoded = base64(await encryptContainerMeta(write.key, container.id, name, migrated.current.has(container.id)));
       const result = await sendContainerName({ container: latest, generation: write.generation }, encoded, latest.metaVersion);
       setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq } : entry)));
       // Visible on purpose: members see the name re-sealed under the new key.
@@ -1071,7 +1095,8 @@ function Workspace({
           try {
             const encrypted = await downloadAttachment(attachment.id);
             const containerID = selected?.id ?? "";
-            const plaintext = await openFirst(selected ? readKeysFor(selected, attachment.keyGeneration) : [], (key) => decryptAttachment(key, containerID, encrypted));
+            const v1 = await v1ChildOpens(containerID, attachment.page, attachment.id, encrypted);
+            const plaintext = await openFirst(selected ? readKeysFor(selected, attachment.keyGeneration) : [], (key) => decryptAttachment(key, containerID, attachment.page, encrypted, v1));
             const url = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
             urls.push(url);
             return [attachment.id, url] as const;
@@ -1346,6 +1371,7 @@ function Workspace({
       const value = await listContainers(floorSink);
       const loaded = value;
       const nextNames: Record<string, string> = {};
+      let olderMeta = false;
       const identity = await heldIdentity();
       // The list just fetched answers every pass, instead of one list fetch per container.
       const listed: KeyAPI = { ...keyAPI, container: async (id) => loaded.find((entry) => entry.id === id) ?? currentContainer(id) };
@@ -1355,6 +1381,7 @@ function Workspace({
           // Team containers: this device's sharing floor first, so a server reporting "never shared" still gets the shared rules.
           const floor = await pinStore.loadKeyState(item.id);
           raiseFloorIn(item.id, floor);
+          if (floor.objects === 2) migrated.current.add(item.id);
           // Shared names need their keys. This pass only reads: it never steps up, wraps, rotates
           // or asks about a changed key. A steward's sharing waits until the notebook is opened.
           // ponytail: a full key pass per shared notebook on every list load (members, one identity
@@ -1371,15 +1398,19 @@ function Workspace({
             if (result.plan.kind !== "pins-unsaved" && result.fresh.length) unannounced.current[item.id] = [...(unannounced.current[item.id] ?? []), ...result.fresh];
             keyed = { ...item, keyGeneration: result.container.keyGeneration, sharedGeneration: result.container.sharedGeneration };
           }
-          // Container meta has no row generation: it is sealed with the current one.
-          if (item.metaCiphertext)
-            nextNames[item.id] = (await openFirst(readKeysFor(keyed, keyed.keyGeneration), (key) => decryptContainerMeta(key, item.id, fromBase64(item.metaCiphertext)))).name;
+          if (item.metaCiphertext) {
+            const meta = await openMeta(keyed);
+            // After the marker, a name without it (v1 or an older v2 copy) is a rollback: refused.
+            if (migrated.current.has(item.id) && meta.objects !== 2) olderMeta = true;
+            else nextNames[item.id] = meta.name;
+          }
         } catch {
           /* encrypted metadata may be unavailable in a session-only resume */
         }
       }
       setNames(nextNames);
       setItems(loaded);
+      if (olderMeta) setError(OLDER_META);
       const route = parseRoute(location.hash);
       const start = loaded.find((item) => item.id === route.container) ?? loaded[0];
       if (start) await selectContainer(start, start.id === route.container ? route : undefined, false);
@@ -1389,8 +1420,12 @@ function Workspace({
       );
     }
   }
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number }> {
+  /** legacy: objects whose server copy is v1, or not proven v2 (a newer local copy was shown). */
+  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string> }> {
     let unreadable = 0;
+    const legacy = new Set<string>();
+    // Server copies: v1 only before the notebook's migration marker. Local copies: this browser sealed them.
+    const v1 = !migrated.current.has(container.id);
     const loaded: Note[] = [];
     const found: Section[] = [];
     const foundGroups: Group[] = [];
@@ -1398,7 +1433,7 @@ function Workspace({
       if (!payload) return;
       if (payload.type === "section") found.push({ ...payload, id, version });
       else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
-      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version, updatedAt });
+      else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, legacy: payload.legacy, version, updatedAt });
     };
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
@@ -1408,14 +1443,19 @@ function Workspace({
           const object = await readObject(change.id);
           const cached = await getNote(auth.user.id, change.id);
           const useCache = Boolean(cached && cached.version >= object.version);
-          const keys = useCache ? ownCopyKeysFor(container, cached!.keyGeneration) : readKeysFor(container, object.keyGeneration);
-          const payload = await openFirst(keys, (key) => decryptObject(key, container.id, useCache ? cached!.payload : object.bytes));
+          const server = (allowV1: boolean) => openFirst(readKeysFor(container, object.keyGeneration), (key) => openObject(key, container.id, change.id, object.bytes, allowV1));
+          const payload = useCache
+            ? await openFirst(ownCopyKeysFor(container, cached!.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached!.payload, true))
+            : await server(v1).then((opened) => { if (opened.v1) legacy.add(change.id); return opened.payload; });
+          // The server copy's format still decides migration.
+          if (useCache && (await server(false).then(() => false, () => true))) legacy.add(change.id);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
         } catch {
           try {
             const cached = await getNote(auth.user.id, change.id);
             if (!cached) throw new Error("no local copy");
-            add(change.id, await openFirst(ownCopyKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, cached.payload)), cached.version, cached.updatedAt);
+            add(change.id, await openFirst(ownCopyKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached.payload, true)), cached.version, cached.updatedAt);
+            legacy.add(change.id);
           } catch {
             unreadable += 1;
           }
@@ -1426,7 +1466,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    return { notes: loaded, sections: found, groups: foundGroups, unreadable };
+    return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
   /** Null when the open page could not be flushed and stays open. */
   /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
@@ -1474,6 +1514,7 @@ function Workspace({
       });
       if (superseded()) return [];
       setSelected(keyed);
+      if ((await pinStore.loadKeyState(keyed.id)).objects === 2) migrated.current.add(keyed.id);
       const objects = await readContainerObjects(keyed);
       if (superseded()) return [];
       if (objects.unreadable) setError(unreadableNotice(objects.unreadable));
@@ -1488,6 +1529,13 @@ function Workspace({
       if (routed) await selectNote(routed, keyed);
       const team = container.kind === "team" ? await members(container.id) : [];
       if (!superseded()) setMembersForTeam(team);
+      // Writers migrate in the background once this load has rendered (migrateOpen); viewers never do.
+      const role = container.kind === "team" ? team.find((member) => member.userId === auth.user.id)?.role : "owner";
+      if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
+        const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
+        migrationDue.current = { containerID: keyed.id, unreadable: objects.unreadable, objects: kinds.map((object) => ({ ...object, v1: objects.legacy.has(object.id) })) };
+        setMigrationTick((value) => value + 1);
+      }
       return loaded;
     } catch (error) {
       if (!superseded()) setError(error instanceof Error ? error.message : "Unable to load notebook");
@@ -1547,7 +1595,9 @@ function Workspace({
       const decoded: PlainComment[] = [];
       for (const item of remote) {
         try {
-          const decrypted = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptComment(key, containerID, fromBase64(item.bodyCiphertext)));
+          const bytes = fromBase64(item.bodyCiphertext);
+          const v1 = await v1ChildOpens(containerID, note.id, item.id, bytes);
+          const decrypted = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptComment(key, containerID, note.id, bytes, v1));
           decoded.push({
             id: item.id,
             username: item.username,
@@ -1568,8 +1618,10 @@ function Workspace({
       const decoded: PlainAttachment[] = [];
       for (const item of remote) {
         try {
-          const metadata = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptAttachmentMetadata(key, containerID, fromBase64(item.metadataCiphertext)));
-          decoded.push({ id: item.id, ...metadata, keyGeneration: item.keyGeneration });
+          const meta = fromBase64(item.metadataCiphertext);
+          const v1 = await v1ChildOpens(containerID, note.id, metaPin(item.id), meta);
+          const metadata = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptAttachmentMetadata(key, containerID, note.id, meta, v1));
+          decoded.push({ id: item.id, ...metadata, keyGeneration: item.keyGeneration, page: note.id });
         } catch { /* Ignore metadata encrypted for another key. */ }
       }
       if (current()) setAttachmentsForNote(decoded);
@@ -1593,10 +1645,12 @@ function Workspace({
       const container = await syncKeys(created, false, () => false, true);
       const write = writeKeyFor(container);
       if (!write) throw new Error(NOT_KEYED);
-      const encoded = base64(await encryptContainerMeta(write.key, container.id, name));
+      // Empty, so already migrated: its first name carries the marker.
+      const encoded = base64(await encryptContainerMeta(write.key, container.id, name, true));
       const result = await sendContainerName({ container, generation: write.generation }, encoded, container.metaVersion);
       return { ...container, metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
     }, deleteContainer);
+    await noteMigrated(named.id);
     setNames((value) => ({ ...value, [named.id]: name }));
     setItems((value) => [...value.filter((entry) => entry.id !== named.id), named]);
     return named;
@@ -1635,7 +1689,9 @@ function Workspace({
       const fresh = await syncKeys(await currentContainer(selected.id));
       const write = writeKeyFor(fresh);
       if (!write) throw new Error(WAITING);
-      const encrypted = await encryptContainerMeta(write.key, fresh.id, name);
+      // A marker another device wrote is kept.
+      if (fresh.metaCiphertext) await openMeta(fresh).catch(() => undefined);
+      const encrypted = await encryptContainerMeta(write.key, fresh.id, name, migrated.current.has(fresh.id));
       const encoded = base64(encrypted);
       // The tab's base version keeps a concurrent rename a conflict instead of overwriting it.
       const result = await sendContainerName({ container: fresh, generation: write.generation }, encoded, selected.metaVersion);
@@ -1671,12 +1727,17 @@ function Workspace({
       const result = await buildNotebookExport({
         name, ...loaded, toMarkdown: await blockNoteMarkdown(),
         attachments: {
-          list: (pageID) => objectAttachments(pageID),
+          list: async (pageID) => (await objectAttachments(pageID)).map((item) => ({ ...item, pageID })),
           open: async (item) => {
             const keys = readKeysFor(container, item.keyGeneration);
-            const metadata = await openFirst(keys, (key) => decryptAttachmentMetadata(key, container.id, fromBase64(item.metadataCiphertext)));
+            const page = loaded.notes.find((note) => note.id === item.pageID);
+            const done = migrated.current.has(container.id);
+            const meta = fromBase64(item.metadataCiphertext);
+            const metaV1 = await legacyChildOpens(page, done, metaPin(item.id), meta);
+            const metadata = await openFirst(keys, (key) => decryptAttachmentMetadata(key, container.id, item.pageID, meta, metaV1));
             const encrypted = await downloadAttachment(item.id);
-            return { id: item.id, ...metadata, bytes: await openFirst(keys, (key) => decryptAttachment(key, container.id, encrypted)) };
+            const v1 = await legacyChildOpens(page, done, item.id, encrypted);
+            return { id: item.id, ...metadata, bytes: await openFirst(keys, (key) => decryptAttachment(key, container.id, item.pageID, encrypted, v1)) };
           },
         },
       });
@@ -1701,6 +1762,7 @@ function Workspace({
         body: stringifyCanvasPage(emptyCanvasPage()),
         section: sectionID === QUICK_NOTES ? undefined : sectionID,
         order,
+        legacy: {},
         version: 0,
         updatedAt: new Date().toISOString(),
       };
@@ -1724,7 +1786,7 @@ function Workspace({
     if (!automatic) setBusy(true);
     try {
       const write = localKeyFor(selected) ?? notSaved();
-      const encrypted = await encryptNote(write.key, selected.id, notePayload(note));
+      const encrypted = await encryptNote(write.key, selected.id, note.id, notePayload(note));
       const savedAt = new Date().toISOString();
       const containerID = selected.id;
       const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
@@ -1925,7 +1987,7 @@ function Workspace({
       id: note.id,
       containerID,
       version: note.version,
-      payload: await encryptNote(write.key, containerID, notePayload(note)),
+      payload: await encryptNote(write.key, containerID, note.id, notePayload(note)),
       updatedAt: new Date().toISOString(),
       keyGeneration: write.generation,
     })).catch(() => {});
@@ -1934,7 +1996,7 @@ function Workspace({
   async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
     if (!selected) return null;
     const write = localKeyFor(selected) ?? notSaved();
-    const encrypted = await encryptNote(write.key, selected.id, payload);
+    const encrypted = await encryptNote(write.key, selected.id, id, payload);
     const updatedAt = new Date().toISOString();
     const containerID = selected.id;
     const uncached = await cacheMiss(() => putNote(auth.user.id, { id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
@@ -1982,13 +2044,95 @@ function Workspace({
     });
   }
 
+  // A load queues one background migration pass; it runs once that load has rendered, so its writes use
+  // the loaded notebook (writeObject reads this render's selected).
+  const migrationDue = useRef<{ containerID: string; objects: LoadedObject[]; unreadable: number } | undefined>(undefined);
+  const [migrationTick, setMigrationTick] = useState(0);
+  const migrating = useRef(false);
+  useEffect(() => {
+    const due = migrationDue.current;
+    migrationDue.current = undefined;
+    if (!due || migrating.current || selected?.id !== due.containerID || !writeKeyFor(selected)) return;
+    migrating.current = true;
+    void migrateOpen(selected, due).catch(() => undefined).finally(() => { migrating.current = false; });
+  }, [migrationTick]);
+  /** migrate.ts on the open notebook; it stops writing once the user leaves it. */
+  function migrateOpen(container: Container, due: { objects: LoadedObject[]; unreadable: number }) {
+    const here = () => selectedRef.current?.id === container.id;
+    return migrateNotebook(due.objects, due.unreadable, migrated.current.has(container.id), {
+      pins: (pageID) => childPins(container, pageID),
+      savePage: async (id, legacy) => here() && pinPage(id, legacy),
+      saveStructure: async (kind, id) => here() && updateStructure(kind, id, {}),
+      mark: async () => {
+        const current = selectedRef.current;
+        const name = namesRef.current[container.id];
+        const write = current?.id === container.id ? writeKeyFor(current) : undefined;
+        if (!current || !write || name === undefined) return false;
+        const encoded = base64(await encryptContainerMeta(write.key, container.id, name, true));
+        const result = await sendContainerName({ container: current, generation: write.generation }, encoded, current.metaVersion);
+        await noteMigrated(container.id);
+        const next = { metaCiphertext: encoded, metaVersion: result.metaVersion, changeSeq: result.changeSeq };
+        setItems((value) => value.map((entry) => (entry.id === container.id ? { ...entry, ...next } : entry)));
+        setSelected((value) => (value?.id === container.id ? { ...value, ...next } : value));
+        return true;
+      },
+    });
+  }
+  /**
+   * A page's v1 children that open with this notebook's keys, pinned by the SHA-256 of their ciphertext as
+   * stored (attachment bytes downloaded and hashed here, never the server's digest). Children opening as
+   * v2 need no pin; children that open in neither form are not pinned, and stay unreadable.
+   */
+  async function childPins(container: Container, pageID: string): Promise<Legacy> {
+    const pins: Legacy = {};
+    const opens = (generation: number | undefined, open: (key: KeyRef) => Promise<unknown>) => openFirst(readKeysFor(container, generation), open).then(() => true, () => false);
+    const onlyV1 = async (generation: number | undefined, open: (key: KeyRef, v1: boolean) => Promise<unknown>) =>
+      !(await opens(generation, (key) => open(key, false))) && opens(generation, (key) => open(key, true));
+    for (const item of await comments(pageID)) {
+      const bytes = fromBase64(item.bodyCiphertext);
+      if (await onlyV1(item.keyGeneration, (key, v1) => decryptComment(key, container.id, pageID, bytes, v1))) pins[item.id] = await digestSha256Hex(bytes);
+    }
+    for (const item of await objectAttachments(pageID)) {
+      const meta = fromBase64(item.metadataCiphertext);
+      if (!(await onlyV1(item.keyGeneration, (key, v1) => decryptAttachmentMetadata(key, container.id, pageID, meta, v1)))) continue;
+      // Bytes and metadata are pinned separately, so neither can be swapped in from another attachment.
+      const bytes = await downloadAttachment(item.id);
+      if (!(await opens(item.keyGeneration, (key) => decryptAttachment(key, container.id, pageID, bytes, true)))) continue;
+      pins[item.id] = await digestSha256Hex(bytes);
+      pins[metaPin(item.id)] = await digestSha256Hex(meta);
+    }
+    return pins;
+  }
+  /** A page re-saved v2 carrying its pins, from its newest local copy; true once saved on the server. */
+  function pinPage(id: string, legacy: Legacy): Promise<boolean> {
+    return chained(async () => {
+      patchNotes((value) => editEntry(value, id, { legacy }));
+      const open = selectedNoteRef.current;
+      if (open?.id === id) {
+        // The open page's own save carries the pins; the next load confirms it.
+        const next = { ...open, legacy };
+        selectedNoteRef.current = next;
+        setSelectedNote(next);
+        persistDraft(next);
+        await saveNow(next, true);
+        return false;
+      }
+      const entry = notesRef.current.find((note) => note.id === id);
+      if (!entry) return false;
+      const next = newestCopy(entry, await otherTabDraft(id));
+      const saved = await writeObject(id, next.version, notePayload(next));
+      if (saved !== null) patchNotes((value) => carrySaved(value, id, { version: saved }));
+      return saved !== null;
+    });
+  }
+
   /** The shared cache's copy of a page; another tab may have written it. */
   async function otherTabDraft(id: string) {
     if (!selected) return undefined;
     const cached = await getNote(auth.user.id, id).catch(() => undefined);
     if (!cached) return undefined;
     const containerID = selected.id;
-    const payload = await openFirst(ownCopyKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, cached.payload)).catch(() => undefined);
+    const payload = await openFirst(ownCopyKeysFor(selected, cached.keyGeneration), (key) => decryptObject(key, containerID, id, cached.payload, true)).catch(() => undefined);
     return payload?.type === "page" ? { version: cached.version, title: payload.title, body: payload.body } : undefined;
   }
 
@@ -2176,7 +2320,7 @@ function Workspace({
   async function placeConflictCopy(containerID: string, original: Pick<Note, "id" | "section" | "order" | "level">, payload: PagePayload, sameNotebook: () => boolean = () => true): Promise<boolean> {
     const { page, moves } = conflictCopy(pagesInSection(notesRef.current, sectionsRef.current, pageSection(original)), original, payload);
     const object = await createObject(containerID);
-    const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, level: page.level, version: 0, updatedAt: new Date().toISOString() };
+    const copy: Note = { id: object.id, title: page.title, body: page.body, section: page.section, order: page.order, level: page.level, legacy: page.legacy, version: 0, updatedAt: new Date().toISOString() };
     if (sameNotebook()) patchNotes((value) => [...value, copy]);
     const saved = await writeObject(object.id, 0, page);
     if (saved === null) return false;
@@ -2205,9 +2349,10 @@ function Workspace({
       // Reload before placing copies: they belong next to the server's placement, and a
       // renumber may have to write the original at its server version.
       const server = await readObject(open.id);
-      const payload = await openFirst(readKeysFor(container, server.keyGeneration), (key) => decryptObject(key, containerID, server.bytes));
+      const v1 = !migrated.current.has(containerID);
+      const payload = await openFirst(readKeysFor(container, server.keyGeneration), (key) => decryptObject(key, containerID, open.id, server.bytes, v1));
       if (payload?.type !== "page") throw new Error("Unable to read the server version of this page.");
-      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, version: server.version };
+      const reloaded = { title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, legacy: payload.legacy, version: server.version };
       if (sameNotebook()) patchNotes((value) => value.map((note) => (note.id === open.id ? { ...note, ...reloaded } : note)));
       if (selectedNoteRef.current?.id === open.id) {
         const next = { ...selectedNoteRef.current, ...reloaded };
@@ -2224,7 +2369,7 @@ function Workspace({
       for (const conflict of copyable) {
         try {
           const bytes = await conflictCiphertext(conflict.id);
-          const decrypted = await openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, containerID, bytes)).catch(() => undefined);
+          const decrypted = await openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, containerID, open.id, bytes, v1)).catch(() => undefined);
           if (decrypted?.type === "page") rejected.push({ id: conflict.id, createdAt: conflict.createdAt, payload: decrypted });
           else unreadable += 1;
         } catch (error) {
@@ -2283,7 +2428,7 @@ function Workspace({
   async function sealUpload(container: Container, objectID: string, objectVersion: number, plaintext: Uint8Array, file: AttachmentFile): Promise<PendingUpload> {
     const write = writeKeyFor(container);
     if (!write) throw new KeysWaitingError();
-    const sealed = await sealAttachment(write, container.id, plaintext, file);
+    const sealed = await sealAttachment(write, container.id, objectID, plaintext, file);
     const upload = await sendUploadStart({ container, generation: sealed.keyGeneration }, sealed.payload.byteLength, await digestSha256Hex(sealed.payload));
     const job = { uploadId: upload.uploadId, owner: auth.user.id, containerID: container.id, objectID, objectVersion, ...sealed, chunkBytes: upload.chunkBytes, nextChunk: upload.nextChunk, name: file.name, type: file.type, size: file.size };
     await putUpload(job);
@@ -2366,7 +2511,7 @@ function Workspace({
       const job = await sealUpload(selected, selectedNote.id, selectedNote.version, new Uint8Array(await file.arrayBuffer()), { name: file.name, type: file.type, size: file.size });
       // A re-sealed upload reports the generation it was actually sent under.
       const uploaded = await uploadPending(job);
-      return { id: uploaded.id, name: file.name, type: file.type, size: file.size, keyGeneration: uploaded.keyGeneration };
+      return { id: uploaded.id, name: file.name, type: file.type, size: file.size, keyGeneration: uploaded.keyGeneration, page: job.objectID };
   }
   async function addAttachment(file: File) {
     if (!selected || !selectedNote || readOnlyForKeys()) return;
@@ -2395,7 +2540,8 @@ function Workspace({
     if (!attachment) return url;
     const encrypted = await downloadAttachment(attachment.id);
     const containerID = selected.id;
-    const plaintext = await openFirst(readKeysFor(selected, attachment.keyGeneration), (key) => decryptAttachment(key, containerID, encrypted));
+    const v1 = await v1ChildOpens(containerID, attachment.page, attachment.id, encrypted);
+    const plaintext = await openFirst(readKeysFor(selected, attachment.keyGeneration), (key) => decryptAttachment(key, containerID, attachment.page, encrypted, v1));
     const objectURL = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type }));
     resolvedURLs.current.push(objectURL);
     return objectURL;
@@ -2405,7 +2551,8 @@ function Workspace({
     try {
       const encrypted = await downloadAttachment(attachment.id);
       const containerID = selected.id;
-      const plaintext = await openFirst(readKeysFor(selected, attachment.keyGeneration), (key) => decryptAttachment(key, containerID, encrypted));
+      const v1 = await v1ChildOpens(containerID, attachment.page, attachment.id, encrypted);
+      const plaintext = await openFirst(readKeysFor(selected, attachment.keyGeneration), (key) => decryptAttachment(key, containerID, attachment.page, encrypted, v1));
       const url = URL.createObjectURL(new Blob([plaintext.slice().buffer as ArrayBuffer], { type: attachment.type || "application/octet-stream" }));
       const link = document.createElement("a");
       link.href = url; link.download = attachment.name; link.click();
@@ -2420,7 +2567,7 @@ function Workspace({
     try {
       const write = writeKeyFor(selected);
       if (!write) throw new Error(WAITING);
-      const encrypted = await encryptComment(write.key, selected.id, commentText.trim(), commentSection.trim());
+      const encrypted = await encryptComment(write.key, selected.id, selectedNote.id, commentText.trim(), commentSection.trim());
       try {
         const mentionable = keyMembers?.containerID === selected.id ? keyMembers.members : membersForTeam;
         await sendComment({ container: selected, generation: write.generation }, selectedNote.id, base64(encrypted), mentionedUserIDs(commentText, mentionable, auth.user.id));
@@ -3266,7 +3413,7 @@ function SettingsView({
   async function exportWaiting(): Promise<number> {
     const queued = (await pendingSaves()).filter((item) => item.owner === userID);
     if (!queued.length) return 0;
-    const file = await exportUnsent(queued, (item) => openFirst(keysFor(item), (key) => decryptObject(key, item.containerID, item.payload)));
+    const file = await exportUnsent(queued, (item) => openFirst(keysFor(item), (key) => decryptObject(key, item.containerID, item.id, item.payload, true)));
     downloadFile("kynotes-unsent-edits.json", file.json, "application/json");
     return queued.length - file.unreadable;
   }

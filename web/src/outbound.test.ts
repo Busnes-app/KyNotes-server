@@ -34,7 +34,7 @@ describe("outbound ciphertext gate", () => {
   it("sends no chunk of a waiting pending upload, and re-seals it for the current key once that arrives", async () => {
     const plaintext = new Uint8Array([1, 2, 3, 4]);
     // Started while this browser had no key: sealed with the identity's waiting key.
-    const job: PendingUpload = { uploadId: "upl", owner: "usr_me", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, file)), ...file };
+    const job: PendingUpload = { uploadId: "upl", owner: "usr_me", containerID: cnt, objectID: "obj", objectVersion: 1, keyGeneration: WAITING_GENERATION, chunkBytes: 4, nextChunk: 0, payload: await encryptAttachment(waiting, cnt, "obj", plaintext), metadataCiphertext: base64(await encryptAttachmentMetadata(waiting, cnt, "obj", file)), ...file };
     raiseFloorIn(cnt, { shared: 2, generation: 2 });
     // Keys missing: the resume waits, and the gate refuses the stored chunk outright.
     expect((await attachmentStep(job, shared, floorOf(cnt), undefined, ring, waiting)).kind).toBe("wait");
@@ -47,11 +47,11 @@ describe("outbound ciphertext gate", () => {
     const step = await attachmentStep(job, shared, floorOf(cnt), write, ring, waiting);
     expect(step.kind).toBe("reseal");
     if (step.kind !== "reseal") return;
-    const resealed = await sealAttachment(write, cnt, step.plaintext, step.file);
+    const resealed = await sealAttachment(write, cnt, "obj", step.plaintext, step.file);
     expect(resealed.keyGeneration).toBe(2);
-    expect(await decryptAttachment(key, cnt, resealed.payload)).toEqual(plaintext);
-    expect(await decryptAttachmentMetadata(key, cnt, fromBase64(resealed.metadataCiphertext))).toEqual(file);
-    await expect(decryptAttachment(waiting, cnt, resealed.payload)).rejects.toThrow();
+    expect(await decryptAttachment(key, cnt, "obj", resealed.payload, false)).toEqual(plaintext);
+    expect(await decryptAttachmentMetadata(key, cnt, "obj", fromBase64(resealed.metadataCiphertext), false)).toEqual(file);
+    await expect(decryptAttachment(waiting, cnt, "obj", resealed.payload, true)).rejects.toThrow();
     // The old ciphertext still never passes; the re-sealed one does.
     expect(() => sendUploadChunk({ container: shared, generation: WAITING_GENERATION }, job.uploadId, 0, job.payload)).toThrow(KeysWaitingError);
     await sendUploadChunk({ container: shared, generation: 2 }, "upl2", 0, resealed.payload);

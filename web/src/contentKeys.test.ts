@@ -107,9 +107,9 @@ describe("readKeys", () => {
   it("content crypto takes only a branded content key, never raw bytes (checked by tsc)", () => {
     const raw = new Uint8Array(32);
     // @ts-expect-error raw bytes, such as a login-derived secret, are not a content key
-    const seal = () => encryptNote(raw, "cnt_x", { title: "", body: "" });
+    const seal = () => encryptNote(raw, "cnt_x", "obj_x", { title: "", body: "" });
     // @ts-expect-error nor can they open content
-    const open = () => decryptObject(raw, "cnt_x", raw);
+    const open = () => decryptObject(raw, "cnt_x", "obj_x", raw, false);
     expect([seal, open]).toHaveLength(2);
   });
   it("refuses a content key that is not 32 bytes", () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
-import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, withDialog, type Person } from "./people";
+import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, vaultOf, withDialog, type Person } from "./people";
 import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
@@ -144,38 +144,6 @@ const storageHolds = (page: Page, needle: string) => page.evaluate(async (text) 
   return dumps.some((dump) => forms.some((form) => dump.toLowerCase().includes(form)));
 }, needle);
 
-/** fields: the record's stored field names, so a test sees anything kept beyond the identity. */
-type Vault = { fields: string[]; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
-
-/** This browser's keys vault record; a sealed identity is opened in the page with its device key. Never creates the database. */
-function vaultOf(page: Page) {
-  return page.evaluate(() => new Promise<Vault | null>((resolve, reject) => {
-    const open = indexedDB.open("kynotes-web");
-    open.onupgradeneeded = () => open.transaction!.abort(); // not created yet: leave it to the app
-    open.onerror = () => resolve(null);
-    open.onsuccess = () => {
-      const db = open.result;
-      if (!db.objectStoreNames.contains("keys")) { db.close(); resolve(null); return; }
-      const all = db.transaction("keys").objectStore("keys").getAll();
-      all.onsuccess = async () => {
-        db.close();
-        type Stored = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey?: Uint8Array; sealed?: Uint8Array; deviceKey?: CryptoKey };
-        const row = (all.result as Array<{ identity?: Stored }>)[0];
-        if (!row) { resolve(null); return; }
-        const fields = Object.keys(row).sort();
-        const stored = row.identity;
-        if (!stored) { resolve({ fields, sealed: false }); return; }
-        try {
-          const privateKey = stored.sealed && stored.deviceKey
-            ? new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: new TextEncoder().encode(`kynotes/device-identity/v1|${stored.userID}|${stored.deviceId}`) }, stored.deviceKey, stored.sealed.slice(12)))
-            : stored.privateKey!;
-          resolve({ fields, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
-        } catch (error) { reject(error); }
-      };
-    };
-  }));
-}
-
 /** Removes the identity from this browser's vault, as on a browser that never held it. */
 const dropVaultIdentity = (page: Page) => page.evaluate(() => new Promise<void>((resolve, reject) => {
   const open = indexedDB.open("kynotes-web");
@@ -230,21 +198,6 @@ async function serverCopy(page: Page, title: string) {
     const response = await fetch(`/api/v1/objects/${oid}`);
     return { id: oid, version: Number(response.headers.get("X-Kynotes-Version")), generation: Number(response.headers.get("X-Kynotes-Key-Generation")), bytes: [...new Uint8Array(await response.arrayBuffer())] };
   }, id!);
-}
-
-/**
- * The container keys page's own envelopes open to, by generation. The sender key comes from the
- * identities the three browsers hold, never from the server, so a substituted sender fails here.
- */
-async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array>): Promise<Map<number, KeyRef>> {
-  const own = (await vaultOf(page))!.identity!;
-  const rows = await page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; envelope: string }>;
-  return new Map(rows.filter((row) => row.deviceId === own.deviceId).map((row) => {
-    const envelope = fromBase64(row.envelope);
-    const sender = senders.get(envelopeSender(envelope));
-    if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(envelope)} (generation ${row.keyGeneration} for ${own.deviceId}; known: ${[...senders.keys()].join(", ")})`);
-    return [row.keyGeneration, asContentKey(unwrapEnvelope(envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
-  }));
 }
 
 type Queued = { id: string; containerID: string; version: number; payload: number[]; keyGeneration: number; owner: string };
@@ -309,7 +262,8 @@ async function join(who: Person, link: string) {
 const REFUSED = "This invitation is no longer valid: it expired, was already used, is for another account, or its sender can no longer invite.";
 const stashed = (page: Page) => page.evaluate(() => sessionStorage.getItem("kynotes-invitation"));
 
-const titleOf = (key: KeyRef, cid: string, bytes: number[]) => decryptObject(key, cid, Uint8Array.from(bytes)).then((payload) => payload?.title);
+/** A copy's title; v2 only, bound to the copy's own object ID. */
+const titleOf = (key: KeyRef, cid: string, copy: { id: string; bytes: number[] }) => decryptObject(key, cid, copy.id, Uint8Array.from(copy.bytes), false).then((payload) => payload?.title);
 
 /** The key the server could derive from what it sees at sign-in. Test-only: content must never open with it. */
 async function loginKey(page: Page, username: string, password: string) {
@@ -385,8 +339,8 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const ownerKeys = await heldKeys(owner.page, cid, senders);
   const ownerCopy = await serverCopy(owner.page, "Owner page");
   expect(ownerCopy.generation).toBeGreaterThan(0);
-  await expect(titleOf(await loginKey(owner.page, OWNER.username, OWN), cid, ownerCopy.bytes)).rejects.toThrow();
-  await expect(titleOf(ownerKeys.get(ownerCopy.generation)!, cid, ownerCopy.bytes)).resolves.toBe("Owner page");
+  await expect(titleOf(await loginKey(owner.page, OWNER.username, OWN), cid, ownerCopy)).rejects.toThrow();
+  await expect(titleOf(ownerKeys.get(ownerCopy.generation)!, cid, ownerCopy)).resolves.toBe("Owner page");
 
   // Editor reads the owner's page, comment and attachment, and writes back.
   await openTeam(editor.page);
@@ -400,9 +354,9 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const editorKeys = await heldKeys(editor.page, cid, senders);
   const editorCopy = await serverCopy(editor.page, "Editor page");
   expect(editorCopy.generation).toBe(ownerCopy.generation);
-  await expect(titleOf(await loginKey(editor.page, "editor", OWN), cid, editorCopy.bytes)).rejects.toThrow();
-  await expect(titleOf(editorKeys.get(editorCopy.generation)!, cid, editorCopy.bytes)).resolves.toBe("Editor page");
-  await expect(titleOf(ownerKeys.get(editorCopy.generation)!, cid, editorCopy.bytes)).resolves.toBe("Editor page");
+  await expect(titleOf(await loginKey(editor.page, "editor", OWN), cid, editorCopy)).rejects.toThrow();
+  await expect(titleOf(editorKeys.get(editorCopy.generation)!, cid, editorCopy)).resolves.toBe("Editor page");
+  await expect(titleOf(ownerKeys.get(editorCopy.generation)!, cid, editorCopy)).resolves.toBe("Editor page");
 
   // A tab from before shared keys (no key-scheme header) cannot write a shared row.
   const ownerPage = await serverCopy(editor.page, "Owner page");
@@ -437,7 +391,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await readPage(newcomer.page, "Editor page", ["editor comment"]);
   const newcomerKeys = await heldKeys(newcomer.page, cid, senders);
   const before = await serverCopy(owner.page, "Owner page");
-  await expect(titleOf(newcomerKeys.get(before.generation)!, cid, before.bytes)).resolves.toBe("Owner page");
+  await expect(titleOf(newcomerKeys.get(before.generation)!, cid, before)).resolves.toBe("Owner page");
 
   // Remove the newcomer; the owner's browser re-mints at once, before anyone writes.
   const newcomerDevice = (await vaultOf(newcomer.page))!.identity!.deviceId;
@@ -456,10 +410,10 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await writePage(owner.page, "After removal", "after comment");
   const after = await serverCopy(owner.page, "After removal");
   expect(after.generation).toBeGreaterThan(before.generation);
-  await expect(titleOf((await heldKeys(owner.page, cid, senders)).get(after.generation)!, cid, after.bytes)).resolves.toBe("After removal");
+  await expect(titleOf((await heldKeys(owner.page, cid, senders)).get(after.generation)!, cid, after)).resolves.toBe("After removal");
   // Forward secrecy: none of the newcomer's keys opens content written after the removal.
   expect(newcomerKeys.has(after.generation)).toBe(false);
-  for (const key of newcomerKeys.values()) await expect(titleOf(key, cid, after.bytes)).rejects.toThrow();
+  for (const key of newcomerKeys.values()) await expect(titleOf(key, cid, after)).rejects.toThrow();
 
   // The newcomer no longer sees the team; the editor reads the new content with the new key.
   expect(await newcomer.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).status, cid)).toBe(404);
@@ -619,13 +573,13 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   await writePage(owner.page, "After reset", "after reset comment");
   const afterReset = await serverCopy(owner.page, "After reset");
   expect(afterReset.generation).toBeGreaterThan(Math.max(...preReset.keys()));
-  for (const key of preReset.values()) await expect(titleOf(key, cid, afterReset.bytes)).rejects.toThrow();
-  await expect(titleOf((await heldKeys(newcomer.page, cid, senders)).get(afterReset.generation)!, cid, afterReset.bytes)).resolves.toBe("After reset");
+  for (const key of preReset.values()) await expect(titleOf(key, cid, afterReset)).rejects.toThrow();
+  await expect(titleOf((await heldKeys(newcomer.page, cid, senders)).get(afterReset.generation)!, cid, afterReset)).resolves.toBe("After reset");
 
   // 5. An edit stranded on the device for a notebook this account cannot open: exported, then discarded.
   const lost = `cnt_${"z".repeat(26)}`;
   // Sealed as the app seals an edit made while the key is missing: generation 0, the identity's waiting key.
-  const stranded = await encryptNote(waitingKey({ privateKey: Uint8Array.from(newIdentity.privateKey) }), lost, { type: "page", title: "Stranded edit", body: "[]" });
+  const stranded = await encryptNote(waitingKey({ privateKey: Uint8Array.from(newIdentity.privateKey) }), lost, `obj_${"z".repeat(26)}`, { type: "page", title: "Stranded edit", body: "[]" });
   // Stamped with its account, as the app queues every edit: only those may be discarded.
   await queueEdit(newcomer.page, { id: `obj_${"z".repeat(26)}`, containerID: lost, version: 1, payload: [...stranded], keyGeneration: 0, owner: newcomerOwn.userId });
   await newcomer.page.getByRole("button", { name: "Settings" }).click();
@@ -834,7 +788,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await writePage(newcomer, "Linked page", "linked comment");
   await expect(newcomer.getByText(UNCACHED)).toBeVisible();
   const uncached = await serverCopy(newcomer, "Linked page");
-  await expect(titleOf((await heldKeys(newcomer, cid, senders)).get(uncached.generation)!, cid, uncached.bytes)).resolves.toBe("Linked page");
+  await expect(titleOf((await heldKeys(newcomer, cid, senders)).get(uncached.generation)!, cid, uncached)).resolves.toBe("Linked page");
 
   // 9. Forget this device asks first, names what it removes and keeps, then deletes the sealed key and its device key together.
   await newcomer.getByRole("button", { name: "Settings" }).click();
@@ -852,7 +806,12 @@ const FORGED = `obj_${"f".repeat(26)}`;
 const FORGED_TITLE = "Forged page sealed with the login key";
 
 type Write = { method: string; path: string; scheme?: string; body: Buffer | null };
-const openers: Array<[string, (key: KeyRef, cid: string, bytes: Uint8Array) => Promise<unknown>]> = [["object", decryptObject], ["name", decryptContainerMeta], ["comment", decryptComment]];
+/** Each kind, bound to the ID its request names (an object or comment's page, else the notebook); v1 too. */
+const openers: Array<[string, (key: KeyRef, cid: string, bound: string, bytes: Uint8Array) => Promise<unknown>]> = [
+  ["object", (key, cid, bound, bytes) => decryptObject(key, cid, bound, bytes, true)],
+  ["name", (key, cid, _bound, bytes) => decryptContainerMeta(key, cid, bytes, true)],
+  ["comment", (key, cid, bound, bytes) => decryptComment(key, cid, bound, bytes, true)],
+];
 
 /** Every ciphertext a request body could carry: its raw bytes, and each base64 string in a JSON body. */
 function bodyBlobs(body: Buffer | null): Uint8Array[] {
@@ -866,16 +825,17 @@ function bodyBlobs(body: Buffer | null): Uint8Array[] {
   return blobs;
 }
 
-/** What blob opens as under key in cid: object, name and/or comment. */
-async function opensAs(key: KeyRef, cid: string, blob: Uint8Array) {
+/** What blob, sent to path, opens as under key in cid: object, name and/or comment. */
+async function opensAs(key: KeyRef, cid: string, path: string, blob: Uint8Array) {
   const kinds: string[] = [];
-  for (const [kind, open] of openers) if (await open(key, cid, blob).then(() => true, () => false)) kinds.push(kind);
+  const bound = path.match(/obj_[0-9a-z]{26}/)?.[0] ?? cid;
+  for (const [kind, open] of openers) if (await open(key, cid, bound, blob).then(() => true, () => false)) kinds.push(kind);
   return kinds;
 }
 
 /** The title of the server's current copy of id, opened with key. */
 const serverTitle = async (page: Page, id: string, key: KeyRef, cid: string) =>
-  titleOf(key, cid, await page.evaluate(async (oid) => [...new Uint8Array(await (await fetch(`/api/v1/objects/${oid}`)).arrayBuffer())], id)).catch(() => undefined);
+  titleOf(key, cid, { id, bytes: await page.evaluate(async (oid) => [...new Uint8Array(await (await fetch(`/api/v1/objects/${oid}`)).arrayBuffer())], id) }).catch(() => undefined);
 
 async function p5(admin: Person, owner: Person, editor: Person, cid: string, another: () => Promise<Person>) {
   const editorKey = (await vaultOf(editor.page))!.identity!;
@@ -906,24 +866,25 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   const opened = new Set<string>();
   for (const write of writes) {
     for (const blob of bodyBlobs(write.body)) {
-      expect(await opensAs(login, nid, blob), `${write.method} ${write.path}`).toEqual([]);
-      for (const kind of await opensAs(keys.get(2)!, nid, blob)) opened.add(kind);
+      expect(await opensAs(login, nid, write.path, blob), `${write.method} ${write.path}`).toEqual([]);
+      for (const kind of await opensAs(keys.get(2)!, nid, write.path, blob)) opened.add(kind);
     }
   }
   // The bodies were read: the container key opens the name, the page and the comment in them.
   expect([...opened].sort()).toEqual(["comment", "name", "object"]);
   const copy = await serverCopy(editor.page, "Keyed page");
   expect(copy.generation).toBe(2);
-  await expect(titleOf(keys.get(2)!, nid, copy.bytes)).resolves.toBe("Keyed page");
-  await expect(titleOf(login, nid, copy.bytes)).rejects.toThrow();
+  await expect(titleOf(keys.get(2)!, nid, copy)).resolves.toBe("Keyed page");
+  await expect(titleOf(login, nid, copy)).rejects.toThrow();
   const meta = await editor.page.evaluate(async (id) => ((await (await fetch("/api/v1/containers")).json()) as Array<{ id: string; metaCiphertext: string }>).find((entry) => entry.id === id)!.metaCiphertext, nid);
-  await expect(decryptContainerMeta(keys.get(2)!, nid, fromBase64(meta))).resolves.toMatchObject({ name: KEYED });
-  await expect(decryptContainerMeta(login, nid, fromBase64(meta))).rejects.toThrow();
+  // A new notebook is born migrated: its first name carries the marker.
+  await expect(decryptContainerMeta(keys.get(2)!, nid, fromBase64(meta), false)).resolves.toEqual({ name: KEYED, objects: 2 });
+  await expect(decryptContainerMeta(login, nid, fromBase64(meta), true)).rejects.toThrow();
   await shoot(editor.page, "p5", "keyed", editor.page.locator(".workspace-title"));
 
   // A server that slips in a page sealed with the login key, at a generation this notebook never had a
   // key for: the browser fetches it and never shows it.
-  const forged = await encryptNote(login, nid, { type: "page", title: FORGED_TITLE, body: "" });
+  const forged = await encryptNote(login, nid, FORGED, { type: "page", title: FORGED_TITLE, body: "" });
   const forgedReads: string[] = [];
   const forgedPath = (url: URL) => url.pathname === `/api/v1/objects/${FORGED}`;
   const changesPath = (url: URL) => url.pathname === `/api/v1/containers/${nid}/changes`;
@@ -964,8 +925,8 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   //    waiting key; it survives a password change and is sent once the key arrives. Another browser
   //    signs in with the new password and reads it.
   const waitingRef = waitingKey({ privateKey: Uint8Array.from(editorKey.privateKey) });
-  const current = (await decryptObject(keys.get(2)!, nid, Uint8Array.from(copy.bytes)))!;
-  const waited = await encryptNote(waitingRef, nid, { ...current, title: WAITED } as Parameters<typeof encryptNote>[2]);
+  const current = (await decryptObject(keys.get(2)!, nid, copy.id, Uint8Array.from(copy.bytes), false))!;
+  const waited = await encryptNote(waitingRef, nid, copy.id, { ...current, title: WAITED } as Parameters<typeof encryptNote>[3]);
   const envelopesPath = (url: URL) => url.pathname === `/api/v1/containers/${nid}/envelopes`;
   await editor.page.route(envelopesPath, (route) => route.abort("connectionreset"));
   await editor.page.goto("/readyz");
@@ -976,7 +937,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   await changeOwnPassword(editor.page, OWN, NEW_OWN);
   const queued = (await storeRows(editor.page, "pending"))!;
   expect(queued).toEqual([expect.objectContaining({ id: copy.id, keyGeneration: 0, owner: editorId })]);
-  await expect(titleOf(waitingRef, nid, queued[0].payload as number[])).resolves.toBe(WAITED);
+  await expect(titleOf(waitingRef, nid, { id: copy.id, bytes: queued[0].payload as number[] })).resolves.toBe(WAITED);
   await editor.page.unroute(envelopesPath);
   await openTeam(editor.page, KEYED, nid);
   await expect.poll(() => serverTitle(editor.page, copy.id, keys.get(2)!, nid), { timeout: 30_000 }).toBe(WAITED);
@@ -1062,7 +1023,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   //    (rows sealed with the login key) are dropped on upgrade, never sent or offered; v7 drops the
   //    login secret its vault record kept.
   const upgraded = await another();
-  const stale = [...await encryptNote(login, nid, { type: "page", title: "Old build edit", body: "" })];
+  const stale = [...await encryptNote(login, nid, `obj_${"o".repeat(26)}`, { type: "page", title: "Old build edit", body: "" })];
   await upgraded.page.goto("/readyz");
   await upgraded.page.evaluate(({ owner, container, payload }) => new Promise<void>((resolve, reject) => {
     localStorage.setItem("kynotes-pending-saves", JSON.stringify([{ id: "obj_old", containerID: container }]));

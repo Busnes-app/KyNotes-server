@@ -19,6 +19,20 @@
   change in one transaction; nothing is revoked). After that, or after any sign-in at 600,000, the
   browser pins the account and refuses fewer. An older account must sign in on the web once before
   the MCP bridge accepts it.
+- Content is now bound to where it belongs. Pages, sections, groups, comments, attachment bytes and
+  metadata, and notebook names are sealed in a new format (v2) whose AES-GCM associated data names
+  the notebook, the object (for comments and attachments, their page) and the kind. Before, every
+  object, and attachment bytes, shared one unbound key per notebook, so a malicious server could
+  serve page A as page B, an attachment as a page, or one page's comments on another. Existing
+  notebooks migrate in the background the next time an owner, admin or editor opens them in the web
+  app: objects are re-saved, existing comments and attachments are pinned by the SHA-256 of their
+  stored ciphertext in their page, and the notebook's name is rewritten with a marker. From then on
+  every web client and MCP bridge that has seen the marker refuses older-format content that is not
+  pinned, and a server serving the name from before the marker. Clients and MCP bridges from an
+  earlier release write the older format and must be upgraded: after migration, what they write is
+  refused (all clients come from this repository's release). Remaining limits are listed in
+  DESIGN.md (Encryption): rollback of an object to its own older revision, swaps among one page's
+  own comments and attachments, and a browser that never saw the marker.
 
 ## 0.4.3 — 2026-10-23
 
