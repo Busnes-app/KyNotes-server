@@ -7,6 +7,11 @@ import (
 const MinLoginIterations = derive.MinIterations
 const MaxLoginIterations = derive.MaxIterations
 
+// LoginIterations is what every password write must use and what clients require.
+// MinLoginIterations stays the floor for signing in to an older account, which the
+// browser then upgrades (POST /api/v1/auth/login-upgrade).
+const LoginIterations = 600_000
+
 // authLabel is the HKDF domain the browser mirrors in web/src/crypto.ts.
 // Change a byte and every user is locked out.
 const authLabel = "kynotes/auth/v1"

@@ -245,7 +245,7 @@ func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	identityID := "dev_00000000000000000000000000"
 	change := func(wrapped string) (int, string) {
-		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000`
+		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000`
 		if wrapped != "" {
 			body += `,"wrappedIdentityKey":` + quote(wrapped) + `,"identityDeviceId":` + quote(identityID)
 		}
@@ -260,7 +260,7 @@ func TestPasswordChangeRewrapsIdentityAtomically(t *testing.T) {
 		t.Fatalf("rewrap bound to a stale identity ID: %d %s", code, body)
 	}
 	identityID = created
-	half := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"identityDeviceId":` + quote(created) + `}`
+	half := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000,"identityDeviceId":` + quote(created) + `}`
 	if code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(half), true, false)); code != http.StatusBadRequest {
 		t.Fatalf("identity ID without a wrapped key: %d", code)
 	}
@@ -326,14 +326,14 @@ func TestRecoveryAndAdminResetKeepIdentity(t *testing.T) {
 				if _, err := p.db.Exec(`UPDATE users SET recovery_hash=? WHERE id=?`, hash, pairUser); err != nil {
 					t.Fatal(err)
 				}
-				body := `{"username":"pair","recoveryCode":` + quote(code) + `,"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+				body := `{"username":"pair","recoveryCode":` + quote(code) + `,"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 				if got, b := status(t, p.do(t, http.MethodPost, "/api/v1/auth/recover", []byte(body), false, false)); got != http.StatusOK {
 					t.Fatalf("recover=%d %s", got, b)
 				}
 			} else {
 				admin := p.addAdmin(t, "server-admin")
 				admin.stepUp(t)
-				body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+				body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 				if got, b := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); got != http.StatusNoContent {
 					t.Fatalf("admin reset=%d %s", got, b)
 				}
@@ -382,7 +382,7 @@ func TestAdminResetRevokesSessionsInItsTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("fedcba9876543210"))
-	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	if code, b := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusInternalServerError {
 		t.Fatalf("reset with a failing revocation=%d %s", code, b)
 	}
@@ -472,7 +472,7 @@ func TestAdminKnownPasswordGatesIdentityUntilOwnChange(t *testing.T) {
 	if err := p.db.QueryRow(`SELECT count(*) FROM devices WHERE platform='identity'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("refused create left a row: %d %v", n, err)
 	}
-	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000}`
 	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)); code != http.StatusNoContent {
 		t.Fatalf("own change: %d %s", code, body)
 	}
@@ -496,7 +496,7 @@ func TestPasswordChangeSharesStepUpLockout(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	t.Cleanup(func() { loginLockout.Success(pairUser + "\x00127.0.0.1") })
 	change := func(current string) int {
-		body := `{"currentAuthSecret":"` + strings.Repeat(current, 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+		body := `{"currentAuthSecret":"` + strings.Repeat(current, 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000}`
 		code, _ := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false))
 		return code
 	}
@@ -568,7 +568,7 @@ func TestIdentityCreateRejectsConcurrentRecovery(t *testing.T) {
 	}
 	recovered := 0
 	got, body := p.putIdentityRacing(t, func() {
-		req := `{"username":"pair","recoveryCode":` + quote(code) + `,"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + base64.StdEncoding.EncodeToString([]byte("fedcba9876543210")) + `","iterations":100000}`
+		req := `{"username":"pair","recoveryCode":` + quote(code) + `,"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + base64.StdEncoding.EncodeToString([]byte("fedcba9876543210")) + `","iterations":600000}`
 		res := p.do(t, http.MethodPost, "/api/v1/auth/recover", []byte(req), false, false)
 		recovered = res.StatusCode
 		res.Body.Close()
@@ -587,7 +587,7 @@ func TestIdentityCreateRejectsConcurrentPasswordChange(t *testing.T) {
 	p.stepUp(t)
 	changed := 0
 	got, body := p.putIdentityRacing(t, func() {
-		change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+		change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000}`
 		res := p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)
 		changed = res.StatusCode
 		res.Body.Close()
@@ -608,7 +608,7 @@ func changePasswordAfterVerify(t *testing.T, p *pairClient, identityID string) *
 	changed := 0
 	afterPasswordVerified = func() {
 		afterPasswordVerified = nil
-		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))) + `,"identityDeviceId":` + quote(identityID) + `}`
+		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))) + `,"identityDeviceId":` + quote(identityID) + `}`
 		res := p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false)
 		changed = res.StatusCode
 		res.Body.Close()
@@ -677,7 +677,7 @@ func TestPasswordChangeReaddsAStrippedPasswordCopy(t *testing.T) {
 			}
 			wrapped := bytes.Repeat([]byte{7}, wrappedIdentityBytes)
 			change := func(device string) (int, string) {
-				body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(device) + `}`
+				body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(device) + `}`
 				return status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false))
 			}
 			if code, body := change("dev_00000000000000000000000000"); code != http.StatusConflict || !strings.Contains(body, "identity_rewrap_required") {
@@ -721,7 +721,7 @@ func TestPasswordChangeReaddsUnderAdminKnownPassword(t *testing.T) {
 		t.Fatal("not addable under the flag:", live)
 	}
 	wrapped := bytes.Repeat([]byte{7}, wrappedIdentityBytes)
-	body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(id) + `}`
+	body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(wrapped)) + `,"identityDeviceId":` + quote(id) + `}`
 	if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(body), true, false)); code != http.StatusNoContent {
 		t.Fatalf("re-add under the flag: %d %s", code, out)
 	}

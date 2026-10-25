@@ -263,7 +263,7 @@ func TestDeviceOnlyIdentityIsNeverWrappedByAPassword(t *testing.T) {
 		t.Fatalf("login identity: %d %s", code, body)
 	}
 	change := func(rewrap bool) (int, string) {
-		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000`
+		body := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000`
 		if rewrap {
 			body += `,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(identityWrapped)) + `,"identityDeviceId":` + quote(id)
 		}
@@ -1043,7 +1043,7 @@ func TestAdminResetClearsLinkRequests(t *testing.T) {
 	admin := trusted.addAdmin(t, "server-admin")
 	admin.stepUp(t)
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	if code, b := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusNoContent {
 		t.Fatalf("admin reset=%d %s", code, b)
 	}
@@ -1112,7 +1112,7 @@ func TestAdminKnownPasswordChangeNeedsKySignOn(t *testing.T) {
 		return f.send(req)
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	change := `{"currentAuthSecret":"` + secret + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	change := `{"currentAuthSecret":"` + secret + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	if r := do("POST", "/api/v1/auth/password", change); r.Code != 409 || !strings.Contains(r.Body.String(), `"code":"sso_sign_in_required"`) || strings.Contains(r.Body.String(), "challenge") {
 		t.Fatal("an administrator-known password changed itself", r.Code, r.Body.String())
 	}
@@ -1170,7 +1170,7 @@ func TestPasswordChangeRevokesOtherSessions(t *testing.T) {
 	if _, err := p.db.Exec(`UPDATE users SET password_admin_known=1 WHERE id=?`, pairUser); err != nil {
 		t.Fatal(err)
 	}
-	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000}`
+	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000}`
 	if code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)); code != http.StatusNoContent {
 		t.Fatalf("own change: %d %s", code, body)
 	}
@@ -1292,7 +1292,7 @@ func TestPasswordChangeRechecksTheKySignOnFenceInTransaction(t *testing.T) {
 	}
 	t.Cleanup(func() { afterPasswordVerified = nil })
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("e", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	code, body := status(t, p.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false))
 	var flag int
 	if err := p.db.QueryRow(`SELECT password_admin_known FROM users WHERE id=?`, pairUser).Scan(&flag); err != nil || code != 409 || !strings.Contains(body, `"code":"sso_sign_in_required"`) || flag != 1 {

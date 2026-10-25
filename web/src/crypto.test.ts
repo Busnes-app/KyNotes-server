@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { asContentKey, fromBase64, decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload, MIN_LOGIN_ITERATIONS, NEEDS_HTTPS, randomLoginSalt } from "./crypto";
+import { asContentKey, fromBase64, decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, encryptContainerMeta, encryptNote, encryptSharePayload, LEGACY_LOGIN_ITERATIONS, LOGIN_ITERATIONS, NEEDS_HTTPS, randomLoginSalt } from "./crypto";
 
 describe("browser crypto", () => {
   it("matches the server auth fixture", async () => {
-    await expect(deriveAuthSecret("correct horse battery staple", "MDEyMzQ1Njc4OWFiY2RlZg==", 100000)).resolves.toBe(
+    await expect(deriveAuthSecret("correct horse battery staple", "MDEyMzQ1Njc4OWFiY2RlZg==", 100000, LEGACY_LOGIN_ITERATIONS)).resolves.toBe(
       "b9eb85992f985b432a3feaf4f5ea0b7b7960a5da42c640a3b9d93a83fc5bef1d",
     );
   });
@@ -62,10 +62,11 @@ describe("content keys", () => {
   it("refuses a key that is not 32 bytes", async () => {
     await expect(encryptNote(new Uint8Array(16) as never, "cnt_a", { title: "", body: "" })).rejects.toThrow("invalid content key");
   });
-  it("refuses fewer login iterations than the server minimum, whatever the server sends", async () => {
-    for (const iterations of [1, MIN_LOGIN_ITERATIONS - 1, Number.NaN, 1e300]) {
+  it("refuses fewer login iterations than new accounts use, whatever the server sends", async () => {
+    for (const iterations of [1, LEGACY_LOGIN_ITERATIONS, LOGIN_ITERATIONS - 1, Number.NaN, 1e300]) {
       await expect(deriveAuthSecret("pw", "MDEyMzQ1Njc4OWFiY2RlZg==", iterations), String(iterations)).rejects.toThrow(/too few password iterations/);
     }
+    await expect(deriveAuthSecret("pw", "MDEyMzQ1Njc4OWFiY2RlZg==", LEGACY_LOGIN_ITERATIONS - 1, LEGACY_LOGIN_ITERATIONS)).rejects.toThrow(/too few password iterations/);
   });
   it("needs WebCrypto: no fallback cipher and no Math.random", async () => {
     const random = vi.spyOn(Math, "random");

@@ -39,6 +39,7 @@ var (
 	errPasswordChange = errors.New("an administrator set this account's password; sign in to KyNotes once as this account and choose a new one")
 	errNoIdentity     = errors.New("this account has no encryption key yet; sign in to the KyNotes web app once as this account")
 	errNoPasswordCopy = errors.New("this account's encryption key has no password copy (an administrator reset); sign in to the web app as this account and restore it")
+	errFewIterations  = errors.New("the server asked for too few password iterations; sign in to the KyNotes web app once as this account to upgrade it")
 )
 
 // client is one signed-in everyday account and its unwrapped identity.
@@ -62,6 +63,9 @@ func (c *client) login(ctx context.Context) error {
 	}
 	if err := c.call(ctx, http.MethodPost, "/api/v1/auth/login-params", map[string]string{"username": c.username}, &params, false); err != nil {
 		return err
+	}
+	if params.Iterations < auth.LoginIterations {
+		return errFewIterations
 	}
 	secret, err := auth.DeriveAuthSecret(c.password, params.LoginSalt, params.Iterations)
 	if err != nil {

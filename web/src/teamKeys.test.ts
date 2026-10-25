@@ -4,7 +4,7 @@ import { bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
 import vectors from "../../testdata/protocol/envelope_vectors.json";
 import authVectors from "../../testdata/protocol/auth_vectors.json";
-import { deriveLoginKeys, NEEDS_HTTPS } from "./crypto";
+import { deriveLoginKeys, LEGACY_LOGIN_ITERATIONS, NEEDS_HTTPS } from "./crypto";
 import { ENVELOPE_BYTES, envelopeAAD, envelopeSender, generateIdentity, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
 
 const h = hexToBytes;
@@ -41,7 +41,7 @@ describe("primitive vectors", () => {
 describe("Go cross-implementation vectors", () => {
   it("derives authSecret and userKEK from one PBKDF2 pass", async () => {
     for (const v of vectors.login) {
-      const keys = await deriveLoginKeys(v.password, v.loginSalt, v.iterations);
+      const keys = await deriveLoginKeys(v.password, v.loginSalt, v.iterations, LEGACY_LOGIN_ITERATIONS);
       expect(keys.authSecret).toBe(v.authSecret);
       expect(bytesToHex(keys.userKEK)).toBe(v.userKEK);
     }
@@ -56,7 +56,7 @@ describe("Go cross-implementation vectors", () => {
     it("refuses to derive keys (plain HTTP) instead of falling back", async () => {
       vi.stubGlobal("crypto", {});
       const v = vectors.login[0];
-      await expect(deriveLoginKeys(v.password, v.loginSalt, v.iterations)).rejects.toThrow(NEEDS_HTTPS);
+      await expect(deriveLoginKeys(v.password, v.loginSalt, v.iterations, LEGACY_LOGIN_ITERATIONS)).rejects.toThrow(NEEDS_HTTPS);
     });
   });
 

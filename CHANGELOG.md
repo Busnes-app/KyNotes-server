@@ -10,6 +10,15 @@
   forge state-changing requests. Open sessions get the bound token the next time the web app
   reads `GET /api/v1/auth/session`; other clients that cached the old cookie value must re-read
   the `csrf_token` cookie.
+- Password iterations can no longer be lowered by the server. Every password write (setup,
+  administrator create and reset, password change, recovery, `user add` with a derived secret on
+  stdin) now refuses fewer than 600,000 PBKDF2 iterations (was 100,000). The browser, the MCP
+  bridge and the probe refuse to derive at fewer than 600,000, except that the browser still signs
+  in once to an older account at 100,000 or more and upgrades it in place
+  (`POST /api/v1/auth/login-upgrade`: the verifier and the password copy of the encryption key
+  change in one transaction; nothing is revoked). After that, or after any sign-in at 600,000, the
+  browser pins the account and refuses fewer. An older account must sign in on the web once before
+  the MCP bridge accepts it.
 
 ## 0.4.3 — 2026-10-23
 

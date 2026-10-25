@@ -252,7 +252,8 @@ userKEK = HKDF-SHA256( ikm = <the same PBKDF2 output>, salt = <empty>,
 | PBKDF2 stretch output | 32 bytes |
 | Auth secret output | 32 bytes, lowercase hex (64 chars) |
 | Iterations served to new clients | `600_000` |
-| `MinLoginIterations` | `100_000` |
+| `LoginIterations` | `600_000`: the fewest any password write (setup, admin create and reset, password change, recover, `user add`) accepts, and the fewest clients derive at once they have seen the account there |
+| `MinLoginIterations` | `100_000`: the floor for signing in to an older account, which the browser then upgrades (`POST /auth/login-upgrade`, §4.2) |
 | `MaxLoginIterations` | `12_000_000` |
 | `MinLoginSaltBytes` | `16` |
 | `MaxLoginSaltBytes` | `64` |
@@ -1236,6 +1237,7 @@ the test hook can never silently become production.
 | GET | `/api/v1/auth/session` | session | → `{"user":{"id","role","username","accountKind"},"passwordChangeRequired":bool,"sso":bool,"expiresAt":"...","hardExpiresAt":"..."}` |
 | POST | `/api/v1/auth/logout` | session + CSRF | → `204`, clears both cookies, revokes the row |
 | POST | `/api/v1/auth/logout-all` | session + CSRF + fresh | → `204`, revokes every session for the user |
+| POST | `/api/v1/auth/login-upgrade` | session + CSRF | `{"currentAuthSecret","newAuthSecret","newLoginSalt","iterations","identityDeviceId"?,"wrappedIdentityKey"?}` → `204`; only while `login_iterations` < `LoginIterations`, and `iterations` must be at least that. Verifies the current secret (same lockout as `/auth/password`), then in one transaction re-checks it, replaces `auth_secret_hash`, `login_salt`, `login_iterations` and the password copy of the identity (required iff one exists, `409 identity_rewrap_required` otherwise) and audits `account.login_upgrade`. Revokes nothing and keeps `password_admin_known`. `409 already_exists` once upgraded |
 | POST | `/api/v1/auth/recover` | none | `{"username","recoveryCode","newAuthSecret","newLoginSalt","iterations","newRecoveryCode"}` → `204` |
 
 Login-params must answer identically in shape and timing for known and unknown

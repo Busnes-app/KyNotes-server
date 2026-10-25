@@ -25,6 +25,7 @@ import {
   inviteMember,
   login,
   loginParams,
+  upgradeLoginIterations,
   logout,
   members,
   notifications,
@@ -79,6 +80,7 @@ import {
   decryptObject,
   decryptSharePayload,
   deriveLoginKeys,
+  LOGIN_ITERATIONS,
   type LoginKeys,
   digestSha256Hex,
   hasWebCrypto,
@@ -100,6 +102,7 @@ import { loadGate } from "./loadGate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
 import { stepUpAsking } from "./stepup";
+import { loginFloor, pinLogin, upgradeLogin } from "./loginUpgrade";
 import {
   clearDeviceKey,
   clearQueuedSave,
@@ -129,6 +132,17 @@ import {
   type PendingSave,
   type PendingUpload,
 } from "./storage";
+
+/** An older account's sign-in upgrades it; best effort, so a failure keeps the old verifier and the next sign-in retries. */
+async function upgradeOlderLogin(username: string, userID: string, password: string, keys: LoginKeys, identity?: IdentityRecord): Promise<{ keys: LoginKeys; identity?: IdentityRecord }> {
+  try {
+    const upgraded = await upgradeLogin(upgradeLoginIterations, userID, password, keys, identity);
+    pinLogin(username);
+    return upgraded;
+  } catch {
+    return { keys, identity };
+  }
+}
 
 /** Opens or creates the identity after a password sign-in and keeps it on this browser; failures stay silent (the workspace offers linking). */
 async function settleIdentity(username: string, userID: string, keys: LoginKeys, fromLogin?: IdentityRecord): Promise<void> {
@@ -191,7 +205,7 @@ function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
 const FORGET_DEVICE = "Forget this device and sign out? This browser's copy of your encryption key and your colleague key pins are removed. To get the key back here, link this browser from another one or enter your recovery code (or sign in with your password, if it still unlocks your key; accounts that use KySignOn have no password copy). Unsent edits stay on this browser until they are sent, or until you discard them under Unsent edits.";
 /** A password session's reset: its typed password gives the step-up and the new key's password copy (recovery.ts resetIdentity). */
 const passwordReset = (username: string) => ({
-  derive: async (password: string) => { const params = await loginParams(username); return deriveLoginKeys(password, params.loginSalt, params.iterations); },
+  derive: async (password: string) => { const params = await loginParams(username); return deriveLoginKeys(password, params.loginSalt, params.iterations, loginFloor(username)); },
   stepUp: (authSecret: string) => stepUp(authSecret),
 });
 const KEY_STATUS: Record<MemberKeyStatus, string> = { "has-key": "has key", waiting: "waiting for key", "no-identity": "no encryption key yet", unapproved: "awaiting approval" };
@@ -398,18 +412,22 @@ function Login({
     try {
       const activeName = username.trim() || sessionUser?.username || "";
       const params = await loginParams(activeName);
-      const keys = await deriveLoginKeys(password, params.loginSalt, params.iterations);
-      const authSecret = keys.authSecret;
+      const derived = await deriveLoginKeys(password, params.loginSalt, params.iterations, loginFloor(activeName));
+      const authSecret = derived.authSecret;
       // A password the server refuses never lets anyone in.
       const result = await login(activeName, authSecret);
+      if (params.iterations >= LOGIN_ITERATIONS) pinLogin(activeName);
+      const { keys, identity } = params.iterations < LOGIN_ITERATIONS && !result.passwordChangeRequired
+        ? await upgradeOlderLogin(activeName, result.user.id, password, derived, result.identity)
+        : { keys: derived, identity: result.identity };
       sessionStorage.setItem("kynotes-last-username", activeName);
       const everyday = result.user.accountKind === "user";
       // Only an everyday account on its own password keeps a vault record, after the server accepted the password.
       if (everyday && !result.passwordChangeRequired) {
         await rememberAfter(async () => result, activeName);
-        await settleIdentity(activeName, result.user.id, keys, result.identity);
+        await settleIdentity(activeName, result.user.id, keys, identity);
       }
-      onLogin({ username: activeName, authSecret: everyday ? authSecret : "", user: result.user, passwordChangeRequired: result.passwordChangeRequired });
+      onLogin({ username: activeName, authSecret: everyday ? keys.authSecret : "", user: result.user, passwordChangeRequired: result.passwordChangeRequired });
       setPassword("");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to sign in");
@@ -3092,11 +3110,12 @@ function PasswordSettings({ username, userID, everyday, onAuthSecret, onIdentity
       const name = username || prompt("Username")?.trim();
       if (!name) throw new Error("Username is required");
       const oldParams = await loginParams(name);
-      const currentKeys = await deriveLoginKeys(current, oldParams.loginSalt, oldParams.iterations);
+      const currentKeys = await deriveLoginKeys(current, oldParams.loginSalt, oldParams.iterations, loginFloor(name));
       const newLoginSalt = randomLoginSalt();
       const newKeys = await deriveLoginKeys(next, newLoginSalt, 600000);
       if (!everyday) {
         await changePassword({ currentAuthSecret: currentKeys.authSecret, newAuthSecret: newKeys.authSecret, newLoginSalt, iterations: 600000 });
+        pinLogin(name);
         setCurrent("");
         setNext("");
         setStatus("Password changed.");
@@ -3113,6 +3132,7 @@ function PasswordSettings({ username, userID, everyday, onAuthSecret, onIdentity
         identityDeviceId: rewrapped?.identityDeviceId,
         wrappedIdentityKey: rewrapped?.wrappedIdentityKey,
       }), name, rewrapped && { userID, identity: rewrapped.identity });
+      pinLogin(name);
       // No identity yet (e.g. an administrator set the old password): create it under the new one
       // before the workspace opens, so it never caches an absent identity.
       if (!rewrapped) {
