@@ -233,17 +233,18 @@ export async function openObject(key: KeyRef, containerID: string, objectID: str
 
 export const decryptObject = async (...args: Parameters<typeof openObject>) => (await openObject(...args)).payload;
 
+/** The pin ID of an attachment's metadata; the attachment's own ID pins its bytes. */
+export const metaPin = (attachmentID: string) => `${attachmentID}/meta`;
+
 /**
- * Whether a v1 child (comment, attachment) of page may open: before the marker, while the page has no
- * legacy field; otherwise only a child pinned there by the SHA-256 of its ciphertext. A page this read
- * does not know accepts none. Without ciphertext (attachment metadata) the pin is checked by ID only:
- * it holds the attachment bytes' digest.
+ * Whether a v1 child (comment, attachment bytes, attachment metadata under metaPin) of page may open:
+ * before the marker, while the page has no legacy field; otherwise only a child pinned there by the
+ * SHA-256 of its ciphertext. A page this read does not know accepts none.
  */
-export async function legacyChildOpens(page: { legacy?: Legacy } | undefined, migrated: boolean, childID: string, ciphertext?: Uint8Array): Promise<boolean> {
+export async function legacyChildOpens(page: { legacy?: Legacy } | undefined, migrated: boolean, childID: string, ciphertext: Uint8Array): Promise<boolean> {
   if (!page) return false;
   if (!page.legacy) return !migrated;
-  if (!Object.hasOwn(page.legacy, childID)) return false;
-  return !ciphertext || page.legacy[childID] === (await digestSha256Hex(ciphertext));
+  return Object.hasOwn(page.legacy, childID) && page.legacy[childID] === (await digestSha256Hex(ciphertext));
 }
 
 export async function encryptSharePayload(note: NotePayload): Promise<{ ciphertext: Uint8Array; key: string }> {

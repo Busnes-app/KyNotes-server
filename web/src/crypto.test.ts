@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { asContentKey, fromBase64, decryptAttachment, decryptAttachmentMetadata, decryptComment, decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, digestSha256Hex, encryptAttachment, encryptAttachmentMetadata, encryptComment, encryptContainerMeta, encryptNote, encryptSharePayload, hkdfSha256, legacyChildOpens, LEGACY_LOGIN_ITERATIONS, LOGIN_ITERATIONS, NEEDS_HTTPS, openObject, randomLoginSalt, type KeyRef } from "./crypto";
+import { asContentKey, fromBase64, decryptAttachment, decryptAttachmentMetadata, decryptComment, decryptContainerMeta, decryptNote, decryptObject, decryptSharePayload, deriveAuthSecret, digestSha256Hex, encryptAttachment, encryptAttachmentMetadata, encryptComment, encryptContainerMeta, encryptNote, encryptSharePayload, hkdfSha256, legacyChildOpens, LEGACY_LOGIN_ITERATIONS, metaPin, LOGIN_ITERATIONS, NEEDS_HTTPS, openObject, randomLoginSalt, type KeyRef } from "./crypto";
 
 describe("browser crypto", () => {
   it("matches the server auth fixture", async () => {
@@ -140,10 +140,22 @@ describe("content v2 binding", () => {
     expect(await legacyChildOpens(pinned, true, "cmt_x", comment)).toBe(true);
     expect(await legacyChildOpens(pinned, true, "cmt_y", comment)).toBe(false);
     expect(await legacyChildOpens(pinned, true, "cmt_x", await sealV1(key, cnt, "kynotes/comment/v1", json({ body: "swapped" })))).toBe(false);
-    expect(await legacyChildOpens(pinned, true, "constructor")).toBe(false);
+    expect(await legacyChildOpens(pinned, true, "constructor", comment)).toBe(false);
     expect(await legacyChildOpens(undefined, false, "cmt_x", comment)).toBe(false);
     const allowed = await legacyChildOpens(pinned, true, "cmt_x", comment);
     await expect(decryptComment(key, cnt, "obj_a", comment, allowed)).resolves.toEqual({ body: "old", section: "" });
     await expect(decryptComment(key, cnt, "obj_a", comment, false)).rejects.toThrow();
+  });
+
+  it("pins a legacy attachment's metadata apart from its bytes: metadata from another attachment is refused", async () => {
+    const own = await sealV1(key, cnt, "kynotes/attachment-meta/v1", json({ name: "report.pdf", type: "application/pdf", size: 3 }));
+    const other = await sealV1(key, cnt, "kynotes/attachment-meta/v1", json({ name: "evil.html", type: "text/html", size: 3 }));
+    const bytes = await sealV1(key, cnt, "kynotes/object/v1", new Uint8Array([1, 2, 3]));
+    const page = { legacy: { att_x: await digestSha256Hex(bytes), [metaPin("att_x")]: await digestSha256Hex(own) } };
+    expect(await legacyChildOpens(page, true, "att_x", bytes)).toBe(true);
+    expect(await legacyChildOpens(page, true, metaPin("att_x"), own)).toBe(true);
+    expect(await legacyChildOpens(page, true, metaPin("att_x"), other)).toBe(false);
+    // Bytes pinned alone admit no metadata.
+    expect(await legacyChildOpens({ legacy: { att_x: page.legacy.att_x } }, true, metaPin("att_x"), own)).toBe(false);
   });
 });

@@ -286,8 +286,8 @@ server-minted IDs, page bodies cite attachment IDs), so a migrated page carries 
 child that opens, by ID, mapped to the SHA-256 (lowercase hex) of its ciphertext as stored, with
 attachment bytes downloaded and hashed by the client. A new page carries `legacy: {}`. A v1 child
 opens only while its page has no `legacy` field and the notebook is not migrated, or when its
-digest matches its pin; v1 attachment metadata is accepted for a pinned attachment ID (the pin
-covers its bytes). Once every object is v2 and every page carries `legacy`, with nothing
+digest matches its pin; an attachment's metadata has its own pin (`att_…/meta`), so neither its
+bytes nor its name and type can be swapped in from another attachment. Once every object is v2 and every page carries `legacy`, with nothing
 unreadable, the pass writes the notebook's name as v2 with the marker `{"name": …, "objects": 2}`.
 That write is the commit point: an interrupted pass leaves a readable mix that the next load
 continues. New notebooks are named with the marker from the start.

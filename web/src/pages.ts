@@ -17,7 +17,8 @@ type Placed = { id: string; section?: string; order?: string; level?: number };
 // Crockford base32, lowercase, as minted by internal/ids.
 const OBJECT_ID = /^obj_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
 const CONTAINER_ID = /^cnt_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
-const CHILD_ID = /^(cmt|att)_[0-9abcdefghjkmnpqrstvwxyz]{26}$/;
+/** A comment, attachment bytes, or (with /meta) attachment metadata. */
+const CHILD_ID = /^(cmt_[0-9abcdefghjkmnpqrstvwxyz]{26}|att_[0-9abcdefghjkmnpqrstvwxyz]{26}(\/meta)?)$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 
 /** Only valid pins survive; present but malformed is {}, so the page still refuses unpinned v1 children. */

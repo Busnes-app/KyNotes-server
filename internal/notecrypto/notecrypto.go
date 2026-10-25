@@ -46,7 +46,7 @@ const (
 var (
 	containerID = regexp.MustCompile(`^cnt_[0-9a-hjkmnp-tv-z]{26}$`)
 	objectID    = regexp.MustCompile(`^obj_[0-9a-hjkmnp-tv-z]{26}$`)
-	childID     = regexp.MustCompile(`^(cmt|att)_[0-9a-hjkmnp-tv-z]{26}$`)
+	childID     = regexp.MustCompile(`^(cmt_[0-9a-hjkmnp-tv-z]{26}|att_[0-9a-hjkmnp-tv-z]{26}(/meta)?)$`) // "/meta": attachment metadata
 	digestHex   = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	orderKey    = regexp.MustCompile(`^[0-9a-z]*[1-9a-z]$`)
 	colors      = []string{"orange", "blue", "green", "purple", "red", "teal", "yellow", "gray"}

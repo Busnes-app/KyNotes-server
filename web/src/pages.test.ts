@@ -14,8 +14,8 @@ describe("parseObjectPayload", () => {
   });
   it("narrows legacy pins to comment and attachment IDs with lowercase SHA-256 hex; malformed is {}", () => {
     const cmt = `cmt_${"0".repeat(26)}`, att = `att_${"z".repeat(26)}`, digest = "0f".repeat(32);
-    const pins = { [cmt]: digest, [att]: digest.toUpperCase(), [`obj_${"0".repeat(26)}`]: digest, __proto__: digest, [`cmt_${"0".repeat(25)}`]: digest };
-    expect(parseObjectPayload({ type: "page", body: "", legacy: pins })).toEqual({ type: "page", title: "", body: "", legacy: { [cmt]: digest } });
+    const pins = { [cmt]: digest, [att]: digest.toUpperCase(), [`${att}/meta`]: digest, [`${cmt}/meta`]: digest, [`obj_${"0".repeat(26)}`]: digest, __proto__: digest, [`cmt_${"0".repeat(25)}`]: digest };
+    expect(parseObjectPayload({ type: "page", body: "", legacy: pins })).toEqual({ type: "page", title: "", body: "", legacy: { [cmt]: digest, [`${att}/meta`]: digest } });
     for (const legacy of [null, 3, "x", [digest]]) expect(parseObjectPayload({ type: "page", body: "", legacy })).toMatchObject({ legacy: {} });
     expect(parseObjectPayload({ type: "section", title: "S", legacy: pins })).not.toHaveProperty("legacy");
   });

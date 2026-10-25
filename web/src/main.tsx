@@ -80,6 +80,7 @@ import {
   decryptObject,
   decryptSharePayload,
   legacyChildOpens,
+  metaPin,
   openObject,
   deriveLoginKeys,
   LOGIN_ITERATIONS,
@@ -768,7 +769,7 @@ function Workspace({
     return meta;
   }
   /** legacyChildOpens for a child of pageID as this tab holds the page. */
-  const v1ChildOpens = (containerID: string, pageID: string, childID: string, ciphertext?: Uint8Array) =>
+  const v1ChildOpens = (containerID: string, pageID: string, childID: string, ciphertext: Uint8Array) =>
     legacyChildOpens(notesRef.current.find((note) => note.id === pageID), migrated.current.has(containerID), childID, ciphertext);
   /**
    * Local copies: the write key, or the identity's waiting seal at generation 0 that only this device sends
@@ -1617,8 +1618,9 @@ function Workspace({
       const decoded: PlainAttachment[] = [];
       for (const item of remote) {
         try {
-          const v1 = await v1ChildOpens(containerID, note.id, item.id);
-          const metadata = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptAttachmentMetadata(key, containerID, note.id, fromBase64(item.metadataCiphertext), v1));
+          const meta = fromBase64(item.metadataCiphertext);
+          const v1 = await v1ChildOpens(containerID, note.id, metaPin(item.id), meta);
+          const metadata = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptAttachmentMetadata(key, containerID, note.id, meta, v1));
           decoded.push({ id: item.id, ...metadata, keyGeneration: item.keyGeneration, page: note.id });
         } catch { /* Ignore metadata encrypted for another key. */ }
       }
@@ -1730,8 +1732,9 @@ function Workspace({
             const keys = readKeysFor(container, item.keyGeneration);
             const page = loaded.notes.find((note) => note.id === item.pageID);
             const done = migrated.current.has(container.id);
-            const metaV1 = await legacyChildOpens(page, done, item.id);
-            const metadata = await openFirst(keys, (key) => decryptAttachmentMetadata(key, container.id, item.pageID, fromBase64(item.metadataCiphertext), metaV1));
+            const meta = fromBase64(item.metadataCiphertext);
+            const metaV1 = await legacyChildOpens(page, done, metaPin(item.id), meta);
+            const metadata = await openFirst(keys, (key) => decryptAttachmentMetadata(key, container.id, item.pageID, meta, metaV1));
             const encrypted = await downloadAttachment(item.id);
             const v1 = await legacyChildOpens(page, done, item.id, encrypted);
             return { id: item.id, ...metadata, bytes: await openFirst(keys, (key) => decryptAttachment(key, container.id, item.pageID, encrypted, v1)) };
@@ -2092,9 +2095,11 @@ function Workspace({
     for (const item of await objectAttachments(pageID)) {
       const meta = fromBase64(item.metadataCiphertext);
       if (!(await onlyV1(item.keyGeneration, (key, v1) => decryptAttachmentMetadata(key, container.id, pageID, meta, v1)))) continue;
-      // The pin is the bytes' digest; v1 metadata is then accepted by the attachment's ID (legacyChildOpens).
+      // Bytes and metadata are pinned separately, so neither can be swapped in from another attachment.
       const bytes = await downloadAttachment(item.id);
-      if (await opens(item.keyGeneration, (key) => decryptAttachment(key, container.id, pageID, bytes, true))) pins[item.id] = await digestSha256Hex(bytes);
+      if (!(await opens(item.keyGeneration, (key) => decryptAttachment(key, container.id, pageID, bytes, true)))) continue;
+      pins[item.id] = await digestSha256Hex(bytes);
+      pins[metaPin(item.id)] = await digestSha256Hex(meta);
     }
     return pins;
   }

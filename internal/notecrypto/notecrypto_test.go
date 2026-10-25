@@ -430,8 +430,8 @@ func TestLegacyPins(t *testing.T) {
 			t.Fatalf("%+v → %+v, %v", p, got, err)
 		}
 	}
-	got, err := parsePayload([]byte(`{"type":"page","body":"","legacy":{"` + cmtA + `":"` + digest + `","obj_0123456789abcdefghjkmnpqrs":"` + digest + `","` + attA + `":"ABC"}}`))
-	if err != nil || !reflect.DeepEqual(got.Legacy, map[string]string{cmtA: digest}) {
+	got, err := parsePayload([]byte(`{"type":"page","body":"","legacy":{"` + cmtA + `":"` + digest + `","obj_0123456789abcdefghjkmnpqrs":"` + digest + `","` + attA + `":"ABC","` + attA + `/meta":"` + digest + `","` + cmtA + `/meta":"` + digest + `"}}`))
+	if err != nil || !reflect.DeepEqual(got.Legacy, map[string]string{cmtA: digest, attA + "/meta": digest}) {
 		t.Fatalf("%+v, %v", got.Legacy, err)
 	}
 	if got, _ := parsePayload([]byte(`{"type":"page","body":"","legacy":7}`)); got.Legacy == nil || len(got.Legacy) != 0 {
