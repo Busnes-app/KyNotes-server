@@ -37,7 +37,9 @@ jobs:
           # the pin block itself must carry both flags; a value elsewhere does not excuse it
           for f in docker-compose.yml $( [ -f docs/RESTORE.md ] && echo docs/RESTORE.md ); do
             if [ "$f" = docker-compose.yml ] || grep -qE -- '--(repo|cert-identity)(=|[[:space:]]+)' "$f"; then
-              grep -qE -- '--repo(=|[[:space:]]+)' "$f" && grep -qE -- '--cert-identity(=|[[:space:]]+)' "$f" || { echo "$f lacks --repo or --cert-identity"; exit 1; }
+              if ! grep -qE -- '--repo(=|[[:space:]]+)' "$f" || ! grep -qE -- '--cert-identity(=|[[:space:]]+)' "$f"; then
+                echo "$f lacks --repo or --cert-identity"; exit 1
+              fi
             fi
           done
           # every --repo and the whole of every --cert-identity (workflow file and ref included),
@@ -80,7 +82,7 @@ jobs:
           sha256sum "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
           cmp "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
       - run: test -z "$(gofmt -l .)"
-      - run: go test -race ./...
+      - run: make test
       - name: Team keys in three real browsers
         run: |
           cd web
@@ -109,7 +111,7 @@ jobs:
           docker run -d --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
           trap 'docker rm -f kynotes-probe-server >/dev/null 2>&1 || true' EXIT
           ready=0
-          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then ready=1; break; fi; sleep 1; done
+          for _attempt in $(seq 1 30); do if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then ready=1; break; fi; sleep 1; done
           test "$ready" -eq 1
           go run ./cmd/kynotes-probe -url http://127.0.0.1:8080 -username probe -password 'correct horse battery staple' -config /data/kynotes.yaml -server docker
           bash scripts/apply-setup-container-check.sh "$image"

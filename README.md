@@ -49,6 +49,8 @@ Ciphertext blobs have their own mirror: configure `KYNOTES_BLOB_TARGET`, then us
 `test-blob-target` verifies connectivity; `fetch-blobs` restores missing/corrupt ciphertext
 after capsule restore. See [deployment](docs/DEPLOYMENT.md#ciphertext-blob-mirror) for
 S3, pinned SFTP, SMB and local-mount settings and [restore](docs/RESTORE.md) for the order.
+SFTP destinations need strong keys and modern negotiation; read the deployment guide before
+upgrading an old target or selecting legacy SMB/NTLM compatibility.
 
 ## Health probes
 

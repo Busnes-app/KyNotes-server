@@ -29,6 +29,12 @@ Run the checks that apply to the files changed. At minimum, validate Markdown
 links and CSS asset paths, and run the project test suite once implementation
 exists. Record the commands and results in the pull request.
 
+`make test` is the full Go race suite used by CI: every package, `-count=1`,
+and a 20-minute per-package hang budget. The real-password API integration suite
+can exceed Go's ten-minute default on slower runners. Preserve its assertions
+and production password parameters; the timeout is a hang detector, not a
+performance target.
+
 ## Coding standard
 
 Contributions follow these style guides. CI (`.github/workflows/ci.yml`, job `test`) enforces

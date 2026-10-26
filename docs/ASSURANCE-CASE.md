@@ -50,7 +50,11 @@ downloaded by a member before revocation.
    hosts on the default port, with no redirects and a 5-second timeout
    (`internal/webpush/webpush.go`).
 4. **KyNotes → blob mirror and KyRecovery.** Operator-configured; SFTP targets are pinned by host
-   key (`ky-primitives/offsite`). Capsules are sealed to the suite public key.
+   key and enforce RSA-2048 endpoint keys and maintained negotiation algorithms
+   (`ky-primitives/offsite`, pinned in `go.mod`). S3 signing uses the shared module's AWS SDK
+   SigV4 signer. SMB/NTLM is a separately selected legacy compatibility mode with the
+   [documented credential and peer-authentication risks](DEPLOYMENT.md#smb-compatibility-choice).
+   Capsules are sealed to the suite public key.
 5. **KyNotes → its data directory.** Passwords, sessions and device secrets are stored only as
    hashes; content is ciphertext.
 
@@ -69,7 +73,10 @@ downloaded by a member before revocation.
   deposit, which only seals to the already-pinned key (admin plus CSRF); SSO admin needs both the
   account role and the verified `kynotes.admin` claim ([SECURITY.md](../SECURITY.md)).
 - **Open design.** Only published algorithms: Argon2id, PBKDF2-SHA256, HKDF-SHA256, AES-256-GCM,
-  X25519. The code and this argument are public.
+  X25519 for note/authentication mechanisms. Optional SMB uses the documented legacy NTLM
+  mechanisms for interoperability; it is disabled unless explicitly selected. The code and
+  this argument are public. Listing primitives does not establish expert review of every
+  application protocol.
 - **Psychological acceptability.** Each trade-off (equal-ciphertext attachment deduplication,
   reminder timing visible to the server) is written in [SECURITY.md](../SECURITY.md).
 
@@ -103,12 +110,17 @@ deactivation until they expire. Each is in
 
 ## Evidence
 
-- **Tests:** package tests for every security-sensitive route, including
+- **Tests:** `make test` runs every Go package under the race detector with
+  `-count=1` and a 20-minute per-package hang budget for the real-password API suite.
+  Package tests cover every security-sensitive route, including
   `TestMutatingRequestWithoutCSRFHeaderIsRejected`, `TestCSRFTokenIsBoundToSession`,
   `TestCSRFTokenFromAnotherSessionIsRefused` and the route-level CSRF and step-up tests in
   `internal/httpapi`; SECURITY.md requires attack-path tests for security changes. CI runs the
   Go suite under the race detector, the web unit tests, and Playwright browser regressions on
   every push and pull request.
+  `TestSFTPTransportPolicy` uses real protocol peers: pinned RSA-1024/2047 and SHA-1-only
+  key exchange are refused before password authentication, failed uploads stay pending,
+  and RSA-2048/Ed25519 peers still mirror and recover the original ciphertext.
 - **Static analysis:** CodeQL default setup (Go, JavaScript/TypeScript, Actions), `go vet`,
   `tsc` in strict mode, and `govulncheck`.
 - **Dynamic analysis:** the race detector, four Go fuzz targets in CI (pairing token, auth

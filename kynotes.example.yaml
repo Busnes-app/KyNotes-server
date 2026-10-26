@@ -39,6 +39,7 @@ backup:
   deposit_interval: "24h"        # default schedule; "0" disables; floor 15m; the admin UI setting overrides
   allow_private_recovery: false  # admit a KyRecovery on a private or CGNAT address (HTTPS still required)
   blob_target:
+    # SFTP requires strong keys; SMB/NTLM is legacy compatibility. Read docs/DEPLOYMENT.md before enabling.
     url: ""                     # file:///mnt/backup/blobs, s3://bucket/prefix, sftp://user@host/path, smb://host/share/path
     access_key: ""              # S3 key ID or SFTP/SMB user; never put passwords in URLs
     secret: ""                  # S3 secret, SFTP password/private PEM key, SMB password
