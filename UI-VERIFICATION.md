@@ -313,3 +313,13 @@ Round-3 release review, gap 1: workspace shell, task view and Settings hierarchy
   - `npm run e2e --prefix web` passes 11/11, including `mobile-navigation` and `appearance-cross-tab`. govulncheck was not run, because dependencies are unchanged.
 - **After merging `master`:** master's npm build-dependency update (5 commits; web dependencies and the embedded bundle only) was merged after the captures. The bundle was rebuilt from the merged source and lockfile. Post-merge checks pass: vitest 599/599, the vendor check, go build/vet, `go test -p 2 -race ./internal/web/...` and e2e 11/11. The committed post-merge build (embed index `1a66f5d20695`) was recaptured as `kynotes-02-current-bundle` at `8156280` with the same four surfaces in the same order. In-app `--verify` passes 23/23. Against 01-confirm, the only differences are live data: the note save time and the avatar initials, which come from the per-run user id. The rebuilt bundle causes no visual change.
 - Ratings belong to the independent reviewer; no 9/10 is claimed.
+
+## Review follow-up R3 — 2026-10-26
+
+Scope disclosure from the independent refinement review; no runtime source changed. Evidence, the full list and reachability are in [docs/ui-review-followups-2026-10-26](docs/ui-review-followups-2026-10-26/README.md).
+
+- **Scope:** the visual refinement's global button rule also outlines the 13 pre-existing `.secondary` controls (DeviceLink ×6, PinnedKeys ×1, the encryption-key reset ×3, Discard unsent edits, the locked-session Sign out, Forget this device & sign out) and the error toast. They were accent-filled before. The neutral outline is kept.
+- **Captures:** real-app captures before (server from `git archive` of pre-refinement `e1b726b`) and on current master `85dd3e3`, using the same fixture, at 1280×900 and 390×844, light and dark. They cover the opened encryption-key reset form, Forget this device, the idle Link another browser card and the locked-session Sign out. The locked-session state is modelled by clearing site storage except cookies.
+- **N/A, recorded with reasons:** the device-link buttons (a password account's key unlocks in any browser, so linking is never offered), Trust new key, Try the reset again, Discard unsent edits and the error toast.
+- **Known residual:** destructive `secondary danger` controls look like Cancel. They had no danger hue before either.
+- **Checks:** `--verify` on the current build passes 23/23. The unchanged suites were not re-run for this docs-only addition; the last full run is in the visual-refinement section above, and host CI covers the merged head.

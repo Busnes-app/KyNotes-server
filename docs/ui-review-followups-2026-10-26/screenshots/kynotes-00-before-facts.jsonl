@@ -1,0 +1,16 @@
+{"surface":"link-request","device":"desktop","theme":"light","secondBrowserOfferedLink":false,"notMeShown":false}
+{"surface":"recovery-reset","device":"desktop","theme":"light","continueDisabled":true}
+{"surface":"forget-device","device":"desktop","theme":"light","shown":true}
+{"surface":"locked-session","device":"desktop","theme":"light","modelled":"CDP Storage.clearDataForOrigin indexeddb,local_storage; cookies kept","signOutShown":true}
+{"surface":"link-request","device":"mobile","theme":"light","secondBrowserOfferedLink":false,"notMeShown":false}
+{"surface":"recovery-reset","device":"mobile","theme":"light","continueDisabled":true}
+{"surface":"forget-device","device":"mobile","theme":"light","shown":true}
+{"surface":"locked-session","device":"mobile","theme":"light","modelled":"CDP Storage.clearDataForOrigin indexeddb,local_storage; cookies kept","signOutShown":true}
+{"surface":"link-request","device":"desktop","theme":"dark","secondBrowserOfferedLink":false,"notMeShown":false}
+{"surface":"recovery-reset","device":"desktop","theme":"dark","continueDisabled":true}
+{"surface":"forget-device","device":"desktop","theme":"dark","shown":true}
+{"surface":"locked-session","device":"desktop","theme":"dark","modelled":"CDP Storage.clearDataForOrigin indexeddb,local_storage; cookies kept","signOutShown":true}
+{"surface":"link-request","device":"mobile","theme":"dark","secondBrowserOfferedLink":false,"notMeShown":false}
+{"surface":"recovery-reset","device":"mobile","theme":"dark","continueDisabled":true}
+{"surface":"forget-device","device":"mobile","theme":"dark","shown":true}
+{"surface":"locked-session","device":"mobile","theme":"dark","modelled":"CDP Storage.clearDataForOrigin indexeddb,local_storage; cookies kept","signOutShown":true}
