@@ -1366,7 +1366,9 @@ function Workspace({
       window.removeEventListener("pagehide", flushDraft);
     };
   }, [dirty, selected?.id]);
-  async function loadContainers() {
+  /** pick: open the routed or first notebook afterwards. */
+  async function loadContainers(pick = true) {
+    const opened = loads.mark();
     try {
       const value = await listContainers(floorSink);
       const loaded = value;
@@ -1408,12 +1410,14 @@ function Workspace({
           /* encrypted metadata may be unavailable in a session-only resume */
         }
       }
+      // A notebook opened or created meanwhile outranks the pick and may be missing from this list.
+      if (opened()) return await loadContainers(false);
       setNames(nextNames);
       setItems(loaded);
       if (olderMeta) setError(OLDER_META);
       const route = parseRoute(location.hash);
       const start = loaded.find((item) => item.id === route.container) ?? loaded[0];
-      if (start) await selectContainer(start, start.id === route.container ? route : undefined, false);
+      if (start && pick) await selectContainer(start, start.id === route.container ? route : undefined, false);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to load notebooks",
