@@ -383,7 +383,7 @@ func TestEnvelopeWriteRefusals(t *testing.T) {
 		{"password change after middleware", func(t *testing.T, tm team, path string) (int, string) {
 			changed := 0
 			code, body := tm.owner.sendRacing(t, http.MethodPut, path, map[string]string{"Content-Type": "application/json"}, envelopesBody(envJSON(tm.editorID, 1, 1)), func() {
-				change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":100000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))) + `,"identityDeviceId":` + quote(tm.ownerID) + `}`
+				change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("c", 64) + `","newLoginSalt":"bmV3c2FsdA==","iterations":600000,"wrappedIdentityKey":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{5}, wrappedIdentityBytes))) + `,"identityDeviceId":` + quote(tm.ownerID) + `}`
 				changed, _ = tm.owner.send(http.MethodPost, "/api/v1/auth/password", []byte(change))
 			})
 			if changed != http.StatusNoContent {

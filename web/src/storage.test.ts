@@ -159,6 +159,13 @@ describe("pin and key-mark writes never downgrade", () => {
     expect(await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, shared: 0, generation: 1 })).toBe(true);
     expect(await getKeyState("alice", userID, cnt)).toMatchObject({ shared: 2, generation: 3 });
   });
+  it("keeps the content migration marker once seen, so an older name the server serves later is refused", async () => {
+    await openVault("alice");
+    expect((await getKeyState("alice", userID, cnt)).objects).toBeUndefined();
+    expect(await storeKeyState("alice", userID, cnt, { mark: 0, digests: {}, objects: 2 })).toBe(true);
+    expect(await storeKeyState("alice", userID, cnt, { mark: 3, digests: {}, shared: 2, generation: 3 })).toBe(true);
+    expect(await getKeyState("alice", userID, cnt)).toMatchObject({ mark: 3, objects: 2 });
+  });
   it("key memory keeps only generations, mark and digests", async () => {
     await openVault("alice");
     await storeKeyState("alice", "usr_0123456789abcdefghjkmnpqrs", cnt, { mark: 2, digests: { 2: "aa" }, shared: 2, generation: 2, closed: 2, reopened: true } as KeyState);

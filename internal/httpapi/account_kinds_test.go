@@ -28,7 +28,7 @@ import (
 // Routes both kinds reach (auth.RequireAccount) and routes with no session at all.
 var accountRoutes = map[string]bool{
 	"GET /api/v1/auth/session": true, "GET /api/auth/session": true, "POST /api/v1/auth/logout": true, "POST /api/auth/logout": true,
-	"POST /api/v1/auth/logout-all": true, "POST /api/v1/auth/password": true, "POST /api/v1/auth/step-up": true,
+	"POST /api/v1/auth/logout-all": true, "POST /api/v1/auth/password": true, "POST /api/v1/auth/login-upgrade": true, "POST /api/v1/auth/step-up": true,
 	"POST /api/v1/auth/oidc/step-up": true, "GET /api/v1/auth/oidc/step-up/{id}": true, "DELETE /api/v1/auth/oidc/step-up/{id}": true,
 }
 var publicRoutes = map[string]bool{
@@ -228,7 +228,7 @@ func TestPasswordChangeIsForcedAtFirstSignIn(t *testing.T) {
 		if code != http.StatusOK || json.Unmarshal([]byte(body), &s) != nil || !s.PasswordChangeRequired {
 			t.Fatalf("session before the change=%d %s", code, body)
 		}
-		change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("b", 64) + `","newLoginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000}`
+		change := `{"currentAuthSecret":"` + strings.Repeat("a", 64) + `","newAuthSecret":"` + strings.Repeat("b", 64) + `","newLoginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000}`
 		if code, body := status(t, tc.c.do(t, http.MethodPost, "/api/v1/auth/password", []byte(change), true, false)); code != http.StatusNoContent {
 			t.Fatalf("own change=%d %s", code, body)
 		}
@@ -301,7 +301,7 @@ func TestKindGatesHoldWithoutTheTriggers(t *testing.T) {
 }
 func setupBody(admin, everyday string) []byte {
 	account := func(name, fill string) string {
-		return `{"username":` + quote(name) + `,"authSecret":"` + strings.Repeat(fill, 64) + `","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000}`
+		return `{"username":` + quote(name) + `,"authSecret":"` + strings.Repeat(fill, 64) + `","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000}`
 	}
 	return []byte(`{"admin":` + account(admin, "a") + `,"everyday":` + account(everyday, "b") + `}`)
 }
@@ -320,8 +320,8 @@ func TestSetupCreatesBothAccounts(t *testing.T) {
 	for name, body := range map[string][]byte{
 		"old shape":          []byte(`{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `"}`),
 		"same username":      setupBody("owner", "Owner"),
-		"plaintext password": []byte(`{"admin":{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `","loginSalt":"x","iterations":100000,"password":"hunter2"},"everyday":{"username":"owner","authSecret":"` + strings.Repeat("b", 64) + `","loginSalt":"x","iterations":100000}}`),
-		"no everyday":        []byte(`{"admin":{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `","loginSalt":"x","iterations":100000}}`),
+		"plaintext password": []byte(`{"admin":{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `","loginSalt":"x","iterations":600000,"password":"hunter2"},"everyday":{"username":"owner","authSecret":"` + strings.Repeat("b", 64) + `","loginSalt":"x","iterations":600000}}`),
+		"no everyday":        []byte(`{"admin":{"username":"admin","authSecret":"` + strings.Repeat("a", 64) + `","loginSalt":"x","iterations":600000}}`),
 	} {
 		if rec := post(body); rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s=%d %s", name, rec.Code, rec.Body.String())

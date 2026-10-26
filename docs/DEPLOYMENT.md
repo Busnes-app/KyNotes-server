@@ -131,7 +131,8 @@ stopped server. Both print the JSON result and exit 1 on failure.
 `copy-data-dir --out DIR` and `restore-data-dir --in DIR` are local plaintext copies.
 
 Every destructive backup action, including capsule export, uses POST and requires admin step-up plus CSRF;
-confirm the account password in the backup screen. HTTP mutations also require CSRF.
+confirm the account password in the backup screen. "Back up now" (deposit) needs only an admin session
+plus CSRF, as in the other Ky products: it seals to the already-pinned key and cannot redirect or reveal data. HTTP mutations also require CSRF.
 Unpair removes URL/token rows only; the KyRecovery admin separately revokes the token.
 The suite key, receipts and local copies remain. Pinning a different key is refused.
 

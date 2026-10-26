@@ -2,6 +2,8 @@ import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
 import type { Envelope, InvitationEnvelope, Member } from "./keyring";
 import type { RecoveryAPI, RecoveryCopy } from "./recovery";
+import type { LoginUpgrade } from "./loginUpgrade";
+import type { Legacy } from "./pages";
 export type AccountKind = "user" | "admin";
 export type User = { id: string; role: string; username?: string; accountKind: AccountKind };
 export type Session = { sso?: boolean; user: User; passwordChangeRequired?: boolean; expiresAt: string; hardExpiresAt: string };
@@ -18,7 +20,7 @@ const withGeneration = <T extends { keyGeneration?: unknown }>(rows: T[]) => row
 export type AdminUser = { id: string; username: string; role: string; accountKind: AccountKind; status: string; quotaBytes: number; createdAt: string };
 export type AdminTeam = { id: string; ownerUserId: string; ownerUsername: string; memberCount: number; keyed: boolean; named: boolean };
 export type Change = { id: string; kind: string; changeSeq: number; deleted: boolean };
-export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2 };
+export type Note = { id: string; title: string; body: string; version: number; updatedAt: string; section?: string; order?: string; level?: 0 | 1 | 2; legacy?: Legacy };
 
 type APIError = { error?: { code?: string; message?: string; challenge?: string }; conflictId?: string; currentVersion?: number };
 /** challenge: the open KySignOn confirmation a 409 step_up_pending names, so the caller can cancel it. */
@@ -148,6 +150,8 @@ export const adminSettings = () => request<{ defaultTheme: string }>("/api/v1/ad
 export function updateAdminSettings(defaultTheme: string) { return request<void>("/api/v1/admin/settings", { method: "PATCH", body: JSON.stringify({ defaultTheme }) }); }
 export function updateAdminUser(user: AdminUser) { return request<void>(`/api/v1/admin/users/${encodeURIComponent(user.id)}`, { method: "PATCH", body: JSON.stringify(user) }); }
 export function changePassword(input: { currentAuthSecret: string; newAuthSecret: string; newLoginSalt: string; iterations: number; identityDeviceId?: string; wrappedIdentityKey?: string }) { return request<void>("/api/v1/auth/password", { method: "POST", body: JSON.stringify(input) }); }
+/** Swaps an older account's verifier and password copy for ones at LOGIN_ITERATIONS (loginUpgrade.ts). */
+export function upgradeLoginIterations(input: LoginUpgrade) { return request<void>("/api/v1/auth/login-upgrade", { method: "POST", body: JSON.stringify(input) }); }
 /** Re-proves the login secret for the current session; destructive admin routes answer step_up_required until this succeeds. */
 export function stepUp(authSecret: string) { return request<{ identity: IdentityRecord } | undefined>("/api/v1/auth/step-up", { method: "POST", body: JSON.stringify({ authSecret }) }); }
 export async function myIdentity(): Promise<PublicIdentity | undefined> {

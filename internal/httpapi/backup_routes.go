@@ -20,8 +20,8 @@ func BackupRoutes(mux RouteMux, db *sql.DB, service *backup.Service) {
 		}
 		writeJSON(w, status)
 	})))
-	mutation := func(path string, handler http.HandlerFunc) {
-		mux.Handle(path, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	operation := func(handler http.HandlerFunc) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if auth.CheckCSRF(r) != nil {
 				WriteError(w, r, 403, "csrf_failed", "CSRF validation failed")
 				return
@@ -30,7 +30,10 @@ func BackupRoutes(mux RouteMux, db *sql.DB, service *backup.Service) {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), backup.OperationTimeout)
 			defer cancel()
 			handler(w, r.WithContext(ctx))
-		})))
+		})
+	}
+	mutation := func(path string, handler http.HandlerFunc) {
+		mux.Handle(path, auth.RequireStepUp(db, operation(handler)))
 	}
 	mutation("POST /api/v1/admin/backup/pin-key", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -88,7 +91,9 @@ func BackupRoutes(mux RouteMux, db *sql.DB, service *backup.Service) {
 		}
 		w.WriteHeader(204)
 	})
-	mutation("POST /api/v1/admin/backup/deposit", func(w http.ResponseWriter, r *http.Request) {
+	// Deposit needs admin and CSRF only, as in the rest of the suite: it seals to the
+	// already-pinned key and destinations, so it can neither redirect nor reveal data.
+	mux.Handle("POST /api/v1/admin/backup/deposit", auth.RequireAdmin(db, operation(func(w http.ResponseWriter, r *http.Request) {
 		actor, _ := auth.SessionFromContext(r)
 		result, err := service.Run(r.Context(), actor.UserID, RequestID(r))
 		// Preserve partial destination results even when the other destination failed.
@@ -101,7 +106,7 @@ func BackupRoutes(mux RouteMux, db *sql.DB, service *backup.Service) {
 			code = backup.ErrorCode(err)
 		}
 		writeJSON(w, map[string]any{"result": result, "error_code": code})
-	})
+	})))
 	mutation("POST /api/v1/admin/backup/export-capsule", func(w http.ResponseWriter, r *http.Request) {
 		actor, _ := auth.SessionFromContext(r)
 		raw, m, err := service.Export(r.Context(), actor.UserID, RequestID(r))

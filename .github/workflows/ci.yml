@@ -88,6 +88,14 @@ jobs:
           # the Chromium build pinned by @playwright/test from the Playwright CDN over TLS.
           ./node_modules/.bin/playwright install --with-deps chromium
           npm run e2e
+      # Traces and screenshots of a failed e2e run; the server and its accounts are throwaway.
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-test-results
+          path: web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
       - run: go test -fuzz=FuzzParsePairingToken -fuzztime=150000x ./internal/auth
       - run: go test -fuzz=FuzzParseAuthSecret -fuzztime=100000x ./internal/auth
       - run: go test -fuzz=FuzzParseID -fuzztime=6000000x ./internal/ids
@@ -96,7 +104,7 @@ jobs:
           set -eu
           image=kynotes-server:ci
           docker build --build-arg "VERSION=${GITHUB_SHA}" -t "$image" .
-          auth='{"authSecret":"b9eb85992f985b432a3feaf4f5ea0b7b7960a5da42c640a3b9d93a83fc5bef1d","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":100000}'
+          auth='{"authSecret":"944265b190cc588ea5a5c40f4bd10c941d4738138241e5295abe9a5e0e208310","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000}'
           printf '%s' "$auth" | docker run -i --rm --user "$(id -u):$(id -g)" -v "$PWD/testdata/config-good:/data" "$image" user add --config /data/kynotes.yaml --username probe
           docker run -d --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
           trap 'docker rm -f kynotes-probe-server >/dev/null 2>&1 || true' EXIT

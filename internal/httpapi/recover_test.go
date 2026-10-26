@@ -32,7 +32,7 @@ func TestRecoverRotatesCodeAndRevokesSessions(t *testing.T) {
 	}
 
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	body := `{"username":"alice","recoveryCode":"` + strings.ToUpper(code) + `","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	body := `{"username":"alice","recoveryCode":"` + strings.ToUpper(code) + `","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	post := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest("POST", "/api/v1/auth/recover", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -85,7 +85,7 @@ func TestRecoverRefusesUserWithoutRecoveryCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
-	body := `{"username":"bob","recoveryCode":"","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+	body := `{"username":"bob","recoveryCode":"","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	req := httptest.NewRequest("POST", "/api/v1/auth/recover", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -109,7 +109,7 @@ func TestRecoverRejectPathIsUniformCost(t *testing.T) {
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	body := func(username, recoveryCode string) string {
-		return `{"username":"` + username + `","recoveryCode":"` + recoveryCode + `","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+		return `{"username":"` + username + `","recoveryCode":"` + recoveryCode + `","newAuthSecret":"` + strings.Repeat("1", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	}
 	measure := func(username, recoveryCode string) time.Duration {
 		var ds []time.Duration
@@ -149,7 +149,7 @@ func TestRecoveryCodeIsSpentOnceUnderRace(t *testing.T) {
 	}
 	salt := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef"))
 	post := func(secret string) *httptest.ResponseRecorder {
-		body := `{"username":"racer","recoveryCode":"` + code + `","newAuthSecret":"` + strings.Repeat(secret, 64) + `","newLoginSalt":"` + salt + `","iterations":100000}`
+		body := `{"username":"racer","recoveryCode":"` + code + `","newAuthSecret":"` + strings.Repeat(secret, 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/auth/recover", strings.NewReader(body)))
 		return rec

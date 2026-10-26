@@ -32,9 +32,10 @@ export type OpenedKeyring = { ring: Keyring; pins: Pins; fresh: MemberKey[]; cha
 /**
  * What this device remembers per container: the highest generation it accepted from itself or a
  * current steward, the SHA-256 (hex) of every key it accepted (a different key for a known
- * generation is refused even after a reload), and the floor. All of it only rises.
+ * generation is refused even after a reload), the floor, and objects: 2 once it saw the content
+ * migration marker (v1 refused from then on). All of it only rises.
  */
-export type KeyState = KeyFloor & { mark: number; digests: Record<number, string> };
+export type KeyState = KeyFloor & { mark: number; digests: Record<number, string>; objects?: 2 };
 /** The highest sharedGeneration and keyGeneration this device has seen for a container; absent is 0. Only rises. */
 export type KeyFloor = { shared?: number; generation?: number };
 

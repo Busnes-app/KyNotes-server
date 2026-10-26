@@ -65,7 +65,8 @@ downloaded by a member before revocation.
 - **Complete mediation.** Every request resolves its session from the database
   (`ResolveSession`), so a revoked session or deactivated account stops at the next request.
 - **Economy of mechanism.** Seven direct Go modules (`go.mod`); WebCrypto in the browser.
-- **Separation of privilege.** Backup and recovery actions need step-up; SSO admin needs both the
+- **Separation of privilege.** Backup and recovery actions need step-up, except a manual
+  deposit, which only seals to the already-pinned key (admin plus CSRF); SSO admin needs both the
   account role and the verified `kynotes.admin` claim ([SECURITY.md](../SECURITY.md)).
 - **Open design.** Only published algorithms: Argon2id, PBKDF2-SHA256, HKDF-SHA256, AES-256-GCM,
   X25519. The code and this argument are public.
@@ -76,7 +77,7 @@ downloaded by a member before revocation.
 
 | Weakness | Counter | Where |
 |---|---|---|
-| Password theft from the server | The browser derives the login secret with PBKDF2-SHA256 (600,000 iterations when it sets a password; the server refuses fewer than 100,000) and HKDF; the server stores that as Argon2id | `web/src/crypto.ts`, `internal/auth/hash.go`, `internal/httpapi/auth_routes.go` |
+| Password theft from the server | The browser derives the login secret with PBKDF2-SHA256 (600,000 iterations; every password write refuses fewer, and the browser signs in to an older account at no fewer than 100,000 only until it has upgraded that account and pinned it) and HKDF; the server stores that as Argon2id | `web/src/crypto.ts`, `internal/auth/hash.go`, `internal/httpapi/auth_routes.go` |
 | Username enumeration | A synthetic login salt for unknown usernames | `SyntheticLoginSalt` in `internal/auth/derive.go` |
 | Credential guessing | 3 failed logins lock for 15 minutes, 3 failed recoveries for 60; per-minute rate limits on login, pairing and uploads | `internal/httpapi/auth_routes.go`, `internal/httpapi/ratelimit.go` |
 | Session theft or fixation | A fresh 32-byte `crypto/rand` token per sign-in, only its SHA-256 stored; `HttpOnly`, `SameSite=Lax`, `Secure` unless configured insecure; 24-hour sliding and 7-day hard expiry | `internal/auth/session.go` |
@@ -86,7 +87,7 @@ downloaded by a member before revocation.
 | SQL injection | `database/sql` with `?` parameters; the one concatenated statement joins a constant | `internal/storage/gc.go` |
 | Command injection | The server starts no subprocess; `exec.Command` appears only in the test probe | `cmd/kynotes-probe` |
 | Server-side request forgery | Push endpoints restricted to five hosts; other outbound targets are operator configuration | `internal/webpush/webpush.go` |
-| Content disclosure from the server | Content sealed with AES-256-GCM under per-container keys, subkeys from HKDF-SHA256 bound to the container ID; keys wrapped to X25519 device and identity keys | `web/src/crypto.ts`, `internal/notecrypto/notecrypto.go`, [DESIGN.md](../DESIGN.md#encryption) |
+| Content disclosure or substitution by the server | Content sealed with AES-256-GCM under per-container keys, subkeys from HKDF-SHA256 bound to the container ID, and associated data binding each ciphertext to its object (or page) and kind; older unbound content refused once its notebook migrates; keys wrapped to X25519 device and identity keys | `web/src/crypto.ts`, `internal/notecrypto/notecrypto.go`, [DESIGN.md](../DESIGN.md#encryption) |
 | Secrets in logs | A logging contract that allows only opaque IDs and outcomes | [LOGGING.md](../LOGGING.md) |
 | Vulnerable dependencies | Dependabot for Go, npm, Actions and the base image; `govulncheck` in CI | `.github/dependabot.yml`, `.github/workflows/ci.yml` |
 | Supply-chain tampering | Actions pinned by commit; base images pinned by digest; release images attested and built only from a commit that passed CI; the binary rebuilds to the same bytes | [VERIFYING-RELEASES.md](VERIFYING-RELEASES.md) |
@@ -95,7 +96,8 @@ downloaded by a member before revocation.
 
 Known limitations are listed, not hidden: the server sees routing metadata, sizes and timing;
 removed members keep what they downloaded; deterministic attachment encryption reveals equal
-ciphertexts; reminder push leaks reminder times to the server; and share links survive directory
+ciphertexts; the server can roll an object back to its own older revision or swap one page's
+comments and attachments among themselves; reminder push leaks reminder times to the server; and share links survive directory
 deactivation until they expire. Each is in
 [SECURITY.md](../SECURITY.md#trust-boundaries-and-limitations).
 

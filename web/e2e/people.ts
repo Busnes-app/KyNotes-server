@@ -1,4 +1,6 @@
 import { expect, type Browser, type BrowserContextOptions, type Locator, type Page } from "@playwright/test";
+import { asContentKey, fromBase64, type KeyRef } from "../src/crypto";
+import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
 /** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
 export type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
@@ -186,4 +188,51 @@ export async function approve(owner: Person, username: string) {
   const banner = owner.page.locator(".conflict-banner", { hasText: "was added by an administrator" }).filter({ hasText: username });
   await banner.getByRole("button", { name: "Approve and share keys" }).click();
   await expect(banner).toHaveCount(0);
+}
+
+/** fields: the record's stored field names, so a test sees anything kept beyond the identity. */
+type Vault = { fields: string[]; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
+
+/** This browser's keys vault record; a sealed identity is opened in the page with its device key. Never creates the database. */
+export function vaultOf(page: Page) {
+  return page.evaluate(() => new Promise<Vault | null>((resolve, reject) => {
+    const open = indexedDB.open("kynotes-web");
+    open.onupgradeneeded = () => open.transaction!.abort(); // not created yet: leave it to the app
+    open.onerror = () => resolve(null);
+    open.onsuccess = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains("keys")) { db.close(); resolve(null); return; }
+      const all = db.transaction("keys").objectStore("keys").getAll();
+      all.onsuccess = async () => {
+        db.close();
+        type Stored = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey?: Uint8Array; sealed?: Uint8Array; deviceKey?: CryptoKey };
+        const row = (all.result as Array<{ identity?: Stored }>)[0];
+        if (!row) { resolve(null); return; }
+        const fields = Object.keys(row).sort();
+        const stored = row.identity;
+        if (!stored) { resolve({ fields, sealed: false }); return; }
+        try {
+          const privateKey = stored.sealed && stored.deviceKey
+            ? new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: new TextEncoder().encode(`kynotes/device-identity/v1|${stored.userID}|${stored.deviceId}`) }, stored.deviceKey, stored.sealed.slice(12)))
+            : stored.privateKey!;
+          resolve({ fields, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
+        } catch (error) { reject(error); }
+      };
+    };
+  }));
+}
+
+/**
+ * The container keys page's own envelopes open to, by generation. The sender key comes from the
+ * identities the three browsers hold, never from the server, so a substituted sender fails here.
+ */
+export async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array>): Promise<Map<number, KeyRef>> {
+  const own = (await vaultOf(page))!.identity!;
+  const rows = await page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; envelope: string }>;
+  return new Map(rows.filter((row) => row.deviceId === own.deviceId).map((row) => {
+    const envelope = fromBase64(row.envelope);
+    const sender = senders.get(envelopeSender(envelope));
+    if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(envelope)} (generation ${row.keyGeneration} for ${own.deviceId}; known: ${[...senders.keys()].join(", ")})`);
+    return [row.keyGeneration, asContentKey(unwrapEnvelope(envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
+  }));
 }

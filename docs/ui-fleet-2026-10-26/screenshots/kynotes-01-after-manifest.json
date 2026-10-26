@@ -1,0 +1,92 @@
+{
+  "prefix": "kynotes-01-after",
+  "product": "kynotes",
+  "branch": "ui/fleet-appearance",
+  "head": "83d9750d58cda3eba5a90194ece262722f3acea3",
+  "uncommitted_diff_sha256": "8037736037f08a63387ad372ad80cafbd4d566953a24480e29fcc885672f2b9c",
+  "uncommitted_diff_bytes": 1530022,
+  "server_binary_sha256": "b4f58befe1f6283cca460da47258fbf4116d11adcfb2a8013073e73bc0d1d772",
+  "embedded_index_sha256": "c21e63cc55e4536d6a75f0932dae862dde402add072095a222e467697fe67a73",
+  "captured": "2026-10-26T11:21:17.224Z",
+  "os": "linux 7.2.10-1-cachyos",
+  "driver": "playwright chromium 156.0.8078.4 (headless)",
+  "device_scale_factor": 1,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "theme_source": "context colorScheme emulation with no saved theme choice (OS-following default)",
+  "fixture": "fresh data dir (web/e2e/server.sh config on port 18091, dev_insecure_cookies on loopback); first-run setup through the UI creating administrator \"admin\" and everyday \"owner\"; owner creates notebook \"Field notes\" with one note typed \"Garden plan: order seeds by Friday.\"; captures are the owner",
+  "files": [
+    {
+      "file": "kynotes-01-after-workspace-desktop-light.png",
+      "sha256": "efbb69480324042b790b10effa68aca25b7878c1795e2b87c4384f771fc72881",
+      "surface": "workspace",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-desktop-light.png",
+      "sha256": "e9a43a22c9535e61543c3d333a31d6692dddd50356d8c718c8a249f3668b3b71",
+      "surface": "appearance",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-workspace-mobile-light.png",
+      "sha256": "e6a18f86178f2c513920f7df06595f342f93d74be662b2c860fec6413c3c85f7",
+      "surface": "workspace",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-mobile-light.png",
+      "sha256": "797096f246e39ada5c081045206aa9c011a1c1cf0e396bbea47324ba05a6a970",
+      "surface": "appearance",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-workspace-desktop-dark.png",
+      "sha256": "d4cbf71b99fd26b3ef13a5686a567b6df4205ba8e19f945854abda347e5a4f82",
+      "surface": "workspace",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-desktop-dark.png",
+      "sha256": "0b4aaa0c526fe4e85a750e95c174c5cb869ef59a1c2073019a565bcd87b44c82",
+      "surface": "appearance",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-workspace-mobile-dark.png",
+      "sha256": "67c736bee9600af866c10a9d5cef38b5a8e90f7dc666ba8c4461910ff735296a",
+      "surface": "workspace",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-mobile-dark.png",
+      "sha256": "1a5d151433a989702e1d911501227eedc8f9221ddab29862c1381d0f1c8488e5",
+      "surface": "appearance",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    }
+  ]
+}

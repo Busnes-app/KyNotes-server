@@ -47,6 +47,11 @@ days and coordinate a fix and disclosure.
   retain content they already downloaded.
 - Deterministic attachment encryption may reveal that two ciphertexts are
   equal. This is an intentional deduplication trade-off.
+- Each ciphertext is bound to its notebook, its object (comments and attachments: their page) and
+  its kind, so the server cannot substitute one for another. It can still serve an older revision of
+  the same object, swap one page's own comments or attachments among themselves, and show a browser
+  that never opened a migrated notebook its older, unmarked name; the browser that migrates a
+  notebook pins the older comments and attachments the server serves at that time.
 - Public publishing is deferred. The initial release does not expose plaintext
   through the server. A future publisher must use an explicit client-mediated
   export and a separate public storage model.

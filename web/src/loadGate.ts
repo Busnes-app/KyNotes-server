@@ -9,5 +9,10 @@ export function loadGate() {
       const ticket = ++latest;
       return { superseded: () => latest !== ticket };
     },
+    /** Whether any load began after this call, without superseding the one in flight. */
+    mark() {
+      const at = latest;
+      return () => latest !== at;
+    },
   };
 }

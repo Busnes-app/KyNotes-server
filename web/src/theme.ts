@@ -1,34 +1,27 @@
 import { readChoice, saveChoice, watchChoice } from './ky-ui/theme';
-import { busnesPalettes } from './ky-ui/palettes';
+import { SYSTEM_THEME, THEME_CATALOG, applyThemeVariables, findTheme } from './ky-ui/themes';
+import type { CatalogTheme, SystemTheme } from './ky-ui/themes';
+
 export const THEME_STORAGE_KEY = "kynotes-theme";
-export const THEME_OPTIONS = ["Busnes Light", "Busnes Dark", "Dark Matter", "Light Matter", "Tropics", "Tropic Night", "Ocean", "Coffee", "White Cliffs", "Cyber Punk", "Neon Purple", "Space", "Sky", "Forest", "Sun", "Patina Ky", "Polished Ky"] as const;
-export type ThemeName = (typeof THEME_OPTIONS)[number];
-type Theme = { bg: string; panel: string; ink: string; inkStrong: string; accent: string; accentSoft: string; line: string; glow: string; sidebarStart: string; sidebarEnd: string; buttonText: string };
+// The suite catalog: Match system, Busnes Light/Dark and every named palette.
+export type Theme = CatalogTheme | SystemTheme;
+export const THEME_OPTIONS: readonly Theme[] = [SYSTEM_THEME, ...THEME_CATALOG];
+const prefersDark = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 
-const palette: Record<ThemeName, Theme> = {
-  "Busnes Light": busnesPalettes["Busnes Light"],
-  "Busnes Dark": busnesPalettes["Busnes Dark"],
-  "Dark Matter": { bg: "#1a1a1e", panel: "#252530", ink: "#d4c5e2", inkStrong: "#e8ddf5", accent: "#c29a72", accentSoft: "#5a3f31", line: "#404050", glow: "rgba(107,74,66,.25)", sidebarStart: "#1f1f24", sidebarEnd: "#2a2530", buttonText: "#24170f" },
-  "Light Matter": { bg: "#f5efe5", panel: "#fff8ee", ink: "#4c3d32", inkStrong: "#2d1f15", accent: "#c29a72", accentSoft: "#e6d2be", line: "#c5b29d", glow: "rgba(175,126,92,.2)", sidebarStart: "#ede2d2", sidebarEnd: "#e4d6c3", buttonText: "#24170f" },
-  Tropics: { bg: "#f4f1eb", panel: "#fffaf0", ink: "#43362d", inkStrong: "#241a14", accent: "#9bc400", accentSoft: "#d4e3a0", line: "#c4b7a3", glow: "rgba(123,165,31,.2)", sidebarStart: "#ece5d8", sidebarEnd: "#e3dacb", buttonText: "#243100" },
-  "Tropic Night": { bg: "#15131a", panel: "#221f2b", ink: "#cdbde0", inkStrong: "#e8ddf5", accent: "#9bc400", accentSoft: "#6b4a42", line: "#3c3650", glow: "rgba(107,74,66,.28)", sidebarStart: "#1d1a24", sidebarEnd: "#292233", buttonText: "#1a2400" },
-  Ocean: { bg: "#0f1b24", panel: "#152a36", ink: "#b8d8e8", inkStrong: "#e0f2fb", accent: "#5ea9be", accentSoft: "#214657", line: "#2f5567", glow: "rgba(58,130,155,.24)", sidebarStart: "#112430", sidebarEnd: "#173342", buttonText: "#0a1b22" },
-  Coffee: { bg: "#1d1714", panel: "#2a211d", ink: "#d6c0b3", inkStrong: "#f0ded2", accent: "#b47f5c", accentSoft: "#5f3f2f", line: "#4a3830", glow: "rgba(132,86,61,.24)", sidebarStart: "#231a16", sidebarEnd: "#32251f", buttonText: "#220f08" },
-  "White Cliffs": { bg: "#f7f9fb", panel: "#ffffff", ink: "#2e4c63", inkStrong: "#163246", accent: "#5ea8d8", accentSoft: "#dff1fb", line: "#8fc3df", glow: "rgba(94,168,216,.2)", sidebarStart: "#f1f8fd", sidebarEnd: "#e7f3fb", buttonText: "#103246" },
-  "Cyber Punk": { bg: "#120918", panel: "#1e1028", ink: "#f5d0ff", inkStrong: "#ffe9ff", accent: "#00f5d4", accentSoft: "#3b1760", line: "#5c2d84", glow: "rgba(255,0,153,.2)", sidebarStart: "#1b0d24", sidebarEnd: "#281236", buttonText: "#051d1a" },
-  "Neon Purple": { bg: "#130b1d", panel: "#231233", ink: "#e4ccff", inkStrong: "#f2e6ff", accent: "#c86cff", accentSoft: "#47206c", line: "#63358a", glow: "rgba(200,108,255,.2)", sidebarStart: "#1b1029", sidebarEnd: "#2a1740", buttonText: "#210a35" },
-  Space: { bg: "#0b0f1a", panel: "#151c2d", ink: "#c8d5f0", inkStrong: "#e7efff", accent: "#86a8ff", accentSoft: "#263e74", line: "#34496f", glow: "rgba(92,126,220,.18)", sidebarStart: "#0f1625", sidebarEnd: "#18233a", buttonText: "#101930" },
-  Sky: { bg: "#dff1ff", panel: "#f4fbff", ink: "#2f4f64", inkStrong: "#183142", accent: "#6db3d6", accentSoft: "#b6dced", line: "#93bdd2", glow: "rgba(109,179,214,.28)", sidebarStart: "#d3ecfa", sidebarEnd: "#c2e2f4", buttonText: "#0f2e3f" },
-  Forest: { bg: "#142018", panel: "#1f2f24", ink: "#c7dbc7", inkStrong: "#e3f0df", accent: "#8faa74", accentSoft: "#3a5837", line: "#4f694f", glow: "rgba(118,148,95,.24)", sidebarStart: "#18261c", sidebarEnd: "#223629", buttonText: "#12200f" },
-  Sun: { bg: "#fff3dc", panel: "#fff9ec", ink: "#5a4024", inkStrong: "#392611", accent: "#e0ab4f", accentSoft: "#f1d9a2", line: "#d4b27a", glow: "rgba(224,171,79,.28)", sidebarStart: "#f8e7c5", sidebarEnd: "#f2dab1", buttonText: "#2a1808" },
-  "Patina Ky": { bg: "#0d0f14", panel: "#161a22", ink: "#94a3b8", inkStrong: "#e2e8f0", accent: "#4deeea", accentSoft: "#0e4a48", line: "#1e293b", glow: "rgba(77,238,234,.22)", sidebarStart: "#0d0f14", sidebarEnd: "#1b212c", buttonText: "#04120d" },
-  "Polished Ky": { bg: "#eef2f6", panel: "#ffffff", ink: "#475569", inkStrong: "#0f172a", accent: "#0891b2", accentSoft: "#cffafe", line: "#cbd5e1", glow: "rgba(8,145,178,.18)", sidebarStart: "#f1f5f9", sidebarEnd: "#e2e8f0", buttonText: "#042f2e" }
-};
+/** The saved choice (names saved by earlier versions included), else Match system. */
+export function getStoredTheme(): Theme { try { return findTheme(readChoice(THEME_STORAGE_KEY)) ?? SYSTEM_THEME; } catch { return SYSTEM_THEME; } }
 
-function defaultTheme(): ThemeName { return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "Busnes Dark" : "Busnes Light"; }
-export function getStoredTheme(): ThemeName { try { const value = readChoice(THEME_STORAGE_KEY); return THEME_OPTIONS.includes(value as ThemeName) ? value as ThemeName : defaultTheme(); } catch { return defaultTheme(); } }
-export function hasStoredTheme() { try { return THEME_OPTIONS.some(name => name === readChoice(THEME_STORAGE_KEY)); } catch { return false; } }
-export function applyTheme(name: ThemeName, persist = true) { const root = document.documentElement; for (const key of Object.keys(palette["Busnes Light"])) root.style.removeProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`); if (name === "Busnes Light" || name === "Busnes Dark") { root.dataset.theme = name === "Busnes Light" ? "busnes-light" : "busnes-dark"; root.style.colorScheme = name === "Busnes Dark" ? "dark" : "light"; } else { delete root.dataset.theme; for (const [key, value] of Object.entries(palette[name])) root.style.setProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`, value); root.style.colorScheme = ["Light Matter", "Tropics", "White Cliffs", "Sky", "Sun", "Polished Ky"].includes(name) ? "light" : "dark"; } if (persist) try { saveChoice(THEME_STORAGE_KEY, name); } catch { /* browser storage is optional */ } }
+export function applyTheme(theme: Theme, persist = true) {
+  const root = document.documentElement;
+  if (applyThemeVariables(theme.id, root)) delete root.dataset.theme;
+  else {
+    const busnes = theme.id === "system" ? (prefersDark() ? "busnes-dark" : "busnes-light") : theme.id;
+    root.dataset.theme = busnes;
+    root.style.colorScheme = busnes === "busnes-dark" ? "dark" : "light";
+  }
+  // Names are what earlier versions saved; keep writing them.
+  if (persist) try { saveChoice(THEME_STORAGE_KEY, theme.id === "system" ? "system" : theme.name); } catch { /* browser storage is optional */ }
+}
 export function applyStoredTheme() { applyTheme(getStoredTheme(), false); }
 
-if (typeof window !== 'undefined') watchChoice(THEME_STORAGE_KEY, applyStoredTheme, hasStoredTheme);
+if (typeof window !== 'undefined') watchChoice(THEME_STORAGE_KEY, applyStoredTheme, () => getStoredTheme().id !== "system");

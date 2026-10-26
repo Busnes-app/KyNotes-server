@@ -10,6 +10,29 @@
   forge state-changing requests. Open sessions get the bound token the next time the web app
   reads `GET /api/v1/auth/session`; other clients that cached the old cookie value must re-read
   the `csrf_token` cookie.
+- Password iterations can no longer be lowered by the server. Every password write (setup,
+  administrator create and reset, password change, recovery, `user add` with a derived secret on
+  stdin) now refuses fewer than 600,000 PBKDF2 iterations (was 100,000). The browser, the MCP
+  bridge and the probe refuse to derive at fewer than 600,000, except that the browser still signs
+  in once to an older account at 100,000 or more and upgrades it in place
+  (`POST /api/v1/auth/login-upgrade`: the verifier and the password copy of the encryption key
+  change in one transaction; nothing is revoked). After that, or after any sign-in at 600,000, the
+  browser pins the account and refuses fewer. An older account must sign in on the web once before
+  the MCP bridge accepts it.
+- Content is now bound to where it belongs. Pages, sections, groups, comments, attachment bytes and
+  metadata, and notebook names are sealed in a new format (v2) whose AES-GCM associated data names
+  the notebook, the object (for comments and attachments, their page) and the kind. Before, every
+  object, and attachment bytes, shared one unbound key per notebook, so a malicious server could
+  serve page A as page B, an attachment as a page, or one page's comments on another. Existing
+  notebooks migrate in the background the next time an owner, admin or editor opens them in the web
+  app: objects are re-saved, existing comments and attachments are pinned by the SHA-256 of their
+  stored ciphertext in their page, and the notebook's name is rewritten with a marker. From then on
+  every web client and MCP bridge that has seen the marker refuses older-format content that is not
+  pinned, and a server serving the name from before the marker. Clients and MCP bridges from an
+  earlier release write the older format and must be upgraded: after migration, what they write is
+  refused (all clients come from this repository's release). Remaining limits are listed in
+  DESIGN.md (Encryption): rollback of an object to its own older revision, swaps among one page's
+  own comments and attachments, and a browser that never saw the marker.
 
 ## 0.4.3 — 2026-10-23
 

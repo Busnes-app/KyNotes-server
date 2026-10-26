@@ -140,7 +140,9 @@ Each user also holds an X25519 identity keypair, represented on the server as a
 private key is wrapped (AES-256-GCM, AAD `kynotes/identity/v1` || user ID) under
 a `userKEK` that the browser derives from the same PBKDF2 output as the login
 verifier, with HKDF label `kynotes/user-kek/v1`. The server stores only the
-wrapped key and never sees `userKEK`. The wrapped key is returned only in the
+wrapped key and never sees `userKEK`. The browser derives at 600 000 PBKDF2 iterations and refuses
+fewer, except to sign in to an older account (at least 100 000) it has not pinned, which
+it then upgrades in place with its password copy (`POST /auth/login-upgrade`). The wrapped key is returned only in the
 bodies of local password login and step-up, never by `GET /me/identity`, so a
 session cookie alone yields no offline-guessing target. The browser caches it
 in the IndexedDB vault with the other device secrets; "Forget this device"
@@ -260,6 +262,46 @@ generation, and a lower report pauses writes ("The server reported an older key
 state for this notebook than this device has seen"), so a server cannot roll a
 shared notebook back to an older generation. This applies to
 every container. Relabelling a notebook as personal or team changes nothing, because `kind` and `teamId` never decide keys. A team's first key is minted for every member with an identity; members without one are wrapped by a later sweep.
+
+Content (pages, sections, groups, comments, attachment bytes and metadata, notebook names) is
+sealed as `0x02 ‖ nonce(12) ‖ AES-256-GCM(subkey, nonce, plaintext, AAD)`, with
+`subkey = HKDF-SHA256(containerKey, salt = containerID, info = "kynotes/content/v2", 32)`. The AAD
+is four fields, each `uint16 big-endian length ‖ UTF-8 bytes`: `kynotes/content/v2`, the container
+ID, the bound ID and the kind. Kinds and bound IDs: `object` (any page, section or group) bound to
+its object ID, minted before anything is sealed; `comment` bound to the page it is on;
+`attachment` and `attachment-meta` bound to the page the attachment was uploaded for (comment and
+attachment IDs are minted by the server after sealing, and the client only lists and opens them
+through that page); `container-meta` bound to the container itself. So a server cannot serve one
+object's ciphertext as another's, a comment or attachment as a page or as a child of another
+page, or a name as content. Share links keep their own random one-off key and are unchanged.
+
+Content written before this format (v1: `nonce(12) ‖ AES-256-GCM` under per-label subkeys, no
+AAD) stays readable until its notebook migrates; writes are always v2. A v1 blob's random first
+byte may be `0x02`, so a reader tries v2 first and falls back to v1 only when allowed. Migration
+runs in the client, since the server cannot decrypt: every save writes v2, and a writer (owner,
+admin or editor holding the current key) runs a background pass after each notebook load. The pass
+re-saves every object read as v1 through the normal versioned save (a conflict skips it, the next
+load retries). Comments and attachments cannot be re-sealed in place (no update route,
+server-minted IDs, page bodies cite attachment IDs), so a migrated page carries `legacy`: each v1
+child that opens, by ID, mapped to the SHA-256 (lowercase hex) of its ciphertext as stored, with
+attachment bytes downloaded and hashed by the client. A new page carries `legacy: {}`. A v1 child
+opens only while its page has no `legacy` field and the notebook is not migrated, or when its
+digest matches its pin; an attachment's metadata has its own pin (`att_…/meta`), so neither its
+bytes nor its name and type can be swapped in from another attachment. Once every object is v2 and every page carries `legacy`, with nothing
+unreadable, the pass writes the notebook's name as v2 with the marker `{"name": …, "objects": 2}`.
+That write is the commit point: an interrupted pass leaves a readable mix that the next load
+continues. New notebooks are named with the marker from the start.
+
+A client that opens a v2 name carrying the marker refuses, for that notebook, v1 objects, v1 names
+and unpinned v1 children, and pins that fact in its per-user, per-notebook key memory (the vault's
+`keyStates`; the MCP bridge's `trust.json`). A server that later serves a name without the marker
+is refused like a key rollback: the browser hides the name and says so, the bridge refuses every
+tool. Viewers never migrate; they follow the marker. Residual risks: a server can still roll an
+object back to an older v2 revision of the same object (no revision tracking), swap one page's own
+children among themselves (they are bound to the page, not to their own IDs), and show a pre-marker
+copy of the name to a browser that never saw the marker; the migrating client pins whatever v1
+children the server serves at migration time (trust on first use). An older client writing v1 after
+the marker produces content every migrated client refuses.
 
 Attachments use authenticated encryption. Deterministic/convergent
 encryption is permitted for attachment deduplication. This intentionally leaks

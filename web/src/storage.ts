@@ -375,7 +375,7 @@ export async function getKeyState(username: string, userID: string, containerID:
   const record = await readRecord(username);
   const state = record && statesOf(record, userID)[containerID];
   // Only the current fields: a closure or reopen mark an older build stored is ignored.
-  return state ? { mark: state.mark, digests: state.digests, ...(state.shared !== undefined ? { shared: state.shared } : {}), ...(state.generation !== undefined ? { generation: state.generation } : {}) } : { mark: 0, digests: {} };
+  return state ? { mark: state.mark, digests: state.digests, ...(state.shared !== undefined ? { shared: state.shared } : {}), ...(state.generation !== undefined ? { generation: state.generation } : {}), ...(state.objects === 2 ? { objects: 2 } : {}) } : { mark: 0, digests: {} };
 }
 
 /** Merges key memory: the mark only rises and a stored digest is never replaced. False means it is not kept. */
@@ -389,6 +389,8 @@ export async function storeKeyState(username: string, userID: string, containerI
       // The sharing state this device has seen (KeyFloor) never goes backwards either.
       shared: Math.max(prior.shared ?? 0, state.shared ?? 0),
       generation: Math.max(prior.generation ?? 0, state.generation ?? 0),
+      // The migration marker, once seen, stays.
+      ...(prior.objects === 2 || state.objects === 2 ? { objects: 2 as const } : {}),
     };
     return { ...record, keyStates: { userID, byContainer: { ...byContainer, [containerID]: next } } };
   });
