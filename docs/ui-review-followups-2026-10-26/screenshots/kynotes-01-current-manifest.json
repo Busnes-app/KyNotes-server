@@ -1,0 +1,225 @@
+{
+  "prefix": "kynotes-01-current",
+  "product": "kynotes",
+  "branch": "ui/fleet-review-followups",
+  "head": "85dd3e3e073c4a274a29386cf826f2efe41d20a2",
+  "uncommitted_diff_sha256": null,
+  "uncommitted_diff_bytes": 0,
+  "server_binary_sha256": "fb7aaff02b74587a6d7ff369c70b14e8227fdd295c2481fe17e68e2a97e8799b",
+  "embedded_index_sha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+  "server_source": {
+    "kind": "worktree"
+  },
+  "captured": "2026-10-26T18:14:19.478Z",
+  "os": "linux 7.2.10-1-cachyos",
+  "driver": "playwright chromium 156.0.8078.4 (headless)",
+  "device_scale_factor": 1,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "theme_source": "context colorScheme emulation with no saved theme choice (OS-following default)",
+  "fixture": "fresh data dir (web/e2e/server.sh config on port 18091, dev_insecure_cookies on loopback); first-run setup through the UI creating administrator \"admin\" and everyday \"owner\"; owner creates notebook \"Field notes\" with one note typed \"Garden plan: order seeds by Friday.\"; captures are the owner; link-request adds a second browser context signed in as the same owner",
+  "files": [
+    {
+      "file": "kynotes-01-current-link-request-desktop-light.png",
+      "sha256": "17ab03c71964c21e8aeaf12e86997325f9da2adeee26a91a0569e49c5cf566ef",
+      "surface": "link-request",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-recovery-reset-desktop-light.png",
+      "sha256": "9f624cc689b7edf1f5638cf35b74a77bb6d18fb39cc5fca4db7e9edb4824f637",
+      "surface": "recovery-reset",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-forget-device-desktop-light.png",
+      "sha256": "937cd5d9d3a50112609191590bc8f4ff0bf42099bc4912bf7a4d8692bd983476",
+      "surface": "forget-device",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-locked-session-desktop-light.png",
+      "sha256": "15138f3bf8038ea0f32d610e2cb17322542fd448f02db9cac8e6fd85452c3445",
+      "surface": "locked-session",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-link-request-mobile-light.png",
+      "sha256": "35b05c8b65da3dfbd4c2eb9cc5e298edf5056db2141e8396168c4a95b87d83be",
+      "surface": "link-request",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-recovery-reset-mobile-light.png",
+      "sha256": "9982f6e9a9213ab3412e589d6edfa64f2367ed550d4772f692763218f7b92219",
+      "surface": "recovery-reset",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-forget-device-mobile-light.png",
+      "sha256": "1382325a5f53b698b02307b0cb7b19dc65dc0330340b3b8d78cec152aa18f8ae",
+      "surface": "forget-device",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-locked-session-mobile-light.png",
+      "sha256": "b42c6b88e397010db2ca8090b14a2df591f155b8cbf46b2465536ec203a39896",
+      "surface": "locked-session",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-link-request-desktop-dark.png",
+      "sha256": "a2c2cdebf54348b80da55ee9e0b88e37e7177c9a2fc9ee20bb325e54f52ad529",
+      "surface": "link-request",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-recovery-reset-desktop-dark.png",
+      "sha256": "e302933ac9014d1e474fa881d92aee593b5eb4b904ba8576109a108e1f573365",
+      "surface": "recovery-reset",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-forget-device-desktop-dark.png",
+      "sha256": "f81dc7a8e8a487fbfdb08b173960b905c2dec83316b2b2b47787d17c6899069d",
+      "surface": "forget-device",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-locked-session-desktop-dark.png",
+      "sha256": "3319f68b7cb7368252b6324a11618decaf9e6756a2cfb6f5ce99b7affe3b082b",
+      "surface": "locked-session",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-link-request-mobile-dark.png",
+      "sha256": "41c7074d81b019b1841519feff6c45e02266fa9893a43928b6b9ff41331d3e70",
+      "surface": "link-request",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-recovery-reset-mobile-dark.png",
+      "sha256": "344c2344c805b762ff3a330a45e62a4bfae56919f5a7215636a57973553522d3",
+      "surface": "recovery-reset",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-forget-device-mobile-dark.png",
+      "sha256": "e8f1f9b29db03bb32d6675b1492eafeb90d992a423973cb46be51cc0a9201e5b",
+      "surface": "forget-device",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-current-locked-session-mobile-dark.png",
+      "sha256": "56741310e5da0f11489ceb950ac44ab61e0eb1b6fb6ec4389fce9c92838dd327",
+      "surface": "locked-session",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    }
+  ]
+}
