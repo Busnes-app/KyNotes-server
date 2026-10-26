@@ -3452,7 +3452,7 @@ function SettingsView({
         </div>
         <section id="appearance" className="settings-section" aria-labelledby="appearance-heading">
           <h2 id="appearance-heading">Appearance</h2>
-          <p className="config-muted">Pick a theme. It applies straight away and is remembered by this browser only.</p>
+          <p className="ky-appearance-description">Pick a theme. It applies straight away and is saved in this browser only. Match system follows your device’s light or dark setting.</p>
           <fieldset className="ky-appearance">
             <legend className="ky-appearance-legend">Theme</legend>
             <div className="ky-appearance-grid">
