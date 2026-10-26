@@ -59,6 +59,8 @@ test("an older notebook migrates to bound content in the background, and older f
 
     // A browser that never saw this notebook reads the older forms, then migrates it on its own.
     await signIn(second.page, OWNER.username, OWNER.password);
+    // A fresh load reads the hash; a hash change during sign-in's first notebook load is lost.
+    await second.page.goto("about:blank");
     await second.page.goto(`/#/${cid}`);
     await expect(second.page.locator(".workspace-title")).toHaveText(NOTEBOOK);
     await expect(second.page.locator(".note-row", { hasText: OLD })).toBeVisible();

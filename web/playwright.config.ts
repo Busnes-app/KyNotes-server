@@ -11,6 +11,7 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  use: { baseURL: url, browserName: "chromium", trace: "retain-on-failure", screenshot: "only-on-failure" },
+  // A stalled step fails on its own line instead of as an unnamed test timeout.
+  use: { baseURL: url, browserName: "chromium", trace: "retain-on-failure", screenshot: "only-on-failure", actionTimeout: 60_000, navigationTimeout: 60_000 },
   webServer: process.env.KYNOTES_E2E_URL ? undefined : { command: "bash e2e/server.sh", url: `${url}/readyz`, timeout: 180_000, reuseExistingServer: false, gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 } },
 });
