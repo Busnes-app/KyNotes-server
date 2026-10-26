@@ -1,0 +1,268 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index cb39cdd..241bceb 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -32,6 +32,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
+ ## User Preferences
+ 
+ - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
++- Settings → Appearance shows Match system and the ky-ui suite catalog as the shared native radio cards (`ky-appearance`), applied at once with no Apply button and saved by name under `kynotes-theme`; names saved by earlier versions still select their theme. The section sits flat on the settings page, not in a card.
+ - The workspace keeps its list/editor layout, but surfaces and selected navigation states must consume the shared theme tokens; selected pages use a slim accent rail.
+ 
+ - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
+diff --git a/UI-VERIFICATION.md b/UI-VERIFICATION.md
+index 270c9a7..62e0573 100644
+--- a/UI-VERIFICATION.md
++++ b/UI-VERIFICATION.md
+@@ -294,3 +294,7 @@ Findings, not fixed here:
+ ## Approved interface polish — 2026-10-19
+ 
+ See [UI-POLISH.md](UI-POLISH.md) for the implemented changes, preservation scope, checks, actual before/after screenshots and disposable capture conditions. Earlier captures above remain historical evidence.
++
++## Fleet Appearance — 2026-10-26
++
++Shared ky-ui 0.4 Appearance radio cards over the suite catalog, plus the suite shell scale. Staged before/after captures (light/dark × 1280×900/390×844, synthetic fixture), manifests with revisions and hashes, in-app theme transition checks, CSV results and the recorded check runs are in [docs/ui-fleet-2026-10-26](docs/ui-fleet-2026-10-26/README.md). Scores are not self-assigned; the council rates the captures separately.
+diff --git a/web/src/main.tsx b/web/src/main.tsx
+index c019fe5..a6e3f64 100644
+--- a/web/src/main.tsx
++++ b/web/src/main.tsx
+@@ -160,7 +160,7 @@ import {
+   applyTheme,
+   getStoredTheme,
+   THEME_OPTIONS,
+-  type ThemeName,
++  type Theme,
+ } from "./theme";
+ import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
+ import { classifyTask, TASK_GROUPS } from "./taskDates";
+@@ -171,6 +171,8 @@ import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "
+ import "./styles.css";
+ import "./ky-ui/tokens.css";
+ import "./ky-ui/navigation.css";
++import "./ky-ui/appearance.css";
++import "./ky-ui/appearance-themes.css";
+ 
+ const MAX_CHANGE_PAGES = 100;
+ const FLUSH_ROUNDS = 5;
+@@ -3410,7 +3412,7 @@ function SettingsView({
+   reminders: ReminderPrefs;
+   onReminders: (prefs: ReminderPrefs) => void;
+ }) {
+-  const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
++  const [theme, setTheme] = useState<Theme>(getStoredTheme);
+   const [ownFingerprint, setOwnFingerprint] = useState("");
+   const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
+   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
+@@ -3433,8 +3435,7 @@ function SettingsView({
+         <button className="quiet" onClick={onBack}>
+           ← Workspace
+         </button>
+-        <div className="section-label">SETTINGS</div>
+-        <nav className="settings-nav">
++        <nav className="settings-nav" aria-label="Settings sections">
+           <a href="#appearance">Appearance</a>
+           <a href="#reminders">Reminders</a>
+           <a href="#password">Password</a>
+@@ -3446,29 +3447,25 @@ function SettingsView({
+       </aside>
+       <div className="settings-content">
+         <div className="settings-header">
+-          <div className="section-label">PREFERENCES</div>
+           <h1>Settings</h1>
+           <p>Your browser preferences and account security.</p>
+         </div>
+-        <section id="appearance" className="config-card">
+-          <h2>Appearance</h2>
+-          <p className="config-muted">
+-            Choose from the complete KyNotes color selection.
+-          </p>
+-          <label className="field">
+-            <span>Theme</span>
+-            <select
+-              value={theme}
+-              onChange={(event) =>
+-                setTheme(event.target.value as ThemeName)
+-              }
+-            >
++        <section id="appearance" className="settings-section" aria-labelledby="appearance-heading">
++          <h2 id="appearance-heading">Appearance</h2>
++          <p className="ky-appearance-description">Pick a theme. It applies straight away and is saved in this browser only. Match system follows your device’s light or dark setting.</p>
++          <fieldset className="ky-appearance">
++            <legend className="ky-appearance-legend">Theme</legend>
++            <div className="ky-appearance-grid">
+               {THEME_OPTIONS.map((option) => (
+-                <option key={option}>{option}</option>
++                <label key={option.id} className="ky-appearance-option">
++                  <input className="ky-appearance-radio" type="radio" name="kynotes-theme" value={option.id} checked={option.id === theme.id} onChange={() => { setTheme(option); applyTheme(option); }} />
++                  <span className="ky-appearance-preview" aria-hidden="true" data-ky-preview={option.id} />
++                  <span className="ky-appearance-name">{option.name}</span>
++                  <small className="ky-appearance-mode">{option.scheme === "system" ? "Light or dark" : option.scheme === "light" ? "Light" : "Dark"}</small>
++                </label>
+               ))}
+-            </select>
+-          </label>
+-          <button onClick={() => applyTheme(theme)}>Apply theme</button>
++            </div>
++          </fieldset>
+         </section>
+         <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
+         <div id="password">
+diff --git a/web/src/styles.css b/web/src/styles.css
+index 97ccc83..a52a818 100644
+--- a/web/src/styles.css
++++ b/web/src/styles.css
+@@ -9,7 +9,7 @@ button:disabled { cursor: wait; opacity: .55; }
+ .center { min-height: 100vh; display: grid; place-items: center; color: #7c796d; }
+ .auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 10%, #fffaf0, transparent 35%), #f4efe5; }
+ .auth-card { width: min(100%, 430px); padding: 48px; background: #fffdf7; border: 1px solid #ded8c9; box-shadow: 12px 12px 0 #dcd4c3; }
+-.eyebrow, .section-label { font: 11px Mono, monospace; letter-spacing: .12em; color: #9a927f; }
++.eyebrow, .section-label { font: 600 var(--ky-type-meta) Space, system-ui, sans-serif; color: #9a927f; }
+ h1 { font-size: clamp(42px, 8vw, 68px); line-height: .92; letter-spacing: -.07em; margin: 24px 0 16px; font-weight: 500; }
+ .lede { color: #716e63; font-size: 17px; line-height: 1.5; margin-bottom: 36px; }
+ form label { display: grid; gap: 8px; margin-top: 18px; font-size: 13px; color: #716e63; }
+@@ -80,16 +80,19 @@ body, .auth-page { color: var(--ink-strong); background: var(--bg); }
+ .body-input, .note-row, .lede, .config-muted { color: var(--ink); }
+ button:not(.quiet):not(.nav-item):not(.new-workspace):not(.note-row) { background: var(--accent); color: var(--button-text); }
+ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+-.settings-layout { min-height: calc(100vh - 72px); display: grid; grid-template-columns: 230px minmax(0, 780px); background: var(--bg); }
++.settings-layout { min-height: calc(100vh - 72px); display: grid; grid-template-columns: var(--ky-sidebar-size) minmax(0, 1040px); background: var(--bg); }
+ .settings-sidebar { padding: 28px 18px; border-right: 1px solid var(--line); background: linear-gradient(150deg, var(--sidebar-start), var(--sidebar-end)); }
+-.settings-sidebar .section-label { margin: 36px 10px 12px; }
+ .settings-nav { display: grid; gap: 4px; }
+-.settings-nav a { display: block; padding: 11px 10px; color: var(--ink); border-radius: 4px; text-decoration: none; }
++.settings-sidebar .section-label { margin: 36px 10px 12px; }
++.settings-nav { margin-top: 24px; }
++.settings-nav a { display: block; min-height: var(--ky-control-size); padding: 10px 12px; font-size: var(--ky-type-nav); color: var(--ink); border-radius: var(--ky-control-radius); text-decoration: none; }
+ .settings-nav a:hover, .settings-nav a:focus-visible { color: var(--ink-strong); background: var(--accent-soft); }
+-.settings-content { width: 100%; padding: 48px clamp(22px, 6vw, 80px); }
+-.settings-header h1 { font-size: clamp(36px, 6vw, 58px); margin: 16px 0 10px; }
++.settings-content { width: 100%; padding: 32px clamp(16px, 4vw, 48px); }
++.settings-header h1 { font-size: var(--ky-type-title); font-weight: 600; margin: 0 0 8px; }
+ .settings-header p { color: var(--ink); margin: 0 0 30px; }
+-.config-card { margin: 16px 0; padding: 24px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 10px 30px var(--glow); }
++.config-card { margin: 16px 0; padding: 24px; border: 1px solid var(--line); background: var(--panel); }
++.settings-section { margin: 0 0 32px; }
++.settings-section h2, .config-card h2 { font-size: var(--ky-type-section); font-weight: 600; }
+ .config-card h2 { margin: 0 0 8px; }
+ .config-card button { margin-top: 20px; padding: 11px 16px; }
+ .config-card button + button { margin-left: 8px; }
+@@ -117,7 +120,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
+ .avatar { background: var(--accent-soft); color: var(--ink-strong); }
+ .body-input { color: var(--ink); }
+ .team-label { margin-top: 26px; }
+-.personal-create { margin: 18px 10px 4px; padding: 10px 12px; color: var(--button-text); background: var(--accent); text-align: left; font-size: 13px; }
++/* Secondary: the open view keeps the one filled primary action. */
++.personal-create { margin: 18px 10px 4px; min-height: var(--ky-control-size); padding: 8px 12px; color: var(--ink-strong); background: transparent; border: 1px solid var(--ky-field-border); border-radius: var(--ky-control-radius); text-align: left; font-size: var(--ky-type-nav); }
+ .list-actions { display: flex; align-items: center; gap: 8px; }
+ .list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }
+ .note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
+@@ -172,7 +176,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
+ @media (max-width: 800px) { .settings-nav a { display: inline-block; white-space: nowrap; } .admin-settings-layout .admin-create, .admin-settings-layout .admin-user { grid-template-columns: 1fr; } }
+ 
+ /* Squircle surfaces: the soft corner language is shared across the app. */
+-.auth-card, .config-card { border-radius: 24px; corner-shape: squircle; }
++.auth-card { border-radius: 24px; corner-shape: squircle; }
++.config-card { border-radius: var(--ky-control-radius); }
+ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
+ .brand-mark, .icon-button, .avatar { border-radius: 12px; corner-shape: squircle; }
+ .nav-item, .note-row-wrap, .note-row, .account-chip, .member-row, .admin-user, .audit-row { border-radius: 14px; corner-shape: squircle; }
+@@ -382,10 +387,10 @@ body { color: var(--ink-strong); background: var(--bg); }
+ }
+ 
+ /* Notebook hierarchy: navigation stays compact, the page gets the working space. */
+-.workspace { grid-template-columns: 220px 260px minmax(0, 1fr); }
++.workspace { grid-template-columns: var(--ky-sidebar-size) 260px minmax(0, 1fr); }
+ .workspace > .sidebar, .workspace > .note-list { min-width: 0; padding: 24px 16px; }
+ .workspace > .sidebar { background: var(--sidebar-start); gap: 2px; }
+-.workspace .section-label { font-family: Space, system-ui, sans-serif; letter-spacing: .03em; font-size: 11px; font-weight: 600; }
++.workspace .section-label { font-family: Space, system-ui, sans-serif; font-size: var(--ky-type-meta); font-weight: 600; }
+ .workspace .note-list .list-header h2.workspace-title { font-size: 24px; line-height: 1.2; letter-spacing: -.02em; margin-top: 0; overflow-wrap: anywhere; }
+ .workspace-kind { font-family: Space, system-ui, sans-serif; font-size: 12px; line-height: 1.5; letter-spacing: normal; }
+ .notes-heading { font-family: Space, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; color: var(--ink-strong); }
+diff --git a/web/src/theme.test.ts b/web/src/theme.test.ts
+new file mode 100644
+index 0000000..e7afa37
+--- /dev/null
++++ b/web/src/theme.test.ts
+@@ -0,0 +1,21 @@
++import { describe, expect, it } from "vitest";
++import { THEME_CATALOG, findTheme } from "./ky-ui/themes";
++import { THEME_OPTIONS, getStoredTheme } from "./theme";
++
++// Every name earlier versions saved under kynotes-theme.
++const SAVED = ["Busnes Light", "Busnes Dark", "Dark Matter", "Light Matter", "Tropics", "Tropic Night", "Ocean", "Coffee", "White Cliffs", "Cyber Punk", "Neon Purple", "Space", "Sky", "Forest", "Sun", "Patina Ky", "Polished Ky"];
++
++describe("theme", () => {
++  it("offers Match system first, then the suite catalog", () => {
++    expect(THEME_OPTIONS).toHaveLength(THEME_CATALOG.length + 1);
++    expect(THEME_OPTIONS[0].id).toBe("system");
++  });
++
++  it("still recognises every saved name and keeps it as the saved value", () => {
++    for (const name of SAVED) expect(findTheme(name)?.name).toBe(name);
++  });
++
++  it("follows the system without browser storage", () => {
++    expect(getStoredTheme().id).toBe("system");
++  });
++});
+diff --git a/web/src/theme.ts b/web/src/theme.ts
+index 4b95b4c..ed213ac 100644
+--- a/web/src/theme.ts
++++ b/web/src/theme.ts
+@@ -1,34 +1,27 @@
+ import { readChoice, saveChoice, watchChoice } from './ky-ui/theme';
+-import { busnesPalettes } from './ky-ui/palettes';
++import { SYSTEM_THEME, THEME_CATALOG, applyThemeVariables, findTheme } from './ky-ui/themes';
++import type { CatalogTheme, SystemTheme } from './ky-ui/themes';
++
+ export const THEME_STORAGE_KEY = "kynotes-theme";
+-export const THEME_OPTIONS = ["Busnes Light", "Busnes Dark", "Dark Matter", "Light Matter", "Tropics", "Tropic Night", "Ocean", "Coffee", "White Cliffs", "Cyber Punk", "Neon Purple", "Space", "Sky", "Forest", "Sun", "Patina Ky", "Polished Ky"] as const;
+-export type ThemeName = (typeof THEME_OPTIONS)[number];
+-type Theme = { bg: string; panel: string; ink: string; inkStrong: string; accent: string; accentSoft: string; line: string; glow: string; sidebarStart: string; sidebarEnd: string; buttonText: string };
++// The suite catalog: Match system, Busnes Light/Dark and every named palette.
++export type Theme = CatalogTheme | SystemTheme;
++export const THEME_OPTIONS: readonly Theme[] = [SYSTEM_THEME, ...THEME_CATALOG];
++const prefersDark = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+ 
+-const palette: Record<ThemeName, Theme> = {
+-  "Busnes Light": busnesPalettes["Busnes Light"],
+-  "Busnes Dark": busnesPalettes["Busnes Dark"],
+-  "Dark Matter": { bg: "#1a1a1e", panel: "#252530", ink: "#d4c5e2", inkStrong: "#e8ddf5", accent: "#c29a72", accentSoft: "#5a3f31", line: "#404050", glow: "rgba(107,74,66,.25)", sidebarStart: "#1f1f24", sidebarEnd: "#2a2530", buttonText: "#24170f" },
+-  "Light Matter": { bg: "#f5efe5", panel: "#fff8ee", ink: "#4c3d32", inkStrong: "#2d1f15", accent: "#c29a72", accentSoft: "#e6d2be", line: "#c5b29d", glow: "rgba(175,126,92,.2)", sidebarStart: "#ede2d2", sidebarEnd: "#e4d6c3", buttonText: "#24170f" },
+-  Tropics: { bg: "#f4f1eb", panel: "#fffaf0", ink: "#43362d", inkStrong: "#241a14", accent: "#9bc400", accentSoft: "#d4e3a0", line: "#c4b7a3", glow: "rgba(123,165,31,.2)", sidebarStart: "#ece5d8", sidebarEnd: "#e3dacb", buttonText: "#243100" },
+-  "Tropic Night": { bg: "#15131a", panel: "#221f2b", ink: "#cdbde0", inkStrong: "#e8ddf5", accent: "#9bc400", accentSoft: "#6b4a42", line: "#3c3650", glow: "rgba(107,74,66,.28)", sidebarStart: "#1d1a24", sidebarEnd: "#292233", buttonText: "#1a2400" },
+-  Ocean: { bg: "#0f1b24", panel: "#152a36", ink: "#b8d8e8", inkStrong: "#e0f2fb", accent: "#5ea9be", accentSoft: "#214657", line: "#2f5567", glow: "rgba(58,130,155,.24)", sidebarStart: "#112430", sidebarEnd: "#173342", buttonText: "#0a1b22" },
+-  Coffee: { bg: "#1d1714", panel: "#2a211d", ink: "#d6c0b3", inkStrong: "#f0ded2", accent: "#b47f5c", accentSoft: "#5f3f2f", line: "#4a3830", glow: "rgba(132,86,61,.24)", sidebarStart: "#231a16", sidebarEnd: "#32251f", buttonText: "#220f08" },
+-  "White Cliffs": { bg: "#f7f9fb", panel: "#ffffff", ink: "#2e4c63", inkStrong: "#163246", accent: "#5ea8d8", accentSoft: "#dff1fb", line: "#8fc3df", glow: "rgba(94,168,216,.2)", sidebarStart: "#f1f8fd", sidebarEnd: "#e7f3fb", buttonText: "#103246" },
+-  "Cyber Punk": { bg: "#120918", panel: "#1e1028", ink: "#f5d0ff", inkStrong: "#ffe9ff", accent: "#00f5d4", accentSoft: "#3b1760", line: "#5c2d84", glow: "rgba(255,0,153,.2)", sidebarStart: "#1b0d24", sidebarEnd: "#281236", buttonText: "#051d1a" },
+-  "Neon Purple": { bg: "#130b1d", panel: "#231233", ink: "#e4ccff", inkStrong: "#f2e6ff", accent: "#c86cff", accentSoft: "#47206c", line: "#63358a", glow: "rgba(200,108,255,.2)", sidebarStart: "#1b1029", sidebarEnd: "#2a1740", buttonText: "#210a35" },
+-  Space: { bg: "#0b0f1a", panel: "#151c2d", ink: "#c8d5f0", inkStrong: "#e7efff", accent: "#86a8ff", accentSoft: "#263e74", line: "#34496f", glow: "rgba(92,126,220,.18)", sidebarStart: "#0f1625", sidebarEnd: "#18233a", buttonText: "#101930" },
+-  Sky: { bg: "#dff1ff", panel: "#f4fbff", ink: "#2f4f64", inkStrong: "#183142", accent: "#6db3d6", accentSoft: "#b6dced", line: "#93bdd2", glow: "rgba(109,179,214,.28)", sidebarStart: "#d3ecfa", sidebarEnd: "#c2e2f4", buttonText: "#0f2e3f" },
+-  Forest: { bg: "#142018", panel: "#1f2f24", ink: "#c7dbc7", inkStrong: "#e3f0df", accent: "#8faa74", accentSoft: "#3a5837", line: "#4f694f", glow: "rgba(118,148,95,.24)", sidebarStart: "#18261c", sidebarEnd: "#223629", buttonText: "#12200f" },
+-  Sun: { bg: "#fff3dc", panel: "#fff9ec", ink: "#5a4024", inkStrong: "#392611", accent: "#e0ab4f", accentSoft: "#f1d9a2", line: "#d4b27a", glow: "rgba(224,171,79,.28)", sidebarStart: "#f8e7c5", sidebarEnd: "#f2dab1", buttonText: "#2a1808" },
+-  "Patina Ky": { bg: "#0d0f14", panel: "#161a22", ink: "#94a3b8", inkStrong: "#e2e8f0", accent: "#4deeea", accentSoft: "#0e4a48", line: "#1e293b", glow: "rgba(77,238,234,.22)", sidebarStart: "#0d0f14", sidebarEnd: "#1b212c", buttonText: "#04120d" },
+-  "Polished Ky": { bg: "#eef2f6", panel: "#ffffff", ink: "#475569", inkStrong: "#0f172a", accent: "#0891b2", accentSoft: "#cffafe", line: "#cbd5e1", glow: "rgba(8,145,178,.18)", sidebarStart: "#f1f5f9", sidebarEnd: "#e2e8f0", buttonText: "#042f2e" }
+-};
++/** The saved choice (names saved by earlier versions included), else Match system. */
++export function getStoredTheme(): Theme { try { return findTheme(readChoice(THEME_STORAGE_KEY)) ?? SYSTEM_THEME; } catch { return SYSTEM_THEME; } }
+ 
+-function defaultTheme(): ThemeName { return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "Busnes Dark" : "Busnes Light"; }
+-export function getStoredTheme(): ThemeName { try { const value = readChoice(THEME_STORAGE_KEY); return THEME_OPTIONS.includes(value as ThemeName) ? value as ThemeName : defaultTheme(); } catch { return defaultTheme(); } }
+-export function hasStoredTheme() { try { return THEME_OPTIONS.some(name => name === readChoice(THEME_STORAGE_KEY)); } catch { return false; } }
+-export function applyTheme(name: ThemeName, persist = true) { const root = document.documentElement; for (const key of Object.keys(palette["Busnes Light"])) root.style.removeProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`); if (name === "Busnes Light" || name === "Busnes Dark") { root.dataset.theme = name === "Busnes Light" ? "busnes-light" : "busnes-dark"; root.style.colorScheme = name === "Busnes Dark" ? "dark" : "light"; } else { delete root.dataset.theme; for (const [key, value] of Object.entries(palette[name])) root.style.setProperty(`--${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}`, value); root.style.colorScheme = ["Light Matter", "Tropics", "White Cliffs", "Sky", "Sun", "Polished Ky"].includes(name) ? "light" : "dark"; } if (persist) try { saveChoice(THEME_STORAGE_KEY, name); } catch { /* browser storage is optional */ } }
++export function applyTheme(theme: Theme, persist = true) {
++  const root = document.documentElement;
++  if (applyThemeVariables(theme.id, root)) delete root.dataset.theme;
++  else {
++    const busnes = theme.id === "system" ? (prefersDark() ? "busnes-dark" : "busnes-light") : theme.id;
++    root.dataset.theme = busnes;
++    root.style.colorScheme = busnes === "busnes-dark" ? "dark" : "light";
++  }
++  // Names are what earlier versions saved; keep writing them.
++  if (persist) try { saveChoice(THEME_STORAGE_KEY, theme.id === "system" ? "system" : theme.name); } catch { /* browser storage is optional */ }
++}
+ export function applyStoredTheme() { applyTheme(getStoredTheme(), false); }
+ 
+-if (typeof window !== 'undefined') watchChoice(THEME_STORAGE_KEY, applyStoredTheme, hasStoredTheme);
++if (typeof window !== 'undefined') watchChoice(THEME_STORAGE_KEY, applyStoredTheme, () => getStoredTheme().id !== "system");

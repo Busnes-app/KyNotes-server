@@ -4,7 +4,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { here, run, waitReady } from './capture-core.mjs';
+import { here, main, waitReady } from './capture-core.mjs';
 
 const repo = join(here(import.meta.url), '../..');
 const PORT = '18091';
@@ -27,7 +27,7 @@ async function seed(page) {
   await page.waitForTimeout(2000);
 }
 
-await run({
+await main({
   product: 'kynotes',
   repo,
   dist: join(repo, 'internal/web/dist/index.html'),
@@ -67,6 +67,7 @@ await run({
     await page.getByRole('button', { name: 'Settings' }).waitFor();
     if (!seeded) { await seed(page); seeded = true; }
   },
+  hoverTarget: (page) => page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: 'Reminders' }),
   surfaces: {
     async workspace(page) {
       await page.goto('/');
