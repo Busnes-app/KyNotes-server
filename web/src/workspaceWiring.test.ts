@@ -94,7 +94,8 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).not.toMatch(/onLinked\(identity\)/);
     // The first SSO browser is shown its code right away.
     expect(main).toContain('if (settled.kind === "held") { setRecoveryPrompt(true); setView("settings"); }');
-    expect(main).toContain("{identityState === \"held\" && live && !live.recoveryId && <div className=\"conflict-banner\" role=\"status\">{RECOVERY_MISSING}");
+    expect(main).toContain('{identityState === "held" && live && !live.recoveryId && <details className="recovery-notice">');
+    expect(main).toContain('<div role="status">{RECOVERY_MISSING}');
   });
 
   it("tells users and administrators that a reset keeps the key and the recovery code restores it", () => {

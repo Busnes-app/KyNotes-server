@@ -1,18 +1,18 @@
 {
-  "version": "0.4.1",
+  "version": "0.4.2",
   "source": "https://github.com/Busnes-app/ky-ui",
   "files": {
-    "tokens.css": "639f8e73259aca02119b98a5340539d5e8e16d65fd5f6124b939fdfe9c5f86af",
+    "tokens.css": "106c8255f5fca11f57badaf759bcd2d9292ac416880108a9c7349273aea98f89",
     "navigation.css": "cc6dbaa07a01f4ed088d38d41ff6cf95155a480bcb29327f413cbfa1ec11ac55",
     "appearance.css": "f689ae75f13319f1cf2ddf60903df07165fac2ceaf81db21d735bc0eb411ccba",
     "appearance-themes.css": "6897cfea5a6e3c72e358c00f2ecd6f46f308ee33dc3b6cada023df99eab899ca",
-    "themes.js": "e9f536ba2537e169aa670bc834490406d42592efb1272595cd4e21892aeedfcb",
+    "themes.js": "7c675106bf9c7a9598b05ac9055d816749b38f51443805a82f153da6ff2d02ea",
     "themes.d.ts": "14c1c32523772eb1e602f692287701e8912ff85a8013832f86d49f58e72e6eee",
     "theme.js": "9f0e57c86783924a19fa9923be42d7f14b24cec46c95383f251e18ab69b0176a",
     "theme.d.ts": "f83e4fb841e98b7b443bc78aa699f9044d395ff622258cf8bee85b5e0608fd4a",
     "check-vendor.mjs": "1fdca377e486e52d9e660893ebfc2f1a90ddb6578eca24d8f844bb5485f3e053",
     "palettes.ts": "334a6881a5c6cc051a9eae024dbbb75756493c483c98c72eddbeb84a5392b447",
     "palettes-browser.js": "1d0eefa32f87773162bcc21dd7419d077c99ac133d01afe637a4e3acc738c532",
-    "themes-browser.js": "369588a4e3e81214db225fc87f1f653ec8677fb72fb3b1a4426bc3ba75361473"
+    "themes-browser.js": "92e03dbe29bf699ad50c013d8441d6ddf7cc25e4d9585ffac4c4c8f20264a56b"
   }
 }
