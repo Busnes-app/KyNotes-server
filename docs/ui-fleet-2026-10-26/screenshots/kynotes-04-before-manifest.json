@@ -1,0 +1,56 @@
+{
+  "prefix": "kynotes-04-before",
+  "product": "kynotes",
+  "branch": "ui/fleet-review-fixes",
+  "head": "21063dd099888557f39bd38f7d06cec0a604247f",
+  "uncommitted_diff_sha256": "2fbe8e74b4776c1eacb89f83544632db2f519a682048ae5f9bdbefe9fe6502a4",
+  "uncommitted_diff_bytes": 3864,
+  "server_binary_sha256": "295cd595221d0e3c0feb771c7efd718404a35f059f6081a225893ece2da06d59",
+  "embedded_index_sha256": "41cd61ffec962222637769158981b0043aa09a53f152001a01e33937064d85a9",
+  "captured": "2026-10-26T13:49:21.408Z",
+  "os": "linux 7.2.10-1-cachyos",
+  "driver": "playwright chromium 156.0.8078.4 (headless)",
+  "device_scale_factor": 1,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "theme_source": "context colorScheme emulation with no saved theme choice (OS-following default)",
+  "fixture": "fresh data dir (web/e2e/server.sh config on port 18091, dev_insecure_cookies on loopback); first-run setup through the UI creating administrator \"admin\" and everyday \"owner\"; owner creates notebook \"Field notes\" with one note typed \"Garden plan: order seeds by Friday.\"; captures are the owner",
+  "files": [
+    {
+      "file": "kynotes-04-before-appearance-desktop-light.png",
+      "sha256": "99ed4a7f5012d19623ea5798c0afb44df4b79867aea1229e39ede28d6bb61e29",
+      "surface": "appearance",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-04-before-appearance-mobile-light.png",
+      "sha256": "8ceef1d2f86b04cd09c31d5ddc80f94be9ef5e18f85a711f8fef4914253ece83",
+      "surface": "appearance",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-04-before-appearance-desktop-dark.png",
+      "sha256": "dd6fad770460dafbbc146db0ba933f5c6750c5dd398a8fcd9f5ad4f93bb14487",
+      "surface": "appearance",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    },
+    {
+      "file": "kynotes-04-before-appearance-mobile-dark.png",
+      "sha256": "7f4793f1a77d1a52c6ee7d9bfc58bef8649122f4d319704354fa3d87ce770f26",
+      "surface": "appearance",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "full_page": false
+    }
+  ]
+}

@@ -28,6 +28,8 @@ async function seed(page) {
 }
 
 await main({
+  // Saved as the theme name, as the product writes it.
+  crossTab: ['kynotes-theme', 'Sun', 'sun'],
   product: 'kynotes',
   repo,
   dist: join(repo, 'internal/web/dist/index.html'),
