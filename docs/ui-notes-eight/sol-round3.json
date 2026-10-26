@@ -1,0 +1,3029 @@
+{
+  "schema": "ky-ui-council-scores/2",
+  "round": 3,
+  "reviewer": "GPT Sol (independent council review sub-agent)",
+  "method": "Single delegated review using the requested ky-suite-v2 and Impeccable Operate/Read guidance, not the separate dual-assessment /impeccable critique workflow. No nested council or critique agents were launched.",
+  "rubric": {
+    "version": "ky-suite-v2",
+    "weights": {
+      "hierarchy": 0.2,
+      "typography": 0.15,
+      "density_layout": 0.2,
+      "color": 0.15,
+      "visible_affordances": 0.15,
+      "coherence": 0.15
+    },
+    "rounding": "Exact Decimal weighted sum ROUND_HALF_UP to one decimal; cohort means over unique rounded file totals also half-up.",
+    "blind_order": "All12 unique CURRENT stage04 images inspected at full original resolution and six integer vectors frozen before opening prior numeric reports. Four workspace near duplicates inherit scores. Prior stage03 desktop Appearance pair re-opened only afterwards for density-spread audit.",
+    "ky_fit": "Separate equal mean of four available dimensions; suite_cohesion N/A because only Notes captures inspected."
+  },
+  "verdict": {
+    "score": 8.2,
+    "score_basis": "notes cohort mean across8 unique CURRENT images; settings separate, not blended",
+    "satisfied": true,
+    "target": 8,
+    "scope": "Existing Notes reading, phone page/notebook navigation, Appearance and scoped shared status/field preservation; visual8 progression.",
+    "reason": "Notes8.2, Settings8.4. The compact picker shows all4 real rows; recovery warning/action remain keyboard-reachable; select font, disclosures, avatar, duplicate status emphasis and field boundaries are corrected. No remaining in-scope P1 progression blocker found.",
+    "accept_9": false,
+    "remaining_progression_blockers": [],
+    "full_acceptance_blockers": [
+      "Full product keyboard/focus coverage",
+      "All-product contrast roles in all shipped themes",
+      "Empty/loading/error state and announcement matrix",
+      "WebKit and uncaptured edge cases",
+      "Fresh full browser and Go race completion remains implementation-owned; no pending run is inferred passing"
+    ]
+  },
+  "provenance": {
+    "head": "34849c4d0766901fdf33556855373aa122666049",
+    "sourceDiffSha256": "00f1ee7a58a3ba840a6d75cf4f9f7a28ce9bb96380aa5fc1e56bd2ac7753ad6a",
+    "sourceFiles": {
+      "src/main.tsx": "40d0b5c00711e44b66145b08aabf6454109793d567c21a1b76b8915783cf1fd1",
+      "src/styles.css": "83ac8ffe0928c9fc591bd04b9b3dfa7737da69ff553c357323beb9f93e3f97de",
+      "src/NavIcon.tsx": "70c925c6d23388a4bd99d2575a9e6a0df226275cda9da8f094b84e255fc4bc8b",
+      "src/components/SectionTabs.tsx": "c61baaaa4d46c9f4c66e7300a19aee85d9d34423924b61e471ba825fa1074a1a",
+      "src/ky-ui/VERSION": "884826819a3f2525e8546229d964c32ddad1c6df7153e3c506a4ff228b14e458",
+      "e2e/ui-council.e2e.ts": "58f74b2e796437bff65883b37aa66adf35590624321d70cd5bb6dc2fc1efde9e",
+      "package-lock.json": "417d094e4a48b0b72212d10a33f2594d95376c9024178f5ae76595a78d97b70e"
+    },
+    "servedIndexSha256": "191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d",
+    "stage": "after",
+    "captured": "2026-10-26T23:36:58.972Z",
+    "browser": "156.0.8078.4",
+    "fixture": "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1",
+    "sharedTokensVersion": "0.4.2",
+    "sharedBase": "f270e22",
+    "productBranch": "ui/notes-eight",
+    "sharedBranch": "fix/status-theme-contrast",
+    "sourceDiffMatched": true,
+    "sourceFilesMatched": true,
+    "embeddedIndexMatched": true,
+    "liveBundleMatched": true,
+    "nativeReviewBrowser": "Chromium154.0.0.0",
+    "nativeDeviceScale": 2,
+    "nativeURL": "http://localhost:18101",
+    "nativeCaveat": "Supplemental native checks use scale2; only the supplied Chromium156 scale1 captures are scored. No content edit/save/fault injection or new server was performed. The reviewer used its own incognito tab, then closed it. Native snapshot showed existing BlockNote inline-style CSP rejections, a placeholder insertRule warning and mobile viewport-meta advisory; these did not obscure the scored captures and are not evidence of a changed CSP. No security/CSP certification is claimed."
+  },
+  "inventory": [
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "sha256": "dbdd54e9e91a0fb09bda089a279af5d800b15f82fc455edfd5e464e401aaeb9e",
+      "bytes": 100983,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "sha256": "6ec450216d330779395bce777f53fb3d68ca0b08560d6f85494dfae04786133b",
+      "bytes": 99957,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "sha256": "fb462b749c65d3e0a21ba373547c12050825f3294273723351ff1f105e38ba13",
+      "bytes": 43240,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "sha256": "636fb513d0c8879d0b38af11837123e6121c1f32aa019903b18add9e8ea2bdab",
+      "bytes": 42621,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "sha256": "befed209375eddc95586b194cfb0f99ca56cc0c233763c3a79b6d189739ae778",
+      "bytes": 36088,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "sha256": "e990bc03a39f2c6e644b47cc3054bd5f3aa73313d8b9e7ff74ce7c4667ed3ad7",
+      "bytes": 35630,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "sha256": "b3bbd6eabcebe452699b05b127f2a4055c3d4e2f066cf909169b447a24355f45",
+      "bytes": 43169,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "sha256": "3d4a87b7b3c18f075a956655ade525c0970bbd0ab856293893716574c0ade473",
+      "bytes": 42826,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+      "sha256": "bca725fc24672454712ebcd4abc6d0cb7704d3fd6231789da287a5c9e4a8c5d6",
+      "bytes": 100985,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+      "sha256": "60d03eb75e4754707564d5a1dcf1a9c4fb7ec0991ed81a32045545738c5fd96b",
+      "bytes": 99953,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+      "sha256": "76e6a222a146c4d89db36f124d76212d87cbe2a483dd3be7e9c308600f0a6ed6",
+      "bytes": 43241,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+      "sha256": "44dfd2959b0299e94b862707bac59762529487affa24601d7d153b861c563465",
+      "bytes": 42613,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+      "bytes": 105730,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+      "bytes": 104429,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+      "bytes": 37472,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+      "bytes": 37127,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+      "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+      "bytes": 105726,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 13,
+      "pixel_fraction": 1.1284722222222222e-05,
+      "max_channel_delta": 7
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+      "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+      "bytes": 104427,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 9,
+      "pixel_fraction": 7.8125e-06,
+      "max_channel_delta": 7
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+      "sha256": "1b7baf66f46aa4e65c85a5efbad49a9762739ae8644ffdf3f0a7866a37573f39",
+      "bytes": 69919,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+      "sha256": "c3792debcef96eab6aa685d768cd12521848cc1f1688de38a9dbf0005a68c793",
+      "bytes": 68933,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+      "sha256": "56f6a8ce806e68bc6cbd898a7a848ea328073bb76d3aaccad42d71024482fe82",
+      "bytes": 41078,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+      "sha256": "56cf7b3822011d825e9b4663713dc594e24168b362a92765195ae7ee14c17035",
+      "bytes": 40601,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "sha256": "59d222d7592cba7064379d3e37134264f8e8bc27f21c5e229777100be6b2302a",
+      "bytes": 98857,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "sha256": "2be8d27ab309dac2386cb164fdef15e6fc7833d905763bd434ac5a9d6054d278",
+      "bytes": 97526,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "sha256": "a106db11bb40ad57bf0c13489d16bac462648f2ac452f6ec44a7f2554cfd06e3",
+      "bytes": 42954,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "sha256": "16c0d58f133c99a1e77114147d1260dfbd4d25cc1bbe5864f73253abd70ca1fd",
+      "bytes": 42355,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+      "sha256": "8c4456cccad3ea6638e13d567f92faf9c6040f2411d14eda9d616df049a5ffdc",
+      "bytes": 35910,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+      "sha256": "f4c8e4cffcfd8322de8907c6c5cc3140023c3178cfc21bb99dede0018594f4ca",
+      "bytes": 35199,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+      "sha256": "316bf09b573163f65f9e210117d527ca8162091abb7c0014a6fd136f004182ac",
+      "bytes": 45979,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+      "sha256": "3c1cf7c7a6f3f7a67bc577cfe8f5c8a90b6815e02a7d3e2f27e739c505ae2c27",
+      "bytes": 44829,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-dark.png",
+      "sha256": "edd58b54cef1b4a4c360fc00584e6cd15d3b18ef60ef65df0eb862a421830b59",
+      "bytes": 98857,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-light.png",
+      "sha256": "e8835696dcce831f3bade9270ee5cead7aad63fa2820739ad91d27fb9b924547",
+      "bytes": 97526,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-dark.png",
+      "sha256": "d5da610b5a572a3605b5258c8d00fc30914859bbd15a12f9e8f436ec72ee378b",
+      "bytes": 42954,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-light.png",
+      "sha256": "0502da304aea0e3ec6b6122401cbbf9df7549395b6d593d4fc16fc9cebce884d",
+      "bytes": 42346,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "sha256": "5f62d8e8326c6912228a48be2de30f154e38e5d96e4245dba4819222e5cf7758",
+      "bytes": 88939,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "sha256": "0badc566e9da68c29793d44be33726aca19f205a02a480cbf2bf173b351847b9",
+      "bytes": 87473,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "sha256": "298738a33459282ee66a7d6a2c1ebf3ba686cbfbacf6bacb7a5c495be3233da5",
+      "bytes": 41823,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "sha256": "fdddeb711563c5d52849c42e2214d999767042e699a2985aa5edd9a8c593fd9a",
+      "bytes": 41096,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+      "sha256": "5c0b4f30f4e4029e6bc1944f3d974abf104a809662185a08c2ae2bda855b3873",
+      "bytes": 35763,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+      "sha256": "88a86083dd3cdefa1b17f5a6f934e317260fe887a6e9b224002b03d90bbedf46",
+      "bytes": 34676,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+      "sha256": "56477f48651c319786dd7277ec902a18356013a4c901e1461293f2670cb8086c",
+      "bytes": 35398,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+      "sha256": "fe930d0dc94f55bbdb05bfb2c4768f3062e4ae399a0e2dcb1470b63eefa983b6",
+      "bytes": 34430,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+      "sha256": "474917bb173b238a0db5482cd2f40abebe26799afb50f197189cfd328d4f5dca",
+      "bytes": 88938,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+      "sha256": "a1be9a6556815decec35a19c43c7a952260e715dd43f853f1c9b68a11aeacf30",
+      "bytes": 87467,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+      "sha256": "59268afebdb263c9eda0f4158a4b4ea54e26f002c46b72e4b2029773211fbf22",
+      "bytes": 41824,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+      "sha256": "95d966110857b682bca742f834afca2bba3da9546ab1ed1f095971ad79003ce6",
+      "bytes": 41088,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4
+    }
+  ],
+  "inventory_validation": {
+    "file_count": 64,
+    "current_file_count": 16,
+    "current_unique_count": 12,
+    "historical_excluded": 48,
+    "current_duplicate_count": 4,
+    "all_hashes_bytes_dimensions_match": true,
+    "current_duplicate_pair_measurements": [
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "changed_pixels": 983242,
+        "pixel_fraction": 0.8535086805555555,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 300028,
+        "pixel_fraction": 0.911495929031474,
+        "max_channel_delta": 224
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "changed_pixels": 643414,
+        "pixel_fraction": 0.5585190972222223,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "changed_pixels": 1147284,
+        "pixel_fraction": 0.99590625,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "changed_pixels": 1147685,
+        "pixel_fraction": 0.9962543402777778,
+        "max_channel_delta": 255
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "changed_pixels": 642164,
+        "pixel_fraction": 0.5574340277777777,
+        "max_channel_delta": 255
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "changed_pixels": 1151219,
+        "pixel_fraction": 0.9993220486111111,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 183460,
+        "pixel_fraction": 0.5573581237088346,
+        "max_channel_delta": 218
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 324334,
+        "pixel_fraction": 0.9853384372341718,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 327458,
+        "pixel_fraction": 0.9948292623648074,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 255296,
+        "pixel_fraction": 0.7755984931340382,
+        "max_channel_delta": 232
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 190195,
+        "pixel_fraction": 0.5778192976060275,
+        "max_channel_delta": 218
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 325716,
+        "pixel_fraction": 0.9895370032810791,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 43875,
+        "pixel_fraction": 0.13329383886255924,
+        "max_channel_delta": 214
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 327837,
+        "pixel_fraction": 0.9959806780896828,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 192484,
+        "pixel_fraction": 0.584773362498481,
+        "max_channel_delta": 232
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "changed_pixels": 181418,
+        "pixel_fraction": 0.5511544537610888,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 187810,
+        "pixel_fraction": 0.5705735812370883,
+        "max_channel_delta": 218
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 326287,
+        "pixel_fraction": 0.9912717219589258,
+        "max_channel_delta": 224
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 47800,
+        "pixel_fraction": 0.14521813100012151,
+        "max_channel_delta": 214
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 224
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "changed_pixels": 57433,
+        "pixel_fraction": 0.17448353384372342,
+        "max_channel_delta": 214
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 224
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 328021,
+        "pixel_fraction": 0.9965396767529469,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 259123,
+        "pixel_fraction": 0.787225057722688,
+        "max_channel_delta": 232
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "changed_pixels": 47808,
+        "pixel_fraction": 0.14524243528982866,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "changed_pixels": 198168,
+        "pixel_fraction": 0.6020415603353992,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "changed_pixels": 328379,
+        "pixel_fraction": 0.9976272937173412,
+        "max_channel_delta": 224
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "changed_pixels": 643414,
+        "pixel_fraction": 0.5585190972222223,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "changed_pixels": 1147284,
+        "pixel_fraction": 0.99590625,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "changed_pixels": 15,
+        "pixel_fraction": 1.3020833333333334e-05,
+        "max_channel_delta": 4
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "changed_pixels": 1147685,
+        "pixel_fraction": 0.9962543402777778,
+        "max_channel_delta": 255
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "changed_pixels": 642164,
+        "pixel_fraction": 0.5574340277777777,
+        "max_channel_delta": 255
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "changed_pixels": 1151219,
+        "pixel_fraction": 0.9993220486111111,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "changed_pixels": 12,
+        "pixel_fraction": 1.0416666666666666e-05,
+        "max_channel_delta": 4
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 183460,
+        "pixel_fraction": 0.5573581237088346,
+        "max_channel_delta": 218
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 324334,
+        "pixel_fraction": 0.9853384372341718,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 15,
+        "pixel_fraction": 4.557054320087495e-05,
+        "max_channel_delta": 4
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "changed_pixels": 327458,
+        "pixel_fraction": 0.9948292623648074,
+        "max_channel_delta": 231
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "changed_pixels": 255296,
+        "pixel_fraction": 0.7755984931340382,
+        "max_channel_delta": 232
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "changed_pixels": 328394,
+        "pixel_fraction": 0.997672864260542,
+        "max_channel_delta": 225
+      },
+      {
+        "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+        "compared_to": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "changed_pixels": 12,
+        "pixel_fraction": 3.645643456069996e-05,
+        "max_channel_delta": 4
+      }
+    ]
+  },
+  "files": [
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance theme picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named theme choices plus Match system; lower choices continue below capture",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Settings title leads into Appearance, its explanation and the Theme grid; the selected sidebar location is explicit.",
+        "typography": "Section, body, theme name and mode captions use clear Space size and weight steps; many small mode captions still demand scanning.",
+        "density_layout": "Five aligned columns use identical preview/name/mode/radio geometry; the many equally weighted previews form a dense catalog rather than an effortless single decision.",
+        "color": "Neutral chrome leaves preview colors to selectable theme data; orange marks selected Appearance and Match system.",
+        "visible_affordances": "Match system has both the orange outline and checked radio, while all other choices retain plain boundaries and unchecked radios.",
+        "coherence": "The flat settings page uses one repeated card vocabulary; no editor Save or green save status competes with choosing a theme."
+      },
+      "weighted_unrounded": "8.65",
+      "total": 8.7,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance theme picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named theme choices plus Match system; lower choices continue below capture",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Settings title leads into Appearance, its explanation and the Theme grid; the selected sidebar location is explicit.",
+        "typography": "Section, body, theme name and mode captions use clear Space size and weight steps; many small mode captions still demand scanning.",
+        "density_layout": "Five aligned columns use identical preview/name/mode/radio geometry; the many equally weighted previews form a dense catalog rather than an effortless single decision.",
+        "color": "Neutral chrome leaves preview colors to selectable theme data; orange marks selected Appearance and Match system.",
+        "visible_affordances": "Match system has both the orange outline and checked radio, while all other choices retain plain boundaries and unchecked radios.",
+        "coherence": "The flat settings page uses one repeated card vocabulary; no editor Save or green save status competes with choosing a theme."
+      },
+      "weighted_unrounded": "8.65",
+      "total": 8.7,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance theme picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named theme choices plus Match system; lower choices continue below capture",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and its explanation now precede the section links; Appearance and Theme identify the active task after the navigation block.",
+        "typography": "Page title, section title, body and card labels are legible in one family; long explanatory copy wraps naturally within the phone width.",
+        "density_layout": "The two-column cards fit within 16px side insets, but navigation plus explanation still put the first preview row around y570.",
+        "color": "Cream or charcoal surfaces frame the palette previews; orange indicates the current section and selected system card.",
+        "visible_affordances": "Selected card outline plus checked radio clearly distinguish Match system; all six settings links are visible without horizontal clipping.",
+        "coherence": "Cards repeat a single preview/name/mode/radio pattern; the title-before-navigation order is clearer, although the multi-row link block remains visually heavy."
+      },
+      "weighted_unrounded": "8.10",
+      "total": 8.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.3,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance theme picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named theme choices plus Match system; lower choices continue below capture",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and its explanation now precede the section links; Appearance and Theme identify the active task after the navigation block.",
+        "typography": "Page title, section title, body and card labels are legible in one family; long explanatory copy wraps naturally within the phone width.",
+        "density_layout": "The two-column cards fit within 16px side insets, but navigation plus explanation still put the first preview row around y570.",
+        "color": "Cream or charcoal surfaces frame the palette previews; orange indicates the current section and selected system card.",
+        "visible_affordances": "Selected card outline plus checked radio clearly distinguish Match system; all six settings links are visible without horizontal clipping.",
+        "coherence": "Cards repeat a single preview/name/mode/radio pattern; the title-before-navigation order is clearer, although the multi-row link block remains visually heavy."
+      },
+      "weighted_unrounded": "8.10",
+      "total": 8.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.3,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "sha256": "5f62d8e8326c6912228a48be2de30f154e38e5d96e4245dba4819222e5cf7758",
+      "bytes": 88939,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist and the document headings lead the working pane; notebook and section context remain visible in their separate list region.",
+        "typography": "The 24px page title, restrained document H2s and strong 15px Space body establish a readable scale; footer select now shares the same face.",
+        "density_layout": "The 240px sidebar and compact page list leave a wide reading pane; body starts close below the toolbar, while the sparse canvas retains purposeful free space.",
+        "color": "Only the header Saved message is green; the editor timestamp is muted, and orange is reserved for current notebook/page/tool selections.",
+        "visible_affordances": "Search and section select have visible field boundaries, Save is a quiet outline, Type is visibly selected and Delete is isolated in red.",
+        "coherence": "Line icons, neutral avatar, simple Quick Notes underline and shared font make a consistent shell; small metadata and rounded list rows remain minor variations."
+      },
+      "weighted_unrounded": "8.30",
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "sha256": "0badc566e9da68c29793d44be33726aca19f205a02a480cbf2bf173b351847b9",
+      "bytes": 87473,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist and the document headings lead the working pane; notebook and section context remain visible in their separate list region.",
+        "typography": "The 24px page title, restrained document H2s and strong 15px Space body establish a readable scale; footer select now shares the same face.",
+        "density_layout": "The 240px sidebar and compact page list leave a wide reading pane; body starts close below the toolbar, while the sparse canvas retains purposeful free space.",
+        "color": "Only the header Saved message is green; the editor timestamp is muted, and orange is reserved for current notebook/page/tool selections.",
+        "visible_affordances": "Search and section select have visible field boundaries, Save is a quiet outline, Type is visibly selected and Delete is isolated in red.",
+        "coherence": "Line icons, neutral avatar, simple Quick Notes underline and shared font make a consistent shell; small metadata and rounded list rows remain minor variations."
+      },
+      "weighted_unrounded": "8.30",
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "sha256": "298738a33459282ee66a7d6a2c1ebf3ba686cbfbacf6bacb7a5c495be3233da5",
+      "bytes": 41823,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title leads the editor after two compact navigation disclosures; body headings and checklist are visible within the captured phone screen.",
+        "typography": "One Space family connects title, body and select; body wrapping stays readable, while version/time labels remain visibly small.",
+        "density_layout": "Closed navigation leaves room for paragraph and checklist; the body has a modest gutter and the footer starts near the fold without horizontal clipping.",
+        "color": "Neutral surfaces and strong body ink carry the reading task; orange appears on the selected Type control and destructive/status roles remain separate.",
+        "visible_affordances": "Matching chevrons distinguish the two disclosure bars from add actions; Type, Add text, the outlined select and Indent page read as controls.",
+        "coherence": "The editor and navigation share type and neutral controls; footer wrapping and tiny metadata keep the view short of completely resolved refinement."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "sha256": "fdddeb711563c5d52849c42e2214d999767042e699a2985aa5edd9a8c593fd9a",
+      "bytes": 41096,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title leads the editor after two compact navigation disclosures; body headings and checklist are visible within the captured phone screen.",
+        "typography": "One Space family connects title, body and select; body wrapping stays readable, while version/time labels remain visibly small.",
+        "density_layout": "Closed navigation leaves room for paragraph and checklist; the body has a modest gutter and the footer starts near the fold without horizontal clipping.",
+        "color": "Neutral surfaces and strong body ink carry the reading task; orange appears on the selected Type control and destructive/status roles remain separate.",
+        "visible_affordances": "Matching chevrons distinguish the two disclosure bars from add actions; Type, Add text, the outlined select and Indent page read as controls.",
+        "coherence": "The editor and navigation share type and neutral controls; footer wrapping and tiny metadata keep the view short of completely resolved refinement."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+      "sha256": "5c0b4f30f4e4029e6bc1944f3d974abf104a809662185a08c2ae2bda855b3873",
+      "bytes": 35763,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded phone notebook/account navigation above editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "One notebook plus existing navigation/actions/account",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Focus, Notebooks and Account form a clear order under the expanded disclosure; current Project Atlas is unmistakable.",
+        "typography": "Navigation labels, actions and the username share one Space vocabulary with quieter section labels and a simple O initial.",
+        "density_layout": "Full-width rows and 16px side insets create an even vertical rhythm; the expanded notebook region naturally pushes the editor farther down.",
+        "color": "Neutral navigation stays calm; only the selected notebook carries an orange rail and soft selection surface.",
+        "visible_affordances": "Chevron orientation communicates expanded state; labeled SVG actions and the selected notebook row distinguish navigation from creation/export.",
+        "coherence": "Consistent stroke icons and username-based avatar remove stray glyph/ID styling; the header still keeps Lock separate from the Account region."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+      "sha256": "88a86083dd3cdefa1b17f5a6f934e317260fe887a6e9b224002b03d90bbedf46",
+      "bytes": 34676,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded phone notebook/account navigation above editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "One notebook plus existing navigation/actions/account",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Focus, Notebooks and Account form a clear order under the expanded disclosure; current Project Atlas is unmistakable.",
+        "typography": "Navigation labels, actions and the username share one Space vocabulary with quieter section labels and a simple O initial.",
+        "density_layout": "Full-width rows and 16px side insets create an even vertical rhythm; the expanded notebook region naturally pushes the editor farther down.",
+        "color": "Neutral navigation stays calm; only the selected notebook carries an orange rail and soft selection surface.",
+        "visible_affordances": "Chevron orientation communicates expanded state; labeled SVG actions and the selected notebook row distinguish navigation from creation/export.",
+        "coherence": "Consistent stroke icons and username-based avatar remove stray glyph/ID styling; the header still keeps Lock separate from the Account region."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+      "sha256": "56477f48651c319786dd7277ec902a18356013a4c901e1461293f2670cb8086c",
+      "bytes": 35398,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded phone page picker",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "Four populated page rows; sparse list judged as captured",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Pages in Project Atlas, Quick Notes and Search lead directly to the four page rows; repeated notebook/kind/section headings no longer interrupt selection.",
+        "typography": "Page titles use stronger 14px text over quiet single-line excerpts; both remain legible in the captured theme.",
+        "density_layout": "First row begins around y354 and all four rows including the selected last page fit before the fold; search and list share the same outer inset.",
+        "color": "Cream or charcoal list surfaces use warm neutral ink; orange marks the selected section and current page without coloring ordinary titles.",
+        "visible_affordances": "Search and New page have clear outlines; the selected page has a rail and tint, and the recovery nudge shows a native disclosure marker.",
+        "coherence": "The picker uses the same row, field, tab and disclosure vocabulary as the editor shell; slightly different row radii and tiny excerpts remain polish."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+      "sha256": "fe930d0dc94f55bbdb05bfb2c4768f3062e4ae399a0e2dcb1470b63eefa983b6",
+      "bytes": 34430,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded phone page picker",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "Four populated page rows; sparse list judged as captured",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Pages in Project Atlas, Quick Notes and Search lead directly to the four page rows; repeated notebook/kind/section headings no longer interrupt selection.",
+        "typography": "Page titles use stronger 14px text over quiet single-line excerpts; both remain legible in the captured theme.",
+        "density_layout": "First row begins around y354 and all four rows including the selected last page fit before the fold; search and list share the same outer inset.",
+        "color": "Cream or charcoal list surfaces use warm neutral ink; orange marks the selected section and current page without coloring ordinary titles.",
+        "visible_affordances": "Search and New page have clear outlines; the selected page has a rail and tint, and the recovery nudge shows a native disclosure marker.",
+        "coherence": "The picker uses the same row, field, tab and disclosure vocabulary as the editor shell; slightly different row radii and tiny excerpts remain polish."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. Navigation state and content count are judged as captured; no extra fixture data is required."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+      "sha256": "474917bb173b238a0db5482cd2f40abebe26799afb50f197189cfd328d4f5dca",
+      "bytes": 88938,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist and the document headings lead the working pane; notebook and section context remain visible in their separate list region.",
+        "typography": "The 24px page title, restrained document H2s and strong 15px Space body establish a readable scale; footer select now shares the same face.",
+        "density_layout": "The 240px sidebar and compact page list leave a wide reading pane; body starts close below the toolbar, while the sparse canvas retains purposeful free space.",
+        "color": "Only the header Saved message is green; the editor timestamp is muted, and orange is reserved for current notebook/page/tool selections.",
+        "visible_affordances": "Search and section select have visible field boundaries, Save is a quiet outline, Type is visibly selected and Delete is isolated in red.",
+        "coherence": "Line icons, neutral avatar, simple Quick Notes underline and shared font make a consistent shell; small metadata and rounded list rows remain minor variations."
+      },
+      "weighted_unrounded": "8.30",
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content.",
+      "scores_inherited_from": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "excluded_from_counts_and_means": true
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+      "sha256": "a1be9a6556815decec35a19c43c7a952260e715dd43f853f1c9b68a11aeacf30",
+      "bytes": 87467,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist and the document headings lead the working pane; notebook and section context remain visible in their separate list region.",
+        "typography": "The 24px page title, restrained document H2s and strong 15px Space body establish a readable scale; footer select now shares the same face.",
+        "density_layout": "The 240px sidebar and compact page list leave a wide reading pane; body starts close below the toolbar, while the sparse canvas retains purposeful free space.",
+        "color": "Only the header Saved message is green; the editor timestamp is muted, and orange is reserved for current notebook/page/tool selections.",
+        "visible_affordances": "Search and section select have visible field boundaries, Save is a quiet outline, Type is visibly selected and Delete is isolated in red.",
+        "coherence": "Line icons, neutral avatar, simple Quick Notes underline and shared font make a consistent shell; small metadata and rounded list rows remain minor variations."
+      },
+      "weighted_unrounded": "8.30",
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content.",
+      "scores_inherited_from": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "excluded_from_counts_and_means": true
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+      "sha256": "59268afebdb263c9eda0f4158a4b4ea54e26f002c46b72e4b2029773211fbf22",
+      "bytes": 41824,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title leads the editor after two compact navigation disclosures; body headings and checklist are visible within the captured phone screen.",
+        "typography": "One Space family connects title, body and select; body wrapping stays readable, while version/time labels remain visibly small.",
+        "density_layout": "Closed navigation leaves room for paragraph and checklist; the body has a modest gutter and the footer starts near the fold without horizontal clipping.",
+        "color": "Neutral surfaces and strong body ink carry the reading task; orange appears on the selected Type control and destructive/status roles remain separate.",
+        "visible_affordances": "Matching chevrons distinguish the two disclosure bars from add actions; Type, Add text, the outlined select and Indent page read as controls.",
+        "coherence": "The editor and navigation share type and neutral controls; footer wrapping and tiny metadata keep the view short of completely resolved refinement."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Charcoal surfaces and warm pale ink match Busnes Dark; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content.",
+      "scores_inherited_from": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "excluded_from_counts_and_means": true
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+      "sha256": "95d966110857b682bca742f834afca2bba3da9546ab1ed1f095971ad79003ce6",
+      "bytes": 41088,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook page editor",
+      "cohort": "notes",
+      "state": "populated",
+      "state_detail": "One populated document and four available pages",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title leads the editor after two compact navigation disclosures; body headings and checklist are visible within the captured phone screen.",
+        "typography": "One Space family connects title, body and select; body wrapping stays readable, while version/time labels remain visibly small.",
+        "density_layout": "Closed navigation leaves room for paragraph and checklist; the body has a modest gutter and the footer starts near the fold without horizontal clipping.",
+        "color": "Neutral surfaces and strong body ink carry the reading task; orange appears on the selected Type control and destructive/status roles remain separate.",
+        "visible_affordances": "Matching chevrons distinguish the two disclosure bars from add actions; Type, Add text, the outlined select and Indent page read as controls.",
+        "coherence": "The editor and navigation share type and neutral controls; footer wrapping and tiny metadata keep the view short of completely resolved refinement."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream shell, white panel and strong dark ink match Busnes Light; preview hues are theme data.",
+          "type_geometry": "Space body/nav/meta hierarchy and 40px working controls are apparent; small metadata and 6px list-row radii remain departures from exact shared geometry.",
+          "shell": "Wordmark/stamp and navigation are consistent within Notes. Desktop uses 240px sidebar; phone keeps the existing disclosure pattern. Lock stays in the header; mobile Settings links consume several rows.",
+          "accent_discipline": "Orange marks selection and focus; idle actions are neutral. Green saved feedback and red Delete retain semantic roles with text.",
+          "suite_cohesion": "N/A: only KyNotes product captures were inspected."
+        },
+        "mean": 8.5,
+        "note": "Separate equal-weight mean of four available dimensions; suite_cohesion N/A and excluded."
+      },
+      "confidence": "high",
+      "caveat": "Static populated Chromium 156 scale-1 capture cannot prove saves, keyboard/focus, computed contrast or missing themes/states. The trailing empty bullet is intentional fixture content.",
+      "scores_inherited_from": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "excluded_from_counts_and_means": true
+    }
+  ],
+  "cohort_rankings": [
+    {
+      "stage": "04-after",
+      "cohort": "notes",
+      "observed_product": "KyNotes web",
+      "n": 8,
+      "mean": 8.2,
+      "ranking": false,
+      "ky_gap": null,
+      "reason": "Single-product cohort summary; no competitor set inspected. Do not blend cohorts into a ranking."
+    },
+    {
+      "stage": "04-after",
+      "cohort": "settings",
+      "observed_product": "KyNotes web",
+      "n": 4,
+      "mean": 8.4,
+      "ranking": false,
+      "ky_gap": null,
+      "reason": "Single-product cohort summary; no competitor set inspected. Do not blend cohorts into a ranking."
+    }
+  ],
+  "product_delta": {
+    "prior_round": 2,
+    "cohorts": [
+      {
+        "cohort": "notes",
+        "prior_mean": 8.1,
+        "current_mean": 8.2,
+        "delta": 0.1
+      },
+      {
+        "cohort": "settings",
+        "prior_mean": 8.4,
+        "current_mean": 8.4,
+        "delta": 0.0
+      }
+    ],
+    "files": [
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+        "prior_total": 8.7,
+        "total": 8.7,
+        "delta": 0.0,
+        "cause": "Hierarchy 8\u21929 and density 9\u21928 offset in the rounded total. The clearer top spacing is modest; the dense grid remains largely unchanged. Density 9 in Sol round 2 was generous, and neither that prior score nor this judgment is implementation gain.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+        "prior_total": 8.7,
+        "total": 8.7,
+        "delta": 0.0,
+        "cause": "Hierarchy 8\u21929 and density 9\u21928 offset in the rounded total. The clearer top spacing is modest; the dense grid remains largely unchanged. Density 9 in Sol round 2 was generous, and neither that prior score nor this judgment is implementation gain.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+        "prior_total": 8.1,
+        "total": 8.1,
+        "delta": 0.0,
+        "cause": "Settings now precedes navigation without losing links. Four theme cards still fit and the navigation remains tall; the frozen six-dimension vector and total are unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+        "prior_total": 8.1,
+        "total": 8.1,
+        "delta": 0.0,
+        "cause": "Settings now precedes navigation without losing links. Four theme cards still fit and the navigation remains tall; the frozen six-dimension vector and total are unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+        "prior_total": 8.2,
+        "total": 8.3,
+        "delta": 0.1,
+        "cause": "The native select now uses Space, duplicate green timestamp emphasis is removed and the recovery notice is compact. Typography rises 8\u21929 for the resolved face/scale across the editing pane; small metadata remains a caveat, not evidence of an overall 9.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+        "prior_total": 8.2,
+        "total": 8.3,
+        "delta": 0.1,
+        "cause": "The native select now uses Space, duplicate green timestamp emphasis is removed and the recovery notice is compact. Typography rises 8\u21929 for the resolved face/scale across the editing pane; small metadata remains a caveat, not evidence of an overall 9.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Select font and chevrons improve consistency and CSS padding reduces inset safely; the already solid integer vector stays unchanged, avoiding automatic bonus points per fix.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Select font and chevrons improve consistency and CSS padding reduces inset safely; the already solid integer vector stays unchanged, avoiding automatic bonus points per fix.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Username initial and matching chevrons fix visible inconsistencies. The stable 8-level vector recognizes that the expanded sidebar already had good spacing; the total is unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Username initial and matching chevrons fix visible inconsistencies. The stable 8-level vector recognizes that the expanded sidebar already had good spacing; the total is unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+        "prior_total": 7.8,
+        "total": 8.2,
+        "delta": 0.4,
+        "cause": "Removing duplicate headings and using the recovery disclosure brings the first row from roughly y576\u2013590 to y354 and fits all four rows. Hierarchy and density rise 7\u21928, for +0.4 in the rounded total.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+        "prior_total": 7.8,
+        "total": 8.2,
+        "delta": 0.4,
+        "cause": "Removing duplicate headings and using the recovery disclosure brings the first row from roughly y576\u2013590 to y354 and fits all four rows. Hierarchy and density rise 7\u21928, for +0.4 in the rounded total.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      }
+    ]
+  },
+  "drift": {
+    "same_unchanged_images_rescored": false,
+    "unchanged_image_mean_drift_ky": null,
+    "competitor_mean_drift": null,
+    "reason": "Stage04 and03 are changed captures; no original-image rerank or pure unchanged-image drift measurement claimed. No competitor images in scope.",
+    "files": [
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+        "prior_total": 8.7,
+        "total": 8.7,
+        "delta": 0.0,
+        "cause": "Hierarchy 8\u21929 and density 9\u21928 offset in the rounded total. The clearer top spacing is modest; the dense grid remains largely unchanged. Density 9 in Sol round 2 was generous, and neither that prior score nor this judgment is implementation gain.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+        "prior_total": 8.7,
+        "total": 8.7,
+        "delta": 0.0,
+        "cause": "Hierarchy 8\u21929 and density 9\u21928 offset in the rounded total. The clearer top spacing is modest; the dense grid remains largely unchanged. Density 9 in Sol round 2 was generous, and neither that prior score nor this judgment is implementation gain.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+        "prior_total": 8.1,
+        "total": 8.1,
+        "delta": 0.0,
+        "cause": "Settings now precedes navigation without losing links. Four theme cards still fit and the navigation remains tall; the frozen six-dimension vector and total are unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+        "prior_total": 8.1,
+        "total": 8.1,
+        "delta": 0.0,
+        "cause": "Settings now precedes navigation without losing links. Four theme cards still fit and the navigation remains tall; the frozen six-dimension vector and total are unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+        "prior_total": 8.2,
+        "total": 8.3,
+        "delta": 0.1,
+        "cause": "The native select now uses Space, duplicate green timestamp emphasis is removed and the recovery notice is compact. Typography rises 8\u21929 for the resolved face/scale across the editing pane; small metadata remains a caveat, not evidence of an overall 9.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+        "prior_total": 8.2,
+        "total": 8.3,
+        "delta": 0.1,
+        "cause": "The native select now uses Space, duplicate green timestamp emphasis is removed and the recovery notice is compact. Typography rises 8\u21929 for the resolved face/scale across the editing pane; small metadata remains a caveat, not evidence of an overall 9.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Select font and chevrons improve consistency and CSS padding reduces inset safely; the already solid integer vector stays unchanged, avoiding automatic bonus points per fix.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Select font and chevrons improve consistency and CSS padding reduces inset safely; the already solid integer vector stays unchanged, avoiding automatic bonus points per fix.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Username initial and matching chevrons fix visible inconsistencies. The stable 8-level vector recognizes that the expanded sidebar already had good spacing; the total is unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "cause": "Username initial and matching chevrons fix visible inconsistencies. The stable 8-level vector recognizes that the expanded sidebar already had good spacing; the total is unchanged.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+        "prior_total": 7.8,
+        "total": 8.2,
+        "delta": 0.4,
+        "cause": "Removing duplicate headings and using the recovery disclosure brings the first row from roughly y576\u2013590 to y354 and fits all four rows. Hierarchy and density rise 7\u21928, for +0.4 in the rounded total.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+        "prior_total": 7.8,
+        "total": 8.2,
+        "delta": 0.4,
+        "cause": "Removing duplicate headings and using the recovery disclosure brings the first row from roughly y576\u2013590 to y354 and fits all four rows. Hierarchy and density rise 7\u21928, for +0.4 in the rounded total.",
+        "matched": true,
+        "comparison": "Changed captures and source; paired movement, not unchanged-image rubric drift."
+      }
+    ],
+    "disclosed_anchor_changes": [
+      "Desktop Appearance hierarchy8\u21929 and density9\u21928 offset in total. Its largely unchanged grid is not credited as product improvement.",
+      "Desktop editor typography8\u21929 reflects restored select family and clean current type scale; it is not a promise of overall9 or an automatic reward for each fix."
+    ],
+    "spread_and_reinspection": [
+      {
+        "file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+        "sol_total": 8.7,
+        "opus_total": 7.8,
+        "total_spread": 0.9,
+        "dimension_spread": {
+          "hierarchy": 0,
+          "typography": 0,
+          "density_layout": 2,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [
+          "density_layout"
+        ],
+        "reinspected": true,
+        "resolution": "Both prior desktop Appearance themes were re-opened at original resolution: the five-column catalog is aligned and usable, but many equally weighted previews still require scanning. Prior Sol density 9 overstates refinement; Opus density 7 overstates an actual layout problem. Current density 8 was fixed blind, before either report, and is retained for those visible facts, not calculated from their average."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+        "sol_total": 8.7,
+        "opus_total": 7.8,
+        "total_spread": 0.9,
+        "dimension_spread": {
+          "hierarchy": 0,
+          "typography": 0,
+          "density_layout": 2,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [
+          "density_layout"
+        ],
+        "reinspected": true,
+        "resolution": "Both prior desktop Appearance themes were re-opened at original resolution: the five-column catalog is aligned and usable, but many equally weighted previews still require scanning. Prior Sol density 9 overstates refinement; Opus density 7 overstates an actual layout problem. Current density 8 was fixed blind, before either report, and is retained for those visible facts, not calculated from their average."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+        "sol_total": 8.1,
+        "opus_total": 7.5,
+        "total_spread": 0.6,
+        "dimension_spread": {
+          "hierarchy": 1,
+          "typography": 0,
+          "density_layout": 0,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+        "sol_total": 8.1,
+        "opus_total": 7.5,
+        "total_spread": 0.6,
+        "dimension_spread": {
+          "hierarchy": 1,
+          "typography": 0,
+          "density_layout": 0,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+        "sol_total": 8.2,
+        "opus_total": 7.5,
+        "total_spread": 0.7,
+        "dimension_spread": {
+          "hierarchy": 1,
+          "typography": 0,
+          "density_layout": 1,
+          "color": 1,
+          "visible_affordances": 0,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+        "sol_total": 8.2,
+        "opus_total": 7.5,
+        "total_spread": 0.7,
+        "dimension_spread": {
+          "hierarchy": 1,
+          "typography": 0,
+          "density_layout": 1,
+          "color": 1,
+          "visible_affordances": 0,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+        "sol_total": 8.2,
+        "opus_total": 7.5,
+        "total_spread": 0.7,
+        "dimension_spread": {
+          "hierarchy": 0,
+          "typography": 0,
+          "density_layout": 1,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+        "sol_total": 8.2,
+        "opus_total": 7.5,
+        "total_spread": 0.7,
+        "dimension_spread": {
+          "hierarchy": 0,
+          "typography": 0,
+          "density_layout": 1,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+        "sol_total": 8.2,
+        "opus_total": 7.7,
+        "total_spread": 0.5,
+        "dimension_spread": {
+          "hierarchy": 0,
+          "typography": 0,
+          "density_layout": 0,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+        "sol_total": 8.2,
+        "opus_total": 7.7,
+        "total_spread": 0.5,
+        "dimension_spread": {
+          "hierarchy": 0,
+          "typography": 0,
+          "density_layout": 0,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+        "sol_total": 7.8,
+        "opus_total": 6.8,
+        "total_spread": 1.0,
+        "dimension_spread": {
+          "hierarchy": 1,
+          "typography": 1,
+          "density_layout": 1,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      },
+      {
+        "file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+        "sol_total": 7.8,
+        "opus_total": 6.8,
+        "total_spread": 1.0,
+        "dimension_spread": {
+          "hierarchy": 1,
+          "typography": 1,
+          "density_layout": 1,
+          "color": 1,
+          "visible_affordances": 1,
+          "coherence": 1
+        },
+        "requires_reinspection": [],
+        "reinspected": false,
+        "resolution": "No \u22652-point same-image dimension spread in round 2. Prior raw vectors remain unchanged."
+      }
+    ],
+    "current_vs_prior_opus": [
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+        "prior_total": 7.8,
+        "total": 8.7,
+        "delta": 0.9,
+        "cause": "Hierarchy 8\u21929 and density 9\u21928 offset in the rounded total. The clearer top spacing is modest; the dense grid remains largely unchanged. Density 9 in Sol round 2 was generous, and neither that prior score nor this judgment is implementation gain. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+        "prior_total": 7.8,
+        "total": 8.7,
+        "delta": 0.9,
+        "cause": "Hierarchy 8\u21929 and density 9\u21928 offset in the rounded total. The clearer top spacing is modest; the dense grid remains largely unchanged. Density 9 in Sol round 2 was generous, and neither that prior score nor this judgment is implementation gain. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+        "prior_total": 7.5,
+        "total": 8.1,
+        "delta": 0.6,
+        "cause": "Settings now precedes navigation without losing links. Four theme cards still fit and the navigation remains tall; the frozen six-dimension vector and total are unchanged. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+        "prior_total": 7.5,
+        "total": 8.1,
+        "delta": 0.6,
+        "cause": "Settings now precedes navigation without losing links. Four theme cards still fit and the navigation remains tall; the frozen six-dimension vector and total are unchanged. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+        "prior_total": 7.5,
+        "total": 8.3,
+        "delta": 0.8,
+        "cause": "The native select now uses Space, duplicate green timestamp emphasis is removed and the recovery notice is compact. Typography rises 8\u21929 for the resolved face/scale across the editing pane; small metadata remains a caveat, not evidence of an overall 9. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+        "prior_total": 7.5,
+        "total": 8.3,
+        "delta": 0.8,
+        "cause": "The native select now uses Space, duplicate green timestamp emphasis is removed and the recovery notice is compact. Typography rises 8\u21929 for the resolved face/scale across the editing pane; small metadata remains a caveat, not evidence of an overall 9. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+        "prior_total": 7.5,
+        "total": 8.2,
+        "delta": 0.7,
+        "cause": "Select font and chevrons improve consistency and CSS padding reduces inset safely; the already solid integer vector stays unchanged, avoiding automatic bonus points per fix. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+        "prior_total": 7.5,
+        "total": 8.2,
+        "delta": 0.7,
+        "cause": "Select font and chevrons improve consistency and CSS padding reduces inset safely; the already solid integer vector stays unchanged, avoiding automatic bonus points per fix. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+        "prior_total": 7.7,
+        "total": 8.2,
+        "delta": 0.5,
+        "cause": "Username initial and matching chevrons fix visible inconsistencies. The stable 8-level vector recognizes that the expanded sidebar already had good spacing; the total is unchanged. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+        "prior_total": 7.7,
+        "total": 8.2,
+        "delta": 0.5,
+        "cause": "Username initial and matching chevrons fix visible inconsistencies. The stable 8-level vector recognizes that the expanded sidebar already had good spacing; the total is unchanged. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+        "prior_total": 6.8,
+        "total": 8.2,
+        "delta": 1.4,
+        "cause": "Removing duplicate headings and using the recovery disclosure brings the first row from roughly y576\u2013590 to y354 and fits all four rows. Hierarchy and density rise 7\u21928, for +0.4 in the rounded total. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      },
+      {
+        "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "prior_file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+        "prior_total": 6.8,
+        "total": 8.2,
+        "delta": 1.4,
+        "cause": "Removing duplicate headings and using the recovery disclosure brings the first row from roughly y576\u2013590 to y354 and fits all four rows. Hierarchy and density rise 7\u21928, for +0.4 in the rounded total. Cross-reviewer remainder: Sol rates semantic color and current control coherence more highly than Opus round 2. These are changed images, so this is not a same-image disagreement or a pure improvement measurement."
+      }
+    ],
+    "no_averaging": "Raw reviewer scores remain intact. All \u22652-point round2 same-image dimension spreads (desktop Appearance density in both themes) were re-inspected after current blind scoring. Cross-stage cross-reviewer deltas are labeled, not averaged. Round1 disagreement audit remains preserved in both round2 reports; it was read, not silently replaced.",
+    "current_other_reviewer": "Opus round3 pending/not inspected here; Gemini4Argon unused/deferred until both current first reviewers satisfied."
+  },
+  "gates": {
+    "keyboard": {
+      "status": "untested",
+      "evidence": [
+        "Native Chromium154: keyboard Enter expanded/collapsed recovery summary and exposed full warning/action; focused current page row + Enter returned to Page title.",
+        "ui-council.e2e.ts same/different-id focus, held-PUT dirty/reload and recovery disclosure checks source-inspected; implementation reports PASS, not rerun here."
+      ],
+      "limit": "Every task path/dialog/popover was not exercised; focusing a target programmatically is not a full traversal test.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "00f1ee7a58a3ba840a6d75cf4f9f7a28ce9bb96380aa5fc1e56bd2ac7753ad6a",
+        "servedIndexSha256": "191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d",
+        "shared": "0.4.2; base f270e22 + scoped working diff"
+      }
+    },
+    "focus": {
+      "status": "untested",
+      "evidence": [
+        "Native light recovery summary: 2px orange outline; title after same-row Enter: 3px orange outline, y226..283.5 wholly visible."
+      ],
+      "limit": "All interactive controls in both themes and all named palettes remain unproven.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "00f1ee7a58a3ba840a6d75cf4f9f7a28ce9bb96380aa5fc1e56bd2ac7753ad6a",
+        "servedIndexSha256": "191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d",
+        "shared": "0.4.2; base f270e22 + scoped working diff"
+      }
+    },
+    "contrast": {
+      "status": "untested",
+      "evidence": [
+        "Native computed borders for Search, move-section, two comment inputs and three Settings form inputs: 4.5448704971:1 Light / 5.3234355010:1 Dark against their panel background.",
+        "Saved shared measurements independently parsed: 528/528 samples meet their minima; danger min4.5253378279, success min4.5989036312, field border min3.6594185883. These four files repeat the same 132 palette/role/surface combinations under four OS/width configurations.",
+        "Source selectors form input, .field select, .comment-compose input, .check-code-input and admin controls now consume --ky-field-border."
+      ],
+      "limit": "Scoped samples and shared primitive evidence do not certify all product text, fields, focus/state indicators in every theme. Hidden retained workspace inputs were sampled through computed style; check-code/auth/admin not live-exercised.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "00f1ee7a58a3ba840a6d75cf4f9f7a28ce9bb96380aa5fc1e56bd2ac7753ad6a",
+        "servedIndexSha256": "191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d",
+        "shared": "0.4.2; base f270e22 + scoped working diff"
+      }
+    },
+    "states": {
+      "status": "untested",
+      "evidence": [
+        "04-after-manifest.json: the 16 scored source files cover populated reading/navigation/Appearance."
+      ],
+      "limit": "No complete task-by-task empty/loading/error capture or announcement matrix.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "00f1ee7a58a3ba840a6d75cf4f9f7a28ce9bb96380aa5fc1e56bd2ac7753ad6a",
+        "servedIndexSha256": "191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d",
+        "shared": "0.4.2; base f270e22 + scoped working diff"
+      }
+    },
+    "responsive": {
+      "status": "pass",
+      "scope": "Current captured reading/page-picker/notebook-navigation/Appearance states at390x844 and1280x900 in Chromium.",
+      "evidence": [
+        "All16 manifest capture rows report overflow0.",
+        "Native390: row boxes y354..420.8,424.8..491.6,495.6..562.4,566.4..633.2; editor hidden while choosing; both navigation toggles48px high, icons16px.",
+        "Native390 Settings: h1 y96 before six fully contained links; current Appearance aria-current=location, no header Save, overflow0.",
+        "Native1280 Settings: sidebar240px and overflow0."
+      ],
+      "limit": "Not a full WebKit/zoom/long-label/all-state responsive certificate; all product targets were not measured.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "00f1ee7a58a3ba840a6d75cf4f9f7a28ce9bb96380aa5fc1e56bd2ac7753ad6a",
+        "servedIndexSha256": "191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d",
+        "shared": "0.4.2; base f270e22 + scoped working diff"
+      }
+    }
+  },
+  "issues": [
+    {
+      "id": "SOL3-1",
+      "priority": "P2",
+      "blocking_progression": false,
+      "title": "Phone Settings still spends substantial height before theme previews",
+      "detail": "The title now comes first and every link is visible. Navigation plus explanation still put the first preview row near y570; density remains7 and the view totals8.1.",
+      "evidence": [
+        "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "screenshots/kynotes-04-after-appearance-mobile-dark.png"
+      ],
+      "fix": "If continuing polish later, tighten the existing Settings navigation spacing/grouping while preserving every link, native theme cards, current fragment and saved-choice adapter. No new shell or feature is required."
+    },
+    {
+      "id": "SOL3-2",
+      "priority": "P3",
+      "blocking_progression": false,
+      "title": "Small metadata and minor geometry variations remain",
+      "detail": "Editor version/time and excerpts remain small; selected page rows use6px corners, and Lock remains separate from Account. These are visible polish limits, not demonstrated workflow failures.",
+      "evidence": [
+        "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "web/src/styles.css"
+      ],
+      "fix": "Keep any later adjustment to shared type/geometry and existing controls; do not move stored canvas boxes or rebuild navigation."
+    }
+  ],
+  "resolved_prior_findings": [
+    {
+      "finding": "Round1 current-page dirty-state reset",
+      "status": "Source fix retained; real held-PUT regression source inspected and reported passing",
+      "evidence": "Current-row handler returns; shared selectNote preserves previous live payload and only resets dirty for changed ID; comment/attachment refresh path retained."
+    },
+    {
+      "finding": "Round2 picker preamble",
+      "status": "Resolved for current captured sparse4-page state",
+      "evidence": "Rows354..633 visible; duplicate notebook/kind/Quick Notes heading removed only in open phone picker; Work queue group headings retained."
+    },
+    {
+      "finding": "Recovery warning suppression risk",
+      "status": "No preservation regression found",
+      "evidence": "Same held/live/no-recovery guard, full RECOVERY_MISSING constant and Create action inside native details; native Enter expansion/collapse passed."
+    },
+    {
+      "finding": "Round2 select/glyph/avatar/green status/tab outline",
+      "status": "Resolved in current visible views",
+      "evidence": "Space select, matching stroked chevrons, O initial, muted timestamp and simple virtual-tab underline."
+    },
+    {
+      "finding": "Round2 Settings/comment/check-code/auth/admin field boundaries",
+      "status": "Source selectors corrected; live Settings/comments/Search/select samples pass in Busnes themes",
+      "evidence": "--ky-field-border applied at generic and specific selectors; exact shared source/vendor copies verified."
+    },
+    {
+      "finding": "Canvas inset",
+      "status": "CSS-only correction accepted",
+      "evidence": "Default Add text box starts at storedx0; BlockNote CSS padding is24 desktop/16 phone. No coordinate or canvas serialization code changed. Earlier blanket assertion that all visible inset was stored geometry was incorrect."
+    },
+    {
+      "finding": "Six-page picker target",
+      "status": "Rejected as fixture-driven scope growth",
+      "evidence": "The real fixture has4 populated pages and all4 fit. No fabricated pages or new capability is required to reach8."
+    }
+  ],
+  "validation": {
+    "independently_performed": [
+      "All64 inventory hashes/bytes/dimensions recomputed; all16 current candidates compared for exact/near duplicates,12 unique images viewed at original resolution.",
+      "All7 manifest source hashes, tracked source diff hash, embedded index and native live served index match.",
+      "node web/src/ky-ui/check-vendor.mjs:0.4.2 verified;8 upstream shared source copies byte-identical.",
+      "Impeccable scoped detector main.tsx/SectionTabs.tsx/NavIcon.tsx:[] exit0.",
+      "Native disclosure/keyboard-focus-return, field-border samples and390/1280 overflow probes described in gates.",
+      "528 saved shared contrast samples independently parsed and meet minima; saved manifest hashes checked at final verification."
+    ],
+    "source_review": [
+      "main.tsx,styles.css,NavIcon.tsx,SectionTabs.tsx,workspaceWiring.test.ts,ui-council.e2e.ts,export.e2e.ts; scoped shared themes/tokens/tests diffs.",
+      "Theme persistence/storage key, named theme IDs, authorization/CSP and canvas-coordinate implementation unchanged by reviewed source diff.",
+      "Export selector change retains GET-only ZIP download assertions; recovery wiring assertions retain guard and full warning."
+    ],
+    "reported_by_implementation_not_rerun": [
+      "Stage04 capture + same/different-id focus + held-save + recovery disclosure PASS",
+      "599 frontend unit tests PASS; build/typecheck/Go build/vet/embed PASS before last CSS-only alignment",
+      "Earlier full Go suite/races/fuzz counts/Docker14-step/apply-setup/govuln0reachable PASS",
+      "Shared zero-warning lint/14unit/36browser PASS"
+    ],
+    "pending_at_brief": [
+      "Final fresh12-browser suite and Go -race/-count1 were running. No success inferred."
+    ],
+    "no_broad_suite_or_server_started": true,
+    "saved_shared_manifest_hashes_match": true
+  },
+  "council_rounds": [
+    {
+      "round": 1,
+      "reviewer": "Claude Opus5.5",
+      "score": 6.5,
+      "satisfied": false,
+      "status": "completed; raw original preserved"
+    },
+    {
+      "round": 1,
+      "reviewer": "GPT Sol",
+      "score": 7.8,
+      "satisfied": false,
+      "status": "completed; raw original preserved"
+    },
+    {
+      "round": 2,
+      "reviewer": "Claude Opus5.5",
+      "score": 7.4,
+      "satisfied": false,
+      "status": "completed; raw original preserved"
+    },
+    {
+      "round": 2,
+      "reviewer": "GPT Sol",
+      "score": 8.1,
+      "satisfied": true,
+      "status": "completed; raw original preserved"
+    },
+    {
+      "round": 3,
+      "reviewer": "Claude Opus5.5",
+      "score": null,
+      "satisfied": null,
+      "status": "pending/not inspected here"
+    },
+    {
+      "round": 3,
+      "reviewer": "GPT Sol",
+      "score": 8.2,
+      "satisfied": true,
+      "status": "completed in this report"
+    },
+    {
+      "round": 3,
+      "reviewer": "Gemini4Argon",
+      "score": null,
+      "satisfied": null,
+      "status": "unused/deferred until both current first reviewers satisfied; parent audits any later findings"
+    }
+  ],
+  "unscored": [
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-dark.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-light.png",
+      "reason": "Historical stage02/03 input; excluded from CURRENT round3 scoring. Prior stage03 desktop Appearance pair inspected afterwards only for disagreement audit."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+      "reason": "Near duplicate; inherits screenshots/kynotes-04-after-editor-desktop-dark.png and excluded from all counts/means."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+      "reason": "Near duplicate; inherits screenshots/kynotes-04-after-editor-desktop-light.png and excluded from all counts/means."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+      "reason": "Near duplicate; inherits screenshots/kynotes-04-after-editor-mobile-dark.png and excluded from all counts/means."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+      "reason": "Near duplicate; inherits screenshots/kynotes-04-after-editor-mobile-light.png and excluded from all counts/means."
+    }
+  ],
+  "limitations": [
+    "Visual8 progression does not establish full9 acceptance or whole-suite cohesion.",
+    "Only Notes Busnes Light/Dark current populated views scored; named themes are source/shared-probe evidence, not a second product capture set.",
+    "No new capabilities, absent fixture content or exhaustive product acceptance demanded as blockers for this bounded pass.",
+    "Questions skipped: the delegated review supplied scope, fixtures, rubric and two output paths; no design interview/new surface was needed.",
+    "This independent council-member review applies Impeccable Operate/Read guidance and a scoped detector; it does not claim the separate full dual-assessment critique command or its overlay workflow."
+  ],
+  "dox_pass": "Root, product worktree, evidence-folder and shared/browser contracts read. Only sol-round3.md/json written. No durable ownership/workflow contract changed, so AGENTS.md intentionally unchanged."
+}

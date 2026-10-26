@@ -1,0 +1,8 @@
+[
+  {
+    "repository": "Busnes-app/ky-ui",
+    "url": "https://github.com/Busnes-app/ky-ui/pull/25",
+    "branch": "fix/status-theme-contrast",
+    "scope": "Shared0.4.2 status and field contrast; staged consumer adoption"
+  }
+]

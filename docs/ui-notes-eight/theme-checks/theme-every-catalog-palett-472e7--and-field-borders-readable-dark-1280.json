@@ -1,0 +1,1036 @@
+[
+  {
+    "id": "busnes-light",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.57428861557707
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.721495135590084
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.738896946730334
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 4.9944675210290015
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.44549 0.468235 0.465882)",
+        "minimum": 3,
+        "ratio": 4.205488289762855
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.44549 0.468235 0.465882)",
+        "minimum": 3,
+        "ratio": 4.544870497132786
+      }
+    ]
+  },
+  {
+    "id": "busnes-dark",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.99592834855861
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.003629711203248
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.079942481901932
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 5.908244478033273
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.607059 0.617255 0.60549)",
+        "minimum": 3,
+        "ratio": 5.877364812818379
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.607059 0.617255 0.60549)",
+        "minimum": 3,
+        "ratio": 5.323435501013278
+      }
+    ]
+  },
+  {
+    "id": "dark-matter",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.243788083716489
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.192547082888715
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.372613202178148
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 6.131316544210771
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.586667 0.560784 0.623529)",
+        "minimum": 3,
+        "ratio": 5.557069635128842
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.586667 0.560784 0.623529)",
+        "minimum": 3,
+        "ratio": 4.853229321637518
+      }
+    ]
+  },
+  {
+    "id": "light-matter",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.23416935497196
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.455457705252268
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.441996475767437
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 4.762235338057268
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.490196 0.447843 0.408627)",
+        "minimum": 3,
+        "ratio": 4.099415271179973
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.490196 0.447843 0.408627)",
+        "minimum": 3,
+        "ratio": 4.44616881631738
+      }
+    ]
+  },
+  {
+    "id": "tropics",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.318986124197858
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.497804887357545
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.516035619225289
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 4.799201484251516
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.467451 0.439216 0.415686)",
+        "minimum": 3,
+        "ratio": 4.321949689852037
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.467451 0.439216 0.415686)",
+        "minimum": 3,
+        "ratio": 4.682985222264931
+      }
+    ]
+  },
+  {
+    "id": "tropic-night",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.662361122535928
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.600993948682005
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.8668607760386555
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 6.6136072169178215
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.578824 0.549804 0.617255)",
+        "minimum": 3,
+        "ratio": 5.699610815839458
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.578824 0.549804 0.617255)",
+        "minimum": 3,
+        "ratio": 5.002159767549836
+      }
+    ]
+  },
+  {
+    "id": "ocean",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.109905761994992
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.029453103861864
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.21452606670403
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 5.938736525983534
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.550588 0.611765 0.647059)",
+        "minimum": 3,
+        "ratio": 6.1650150311376475
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.550588 0.611765 0.647059)",
+        "minimum": 3,
+        "ratio": 5.23447694410568
+      }
+    ]
+  },
+  {
+    "id": "coffee",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.48833602483018
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.434439384482624
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.661373383504979
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 6.416940968410476
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.610196 0.558431 0.52549)",
+        "minimum": 3,
+        "ratio": 5.592893327629494
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.610196 0.558431 0.52549)",
+        "minimum": 3,
+        "ratio": 4.968785694292815
+      }
+    ]
+  },
+  {
+    "id": "white-cliffs",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.57428861557707
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.802412101841369
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.738896946730334
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.065102407586596
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.439216 0.508235 0.558431)",
+        "minimum": 3,
+        "ratio": 3.773870469953536
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.439216 0.508235 0.558431)",
+        "minimum": 3,
+        "ratio": 3.9828544436422253
+      }
+    ]
+  },
+  {
+    "id": "cyber-punk",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 7.460343507217016
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.328906003096333
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 8.809111759820206
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.473119735671553
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.628235 0.562353 0.637647)",
+        "minimum": 3,
+        "ratio": 6.449603325113812
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.628235 0.562353 0.637647)",
+        "minimum": 3,
+        "ratio": 5.993798509932033
+      }
+    ]
+  },
+  {
+    "id": "neon-purple",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 7.17678744335804
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.075047277977453
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 8.47429111057101
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.173365457786847
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.599216 0.558431 0.64549)",
+        "minimum": 3,
+        "ratio": 6.189503464824429
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.599216 0.558431 0.64549)",
+        "minimum": 3,
+        "ratio": 5.612071411689939
+      }
+    ]
+  },
+  {
+    "id": "space",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 7.0020597340403805
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.824220482373715
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 8.267974080071323
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 6.877191257135976
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.560784 0.585882 0.640784)",
+        "minimum": 3,
+        "ratio": 6.374426158069114
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.560784 0.585882 0.640784)",
+        "minimum": 3,
+        "ratio": 5.660562879692808
+      }
+    ]
+  },
+  {
+    "id": "sky",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.289243553622091
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.549776014006241
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.49007242268099
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 4.844568665019281
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.406275 0.493333 0.555294)",
+        "minimum": 3,
+        "ratio": 3.659418588336799
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.406275 0.493333 0.555294)",
+        "minimum": 3,
+        "ratio": 4.047402364266003
+      }
+    ]
+  },
+  {
+    "id": "forest",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 5.806521012284035
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 4.745850575456383
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 6.8562918695999
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 5.603861011783059
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.56549 0.614902 0.562353)",
+        "minimum": 3,
+        "ratio": 5.926411228491802
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.56549 0.614902 0.562353)",
+        "minimum": 3,
+        "ratio": 4.968845582981901
+      }
+    ]
+  },
+  {
+    "id": "sun",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.2654531037152585
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.495283017127953
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.46930501371629
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 4.797000066850041
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.534118 0.470588 0.385098)",
+        "minimum": 3,
+        "ratio": 3.8913356432283255
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.534118 0.470588 0.385098)",
+        "minimum": 3,
+        "ratio": 4.076231025884372
+      }
+    ]
+  },
+  {
+    "id": "patina-ky",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 7.181669559154819
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 129, 118)",
+        "minimum": 4.5,
+        "ratio": 6.0889675646025445
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 8.480055872426359
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(123, 196, 156)",
+        "minimum": 4.5,
+        "ratio": 7.189802416821043
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.552157 0.569412 0.596078)",
+        "minimum": 3,
+        "ratio": 6.057358943331033
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.552157 0.569412 0.596078)",
+        "minimum": 3,
+        "ratio": 5.507271980828571
+      }
+    ]
+  },
+  {
+    "id": "polished-ky",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 6.57428861557707
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(180, 35, 24)",
+        "minimum": 4.5,
+        "ratio": 5.71032799852612
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 5.738896946730334
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(38, 116, 66)",
+        "minimum": 4.5,
+        "ratio": 4.984719386660782
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.408627 0.433726 0.484706)",
+        "minimum": 3,
+        "ratio": 4.494363930995965
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.408627 0.433726 0.484706)",
+        "minimum": 3,
+        "ratio": 5.056056933823271
+      }
+    ]
+  },
+  {
+    "id": "patina",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(241, 87, 87)",
+        "minimum": 4.5,
+        "ratio": 5.179424353406854
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(241, 87, 87)",
+        "minimum": 4.5,
+        "ratio": 4.747653256107127
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(16, 185, 129)",
+        "minimum": 4.5,
+        "ratio": 6.870382790264988
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(16, 185, 129)",
+        "minimum": 4.5,
+        "ratio": 6.297648734544945
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.587451 0.6 0.617255)",
+        "minimum": 3,
+        "ratio": 6.7000169374557546
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.587451 0.6 0.617255)",
+        "minimum": 3,
+        "ratio": 6.091568271903615
+      }
+    ]
+  },
+  {
+    "id": "cyber",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(255, 26, 102)",
+        "minimum": 4.5,
+        "ratio": 4.9863856503125445
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(255, 26, 102)",
+        "minimum": 4.5,
+        "ratio": 4.5912125421370265
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(0, 255, 102)",
+        "minimum": 4.5,
+        "ratio": 13.81859784928811
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(0, 255, 102)",
+        "minimum": 4.5,
+        "ratio": 12.723468301418412
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.567843 0.589804 0.592157)",
+        "minimum": 3,
+        "ratio": 6.735665700064491
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.567843 0.589804 0.592157)",
+        "minimum": 3,
+        "ratio": 6.254237668186115
+      }
+    ]
+  },
+  {
+    "id": "nord",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(223, 176, 181)",
+        "minimum": 4.5,
+        "ratio": 5.277676812047688
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(223, 176, 181)",
+        "minimum": 4.5,
+        "ratio": 4.525337827866167
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(172, 197, 152)",
+        "minimum": 4.5,
+        "ratio": 5.363472955747084
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(172, 197, 152)",
+        "minimum": 4.5,
+        "ratio": 4.598903631229044
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.627451 0.643922 0.67451)",
+        "minimum": 3,
+        "ratio": 4.996206311808134
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.627451 0.643922 0.67451)",
+        "minimum": 3,
+        "ratio": 4.025042592549588
+      }
+    ]
+  },
+  {
+    "id": "paper",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(209, 36, 36)",
+        "minimum": 4.5,
+        "ratio": 5.2646259105948445
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(209, 36, 36)",
+        "minimum": 4.5,
+        "ratio": 4.805607736581741
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(17, 122, 56)",
+        "minimum": 4.5,
+        "ratio": 5.4337246417489204
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(17, 122, 56)",
+        "minimum": 4.5,
+        "ratio": 4.95996289580489
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.424314 0.446275 0.494118)",
+        "minimum": 3,
+        "ratio": 4.618498023153155
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.424314 0.446275 0.494118)",
+        "minimum": 3,
+        "ratio": 4.832222733409688
+      }
+    ]
+  },
+  {
+    "id": "oled",
+    "rows": [
+      {
+        "status": "danger",
+        "token": "--panel",
+        "color": "rgb(239, 68, 68)",
+        "minimum": 4.5,
+        "ratio": 5.017916629353281
+      },
+      {
+        "status": "danger",
+        "token": "--panel-hover",
+        "color": "rgb(239, 68, 68)",
+        "minimum": 4.5,
+        "ratio": 4.624963331580884
+      },
+      {
+        "status": "success",
+        "token": "--panel",
+        "color": "rgb(16, 185, 129)",
+        "minimum": 4.5,
+        "ratio": 7.444073445196365
+      },
+      {
+        "status": "success",
+        "token": "--panel-hover",
+        "color": "rgb(16, 185, 129)",
+        "minimum": 4.5,
+        "ratio": 6.861127687979421
+      },
+      {
+        "status": "field border",
+        "token": "--bg",
+        "color": "color(srgb 0.588235 0.588235 0.588235)",
+        "minimum": 3,
+        "ratio": 7.0997462813977235
+      },
+      {
+        "status": "field border",
+        "token": "--panel",
+        "color": "color(srgb 0.588235 0.588235 0.588235)",
+        "minimum": 3,
+        "ratio": 6.384044850704278
+      }
+    ]
+  }
+]

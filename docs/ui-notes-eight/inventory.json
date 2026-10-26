@@ -1,0 +1,258 @@
+[
+  {
+    "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+    "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+    "bytes": 72305,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+    "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+    "bytes": 71343,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+    "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+    "bytes": 40896,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+    "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+    "bytes": 40347,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+    "sha256": "dbdd54e9e91a0fb09bda089a279af5d800b15f82fc455edfd5e464e401aaeb9e",
+    "bytes": 100983,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+    "sha256": "6ec450216d330779395bce777f53fb3d68ca0b08560d6f85494dfae04786133b",
+    "bytes": 99957,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+    "sha256": "fb462b749c65d3e0a21ba373547c12050825f3294273723351ff1f105e38ba13",
+    "bytes": 43240,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+    "sha256": "636fb513d0c8879d0b38af11837123e6121c1f32aa019903b18add9e8ea2bdab",
+    "bytes": 42621,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+    "sha256": "befed209375eddc95586b194cfb0f99ca56cc0c233763c3a79b6d189739ae778",
+    "bytes": 36088,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+    "sha256": "e990bc03a39f2c6e644b47cc3054bd5f3aa73313d8b9e7ff74ce7c4667ed3ad7",
+    "bytes": 35630,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+    "sha256": "b3bbd6eabcebe452699b05b127f2a4055c3d4e2f066cf909169b447a24355f45",
+    "bytes": 43169,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+    "sha256": "3d4a87b7b3c18f075a956655ade525c0970bbd0ab856293893716574c0ade473",
+    "bytes": 42826,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+    "sha256": "bca725fc24672454712ebcd4abc6d0cb7704d3fd6231789da287a5c9e4a8c5d6",
+    "bytes": 100985,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+    "sha256": "60d03eb75e4754707564d5a1dcf1a9c4fb7ec0991ed81a32045545738c5fd96b",
+    "bytes": 99953,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+    "sha256": "76e6a222a146c4d89db36f124d76212d87cbe2a483dd3be7e9c308600f0a6ed6",
+    "bytes": 43241,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+    "sha256": "44dfd2959b0299e94b862707bac59762529487affa24601d7d153b861c563465",
+    "bytes": 42613,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+    "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+    "bytes": 72305,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-dark.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+    "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+    "bytes": 71343,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-light.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+    "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+    "bytes": 40896,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-dark.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+    "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+    "bytes": 40347,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-light.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+    "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+    "bytes": 105730,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+    "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+    "bytes": 104429,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+    "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+    "bytes": 49479,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+    "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+    "bytes": 48690,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+    "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+    "bytes": 37472,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+    "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+    "bytes": 37127,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+    "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+    "bytes": 49479,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+    "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+    "bytes": 48690,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+    "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+    "bytes": 105726,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+    "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+    "bytes": 104427,
+    "width": 1280,
+    "height": 900,
+    "duplicate_of": null
+  },
+  {
+    "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+    "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+    "bytes": 49479,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png"
+  },
+  {
+    "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+    "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+    "bytes": 48690,
+    "width": 390,
+    "height": 844,
+    "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png"
+  }
+]
