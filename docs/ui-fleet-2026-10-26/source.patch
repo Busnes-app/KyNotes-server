@@ -1,12 +1,12 @@
 diff --git a/AGENTS.md b/AGENTS.md
-index cb39cdd..241bceb 100644
+index cb39cdd..cc52433 100644
 --- a/AGENTS.md
 +++ b/AGENTS.md
 @@ -32,6 +32,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
  ## User Preferences
  
  - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
-+- Settings → Appearance shows Match system and the ky-ui suite catalog as the shared native radio cards (`ky-appearance`), applied at once with no Apply button and saved by name under `kynotes-theme`; names saved by earlier versions still select their theme. The section sits flat on the settings page, not in a card.
++- Settings → Appearance shows Match system and the ky-ui suite catalog as the shared native radio cards (`ky-appearance`), applied at once with no Apply button and saved by name under `kynotes-theme`; names saved by earlier versions still select their theme. The section sits flat on the settings page, not in a card, and on phones 16px from the screen edge so two shared cards fit at 390px.
  - The workspace keeps its list/editor layout, but surfaces and selected navigation states must consume the shared theme tokens; selected pages use a slim accent rail.
  
  - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
@@ -108,7 +108,7 @@ index c019fe5..a6e3f64 100644
          <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
          <div id="password">
 diff --git a/web/src/styles.css b/web/src/styles.css
-index 97ccc83..2718087 100644
+index 97ccc83..662f402 100644
 --- a/web/src/styles.css
 +++ b/web/src/styles.css
 @@ -9,7 +9,7 @@ button:disabled { cursor: wait; opacity: .55; }
@@ -120,7 +120,7 @@ index 97ccc83..2718087 100644
  h1 { font-size: clamp(42px, 8vw, 68px); line-height: .92; letter-spacing: -.07em; margin: 24px 0 16px; font-weight: 500; }
  .lede { color: #716e63; font-size: 17px; line-height: 1.5; margin-bottom: 36px; }
  form label { display: grid; gap: 8px; margin-top: 18px; font-size: 13px; color: #716e63; }
-@@ -80,16 +80,20 @@ body, .auth-page { color: var(--ink-strong); background: var(--bg); }
+@@ -80,16 +80,22 @@ body, .auth-page { color: var(--ink-strong); background: var(--bg); }
  .body-input, .note-row, .lede, .config-muted { color: var(--ink); }
  button:not(.quiet):not(.nav-item):not(.new-workspace):not(.note-row) { background: var(--accent); color: var(--button-text); }
  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
@@ -144,10 +144,12 @@ index 97ccc83..2718087 100644
 +.settings-section { margin: 0 0 32px; }
 +.settings-section h2, .config-card h2 { font-size: var(--ky-type-section); font-weight: 600; }
 +.settings-section h2 { margin: 0 0 8px; }
++/* On phones #appearance sits 16px from the screen edge, as in the other suite products:
++   room for two shared 172px cards at 390px (see the 800px rule). */
  .config-card h2 { margin: 0 0 8px; }
  .config-card button { margin-top: 20px; padding: 11px 16px; }
  .config-card button + button { margin-left: 8px; }
-@@ -117,7 +121,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
+@@ -117,7 +123,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
  .avatar { background: var(--accent-soft); color: var(--ink-strong); }
  .body-input { color: var(--ink); }
  .team-label { margin-top: 26px; }
@@ -157,7 +159,16 @@ index 97ccc83..2718087 100644
  .list-actions { display: flex; align-items: center; gap: 8px; }
  .list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }
  .note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
-@@ -172,7 +177,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
+@@ -158,7 +165,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
+ .audit-row { display: grid; justify-content: initial; }
+ .audit-row span { color: var(--ink); font: 11px Mono, monospace; }
+ .audit-log { max-height: min(60vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; scrollbar-color: var(--accent) var(--accent-soft); }
+-@media (max-width: 800px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } }
++@media (max-width: 800px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } #appearance { margin-inline: -2px; } }
+ @media (max-width: 900px) { .markdown-editor { grid-template-columns: 1fr; } .markdown-preview { min-height: 140px; border-top: 1px solid var(--line); } }
+ .admin-settings-layout .settings-content { max-width: 1040px; padding-top: 34px; }
+ .admin-settings-layout .settings-header { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+@@ -172,7 +179,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
  @media (max-width: 800px) { .settings-nav a { display: inline-block; white-space: nowrap; } .admin-settings-layout .admin-create, .admin-settings-layout .admin-user { grid-template-columns: 1fr; } }
  
  /* Squircle surfaces: the soft corner language is shared across the app. */
@@ -167,7 +178,7 @@ index 97ccc83..2718087 100644
  button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
  .brand-mark, .icon-button, .avatar { border-radius: 12px; corner-shape: squircle; }
  .nav-item, .note-row-wrap, .note-row, .account-chip, .member-row, .admin-user, .audit-row { border-radius: 14px; corner-shape: squircle; }
-@@ -382,10 +388,10 @@ body { color: var(--ink-strong); background: var(--bg); }
+@@ -382,10 +390,10 @@ body { color: var(--ink-strong); background: var(--bg); }
  }
  
  /* Notebook hierarchy: navigation stays compact, the page gets the working space. */
