@@ -94,6 +94,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .settings-section { margin: 0 0 32px; }
 .settings-section h2, .config-card h2 { font-size: var(--ky-type-section); font-weight: 600; }
 .settings-section h2 { margin: 0 0 8px; }
+/* On phones #appearance sits 16px from the screen edge, as in the other suite products:
+   room for two shared 172px cards at 390px (see the 800px rule). */
 .config-card h2 { margin: 0 0 8px; }
 .config-card button { margin-top: 20px; padding: 11px 16px; }
 .config-card button + button { margin-left: 8px; }
@@ -163,7 +165,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .audit-row { display: grid; justify-content: initial; }
 .audit-row span { color: var(--ink); font: 11px Mono, monospace; }
 .audit-log { max-height: min(60vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; scrollbar-color: var(--accent) var(--accent-soft); }
-@media (max-width: 800px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } }
+@media (max-width: 800px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-sidebar { border-right: 0; border-bottom: 1px solid var(--line); padding: 17px 18px; } .settings-sidebar .section-label { margin: 24px 10px 12px; } .settings-nav { display: flex; overflow: auto; } .settings-content { padding: 28px 18px; } #appearance { margin-inline: -2px; } }
 @media (max-width: 900px) { .markdown-editor { grid-template-columns: 1fr; } .markdown-preview { min-height: 140px; border-top: 1px solid var(--line); } }
 .admin-settings-layout .settings-content { max-width: 1040px; padding-top: 34px; }
 .admin-settings-layout .settings-header { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
