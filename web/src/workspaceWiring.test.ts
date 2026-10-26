@@ -143,7 +143,7 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).toContain("onReset={(next) => { void retireWaitingEdits(next)");
     expect(main).toContain("setResetUnfinished(unfinishedReset(local, live, sent));");
     expect(main).toContain("noteReset: (publicKey) => noteResetSent(auth.username, auth.user.id, publicKey)");
-    expect(main).toContain("{resetUnfinished && <div className=\"conflict-banner\" role=\"status\">{RESET_UNFINISHED} <button onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}");
+    expect(main).toContain("{resetUnfinished && <div className=\"conflict-banner\" role=\"status\">{RESET_UNFINISHED} <button className=\"secondary\" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}");
   });
 
   it("renders waitingHeld from state set with the waiting key, never from the ref (N2)", () => {

@@ -298,3 +298,18 @@ See [UI-POLISH.md](UI-POLISH.md) for the implemented changes, preservation scope
 ## Fleet Appearance — 2026-10-26
 
 Shared ky-ui 0.4 Appearance radio cards over the suite catalog, plus the suite shell scale. Staged before/after captures (light/dark × 1280×900/390×844, synthetic fixture), manifests with revisions and hashes, in-app theme transition checks, CSV results and the recorded check runs are in [docs/ui-fleet-2026-10-26](docs/ui-fleet-2026-10-26/README.md). Scores are not self-assigned; the council rates the captures separately.
+
+## Visual refinement — 2026-10-26
+
+Round-3 release review, gap 1: workspace shell, task view and Settings hierarchy, with no route, encryption, key-warning, Settings-save or Go change. Evidence, stages, fixture and limits are in [docs/ui-visual-refinement-2026-10-26](docs/ui-visual-refinement-2026-10-26/README.md).
+
+- **Accent:** it fills the selection and one primary per view ("Create a note"). The new-page "+", the header note Save and banner actions are outlined `.secondary`. The commit toast, the phone "Notebooks and account" bar, glyphs and the sync status are neutral, and the sparkle is removed.
+- **Labels and callouts:** six section labels are sentence case, and the key, recovery and team banners share a neutral panel with a warning rule, keeping their text, roles and actions.
+- **Verification:** in-app `--verify` passes 23/23 at before, after, the confirm recapture and the current committed bundle. The added `note` and `note-committed` surfaces show the header Save and commit toast before and after.
+- **Checks** at `e1b726b` plus this change:
+  - `node web/src/ky-ui/check-vendor.mjs` passes, and `npm test --prefix web` passes 599/599. `workspaceWiring.test.ts`'s source string for the reset banner was updated for the added `className`.
+  - `npm run build --prefix web` passes, and `diff -qr web/dist internal/web/dist` is clean.
+  - `go build ./...`, `go vet ./...`, gofmt, and `go test -p 2 -race ./...` (20 packages) pass.
+  - `npm run e2e --prefix web` passes 11/11, including `mobile-navigation` and `appearance-cross-tab`. govulncheck was not run, because dependencies are unchanged.
+- **After merging `master`:** master's npm build-dependency update (5 commits; web dependencies and the embedded bundle only) was merged after the captures. The bundle was rebuilt from the merged source and lockfile. Post-merge checks pass: vitest 599/599, the vendor check, go build/vet, `go test -p 2 -race ./internal/web/...` and e2e 11/11. The committed post-merge build (embed index `1a66f5d20695`) was recaptured as `kynotes-02-current-bundle` at `8156280` with the same four surfaces in the same order. In-app `--verify` passes 23/23. Against 01-confirm, the only differences are live data: the note save time and the avatar initials, which come from the per-run user id. The rebuilt bundle causes no visual change.
+- Ratings belong to the independent reviewer; no 9/10 is claimed.

@@ -1,0 +1,120 @@
+{
+  "prefix": "kynotes-00b-before",
+  "product": "kynotes",
+  "branch": "ui/fleet-visual-refinement",
+  "head": "e1b726b9cd164fc24af6eadc1b7fb7a1cfc22993",
+  "uncommitted_diff_sha256": "8ba31f9335795b3ab404b859ce58fcc5ef5ee092b1a5c758ab9cea3fe54de556",
+  "uncommitted_diff_bytes": 13307,
+  "server_binary_sha256": "e20770fb00c5bc55fd5d14f06ef0da537899c67c75609b3d3a5f9be4fc5171fa",
+  "embedded_index_sha256": "ce3c13068f876c24a53c6d854de1021b97b3dbb2bd3716c82995fc87cc9529a9",
+  "captured": "2026-10-26T16:23:14.759Z",
+  "os": "linux 7.2.10-1-cachyos",
+  "driver": "playwright chromium 156.0.8078.4 (headless)",
+  "device_scale_factor": 1,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "theme_source": "context colorScheme emulation with no saved theme choice (OS-following default)",
+  "fixture": "fresh data dir (web/e2e/server.sh config on port 18091, dev_insecure_cookies on loopback); first-run setup through the UI creating administrator \"admin\" and everyday \"owner\"; owner creates notebook \"Field notes\" with one note typed \"Garden plan: order seeds by Friday.\"; captures are the owner",
+  "files": [
+    {
+      "file": "kynotes-00b-before-note-desktop-light.png",
+      "sha256": "39ef84bcd9c6c602036ab26a7d4a563b0d7e36751899040a03bf5e853c7d9f74",
+      "surface": "note",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-committed-desktop-light.png",
+      "sha256": "82f075cbcc4a803f71c4caadedb3f65b89eaba5879bf1fe809b425f0eb472e8e",
+      "surface": "note-committed",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-mobile-light.png",
+      "sha256": "8a51cba2dc9f356b2e191a484dcc31682fce1f2dd37c8a6bf13799c755ff9c93",
+      "surface": "note",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-committed-mobile-light.png",
+      "sha256": "3be808d36dfded32e07143a772ff988a145e95cbff7650c4409ba77cb3c81bf1",
+      "surface": "note-committed",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-desktop-dark.png",
+      "sha256": "3e3d9caa53fffa26e4bfce7857c377ed687017e4c1fd366734a0a424cc49f221",
+      "surface": "note",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-committed-desktop-dark.png",
+      "sha256": "b721e5261c0c0400479d0caab29cbc60cbba6908fed1feeaae335e2120597dd6",
+      "surface": "note-committed",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-mobile-dark.png",
+      "sha256": "0f1f1669e1aa5125d47ef6018dfe526a873c730ffe9a714ca5f3efe8c324729e",
+      "surface": "note",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-00b-before-note-committed-mobile-dark.png",
+      "sha256": "3810ac618a4cae602d09ff33d9dcc2c3c820aef2ae9b09d8ab7e1faa9b3ce090",
+      "surface": "note-committed",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    }
+  ]
+}
