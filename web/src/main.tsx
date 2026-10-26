@@ -2723,7 +2723,7 @@ function Workspace({
           </span>
           {selectedNote && (
             <button
-              className="save-button"
+              className="save-button secondary"
               disabled={busy}
               onClick={() => void save(selectedNote)}
             >
@@ -2743,7 +2743,7 @@ function Workspace({
           <div className={`workspace${showNotebookNavigation ? " show-notebook-navigation" : ""}`}>
           <button type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}>Notebooks and account</button>
           <aside id="notebook-navigation" className="sidebar">
-            <div className="section-label">FOCUS</div>
+            <div className="section-label">Focus</div>
             <button
               className={`ky-nav-item nav-item ${queueMode ? "selected" : ""}`}
               aria-current={queueMode ? "page" : undefined}
@@ -2753,7 +2753,7 @@ function Workspace({
               <span className="nav-icon">✓</span>
               <span>Work queue</span>
             </button>
-            <div className="section-label">NOTEBOOKS</div>
+            <div className="section-label">Notebooks</div>
             {personalWorkspaces.map((container) => (
               <button
                 className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
@@ -2765,7 +2765,7 @@ function Workspace({
                 <span>{nameOf(container)}</span>
               </button>
             ))}
-            <div className="section-label team-label">TEAM NOTEBOOKS</div>
+            <div className="section-label team-label">Team notebooks</div>
             {teams.map((container) => (
               <React.Fragment key={container.id}>
                 <button
@@ -2842,7 +2842,7 @@ function Workspace({
               </>
             )}
             <div className="sidebar-bottom">
-              <div className="section-label">ACCOUNT</div>
+              <div className="section-label">Account</div>
               <div className="account-chip">
                 <span className="avatar">{auth.user.id.slice(-2)}</span>
                 <span>{auth.username || auth.user.id.slice(0, 12)}</span>
@@ -2886,24 +2886,24 @@ function Workspace({
                 })()}</div>}
                 {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
                 {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></div>}
-                {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
-                {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button onClick={() => setView("settings")}>Link this browser</button></div>}
-                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
-                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
-                {identityState === "held" && live && !live.recoveryId && <div className="conflict-banner" role="status">{RECOVERY_MISSING} <button onClick={() => setView("settings")}>Create recovery code</button></div>}
+                {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
+                {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
+                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+                {identityState === "held" && live && !live.recoveryId && <div className="conflict-banner" role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div>}
                 {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
-                  <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button onClick={() => void renameWorkspace()}>Name notebook</button></div>
+                  <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
                 )}
                 {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
                   <div className="conflict-banner" role="status" key={member.userId}>
-                    {approvalText(displayName(member.username, member.userId))} <button disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
+                    {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
                   </div>
                 ))}
                 <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
                 {invitation && (
                   <div className="conflict-banner" role="status">
                     You were invited to a team notebook.{" "}
-                    <button onClick={() => void joinTeam()}>Join team</button>{" "}
+                    <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
                     <button className="quiet" onClick={dropInvitation}>Not now</button>
                   </div>
                 )}
@@ -2918,7 +2918,7 @@ function Workspace({
                   placeholder="Search"
                 />
                 <button
-                  className="icon-button"
+                  className="icon-button secondary"
                   disabled={!selected || busy || sectionHidden || keyWait}
                   title={sectionHidden ? "Add a section to this group first" : "New page"}
                   aria-label="New page"
@@ -3023,7 +3023,7 @@ function Workspace({
             )}
             {relatedNotes.length > 0 && (
               <div className="context-panel">
-                <div className="section-label">RESURFACING</div>
+                <div className="section-label">Resurfacing</div>
                 {relatedNotes.map((note) => (
                   <button
                     className="context-link"
@@ -3037,7 +3037,7 @@ function Workspace({
             )}
             {links.length > 0 && (
               <div className="context-panel">
-                <div className="section-label">KNOWLEDGE GRAPH</div>
+                <div className="section-label">Knowledge graph</div>
                 <span className="config-muted">
                   {links.length} local link{links.length === 1 ? "" : "s"}
                 </span>
@@ -3070,7 +3070,7 @@ function Workspace({
                     {recovering === selectedNote.id
                       ? "Saving the other version as a copy…"
                       : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
-                    <button disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
+                    <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
                 )}
                 <input
@@ -3187,7 +3187,6 @@ function Workspace({
               </>
             ) : (
               <div className="empty-editor">
-                <div className="empty-glyph">✦</div>
                 <h2>Your private desk.</h2>
                 <p>
                   Select a note or create one. The server receives ciphertext
