@@ -32,7 +32,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 ## User Preferences
 
 - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
-- Settings → Appearance shows Match system and the ky-ui suite catalog as the shared native radio cards (`ky-appearance`), applied at once with no Apply button and saved by name under `kynotes-theme`; names saved by earlier versions still select their theme. The section sits flat on the settings page, not in a card, and on phones 16px from the screen edge so two shared cards fit at 390px.
+- Settings → Appearance shows Match system and the ky-ui suite catalog as the shared native radio cards (`ky-appearance`), applied at once with no Apply button and saved by name under `kynotes-theme`; names saved by earlier versions still select their theme. Another tab's choice re-checks the matching card (a `storage` listener, as KyCalendar does; `e2e/appearance-cross-tab.e2e.ts`), and Match system reads "Follows device" like the other products. The section sits flat on the settings page, not in a card, and on phones 16px from the screen edge so two shared cards fit at 390px.
 - The workspace keeps its list/editor layout, but surfaces and selected navigation states must consume the shared theme tokens; selected pages use a slim accent rail.
 
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).

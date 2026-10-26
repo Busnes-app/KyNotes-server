@@ -50,6 +50,7 @@
 
 ### Changes
 
+- Settings → Appearance follows a theme chosen in another tab: the matching card is now checked without a reload. Match system is labelled "Follows device", as in the other Ky products.
 - Security: the image is built with Go 1.27.3 (was 1.27.2) for GO-2026-6809: `crypto/x509` now
   distrusts compromised intermediate certificates. `go.mod` sets `toolchain go1.27.3` so
   `go build` from source uses it too.

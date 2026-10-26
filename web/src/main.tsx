@@ -3413,6 +3413,12 @@ function SettingsView({
   onReminders: (prefs: ReminderPrefs) => void;
 }) {
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
+  // Another tab's choice: theme.ts applies it; keep the checked card in step.
+  useEffect(() => {
+    const sync = () => setTheme(getStoredTheme());
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, []);
   const [ownFingerprint, setOwnFingerprint] = useState("");
   const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
@@ -3461,7 +3467,7 @@ function SettingsView({
                   <input className="ky-appearance-radio" type="radio" name="kynotes-theme" value={option.id} checked={option.id === theme.id} onChange={() => { setTheme(option); applyTheme(option); }} />
                   <span className="ky-appearance-preview" aria-hidden="true" data-ky-preview={option.id} />
                   <span className="ky-appearance-name">{option.name}</span>
-                  <small className="ky-appearance-mode">{option.scheme === "system" ? "Light or dark" : option.scheme === "light" ? "Light" : "Dark"}</small>
+                  <small className="ky-appearance-mode">{option.scheme === "system" ? "Follows device" : option.scheme === "light" ? "Light" : "Dark"}</small>
                 </label>
               ))}
             </div>
