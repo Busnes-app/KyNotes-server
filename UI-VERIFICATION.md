@@ -338,3 +338,9 @@ browser or application side effects. The other checks cover invalid revisions
 and retaining the normal checkout. No application source, dependencies, bundle
 or screenshot changed; the earlier application CI results remain applicable to
 that unchanged code, while host CI runs again at the corrected head.
+
+CodeQL flagged the regression fixture's two planted-file writes for default
+permissions. They now use exclusive creation (`wx`) with owner-only mode `0600`
+inside the private `0700` fixture directory; the test asserts both file modes.
+All three regression checks still pass. No query suppression or scan exclusion
+was added, and the capture adapter itself is unchanged from `17ca804`.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
@@ -55,8 +55,11 @@ test('ignores a planted commit-named directory and removes its fresh private sou
   // The committed fixture embeds its unique random root, so it cannot collide with another run.
   mkdirSync(planted, { mode: 0o700 });
   t.after(() => rmSync(planted, { recursive: true, force: true }));
-  writeFileSync(join(planted, 'go.mod'), 'module attacker.test/planted\n');
-  writeFileSync(join(planted, 'fixture.txt'), 'planted source');
+  // Exclusive owner-only files keep the intentionally predictable fixture isolated.
+  writeFileSync(join(planted, 'go.mod'), 'module attacker.test/planted\n', { flag: 'wx', mode: 0o600 });
+  writeFileSync(join(planted, 'fixture.txt'), 'planted source', { flag: 'wx', mode: 0o600 });
+  assert.equal(statSync(join(planted, 'go.mod')).mode & 0o777, 0o600);
+  assert.equal(statSync(join(planted, 'fixture.txt')).mode & 0o777, 0o600);
   const first = f.run();
   assert.notEqual(first.status, 0);
   assert.match(first.stderr, /go build failed/);
