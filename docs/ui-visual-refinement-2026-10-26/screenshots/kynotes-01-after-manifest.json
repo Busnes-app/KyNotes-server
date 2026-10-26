@@ -1,0 +1,122 @@
+{
+  "prefix": "kynotes-01-after",
+  "product": "kynotes",
+  "branch": "ui/fleet-visual-refinement",
+  "head": "e1b726b9cd164fc24af6eadc1b7fb7a1cfc22993",
+  "uncommitted_diff_sha256": "a6ff44a77bdf57a4a21746afef8bf77ccae57337c1c774612074410ab05cdfc8",
+  "uncommitted_diff_bytes": 1528892,
+  "server_binary_sha256": "b696fd9604e1eed5867e13c0b2eb962bd8bdb55e67690fad9ff0831142512395",
+  "embedded_index_sha256": "d5b1edecca194c1eb8f471f284168c3923dbaa590fb3aa8bbca1720d27ed4508",
+  "captured": "2026-10-26T16:20:38.850Z",
+  "os": "linux 7.2.10-1-cachyos",
+  "driver": "playwright chromium 156.0.8078.4 (headless)",
+  "device_scale_factor": 1,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "theme_source": "context colorScheme emulation with no saved theme choice (OS-following default)",
+  "fixture": "fresh data dir (web/e2e/server.sh config on port 18091, dev_insecure_cookies on loopback); first-run setup through the UI creating administrator \"admin\" and everyday \"owner\"; owner creates notebook \"Field notes\" with one note typed \"Garden plan: order seeds by Friday.\"; captures are the owner",
+  "files": [
+    {
+      "file": "kynotes-01-after-workspace-desktop-light.png",
+      "sha256": "3bae26428c3723d2e0eee65336c625c00d0b06b2005fd7dabcc5bceba9349276",
+      "surface": "workspace",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-desktop-light.png",
+      "sha256": "9f4d3c2773127a2896dc90031406f61f95620e6388b72d3c94ab7f3ff868d309",
+      "surface": "appearance",
+      "viewport": "1280x900",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-workspace-mobile-light.png",
+      "sha256": "0d70938f59edc26411137d667c7cbbe9fbb9f0e7b759744f06239e2efb4fd3e8",
+      "surface": "workspace",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-mobile-light.png",
+      "sha256": "933a854ba6ae657e5c99ae7b2507554646dad84ad796c5f7ef71c6c06adb430c",
+      "surface": "appearance",
+      "viewport": "390x844",
+      "theme": "os-light (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-workspace-desktop-dark.png",
+      "sha256": "6325d007da5a3a33f2dfed687398f5ba85050e7e1657ba35827e9d729cdc60ff",
+      "surface": "workspace",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-desktop-dark.png",
+      "sha256": "7c20d41ea964bff0032ab094885e8b99b798ba99c147c797e6eee6fdd5fe902c",
+      "surface": "appearance",
+      "viewport": "1280x900",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-workspace-mobile-dark.png",
+      "sha256": "83210439ad99d1a58ac54181b8bb239b1410a542181802087329f9a24fb73fd8",
+      "surface": "workspace",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Space"
+      ],
+      "full_page": false
+    },
+    {
+      "file": "kynotes-01-after-appearance-mobile-dark.png",
+      "sha256": "4207fbf0c73c4c9a967f07711420e72e03c6fe56c79269415ede52741c35fbcf",
+      "surface": "appearance",
+      "viewport": "390x844",
+      "theme": "os-dark (no saved choice)",
+      "overflow_px": 0,
+      "loaded_fonts": [
+        "Mono",
+        "Space"
+      ],
+      "full_page": false
+    }
+  ]
+}
