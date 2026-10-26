@@ -10,6 +10,7 @@ Applies the approved Busnes look to KyNotes's web shell and gives it the shared 
 - **02 confirm**: one confirmation recapture after the single stage 02 fix batch, where a fix was needed.
 - **03 after**: owner decisions on the reported conflicts (phone inset for two card columns at 390px, preview fidelity for KyDrive's shipped themes, KyYard's Polished Ky kept), light/dark × desktop/phone Appearance only. Its before is the latest stage 02 batch of the same view (`previous_file` in `results.csv`). The in-app check gained three assertions: every named preview matches the applied palette, two columns with no overflow at 390px, and a keyboard choice survives a reload.
 - **03 confirm**: one confirmation recapture after the single stage 03 fix, where a fix was needed.
+- **04 before / 04 after**: fleet review F4 and copy consistency, with Appearance only plus `--verify`, on branch `ui/fleet-review-fixes` from `origin/master` `21063dd`. Before runs the committed embed (index SHA-256 `41cd61ff…` in the manifest; the source edit was not yet built); after runs the rebuilt, synced embed. The new cross-tab check saves `Sun` from a second tab: before, Match system stays checked (4/4 FAIL); after, Sun is checked (4/4 PASS), at both widths and schemes, with `cross-tab-*` screenshots. The Match system mode label changes from "Light or dark" to "Follows device"; nothing else in the Appearance captures changes. Stage 04 ran this product's own Playwright 1.64.1 (Chromium 156.0.8078.4), as earlier batches did. `web/e2e/appearance-cross-tab.e2e.ts` is the CI regression; it fails on the old embed and passes on the new one.
 
 Surfaces: workspace (owner with one synthetic notebook and note) and Settings → Appearance.
 
@@ -35,6 +36,8 @@ Every manifest in `screenshots/` lists the source commit, a hash of any uncommit
 | `kynotes-02-after` | `8b8a6eed32` | none | 4 | appearance | 2026-10-26T11:37Z |
 | `kynotes-02-confirm` | `17547b32fc` | none | 4 | appearance | 2026-10-26T11:39Z |
 | `kynotes-03-after` | `31e91fdea4` | none | 4 | appearance | 2026-10-26T12:07Z |
+| `kynotes-04-before` | `21063dd099` | `2fbe8e74b477…` | 4 | appearance | 2026-10-26T13:49Z |
+| `kynotes-04-after` | `21063dd099` | `e25e0a8b1291…` | 4 | appearance | 2026-10-26T13:50Z |
 
 Conditions: linux 7.2.10-1-cachyos, playwright chromium 156.0.8078.4 (headless), device scale 1, 1280×900 and 390×844, light/dark by OS emulation with no saved choice, America/Chicago, en-US. Fixture: fresh data dir (web/e2e/server.sh config on port 18091, dev_insecure_cookies on loopback); first-run setup through the UI creating administrator "admin" and everyday "owner"; owner creates notebook "Field notes" with one note typed "Garden plan: order seeds by Friday."; captures are the owner.
 
@@ -47,6 +50,8 @@ Conditions: linux 7.2.10-1-cachyos, playwright chromium 156.0.8078.4 (headless),
 | `kynotes-01-after` | `83d9750d58` | 16/16 |
 | `kynotes-02-after` | `8b8a6eed32` | 16/16 |
 | `kynotes-03-after` | `31e91fdea4` | 19/19 |
+| `kynotes-04-before` | `21063dd` (committed embed) | 19/23 (cross-tab 0/4) |
+| `kynotes-04-after` | `21063dd` + F4 build | 23/23 |
 
 ## Checks
 
