@@ -65,6 +65,8 @@ The named `kynotes_data` volume holds the database and ciphertext blobs. A seale
 capsule **excludes blob content**. Set up `KYNOTES_BLOB_TARGET` and test mirror/fetch as
 well as capsule recovery before claiming complete recovery. Read
 [deployment](docs/DEPLOYMENT.md), [SSO](docs/SSO.md) and [restore](docs/RESTORE.md).
+The deployment guide documents SFTP's RSA-2048 minimum, target-key migration and the
+credential/transport risks accepted by an explicitly selected SMB/NTLM mirror.
 
 ## Keep it recoverable
 

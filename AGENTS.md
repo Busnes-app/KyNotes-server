@@ -403,7 +403,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Verify `TestSSOStepUp*`, `web/src/reauth.test.ts`, npm test/build, and the real browser dialog.
 
 - `internal/mirror/AGENTS.md` owns streaming ciphertext replication and recovery over
-  `ky-primitives/offsite@v0.1.0`. Migration `0015_blob_replicas.sql` tracks the single
+  the immutable `ky-primitives/offsite` version in `go.mod`, including its strong SFTP
+  key/algorithm policy and documented explicit SMB/NTLM interoperability choice.
+  Migration `0015_blob_replicas.sql` tracks the single
   destination identity; credentials remain in deployment configuration and sealed capsules.
   Admin mirror status/actions share backup authorization. Capsule-triggered runs use
   snapshot inventory; restore fetch uses the restored database regardless of replica rows.

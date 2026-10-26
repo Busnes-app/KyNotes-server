@@ -195,11 +195,37 @@ then configure it and repeat. Server startup and uploads require a pin. SFTP pat
 relative to the account root. The probe writes a small object; S3 retains/overwrites
 that probe, while the other transports remove it.
 
+SFTP uses the shared transport's maintained algorithm policy: no SHA-1 key exchange or
+host/authentication signatures, DSA, CBC/RC4/3DES or truncated 96-bit MACs. RSA host and
+private authentication keys require at least 2048 actual bits; Ed25519 and supported
+NIST ECDSA keys are accepted. A matching fingerprint does not exempt a short host key.
+An RSA authentication key signs with SHA-2. Full HMAC-SHA1 remains in the upstream
+supported policy; this keyed MAC is distinct from SHA-1 signatures.
+
+Before upgrading a legacy SFTP destination, keep working administrator access, add a strong
+host/authentication key and compare its new fingerprint through an independent channel.
+Test the new login before deliberately changing the configured pin or credential. Preserve
+the destination, account-relative path and remote blob history. Do not delete local blobs,
+replica rows, deployment secrets or capsules to bypass a refusal. A failed transfer remains
+pending; previously acknowledged replicas are not automatically re-uploaded or scrubbed.
+
+### SMB compatibility choice
+
+The mirror is disabled until a destination is configured. Setting an `smb://` URL explicitly
+selects legacy interoperability with an SMB server using NTLM password authentication.
+NTLM uses MD4 password derivation, HMAC-MD5 and negotiated RC4; this is not a modern
+cryptographic profile. Prefer pinned SFTP, HTTPS S3 or an independently secured OS-managed
+mount accessed through `file://`. Keep SMB disabled where this compatibility is unnecessary.
+
 SMB supports versions 2/3 and requests signing, but the shared library can accept an
 unsigned guest session granted by the server. An impersonating server could observe
 the NTLMv2 exchange and discard uploads. Restrict SMB to a trusted network and verify
-replicas independently; a host-mounted share accessed with `file://` avoids that client
-limitation. An existing SMB object is accepted only after its size and digest verify.
+replicas independently. Ciphertext and digest checks do not authenticate that peer or prove
+it retained a replica. Choosing SMB does not weaken notebook encryption; it does accept
+these credential/transport risks. An existing SMB object is accepted only after its size
+and digest verify. No SMB setting is rewritten during this dependency upgrade.
+
+### Transfer and recovery behavior
 
 Admin **Mirror now** works independently of capsule pairing. **Back up now** and scheduled
 runs mirror the exact collected capsule inventory after attempting the capsule destinations.

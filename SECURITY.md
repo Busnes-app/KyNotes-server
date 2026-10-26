@@ -79,6 +79,21 @@ days and coordinate a fix and disclosure.
   privacy-safe outcomes. Never log plaintext, keys, recovery codes, tokens, or
   full encrypted payloads.
 
+## Blob mirror transport policy
+
+The optional mirror is off until a destination is configured. Its shared SFTP client
+requires pinned host keys, RSA keys of at least 2048 bits (host and private authentication),
+supported Ed25519/ECDSA keys and maintained negotiation algorithms. RSA signatures use
+SHA-2. Keep existing keys, configuration and replica history; upgrade an unsupported
+destination through separately verified administrator access before changing its pin.
+
+An `smb://` destination is an explicit legacy compatibility choice. NTLM password
+authentication uses MD4, HMAC-MD5 and negotiated RC4, and the client can accept an unsigned
+guest session. Use it only when necessary for interoperability, on a trusted network with
+independent replica verification. Prefer pinned SFTP, HTTPS S3 or an independently secured
+OS-managed mount. See [deployment policy and migration](docs/DEPLOYMENT.md#ciphertext-blob-mirror).
+This transport policy does not establish whole-product key-size or protocol-review compliance.
+
 ## Security-sensitive changes
 
 Changes to authentication, sessions, device enrollment or revocation,

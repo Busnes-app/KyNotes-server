@@ -5,6 +5,10 @@ Mirror immutable note-version and attachment ciphertext through the shared offsi
 # Contracts
 
 - No custom transport or plaintext payload; remote object names are `blobs/<sha256>`.
+- Use the immutable shared offsite version in go.mod. SFTP requires RSA-2048 or supported
+  Ed25519/ECDSA keys and maintained negotiation; pins never exempt short keys. SMB remains
+  explicit legacy interoperability with the risks in docs/DEPLOYMENT.md; no automatic
+  credential, pin, destination or replica-history rewrite.
 - One destination. Target identity includes account-relative namespace and SFTP pin,
   excludes passwords, and includes the shared endpoint/bucket/prefix identity.
 - Acknowledge only successful transfer; verify digest and size on `ErrObjectExists`.
@@ -22,3 +26,6 @@ Mirror immutable note-version and attachment ciphertext through the shared offsi
 `go test -race ./internal/mirror ./internal/backup ./cmd/kynotes-server` covers retries,
 changed target identity, corrupt/interrupted transfers, GC races, a file larger than the
 capsule cap, pinned SFTP round trip, and synthetic capsule-plus-blob restoration.
+`TestSFTPTransportPolicy` additionally refuses pinned RSA-1024/2047 and SHA-1-only key
+exchange before password authentication, keeps failed blobs pending and retains strong
+RSA/Ed25519 mirror/fetch controls.
