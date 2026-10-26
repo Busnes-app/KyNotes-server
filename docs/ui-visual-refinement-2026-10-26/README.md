@@ -34,6 +34,8 @@ Each batch is OS light and dark × 1280×900 and 390×844, device scale 1, this 
 
 See `UI-VERIFICATION.md` (repository root) for the commands and results of this batch.
 
+The captures show the pre-merge build (embed index `0a8f919a6c4f`). The branch later merged `master`'s npm build-dependency update, and the bundle was rebuilt from the merged lockfile; that update was not recaptured.
+
 ## Remaining limits
 
 - The Settings sub-navigation links to sections on one scrolling page, so it marks no current item. A scroll-tracking marker would be new behaviour and was left out.

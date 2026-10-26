@@ -311,4 +311,5 @@ Round-3 release review, gap 1: workspace shell, task view and Settings hierarchy
   - `npm run build --prefix web` passes, and `diff -qr web/dist internal/web/dist` is clean.
   - `go build ./...`, `go vet ./...`, gofmt, and `go test -p 2 -race ./...` (20 packages) pass.
   - `npm run e2e --prefix web` passes 11/11, including `mobile-navigation` and `appearance-cross-tab`. govulncheck was not run, because dependencies are unchanged.
+- **After merging `master`:** master's npm build-dependency update (5 commits; web dependencies and the embedded bundle only) was merged after the captures. The bundle was rebuilt from the merged source and lockfile. Post-merge checks pass: vitest 599/599, the vendor check, go build/vet, `go test -p 2 -race ./internal/web/...` and e2e 11/11. The captures show the pre-merge build (embed index `0a8f919a6c4f`); the dependency update was not recaptured.
 - Ratings belong to the independent reviewer; no 9/10 is claimed.
