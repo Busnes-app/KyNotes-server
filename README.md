@@ -1,5 +1,7 @@
 # KyNotes Server
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15926/badge)](https://www.bestpractices.dev/projects/15926)
+
 KyNotes is a browser-based notebook for encrypted text, handwriting, attachments and tasks, with shared team notebooks. Content is decrypted in the browser; an administrator manages accounts and the service rather than reading people’s notes.
 
 **Start here:** [Standalone installation](INSTALL.md), [deployment settings](docs/DEPLOYMENT.md), [SSO](docs/SSO.md), [complete recovery](docs/RESTORE.md).
