@@ -110,7 +110,9 @@ deactivation until they expire. Each is in
 
 ## Evidence
 
-- **Tests:** package tests for every security-sensitive route, including
+- **Tests:** `make test` runs every Go package under the race detector with
+  `-count=1` and a 20-minute per-package hang budget for the real-password API suite.
+  Package tests cover every security-sensitive route, including
   `TestMutatingRequestWithoutCSRFHeaderIsRejected`, `TestCSRFTokenIsBoundToSession`,
   `TestCSRFTokenFromAnotherSessionIsRefused` and the route-level CSRF and step-up tests in
   `internal/httpapi`; SECURITY.md requires attack-path tests for security changes. CI runs the
