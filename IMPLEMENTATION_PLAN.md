@@ -76,7 +76,7 @@ Recovery extension for Myslop #290: sealed capsule collection and restore live i
 and `restore-data-dir`; sealed `restore --in --to` consumes custodian shares on stdin.
 The backup API is `/api/v1/admin/backup/{status,pin-key,pair-remote,unpair,schedule,
 deposit,drill,export-capsule}`; status is GET; all other operations, including export, are POST. Mutations
-use admin+CSRF+step-up. Backup errors retain the existing envelope.
+use admin+CSRF+step-up, except `deposit` (admin+CSRF, as across the Ky suite). Backup errors retain the existing envelope.
 
 Reminder push extension (task dates step 2, design option B decided 2026-10-17): opt-in, per task
 (`push:yes` beside `remind:`), "remind me even when KyNotes is closed". Migration 0028 adds

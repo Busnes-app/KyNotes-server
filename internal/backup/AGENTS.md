@@ -14,6 +14,9 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
 - Service operations serialize pin/pair/run/export/drill; CLI takes the same directory
   lock as the server, or runs `deposit`/`backup-drill` in it over `admin.sock` when it is up. Close waits for bounded operations before SQLite closes.
 - Export uses POST with admin, step-up and CSRF; a GET cannot trigger collection.
+- HTTP deposit ("Back up now") needs admin and CSRF only, like the rest of the Ky suite: it seals to the
+  already-pinned key and destinations, so it cannot redirect or reveal data. Every other backup mutation
+  keeps step-up. Verify `TestBackupDepositNeedsAdminNotStepUp`.
 - Pinned recoveryclient v0.5.1 stamps attempts before checking key/destination or collecting.
   An enabled schedule with no attempt is due immediately, without comparing two clocks.
   Failure-schedule tests cover remote/local failures, missing key/destination and restart.

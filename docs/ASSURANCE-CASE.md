@@ -65,7 +65,8 @@ downloaded by a member before revocation.
 - **Complete mediation.** Every request resolves its session from the database
   (`ResolveSession`), so a revoked session or deactivated account stops at the next request.
 - **Economy of mechanism.** Seven direct Go modules (`go.mod`); WebCrypto in the browser.
-- **Separation of privilege.** Backup and recovery actions need step-up; SSO admin needs both the
+- **Separation of privilege.** Backup and recovery actions need step-up, except a manual
+  deposit, which only seals to the already-pinned key (admin plus CSRF); SSO admin needs both the
   account role and the verified `kynotes.admin` claim ([SECURITY.md](../SECURITY.md)).
 - **Open design.** Only published algorithms: Argon2id, PBKDF2-SHA256, HKDF-SHA256, AES-256-GCM,
   X25519. The code and this argument are public.
