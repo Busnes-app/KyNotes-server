@@ -160,7 +160,7 @@ import {
   applyTheme,
   getStoredTheme,
   THEME_OPTIONS,
-  type ThemeName,
+  type Theme,
 } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { classifyTask, TASK_GROUPS } from "./taskDates";
@@ -171,6 +171,8 @@ import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "
 import "./styles.css";
 import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
+import "./ky-ui/appearance.css";
+import "./ky-ui/appearance-themes.css";
 
 const MAX_CHANGE_PAGES = 100;
 const FLUSH_ROUNDS = 5;
@@ -3410,7 +3412,7 @@ function SettingsView({
   reminders: ReminderPrefs;
   onReminders: (prefs: ReminderPrefs) => void;
 }) {
-  const [theme, setTheme] = useState<ThemeName>(getStoredTheme());
+  const [theme, setTheme] = useState<Theme>(getStoredTheme);
   const [ownFingerprint, setOwnFingerprint] = useState("");
   const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
@@ -3433,8 +3435,7 @@ function SettingsView({
         <button className="quiet" onClick={onBack}>
           ← Workspace
         </button>
-        <div className="section-label">SETTINGS</div>
-        <nav className="settings-nav">
+        <nav className="settings-nav" aria-label="Settings sections">
           <a href="#appearance">Appearance</a>
           <a href="#reminders">Reminders</a>
           <a href="#password">Password</a>
@@ -3446,29 +3447,25 @@ function SettingsView({
       </aside>
       <div className="settings-content">
         <div className="settings-header">
-          <div className="section-label">PREFERENCES</div>
           <h1>Settings</h1>
           <p>Your browser preferences and account security.</p>
         </div>
-        <section id="appearance" className="config-card">
-          <h2>Appearance</h2>
-          <p className="config-muted">
-            Choose from the complete KyNotes color selection.
-          </p>
-          <label className="field">
-            <span>Theme</span>
-            <select
-              value={theme}
-              onChange={(event) =>
-                setTheme(event.target.value as ThemeName)
-              }
-            >
+        <section id="appearance" className="settings-section" aria-labelledby="appearance-heading">
+          <h2 id="appearance-heading">Appearance</h2>
+          <p className="config-muted">Pick a theme. It applies straight away and is remembered by this browser only.</p>
+          <fieldset className="ky-appearance">
+            <legend className="ky-appearance-legend">Theme</legend>
+            <div className="ky-appearance-grid">
               {THEME_OPTIONS.map((option) => (
-                <option key={option}>{option}</option>
+                <label key={option.id} className="ky-appearance-option">
+                  <input className="ky-appearance-radio" type="radio" name="kynotes-theme" value={option.id} checked={option.id === theme.id} onChange={() => { setTheme(option); applyTheme(option); }} />
+                  <span className="ky-appearance-preview" aria-hidden="true" data-ky-preview={option.id} />
+                  <span className="ky-appearance-name">{option.name}</span>
+                  <small className="ky-appearance-mode">{option.scheme === "system" ? "Light or dark" : option.scheme === "light" ? "Light" : "Dark"}</small>
+                </label>
               ))}
-            </select>
-          </label>
-          <button onClick={() => applyTheme(theme)}>Apply theme</button>
+            </div>
+          </fieldset>
         </section>
         <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
         <div id="password">

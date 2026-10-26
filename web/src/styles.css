@@ -9,7 +9,7 @@ button:disabled { cursor: wait; opacity: .55; }
 .center { min-height: 100vh; display: grid; place-items: center; color: #7c796d; }
 .auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 10%, #fffaf0, transparent 35%), #f4efe5; }
 .auth-card { width: min(100%, 430px); padding: 48px; background: #fffdf7; border: 1px solid #ded8c9; box-shadow: 12px 12px 0 #dcd4c3; }
-.eyebrow, .section-label { font: 11px Mono, monospace; letter-spacing: .12em; color: #9a927f; }
+.eyebrow, .section-label { font: 600 var(--ky-type-meta) Space, system-ui, sans-serif; color: #9a927f; }
 h1 { font-size: clamp(42px, 8vw, 68px); line-height: .92; letter-spacing: -.07em; margin: 24px 0 16px; font-weight: 500; }
 .lede { color: #716e63; font-size: 17px; line-height: 1.5; margin-bottom: 36px; }
 form label { display: grid; gap: 8px; margin-top: 18px; font-size: 13px; color: #716e63; }
@@ -80,16 +80,20 @@ body, .auth-page { color: var(--ink-strong); background: var(--bg); }
 .body-input, .note-row, .lede, .config-muted { color: var(--ink); }
 button:not(.quiet):not(.nav-item):not(.new-workspace):not(.note-row) { background: var(--accent); color: var(--button-text); }
 button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.settings-layout { min-height: calc(100vh - 72px); display: grid; grid-template-columns: 230px minmax(0, 780px); background: var(--bg); }
+.settings-layout { min-height: calc(100vh - 72px); display: grid; grid-template-columns: var(--ky-sidebar-size) minmax(0, 1040px); background: var(--bg); }
 .settings-sidebar { padding: 28px 18px; border-right: 1px solid var(--line); background: linear-gradient(150deg, var(--sidebar-start), var(--sidebar-end)); }
-.settings-sidebar .section-label { margin: 36px 10px 12px; }
 .settings-nav { display: grid; gap: 4px; }
-.settings-nav a { display: block; padding: 11px 10px; color: var(--ink); border-radius: 4px; text-decoration: none; }
+.settings-sidebar .section-label { margin: 36px 10px 12px; }
+.settings-nav { margin-top: 24px; }
+.settings-nav a { display: block; min-height: var(--ky-control-size); padding: 10px 12px; font-size: var(--ky-type-nav); color: var(--ink); border-radius: var(--ky-control-radius); text-decoration: none; }
 .settings-nav a:hover, .settings-nav a:focus-visible { color: var(--ink-strong); background: var(--accent-soft); }
-.settings-content { width: 100%; padding: 48px clamp(22px, 6vw, 80px); }
-.settings-header h1 { font-size: clamp(36px, 6vw, 58px); margin: 16px 0 10px; }
+.settings-content { width: 100%; padding: 32px clamp(16px, 4vw, 48px); }
+.settings-header h1 { font-size: var(--ky-type-title); font-weight: 600; margin: 0 0 8px; }
 .settings-header p { color: var(--ink); margin: 0 0 30px; }
-.config-card { margin: 16px 0; padding: 24px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 10px 30px var(--glow); }
+.config-card { margin: 16px 0; padding: 24px; border: 1px solid var(--line); background: var(--panel); }
+.settings-section { margin: 0 0 32px; }
+.settings-section h2, .config-card h2 { font-size: var(--ky-type-section); font-weight: 600; }
+.settings-section > p { margin: 8px 0 24px; }
 .config-card h2 { margin: 0 0 8px; }
 .config-card button { margin-top: 20px; padding: 11px 16px; }
 .config-card button + button { margin-left: 8px; }
@@ -117,7 +121,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .avatar { background: var(--accent-soft); color: var(--ink-strong); }
 .body-input { color: var(--ink); }
 .team-label { margin-top: 26px; }
-.personal-create { margin: 18px 10px 4px; padding: 10px 12px; color: var(--button-text); background: var(--accent); text-align: left; font-size: 13px; }
+/* Secondary: the open view keeps the one filled primary action. */
+.personal-create { margin: 18px 10px 4px; min-height: var(--ky-control-size); padding: 8px 12px; color: var(--ink-strong); background: transparent; border: 1px solid var(--ky-field-border); border-radius: var(--ky-control-radius); text-align: left; font-size: var(--ky-type-nav); }
 .list-actions { display: flex; align-items: center; gap: 8px; }
 .list-actions select { border: 1px solid var(--line); padding: 7px; background: var(--panel); color: var(--ink); }
 .note-row-wrap { display: flex; align-items: stretch; border-left: 2px solid transparent; margin-bottom: 4px; }
@@ -172,7 +177,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 @media (max-width: 800px) { .settings-nav a { display: inline-block; white-space: nowrap; } .admin-settings-layout .admin-create, .admin-settings-layout .admin-user { grid-template-columns: 1fr; } }
 
 /* Squircle surfaces: the soft corner language is shared across the app. */
-.auth-card, .config-card { border-radius: 24px; corner-shape: squircle; }
+.auth-card { border-radius: 24px; corner-shape: squircle; }
+.config-card { border-radius: var(--ky-control-radius); }
 button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .brand-mark, .icon-button, .avatar { border-radius: 12px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .note-row, .account-chip, .member-row, .admin-user, .audit-row { border-radius: 14px; corner-shape: squircle; }
@@ -382,10 +388,10 @@ body { color: var(--ink-strong); background: var(--bg); }
 }
 
 /* Notebook hierarchy: navigation stays compact, the page gets the working space. */
-.workspace { grid-template-columns: 220px 260px minmax(0, 1fr); }
+.workspace { grid-template-columns: var(--ky-sidebar-size) 260px minmax(0, 1fr); }
 .workspace > .sidebar, .workspace > .note-list { min-width: 0; padding: 24px 16px; }
 .workspace > .sidebar { background: var(--sidebar-start); gap: 2px; }
-.workspace .section-label { font-family: Space, system-ui, sans-serif; letter-spacing: .03em; font-size: 11px; font-weight: 600; }
+.workspace .section-label { font-family: Space, system-ui, sans-serif; font-size: var(--ky-type-meta); font-weight: 600; }
 .workspace .note-list .list-header h2.workspace-title { font-size: 24px; line-height: 1.2; letter-spacing: -.02em; margin-top: 0; overflow-wrap: anywhere; }
 .workspace-kind { font-family: Space, system-ui, sans-serif; font-size: 12px; line-height: 1.5; letter-spacing: normal; }
 .notes-heading { font-family: Space, system-ui, sans-serif; font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; color: var(--ink-strong); }
