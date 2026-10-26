@@ -14,6 +14,8 @@ Both score Settings separately at **8.4**. Full 9/10 acceptance remains unproven
 - Shared source change: [ky-ui #25](https://github.com/Busnes-app/ky-ui/pull/25),
   version 0.4.2, commit `cbc37bf9d607f2a3558c899f139165818202434d`.
 
+- Product change: [KyNotes #118](https://github.com/Busnes-app/KyNotes-server/pull/118).
+
 ## What changed
 
 - Strong-ink Space editor text and restrained headings; desktop panels fit the viewport.

@@ -6,4 +6,4 @@ Raw reviewer verdicts; scores are not averaged across reviewers or cohorts.
 | --- | ---: | ---: | ---: |
 | 1 | 6.5/10 | 7.8/10 | Deferred |
 | 2 | 7.4/10 | 8.1/10 | Deferred |
-| 3 | 8.1/10 | 8.2/10 | Deferred |
+| 3 | 8.1/10 | 8.2/10 | Pending advisory |

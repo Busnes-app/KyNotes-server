@@ -57,7 +57,8 @@ for number in range(1, round_count + 1):
     for name in ("opus", "sol", "gemini"):
         review = row[name]
         score = review.get("score")
-        cells.append(f"{score:.1f}/10" if score is not None else ("Deferred" if name == "gemini" else "Pending"))
+        pending_advisory = name == "gemini" and all(row[primary].get("satisfied") is True for primary in ("opus", "sol"))
+        cells.append(f"{score:.1f}/10" if score is not None else ("Pending advisory" if pending_advisory else "Deferred" if name == "gemini" else "Pending"))
         values.extend([score if score is not None else cells[-1], review.get("satisfied", "")])
     values.append("Separate raw verdicts; see each original review for cohort means and limits.")
     round_rows.append(values)
