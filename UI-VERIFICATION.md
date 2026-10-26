@@ -323,3 +323,18 @@ Scope disclosure from the independent refinement review; no runtime source chang
 - **N/A, recorded with reasons:** the device-link buttons (a password account's key unlocks in any browser, so linking is never offered), Trust new key, Try the reset again, Discard unsent edits and the error toast.
 - **Known residual:** destructive `secondary danger` controls look like Cancel. They had no danger hue before either.
 - **Checks:** `--verify` on the current build passes 23/23. The unchanged suites were not re-run for this docs-only addition; the last full run is in the visual-refinement section above, and host CI covers the merged head.
+
+### Capture-source isolation correction
+
+PR #117's autonomous review found that the historical-source capture driver
+trusted a predictable shared temporary directory. The corrected driver allocates
+a fresh private directory, validates the hexadecimal commit ID, passes literal
+arguments to Git and tar, and removes the extraction on completion or failure.
+
+`node --test docs/ui-review-followups-2026-10-26/capture.test.mjs` fails before the
+correction with a planted source directory and passes 3/3 afterward. It exercises
+the actual adapter with a disposable Git repository and fake compiler, avoiding
+browser or application side effects. The other checks cover invalid revisions
+and retaining the normal checkout. No application source, dependencies, bundle
+or screenshot changed; the earlier application CI results remain applicable to
+that unchanged code, while host CI runs again at the corrected head.

@@ -50,6 +50,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Verification
 
+- The historical-source capture driver uses a fresh private extraction per run and removes it on completion or failure. `node --test docs/ui-review-followups-2026-10-26/capture.test.mjs` verifies that a planted commit-named temporary directory is ignored, invalid revisions are rejected, and the current checkout is retained.
+
 - On phones, `Notebooks and account` expands the complete notebook sidebar; desktop keeps it visible. The disclosure never changes the selected notebook, note, keys or saved settings. `web/e2e/mobile-navigation.e2e.ts` verifies those actions remain reachable.
 
 - In the note editor, ':' opens the emoji menu only where it starts a word (start of text or after whitespace) and two letters follow (`web/src/emoji.ts`), so `due:` and `10:30` never open it; `web/e2e/task-dates.e2e.ts` checks both and that Enter still picks an emoji.

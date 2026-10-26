@@ -6,8 +6,9 @@
 // a scratch tree (its own embedded bundle); otherwise from this worktree.
 // Usage: [CAPTURE_SOURCE_COMMIT=<sha>] node capture.mjs <prefix> [surface,...] | --verify <prefix>
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { here, main, waitReady } from './capture-core.mjs';
 
@@ -20,11 +21,22 @@ const COMMIT = process.env.CAPTURE_SOURCE_COMMIT;
 const prefix = process.argv[2] === '--verify' ? process.argv[3] : process.argv[2];
 let seeded = false;
 
-// A pinned commit is built from its own tree: git archive, never another worktree.
-const source = COMMIT ? join('/tmp', `kynotes-src-${COMMIT}`) : repo;
-if (COMMIT && !existsSync(join(source, 'go.mod'))) {
-  mkdirSync(source, { recursive: true });
-  execFileSync('bash', ['-c', `git -C "${repo}" archive "${COMMIT}" | tar -x -C "${source}"`]);
+// Historical source is executable input: never trust a predictable shared-temp cache.
+if (COMMIT && !/^[a-f0-9]{7,40}$/i.test(COMMIT)) throw new Error('CAPTURE_SOURCE_COMMIT must be a 7–40 digit hexadecimal commit ID');
+const privateSource = COMMIT ? mkdtempSync(join(tmpdir(), 'kynotes-source-')) : undefined;
+const source = privateSource ? join(privateSource, 'tree') : repo;
+const cleanupSource = () => { if (privateSource) rmSync(privateSource, { recursive: true, force: true }); };
+try {
+  if (privateSource) {
+    mkdirSync(source);
+    const archive = join(privateSource, 'source.tar');
+    execFileSync('git', ['-C', repo, 'archive', '--format=tar', `--output=${archive}`, COMMIT]);
+    execFileSync('tar', ['-xf', archive, '-C', source]);
+    unlinkSync(archive);
+  }
+} catch (error) {
+  cleanupSource();
+  throw error;
 }
 const fact = (record) => { if (prefix) appendFileSync(join(here(import.meta.url), 'screenshots', `${prefix}-facts.jsonl`), JSON.stringify(record) + '\n'); };
 
@@ -160,4 +172,4 @@ await main({
       fact({ surface: 'locked-session', device, theme, modelled: 'CDP Storage.clearDataForOrigin indexeddb,local_storage; cookies kept', signOutShown: await signOut.isVisible() });
     },
   },
-});
+}).finally(cleanupSource);

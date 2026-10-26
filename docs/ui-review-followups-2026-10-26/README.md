@@ -46,3 +46,14 @@ No runtime source changed, so the unchanged suites were not re-run for this docs
 ## Reproduce
 
 From the repository root: `[CAPTURE_SOURCE_COMMIT=<sha>] node docs/ui-review-followups-2026-10-26/capture.mjs <prefix> [surface,...]`, or `... --verify <prefix>`. The driver builds the server into a temporary directory on loopback port 18091 and removes it afterwards.
+
+Historical source revisions must be 7–40 hexadecimal commit IDs. Each run extracts
+`git archive` into a new private directory made by `mkdtemp`; Git and tar receive
+literal arguments, without a shell. The directory is removed after the capture
+or a startup/extraction failure. The commit-named path in the original stage
+record above is historical and is never reused by the corrected driver.
+
+Run `node --test docs/ui-review-followups-2026-10-26/capture.test.mjs` to verify
+source isolation. The planted-cache regression failed before the correction;
+all three checks pass afterward. Application source, bundles and recorded
+screenshots remain unchanged.
