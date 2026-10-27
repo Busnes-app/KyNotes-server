@@ -413,6 +413,7 @@ body { color: var(--ink-strong); background: var(--bg); }
 .canvas-box .bn-block-content[data-content-type="heading"][data-level="2"] { --level: 1.3em; }
 .canvas-box .bn-block-content[data-content-type="heading"][data-level="3"] { --level: 1.15em; }
 .canvas-toolbar { gap: 4px; }
+.canvas-tool-divider { align-self: stretch; width: 1px; margin: 8px; background: var(--line); }
 .canvas-toolbar button { min-height: var(--ky-control-size); border-radius: var(--ky-control-radius); font-size: var(--ky-type-meta); }
 .canvas-toolbar button.ink-swatch { width: var(--ky-control-size); height: var(--ky-control-size); }
 .canvas-toolbar button:hover:not(:disabled) { background: var(--panel-hover); color: var(--ink-strong); }
@@ -476,6 +477,8 @@ body { color: var(--ink-strong); background: var(--bg); }
    Other actions are outlined; labels are sentence case; icons and decoration stay neutral. */
 .secondary, .toast { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line-strong); }
 .secondary { border-color: var(--ky-field-border); }
+::placeholder { color: var(--ink); opacity: 1; }
+.section-tabs .section-add { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--ky-control-size); height: var(--ky-control-size); padding: 0; border-color: var(--ky-field-border); }
 .secondary:hover:not(:disabled) { background: var(--panel-hover); }
 .toast { border-radius: var(--ky-control-radius); box-shadow: var(--ky-shadow-overlay); font-size: var(--ky-type-meta); }
 .section-label { text-transform: none; letter-spacing: normal; color: var(--ink); }

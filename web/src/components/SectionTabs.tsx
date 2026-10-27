@@ -1,4 +1,5 @@
 import { QUICK_NOTES, SECTION_COLORS, type Group, type Section, type SectionColor } from "../pages";
+import { NavIcon } from "../NavIcon";
 
 export const PAGE_DRAG = "application/x-kynotes-page";
 const SECTION_DRAG = "application/x-kynotes-section";
@@ -135,7 +136,7 @@ export function SectionTabs(props: Props) {
         {groups.map(groupTab)}
         {!atRoot && !sections.length && !groups.length && <li className="section-empty">This group is empty. Add a section with ＋.</li>}
       </ul>
-      <button className="quiet section-add" disabled={busy} popoverTarget="section-add-menu" aria-label="New section or group">＋</button>
+      <button className="icon-button secondary section-add" disabled={busy} popoverTarget="section-add-menu" aria-label="New section or group"><NavIcon name="plus" /></button>
       <div className="section-menu section-add-menu" id="section-add-menu" popover="auto">
         <button className="quiet" disabled={busy} onClick={() => { close("section-add-menu"); props.onCreate("section"); }}>New section</button>
         <button className="quiet" disabled={busy || !props.canCreateGroup} onClick={() => { close("section-add-menu"); props.onCreate("group"); }}>New section group</button>

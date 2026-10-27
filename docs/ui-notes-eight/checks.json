@@ -2,17 +2,17 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599 tests/47 files on round7; /tmp/kynotes-controls-r7-unit.log."
+    "detail": "599 tests/47files on final round8 source; /tmp/kynotes-affordance-r8-unit-final.log."
   },
   {
     "check": "Production build and TypeScript",
     "result": "pass",
-    "detail": "Round7 build/TypeScript/exact embed pass; /tmp/kynotes-controls-r7-build.log. Existing603kB lazy BlockNote warning."
+    "detail": "Final round8 TS/build/exact embed pass; /tmp/kynotes-affordance-r8-build-final.log. Existing603kBBlockNote warning."
   },
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "12/12 fresh full browser tests, first attempt on round7; /tmp/kynotes-controls-r7-browser.log. No changed application behavior; stage10 also passes the creation/focus/held-save/recovery regressions."
+    "detail": "12/12 fresh-server browsers first attempt on final round8 source; /tmp/kynotes-affordance-r8-browser.log."
   },
   {
     "check": "Stage07 single-pane capture and regressions",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Round7 staged tree d1c6c9af46a321b6c8ac07378828cd0fad6227c5; two private clean archives,CGO_ENABLED=0,-trimpath,release0.0.0. Both SHA256f608e0de3bc4a6fb56099fa2c060741d1a661a5cc52c218c3aa24ee1fe4c2d6c; /tmp/kynotes-controls-r7-repeatability.log. Later report metadata does not affect binary."
+    "detail": "Round8 staged tree9327c94f64ffac83b5354708726364bd1b4df09b; two private clean archives,CGO_ENABLED=0,-trimpath,release0.0.0. BothSHA2564edf95b5bafa4b324967ff8d9ae1db3079deb9f1f1105c1d147c8510186db176; /tmp/kynotes-affordance-r8-repeatability.log. Later evidence/AGENTS metadata cannot affect binary."
   },
   {
     "check": "Required fuzz executions",
@@ -62,12 +62,12 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Round7 current-source kynotes-controls:r7 image,14-step probe,setup pass; /tmp/kynotes-controls-r7-{docker,probe,setup}.log."
+    "detail": "Current kynotes-affordance:r8 image,14step probe/setup pass; /tmp/kynotes-affordance-r8-{docker,probe,setup}.log."
   },
   {
     "check": "Design detector",
     "result": "2 existing documented exceptions",
-    "detail": "Round7 CSS detector: only semantic key/conflict rail3px and legacy section top4px overridden2px; controls-round7-detector.json. No suppression."
+    "detail": "Round8 changed-source detector only existing semantic warning rail and overridden section-color border; affordance-round8-detector.json."
   },
   {
     "check": "Report page",
@@ -81,8 +81,8 @@
   },
   {
     "check": "Native T3 final Computer Use",
-    "result": "pass, narrow measurements",
-    "detail": "stage10 live18110 at1280x800: representative Save/Search/comment inputs/Comment have14px text,8px radius,equal edges4.5449:1(light) and5.3234:1(dark),heading/search/toggletextx16,overflow0. theme-checks/round7-native-controls.json and darkPNG. These samples do not certify every theme/control/state."
+    "result": "pass, scoped",
+    "detail": "Old live dark placeholder117grey confirmed. Current18111 three placeholders6.1926:1 light/7.4845:1 dark,section button40x40,toolbar separator1x24,inbox Workqueue path,overflow0. Native section popover opens with both existing options; no content created. theme-checks/round8-native-placeholders.json and lightPNG."
   },
   {
     "check": "Existing browser runtime warnings",
@@ -113,5 +113,10 @@
     "check": "First-open phone focus",
     "result": "known residual; not full focus acceptance",
     "detail": "Sol round6 native review: first page opening from no-open-note phone list left BODY focused, later page-chooser choices focused Page title. Existing effect only moves focus when a disclosure was open. No content/save failure or round6 regression established. Retained outside bounded CSS pass; never claim full keyboard/focus gate."
+  },
+  {
+    "check": "Stage11 placeholder/affordance capture and regressions",
+    "result": "pass",
+    "detail": "22captures/18unique, first attempt22.5s on fresh18111; /tmp/kynotes-affordance-r8-capture.log. Source pins now include CanvasPage.tsx (9files) for the toolbar separator. Same fixtures,viewport/themes and save/focus/recovery checks."
   }
 ]

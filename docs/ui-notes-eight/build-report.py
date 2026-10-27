@@ -70,7 +70,7 @@ for number in range(1, round_count + 1):
         cells.append((f"{score:.1f}/10" + (" (raw*)" if not review.get("rubric_conforms", True) else "")) if score is not None else ("Pending advisory" if pending_advisory else "Deferred" if name == "gemini" else "Pending"))
         values.extend([score if score is not None and review.get("rubric_conforms", True) else cells[-1], review.get("satisfied", "")])
     values.append("Separate raw verdicts; Gemini raw* is excluded from progression because its weights/claims fail the audit. See original reviews and Gemini audit.")
-    owner_cell = f"{owner['score']}/10 — rejected double left navigation" if number == owner.get("round") else "Pending" if number == round_count else "Not scored"
+    owner_cell = f"{owner['score']}/10 — rejected double left navigation" if number == owner.get("round") else "Not scored"
     values.append(owner_cell)
     row["owner"] = owner if number == owner.get("round") else {"status": owner_cell}
     round_rows.append(values)

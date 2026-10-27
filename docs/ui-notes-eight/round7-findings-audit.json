@@ -1,0 +1,29 @@
+{
+  "reports": {
+    "opus-round7.json": "c30410efb0e539d61c2e501b9b62d2ee7b22238d793da0021eb4616dd954572f",
+    "sol-round7.json": "9b02c9e90fb8e2546fca62d2f2cf4c858671d5ac82ea77b4715a6e7841c7df32"
+  },
+  "decision": "Preserve Opus7.8/Sol8.2; accept measured dark placeholder failure and bounded affordance corrections. Gemini deferred.",
+  "findings": [
+    {
+      "id": "B7-1",
+      "decision": "accepted",
+      "evidence": "Old live18110 dark placeholders rgb117/117/117 on31/43/46 at opacity1 reproduce3.16:1; use theme ink with opacity1. Current native three controls6.1926:1 light,7.4845:1 dark."
+    },
+    {
+      "id": "B7-2",
+      "decision": "accepted",
+      "evidence": "Add a quiet1px separator between modes and commands; replace faint section glyph with existing bordered40px NavIcon plus button; replace Work queue checkmark with neutral inbox path. Handlers, keyboard order, popover target and aria labels retained."
+    },
+    {
+      "id": "O7-3",
+      "decision": "deferred",
+      "evidence": "Body inset, metadata, Settings navigation density and default radios are outside this bounded pass; no9claim."
+    },
+    {
+      "id": "S6-first-open-focus",
+      "decision": "retained known behavior residual",
+      "evidence": "Current CSS/affordance changes do not fix first phone page opening BODY focus. Both reviewers separate this from visual scores; no full keyboard/focus acceptance."
+    }
+  ]
+}

@@ -1,13 +1,13 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **10-after**, Council round7. The owner rejected the old
-adjacent left columns at6/10. Round6 preserved one region and resolved the prior
-polish; Opus7.8/Sol8.1 disagreed on remaining control details. The
-[findings audit](round6-findings-audit.json) accepts the verified secondary-border
-contrast failure, inconsistent control sizes and extra desktop inset. Round7 uses
-the field-border token,14px control text,8px control corners and aligned pane edges.
-Four live representative controls measure4.54:1 light/5.32:1 dark. Fresh reviews are
-pending after599units/12full browsers passed. No current8/10 or full9/10 is claimed.
+The current stage is **11-after**, Council round8. The owner rejected the old
+adjacent columns at6/10. Round7 Opus7.8/Sol8.2 confirmed the control corrections,
+but Opus found dark placeholders at3.16:1 and workspace affordance slips. The
+[findings audit](round7-findings-audit.json) accepts both. Round8 themes placeholders,
+separates toolbar modes/commands, gives section creation a bordered40px plus and
+uses a neutral inbox for Work queue. Native placeholder samples measure6.19:1
+light/7.48:1 dark. Fresh reviews are pending after599units/12full browsers passed.
+No current8/10 or full9/10 is claimed.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -44,15 +44,15 @@ every supported, rejected and deferred item. No product changes followed the aud
 ## Capture provenance
 
 Original base: `34849c4d0766901fdf33556855373aa122666049`. Current captures
-are from head `c8b00d8f7ddebab768587a49a1cb124416f4cd1e` plus the recorded source patch and
+are from head `f32660ce9ebd55094d251dca0e8039343fdea2be` plus the recorded source patch and
 explicit file hashes. Current served index SHA256:
-`6d04305612ce6034809972328b8438f4c5ffd67e5a8edfa824a3ab4595d31399`.
+`8ef267ad2fa8339725c1fbf7ea6f469efddb7877c1afb014dc71331c04c4debc`.
 
-`inventory-v9.json` contains196 PNGs /140 unique across all stages. Current stage10
+`inventory-v10.json` contains218 PNGs /150 unique across all stages. Current stage11
 has22captures/18unique:14Notes (including4empty and2desktop management views)
 and4Settings. Four workspace aliases are excluded from means. Stages05/06 were
 preliminary attempts whose reviews were interrupted before completion; earlier
-inputs and completed round4/5/6 reviews remain frozen. The comparison uses stage09 and stage10, including matched empty screens. Stage10 capture passed on its first attempt. inventory-v9 adds exact near-duplicate diff bounds and neutral rasterization labels; duplicate-metadata-audit.json records corrections to earlier caret wording without rewriting frozen inventories, images or scores.
+inputs and completed round4/5/6/7 reviews remain frozen. The comparison uses stage10 and stage11, including matched empty screens. Stage11 capture passed on its first attempt. Its9source-file pins now include CanvasPage.tsx. inventory-v9 added exact near-duplicate diff bounds and neutral rasterization labels; duplicate-metadata-audit.json records corrections to earlier caret wording without rewriting frozen inventories, images or scores.
 
 Chromium 156.0.8078.4, scale 1; desktop 1280×900 and phone 390×844; OS light/dark
 emulation, no saved theme choice, real disposable server, synthetic owner and

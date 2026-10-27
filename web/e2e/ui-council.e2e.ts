@@ -163,7 +163,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
       const diff = execFileSync("git", ["diff", "HEAD", "--", "src"]);
       const index = await (await page.request.get("/")).body();
-      const sourceFiles = Object.fromEntries(await Promise.all(["src/main.tsx", "src/styles.css", "src/NavIcon.tsx", "src/components/SectionTabs.tsx", "src/ky-ui/VERSION", "e2e/ui-council.e2e.ts", "e2e/people.ts", "package-lock.json"].map(async (file) => [file, createHash("sha256").update(await readFile(file)).digest("hex")])));
+      const sourceFiles = Object.fromEntries(await Promise.all(["src/main.tsx", "src/styles.css", "src/NavIcon.tsx", "src/CanvasPage.tsx", "src/components/SectionTabs.tsx", "src/ky-ui/VERSION", "e2e/ui-council.e2e.ts", "e2e/people.ts", "package-lock.json"].map(async (file) => [file, createHash("sha256").update(await readFile(file)).digest("hex")])));
       await writeFile(`${output}/${round}-${stage}-manifest.json`, JSON.stringify({ head, councilRound, sourceDiffSha256: createHash("sha256").update(diff).digest("hex"), sourceFiles, servedIndexSha256: createHash("sha256").update(index).digest("hex"), stage, captured: new Date().toISOString(), browser: browser.version(), fixture: "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1", files }, null, 2) + "\n");
     }
     if (stage !== "before") {

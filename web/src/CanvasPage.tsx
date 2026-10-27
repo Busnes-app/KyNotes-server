@@ -349,6 +349,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
             ))}
           </>
         )}
+        <span className="canvas-tool-divider" aria-hidden="true" />
         <button className="quiet ink-tool" disabled={!editable} onClick={undo} aria-keyshortcuts="Control+Z">Undo ink</button>
         <button className="quiet ink-tool" disabled={!editable} onClick={redo} aria-keyshortcuts="Control+Shift+Z">Redo ink</button>
         <button className="quiet" disabled={!editable} onClick={() => { const spot = freeSpot(pageRef.current, heights); placeBox(spot.x, spot.y); }}>Add text</button>

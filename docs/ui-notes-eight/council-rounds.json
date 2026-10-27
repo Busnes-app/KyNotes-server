@@ -154,7 +154,16 @@
     },
     "gemini": {},
     "owner": {
-      "status": "Pending"
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 8,
+    "opus": {},
+    "sol": {},
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
     }
   }
 ]
