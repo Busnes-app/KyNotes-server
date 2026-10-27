@@ -4,7 +4,7 @@ import { attachmentStep, sealAttachment } from "./drain";
 import { clearFloors, floorOf, raiseFloorIn } from "./floors";
 import { keysAllowed, newContainerKey, WAITING_GENERATION, waitingKey, writeKey, type ReportedContainer } from "./keyring";
 import { generateIdentity } from "./teamKeys";
-import { confirmCheckCode, confirmTypedCheckCode, discardLinkKey, newLinkKey } from "./linking";
+import { confirmCheckCode, confirmTypedCheckCode, discardLinkKey, LINK_BUNDLE_BYTES, newLinkKey } from "./linking";
 import { collectLinkBundle, KeysWaitingError, sendCiphertext, sendLinkBundle, sendUploadChunk, setWriteKeySource } from "./outbound";
 import type { PendingUpload } from "./storage";
 
@@ -73,7 +73,7 @@ describe("outbound ciphertext gate", () => {
 
   it("lets a link bundle leave only with that request's check-code confirmation", async () => {
     const id = `lnk_${"a".repeat(26)}`;
-    const bundle = new Uint8Array(61);
+    const bundle = new Uint8Array(LINK_BUNDLE_BYTES);
     expect(() => sendLinkBundle({ requestID: id } as never, id, bundle)).toThrow(/check codes/);
     expect(() => sendLinkBundle(confirmTypedCheckCode(`lnk_${"b".repeat(26)}`, "123 456", "123456"), id, bundle)).toThrow(/check codes/);
     // A click-style confirmation, even for this request and code, is not the typed code.

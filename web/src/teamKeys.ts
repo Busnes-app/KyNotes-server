@@ -69,7 +69,8 @@ function envelopeContext(label: string, containerID: string, keyGeneration: numb
 export const envelopeInfo = (containerID: string, keyGeneration: number, recipientDeviceID: string, senderDeviceID: string) =>
   envelopeContext(ENVELOPE_LABEL, containerID, keyGeneration, recipientDeviceID, senderDeviceID);
 
-async function keyPair(privateKey: Uint8Array): Promise<CryptoKeyPair> {
+/** An X25519 private key as an HPKE key pair for envelopeSuite. */
+export async function hpkeKeyPair(privateKey: Uint8Array): Promise<CryptoKeyPair> {
   return { privateKey: await envelopeSuite.kem.deserializePrivateKey(privateKey), publicKey: await envelopeSuite.kem.deserializePublicKey(x25519.getPublicKey(privateKey)) };
 }
 
@@ -80,7 +81,7 @@ async function sealEnvelope(
 ): Promise<Uint8Array> {
   if (contentKey.length !== 32 || recipientPublicKey.length !== 32) throw new Error("invalid envelope input");
   const info = envelopeInfo(containerID, keyGeneration, recipientDeviceID, sender.deviceId);
-  const params = { recipientPublicKey: await envelopeSuite.kem.deserializePublicKey(recipientPublicKey), senderKey: await keyPair(sender.privateKey), info };
+  const params = { recipientPublicKey: await envelopeSuite.kem.deserializePublicKey(recipientPublicKey), senderKey: await hpkeKeyPair(sender.privateKey), info };
   const { enc, ct } = await envelopeSuite.seal(ephemeralSeed ? { ...params, ekm: ephemeralSeed } : params, contentKey);
   return concat(Uint8Array.of(0x03), encoder.encode(sender.deviceId), new Uint8Array(enc), new Uint8Array(ct));
 }
@@ -107,7 +108,7 @@ export async function unwrapEnvelope(alg: string, envelope: Uint8Array, recipien
   if (senderPublicKey.length !== 32) throw new Error("invalid sender key");
   if (alg === LEGACY_ENVELOPE_ALG) return unwrapLegacyEnvelope(envelope, recipientPrivateKey, containerID, keyGeneration, recipientDeviceID, sender, senderPublicKey);
   const opened = await envelopeSuite.open({
-    recipientKey: await keyPair(recipientPrivateKey),
+    recipientKey: await hpkeKeyPair(recipientPrivateKey),
     senderPublicKey: await envelopeSuite.kem.deserializePublicKey(senderPublicKey),
     enc: envelope.subarray(1 + ID_BYTES, 1 + ID_BYTES + 32),
     info: envelopeInfo(containerID, keyGeneration, recipientDeviceID, sender),
