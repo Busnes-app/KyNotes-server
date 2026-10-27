@@ -31,6 +31,18 @@ describe("browser crypto", () => {
     expect(new TextDecoder().decode(sealed.ciphertext)).not.toContain(note.body);
     await expect(decryptSharePayload(sealed.ciphertext, sealed.key)).resolves.toEqual(note);
   });
+
+  it("refuses a share link whose fragment key is AES-128 or AES-192", async () => {
+    const plaintext = new TextEncoder().encode(JSON.stringify({ title: "Shared", body: "weak" }));
+    for (const length of [16, 24]) {
+      const raw = crypto.getRandomValues(new Uint8Array(length));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]);
+      const sealed = new Uint8Array([...iv, ...new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext))]);
+      const fragment = btoa(String.fromCharCode(...raw)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      await expect(decryptSharePayload(sealed, fragment)).rejects.toThrow("not 256 bits");
+    }
+  });
 });
 
 describe("object payloads", () => {

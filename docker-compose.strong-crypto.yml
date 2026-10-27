@@ -1,0 +1,6 @@
+# Append to the existing Compose chain; retain data, image, build and network choices.
+# See docs/STRONG-CRYPTO.md.
+services:
+  kynotes-server:
+    environment:
+      GODEBUG: fips140=on

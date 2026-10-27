@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/fips140"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,5 +44,28 @@ func TestOnlyProbeMayLoadUnpinnedSFTP(t *testing.T) {
 	}
 	if cfg.Backup.BlobTarget.HostKey != "" {
 		t.Fatal("probe invented trust")
+	}
+}
+
+// Under GODEBUG=fips140=on the mirror stays on SSH or TLS: SMB (NTLM) and plain-HTTP S3 are
+// refused; without it they remain the documented explicit choices. CI runs both.
+func TestStrongProfileRefusesNTLMAndPlainS3(t *testing.T) {
+	t.Logf("fips140 profile enabled: %v", fips140.Enabled())
+	for _, c := range []BlobTarget{
+		{URL: "smb://host/share/dir", AccessKey: `DOMAIN\user`, Secret: "password"},
+		{URL: "SMB://host/share/dir", AccessKey: `DOMAIN\user`, Secret: "password"},
+		{URL: "s3://bucket/prefix", AccessKey: "id", Secret: "secret", S3Endpoint: "http://minio.lan:9000"},
+	} {
+		if err := ValidateBlobTarget(c); (err != nil) != fips140.Enabled() {
+			t.Fatalf("%s %s: profile=%v err=%v", c.URL, c.S3Endpoint, fips140.Enabled(), err)
+		}
+	}
+	for _, c := range []BlobTarget{
+		{URL: "s3://bucket/prefix", AccessKey: "id", Secret: "secret", S3Endpoint: "https://minio.lan:9000"},
+		{URL: "sftp://user@host/dir", Secret: "password", HostKey: "SHA256:verified"},
+	} {
+		if err := ValidateBlobTarget(c); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

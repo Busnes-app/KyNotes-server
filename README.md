@@ -32,7 +32,8 @@ Read the [restore runbook](docs/RESTORE.md) before relying on a backup.
 
 To check that a release image came from this repository's release workflow, and to rebuild its
 binary to the same bytes, see [verifying releases](docs/VERIFYING-RELEASES.md). The security
-argument as a whole is in the [assurance case](docs/ASSURANCE-CASE.md).
+argument as a whole is in the [assurance case](docs/ASSURANCE-CASE.md); key sizes and the optional
+strong-key profile are in [docs/STRONG-CRYPTO.md](docs/STRONG-CRYPTO.md).
 
 TLS protects the public key received at pairing, the deposit token and receipts even
 though the capsule is sealed. Pin the suite public key by hand or compare its fingerprint

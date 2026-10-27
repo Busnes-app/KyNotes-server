@@ -111,7 +111,10 @@ issuer and cannot sign in through OIDC until their identity is reconciled.
 Configure the paired-system callback as
 `https://notes.example.com/api/v1/sync/events`. The `/api/sync/events` and
 `/sync/events` aliases use the same verification and transaction. The paired
-HMAC secret and a nonempty exact issuer must be configured. Directory delivery
+HMAC secret and a nonempty exact issuer must be configured. A new HMAC secret below 16 bytes
+is refused by the settings form, KySignOn pairing (which needs an HTTPS issuer) and
+`apply-setup`; one stored earlier is kept but verifies nothing until replaced
+([key sizes](STRONG-CRYPTO.md)). Directory delivery
 continues when interactive SSO is disabled, so pending revocations can finish.
 
 Send POST with a bare SCIM User and the four `syncauth` headers:

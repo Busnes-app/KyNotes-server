@@ -54,8 +54,13 @@ downloaded by a member before revocation.
    (`ky-primitives/offsite`, pinned in `go.mod`). S3 signing uses the shared module's AWS SDK
    SigV4 signer. SMB/NTLM is a separately selected legacy compatibility mode with the
    [documented credential and peer-authentication risks](DEPLOYMENT.md#smb-compatibility-choice).
-   Capsules are sealed to the suite public key.
-5. **KyNotes → its data directory.** Passwords, sessions and device secrets are stored only as
+   Capsules are sealed to the suite public key. The optional strong-key profile
+   (`GODEBUG=fips140=on`, [STRONG-CRYPTO.md](STRONG-CRYPTO.md)) refuses SMB and plain-HTTP S3
+   targets and limits every Go TLS client to strong certificate keys.
+5. **KyNotes → identity provider.** ID and logout tokens are RS256 under JWKS RSA keys of at
+   least 2048 bits, over HTTPS without redirects; a new directory HMAC secret below 16 bytes is
+   refused. Key sizes at every boundary are listed in [STRONG-CRYPTO.md](STRONG-CRYPTO.md).
+6. **KyNotes → its data directory.** Passwords, sessions and device secrets are stored only as
    hashes; content is ciphertext.
 
 ## Secure design principles applied
@@ -121,6 +126,8 @@ deactivation until they expire. Each is in
   `TestSFTPTransportPolicy` uses real protocol peers: pinned RSA-1024/2047 and SHA-1-only
   key exchange are refused before password authentication, failed uploads stay pending,
   and RSA-2048/Ed25519 peers still mirror and recover the original ciphertext.
+  CI runs `make test` a second time under `GODEBUG=fips140=on` and checks that the strong-key
+  Compose overlay changes nothing but that variable ([STRONG-CRYPTO.md](STRONG-CRYPTO.md#verification)).
 - **Static analysis:** CodeQL default setup (Go, JavaScript/TypeScript, Actions), `go vet`,
   `tsc` in strict mode, and `govulncheck`.
 - **Dynamic analysis:** the race detector, four Go fuzz targets in CI (pairing token, auth

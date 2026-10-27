@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/oidcverify"
+	"github.com/Busnes-app/ky-primitives/syncauth"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -89,10 +90,18 @@ func (s *Store) Load() SSOSettings {
 	return s.cached
 }
 
+// ErrShortDirectorySecret refuses a new directory HMAC secret below syncauth's floor. A stored
+// one is never rewritten; syncauth refuses it on every webhook.
+var ErrShortDirectorySecret = fmt.Errorf("sso: directory HMAC secret must be at least %d bytes", syncauth.MinKeyBytes)
+
 // Save persists new SSOSettings to the database.
 func (s *Store) Save(settings SSOSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if settings.HMACSecret != "" && settings.HMACSecret != s.cached.HMACSecret && len(settings.HMACSecret) < syncauth.MinKeyBytes {
+		return ErrShortDirectorySecret
+	}
 
 	if s.db == nil {
 		s.cached = settings
@@ -453,6 +462,10 @@ type SystemPairingResponse struct {
 
 // PairWithKySignOn redeems a 90s pairing token against KySignOn to automatically obtain credentials.
 func PairWithKySignOn(ctx context.Context, issuerURL, pairingToken, callbackURL string) (*SystemPairingResponse, error) {
+	// The answer carries the directory HMAC secret.
+	if err := requireHTTPS(issuerURL); err != nil {
+		return nil, err
+	}
 	issuerURL = strings.TrimRight(issuerURL, "/")
 	registerURL := issuerURL + "/api/systems/register"
 

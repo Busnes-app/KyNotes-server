@@ -216,6 +216,8 @@ selects legacy interoperability with an SMB server using NTLM password authentic
 NTLM uses MD4 password derivation, HMAC-MD5 and negotiated RC4; this is not a modern
 cryptographic profile. Prefer pinned SFTP, HTTPS S3 or an independently secured OS-managed
 mount accessed through `file://`. Keep SMB disabled where this compatibility is unnecessary.
+The optional strong-key profile ([STRONG-CRYPTO.md](STRONG-CRYPTO.md)) refuses SMB and a
+plain-HTTP `s3_endpoint` at startup.
 
 SMB supports versions 2/3 and requests signing, but the shared library can accept an
 unsigned guest session granted by the server. An impersonating server could observe

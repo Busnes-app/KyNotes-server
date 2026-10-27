@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/fips140"
 	"errors"
 	"net/url"
 	"os"
@@ -28,6 +29,15 @@ func ValidateBlobTarget(c BlobTarget) error {
 	u, err := url.Parse(c.URL)
 	if err != nil {
 		return errors.New("backup.blob_target: invalid URL")
+	}
+	// The strong-crypto profile keeps every transfer on SSH or TLS (docs/STRONG-CRYPTO.md).
+	if fips140.Enabled() {
+		if strings.EqualFold(u.Scheme, "smb") {
+			return errors.New("backup.blob_target.url: SMB uses NTLM (MD4, HMAC-MD5, RC4), refused under GODEBUG=fips140=on; use pinned SFTP, HTTPS S3 or file")
+		}
+		if e, err := url.Parse(c.S3Endpoint); c.S3Endpoint != "" && (err != nil || !strings.EqualFold(e.Scheme, "https")) {
+			return errors.New("backup.blob_target.s3_endpoint: must be HTTPS under GODEBUG=fips140=on")
+		}
 	}
 	if strings.EqualFold(u.Scheme, "sftp") && c.HostKey == "" {
 		return errors.New("backup.blob_target: SFTP requires a verified SHA256 host key fingerprint")

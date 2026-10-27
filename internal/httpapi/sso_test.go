@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -162,18 +163,23 @@ func TestAdminSSOAndPairing(t *testing.T) {
 
 	// Mock KySignOn Server for System Pairing
 	var mockKySignOn *httptest.Server
-	mockKySignOn = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockKySignOn = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/systems/register" {
 			var in sso.SystemPairingRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			if in.PairingToken != "valid-pairing-token" {
+			secret := "shared-hmac-secret-xyz"
+			switch in.PairingToken {
+			case "valid-pairing-token":
+			case "short-secret-token":
+				secret = strings.Repeat("s", 15)
+			default:
 				http.Error(w, `{"error":"invalid_token"}`, http.StatusBadRequest)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(sso.SystemPairingResponse{
 				SystemID:   "sys_paired_123",
-				HMACSecret: "shared-hmac-secret-xyz",
+				HMACSecret: secret,
 				Status:     "active",
 			})
 			return
@@ -181,6 +187,12 @@ func TestAdminSSOAndPairing(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer mockKySignOn.Close()
+	original := http.DefaultTransport
+	http.DefaultTransport = mockKySignOn.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = original })
+	var plainRequests atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { plainRequests.Add(1) }))
+	defer plain.Close()
 
 	router := NewRouter(logging.New(io.Discard, "error", "json"), 1048576, func() bool { return true }, db, cfg)
 	send := func(path string, body []byte) *httptest.ResponseRecorder {
@@ -214,11 +226,14 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	}
 
 	// A refused or unreachable pairing answers a fixed message: never the remote body or a dial error.
-	dead := httptest.NewServer(http.NotFoundHandler())
+	// Pairing returns the directory secret: plain HTTP is never contacted, a short secret is never stored.
+	dead := httptest.NewTLSServer(http.NotFoundHandler())
 	dead.Close()
 	for _, tc := range []struct{ issuer, token, want string }{
 		{mockKySignOn.URL, "bad", "KySignOn refused the pairing (status 400)"},
 		{dead.URL, "valid-pairing-token", "KySignOn pairing failed"},
+		{plain.URL, "valid-pairing-token", "KySignOn pairing failed"},
+		{mockKySignOn.URL, "short-secret-token", "KySignOn sent a directory secret shorter than 16 bytes"},
 	} {
 		body, _ := json.Marshal(map[string]string{"issuerUrl": tc.issuer, "pairingToken": tc.token})
 		rec := send("/api/v1/admin/sso/pair", body)
@@ -226,6 +241,9 @@ func TestAdminSSOAndPairing(t *testing.T) {
 		if rec.Code != http.StatusBadRequest || json.Unmarshal(rec.Body.Bytes(), &e) != nil || e.Error.Message != tc.want || strings.Contains(rec.Body.String(), "invalid_token") || strings.Contains(rec.Body.String(), "127.0.0.1") {
 			t.Fatalf("pairing with %s: %d %s", tc.token, rec.Code, rec.Body.String())
 		}
+	}
+	if plainRequests.Load() != 0 || sso.NewStore(db).Load().Enabled {
+		t.Fatal("pairing contacted plain HTTP or stored a refused secret")
 	}
 
 	rec := send("/api/v1/admin/sso/pair", pairJSON)
@@ -276,6 +294,13 @@ func TestAdminSSOAndPairing(t *testing.T) {
 	}
 	if kept := sso.NewStore(db).Load(); kept.ClientSecret != strings.Repeat("c", 32) || kept.HMACSecret != strings.Repeat("x", 32) {
 		t.Fatalf("an empty field replaced a secret: %+v", kept)
+	}
+	// A new directory secret below syncauth's floor is refused and the stored one stays.
+	if rec := send("/api/v1/admin/sso", []byte(`{"enabled":true,"issuerUrl":"https://issuer.example","clientId":"kynotes","hmacSecret":"`+strings.Repeat("s", 15)+`"}`)); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "at least 16 bytes") {
+		t.Fatalf("short directory secret: %d %s", rec.Code, rec.Body.String())
+	}
+	if kept := sso.NewStore(db).Load(); kept.HMACSecret != strings.Repeat("x", 32) {
+		t.Fatalf("a refused directory secret replaced the stored one: %+v", kept)
 	}
 	// A kept secret never follows the settings to another provider or client; clearing is explicit.
 	for _, body := range []string{

@@ -92,7 +92,9 @@ authentication uses MD4, HMAC-MD5 and negotiated RC4, and the client can accept 
 guest session. Use it only when necessary for interoperability, on a trusted network with
 independent replica verification. Prefer pinned SFTP, HTTPS S3 or an independently secured
 OS-managed mount. See [deployment policy and migration](docs/DEPLOYMENT.md#ciphertext-blob-mirror).
-This transport policy does not establish whole-product key-size or protocol-review compliance.
+This transport policy alone does not establish whole-product key-size compliance; key sizes
+at every boundary and the optional strong-key profile, which refuses SMB, are in
+[docs/STRONG-CRYPTO.md](docs/STRONG-CRYPTO.md).
 
 ## Security-sensitive changes
 
@@ -109,6 +111,7 @@ the relevant failure or attack path. Review the verification strategy in
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution and review requirements
 - [docs/VERIFYING-RELEASES.md](docs/VERIFYING-RELEASES.md) — verify a release image and rebuild its binary
 - [docs/ASSURANCE-CASE.md](docs/ASSURANCE-CASE.md) — threat model and the argument that the protections above hold
+- [docs/STRONG-CRYPTO.md](docs/STRONG-CRYPTO.md) — key sizes and the optional strong-key profile
 
 ### SSO last-administrator recovery grant
 
