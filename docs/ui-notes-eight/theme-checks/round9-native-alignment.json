@@ -1,0 +1,82 @@
+{
+  "fixture": "http://127.0.0.1:18112",
+  "scope": "Supplemental native T3 Computer Use; Chromium154 differs from scored Chromium156 scale1. Synthetic content; no stored theme choice.",
+  "desktopLight": {
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "overflow": 0,
+    "buttons": [
+      {
+        "selector": ".section-add",
+        "width": 40,
+        "height": 40,
+        "radius": "8px",
+        "color": "rgb(24, 35, 38)",
+        "iconColor": "rgb(24, 35, 38)",
+        "path": "M12 5v14M5 12h14"
+      },
+      {
+        "selector": ".list-actions .icon-button",
+        "width": 40,
+        "height": 40,
+        "radius": "8px",
+        "color": "rgb(24, 35, 38)",
+        "iconColor": "rgb(24, 35, 38)",
+        "path": "M12 5v14M5 12h14"
+      }
+    ]
+  },
+  "phoneDarkButtons": {
+    "buttons": [
+      {
+        "color": "rgb(242, 239, 232)",
+        "height": 40,
+        "iconColor": "rgb(242, 239, 232)",
+        "path": "M12 5v14M5 12h14",
+        "radius": "8px",
+        "selector": ".section-add",
+        "width": 40
+      },
+      {
+        "color": "rgb(242, 239, 232)",
+        "height": 40,
+        "iconColor": "rgb(242, 239, 232)",
+        "path": "M12 5v14M5 12h14",
+        "radius": "8px",
+        "selector": ".list-actions .icon-button",
+        "width": 40
+      }
+    ],
+    "overflow": 0,
+    "viewport": {
+      "height": 844,
+      "width": 390
+    }
+  },
+  "phoneEditor": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "titleX": 16,
+    "bodyX": 17,
+    "padding": "16px 0px",
+    "overflow": 0,
+    "note": "1px canvas border remains. Same coordinates in light and dark."
+  },
+  "phoneEmptyWithNotebook": {
+    "actionBottom": 634.1875,
+    "emptyHeight": 192.1875,
+    "emptyMargin": "24px",
+    "headingTop": 450,
+    "overflow": 0,
+    "statusBottom": 418,
+    "viewport": {
+      "height": 844,
+      "width": 390
+    }
+  },
+  "limits": "The no-notebook empty action is covered by stage12 real-browser captures. Native empty measurement here is the existing-notebook/no-open-page state. First phone opening may leave BODY focused; no full focus/keyboard acceptance."
+}

@@ -1,0 +1,8 @@
+{
+  "round": 3,
+  "score": 6,
+  "satisfied": false,
+  "reason": "Owner rejects adjacent notebook and page navigation columns, including the empty-screen state; applies the one-left-region rule to every Ky web app.",
+  "scope": "Owner-supplied screenshot has unknown build; it establishes a layout preference and rejection, not a controlled numerical delta from stage04.",
+  "progression": "reopened; stage05 revised layout awaits fresh review"
+}

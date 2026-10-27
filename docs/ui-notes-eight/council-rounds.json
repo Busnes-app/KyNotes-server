@@ -3,60 +3,271 @@
     "round": 1,
     "opus": {
       "score": 6.5,
+      "settings_score": null,
       "satisfied": false,
       "report": "opus-round1.json",
       "rubric_conforms": true,
+      "rating_comparable": true,
       "basis": "KyNotes web UI, branch ui/notes-eight on base 34849c4, after bundle servedIndexSha256 bb1a3b7d159d..."
     },
     "sol": {
       "score": 7.8,
+      "settings_score": null,
       "satisfied": false,
       "report": "sol-round1.json",
       "rubric_conforms": true,
+      "rating_comparable": true,
       "basis": "notes cohort, after unique-image mean; settings is reported separately, not blended"
     },
-    "gemini": {}
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
   },
   {
     "round": 2,
     "opus": {
       "score": 7.4,
+      "settings_score": 7.65,
       "satisfied": false,
       "report": "opus-round2.json",
       "rubric_conforms": true,
+      "rating_comparable": true,
       "basis": "notes cohort, unique CURRENT image mean; settings reported separately"
     },
     "sol": {
       "score": 8.1,
+      "settings_score": null,
       "satisfied": true,
       "report": "sol-round2.json",
       "rubric_conforms": true,
+      "rating_comparable": true,
       "basis": "notes cohort mean across 8 unique CURRENT views; settings reported separately and not blended"
     },
-    "gemini": {}
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
   },
   {
     "round": 3,
     "opus": {
       "score": 8.1,
+      "settings_score": 8.38,
       "satisfied": true,
       "report": "opus-round3.json",
       "rubric_conforms": true,
+      "rating_comparable": true,
       "basis": "notes cohort, unique CURRENT stage-04 image mean (n=8); settings reported separately, not blended"
     },
     "sol": {
       "score": 8.2,
+      "settings_score": null,
       "satisfied": true,
       "report": "sol-round3.json",
       "rubric_conforms": true,
+      "rating_comparable": true,
       "basis": "notes cohort mean across8 unique CURRENT images; settings separate, not blended"
     },
     "gemini": {
       "score": 8.1,
+      "settings_score": 8.5,
       "satisfied": true,
       "report": "argon-round3.json",
       "rubric_conforms": false,
-      "basis": "Raw advisory score; nonconforming weights and contradicted observations. See gemini-audit.json; excluded from progression gate."
+      "rating_comparable": false,
+      "basis": "Opus8.1 and Sol8.2, satisfied; Gemini advisory excluded from gate"
+    },
+    "owner": {
+      "round": 3,
+      "score": 6,
+      "satisfied": false,
+      "reason": "Owner rejects adjacent notebook and page navigation columns, including the empty-screen state; applies the one-left-region rule to every Ky web app.",
+      "scope": "Owner-supplied screenshot has unknown build; it establishes a layout preference and rejection, not a controlled numerical delta from stage04.",
+      "progression": "reopened; stage05 revised layout awaits fresh review"
+    }
+  },
+  {
+    "round": 4,
+    "opus": {
+      "score": 7.7,
+      "settings_score": 8.15,
+      "satisfied": false,
+      "report": "opus-round4.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "notes cohort, unique CURRENT stage-07 image mean (n=14, incl. 4 empty first-run views); settings reported separately, not blended"
+    },
+    "sol": {
+      "score": 8.2,
+      "settings_score": null,
+      "satisfied": true,
+      "report": "sol-round4.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes cohort mean across 14 unique CURRENT stage 07 images, including 4 empty and 2 desktop management; Settings 4 unique separate, never blended."
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 5,
+    "opus": {
+      "score": 7.3,
+      "settings_score": 7.9,
+      "satisfied": false,
+      "report": "opus-round5.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes cohort mean of 14 unique CURRENT stage08 images (4 empty, 2 desktop management, 2 phone chooser, 4 editor, 2 phone page lists); Settings separate, never blended; 4 workspace aliases excluded."
+    },
+    "sol": {
+      "score": 8.2,
+      "settings_score": 8.5,
+      "satisfied": true,
+      "report": "sol-round5.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes cohort mean only, not a cross-cohort ranking or full acceptance"
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 6,
+    "opus": {
+      "score": 7.8,
+      "settings_score": 7.8,
+      "satisfied": false,
+      "report": "opus-round6.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes cohort mean of 14 unique current images (stage 09, councilRound 6); Settings reported separately; brand fit separate."
+    },
+    "sol": {
+      "score": 8.1,
+      "settings_score": 8.1,
+      "satisfied": true,
+      "report": "sol-round6.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes current unique cohort only; separate Settings cohort, no cross-cohort ranking"
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 7,
+    "opus": {
+      "score": 7.8,
+      "settings_score": 7.9,
+      "satisfied": false,
+      "report": "opus-round7.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes cohort mean of 14 unique current images (stage 10, councilRound 7); Settings reported separately; brand fit separate; 4 workspace aliases excluded."
+    },
+    "sol": {
+      "score": 8.2,
+      "settings_score": 8.25,
+      "satisfied": true,
+      "report": "sol-round7.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes current unique cohort only. Settings remains a separate cohort; no cross-cohort ranking."
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 8,
+    "opus": {
+      "score": 7.9,
+      "settings_score": 7.9,
+      "satisfied": false,
+      "report": "opus-round8.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes cohort mean of 14 unique current images (stage 11, councilRound 8), score of record after drift re-inspection; Settings separate; brand fit separate; 4 workspace aliases excluded."
+    },
+    "sol": {
+      "score": 8.1,
+      "settings_score": 8.1,
+      "satisfied": true,
+      "report": "sol-round8.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes current unique cohort only; Settings separate. Exact Notes mean113.2/14; raw mean113.00/14."
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 9,
+    "opus": {
+      "score": 8.0,
+      "settings_score": 7.9,
+      "satisfied": true,
+      "report": "opus-round9.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Scoped 8/10 progression of the KyNotes Notes cohort (editor, empty, single-left-region management, phone page chooser) in the stage12 capture set. Settings reported separately and not pooled; it is unchanged pixels since stage10 and at 7.9 does not support a whole-app 8 claim. No full-9, accessibility, keyboard/focus, WebKit, competitor or suite-cohesion claim."
+    },
+    "sol": {
+      "score": 8.1,
+      "settings_score": 8.1,
+      "satisfied": true,
+      "report": "sol-round9.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes unique current cohort only;four workspace aliases excluded;Settings separate."
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 10,
+    "opus": {
+      "score": 8.0,
+      "settings_score": 8.0,
+      "satisfied": true,
+      "report": "opus-round10.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Scoped visual 8/10 progression for BOTH covered KyNotes cohorts in the stage13 set: Notes (14 unique: empty x4, editor x4, management x4, phone page chooser x2) and Settings (4 unique Appearance views), never pooled. No full-9, keyboard/focus, contrast, states, WebKit, competitor or suite-cohesion claim."
+    },
+    "sol": {
+      "score": 8.1,
+      "settings_score": 8.2,
+      "satisfied": true,
+      "report": "sol-round10.json",
+      "rubric_conforms": true,
+      "rating_comparable": true,
+      "basis": "Notes unique cohort mean only; Settings separate. No pooled app score."
+    },
+    "gemini": {
+      "score": 8.0,
+      "settings_score": 8.1,
+      "satisfied": true,
+      "report": "argon-round10.json",
+      "rubric_conforms": true,
+      "rating_comparable": false,
+      "basis": "Opus Notes8.0/Appearance8.0 and Sol Notes8.1/Appearance8.2, both satisfied. Gemini raw scores retained but excluded because original captured PNGs were not visually inspected. Supported live observations are advisory only."
+    },
+    "owner": {
+      "status": "Not scored"
     }
   }
 ]

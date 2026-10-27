@@ -6,7 +6,7 @@
     "severity": "warning",
     "category": "slop",
     "file": "/home/yoshi/git/busnes.app/kynotes-server/.claude/worktrees/ui-notes-eight/web/src/styles.css",
-    "line": 491,
+    "line": 501,
     "snippet": "border-left: 3px solid var(--warning)"
   },
   {
@@ -16,7 +16,7 @@
     "severity": "warning",
     "category": "slop",
     "file": "/home/yoshi/git/busnes.app/kynotes-server/.claude/worktrees/ui-notes-eight/web/src/styles.css",
-    "line": 301,
+    "line": 300,
     "snippet": "border-top: 4px solid"
   }
 ]

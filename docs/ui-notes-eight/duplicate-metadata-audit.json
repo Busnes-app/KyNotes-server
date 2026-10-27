@@ -1,0 +1,93 @@
+{
+  "reason": "Correct imprecise caret labels without changing frozen earlier inventories, image bytes or scores. Stage09 selected Type tool differs; neutral rasterization labels carry exact bounds.",
+  "corrections": [
+    {
+      "file": "screenshots/kynotes-08-after-workspace-desktop-dark.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        278,
+        197,
+        329,
+        235
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-08-after-workspace-desktop-light.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        278,
+        197,
+        329,
+        235
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-08-after-workspace-mobile-dark.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        16,
+        293,
+        67,
+        331
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-08-after-workspace-mobile-light.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        16,
+        293,
+        67,
+        331
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-09-after-workspace-desktop-dark.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        278,
+        197,
+        329,
+        235
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-09-after-workspace-desktop-light.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        278,
+        197,
+        329,
+        235
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-09-after-workspace-mobile-dark.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        16,
+        293,
+        67,
+        331
+      ]
+    },
+    {
+      "file": "screenshots/kynotes-09-after-workspace-mobile-light.png",
+      "previous": "near (caret rasterization)",
+      "corrected": "near (rasterization; measured bounds recorded)",
+      "diff_bbox": [
+        16,
+        293,
+        67,
+        331
+      ]
+    }
+  ]
+}

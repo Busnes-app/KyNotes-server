@@ -1,0 +1,1563 @@
+{
+  "schema": "ky-ui-council-scores/2",
+  "round": "4 (stage 07)",
+  "reviewer": "Claude Opus 5.5 (review sub-agent, read-only)",
+  "rubric": {
+    "version": "ky-suite-v2",
+    "weights": {
+      "hierarchy": 0.2,
+      "typography": 0.15,
+      "density_layout": 0.2,
+      "color": 0.15,
+      "visible_affordances": 0.15,
+      "coherence": 0.15
+    },
+    "rounding": "Decimal(str(x)).quantize(Decimal('0.1'), ROUND_HALF_UP) per file; cohort means of rounded per-file totals to 2dp, then half-up to 1dp"
+  },
+  "verdict": {
+    "score": 7.7,
+    "score_basis": "notes cohort, unique CURRENT stage-07 image mean (n=14, incl. 4 empty first-run views); settings reported separately, not blended",
+    "notes_mean": 7.66,
+    "notes_min": 6.5,
+    "settings_mean": 8.15,
+    "settings_min": 8.0,
+    "notes_empty_mean": 6.7,
+    "notes_empty_n": 4,
+    "notes_populated_mean": 8.04,
+    "notes_populated_n": 10,
+    "satisfied": false,
+    "target": 8,
+    "accept_9": false,
+    "double_left_resolved": true,
+    "summary": "Notes 7.7 (n=14, min 6.5); Settings 8.2 (n=4). The owner's double-left objection is resolved in every captured state: each desktop capture has exactly one full-height divider at x239/240 (stage-04 control: x240 and x500), and phones use one column. Not satisfied for 8: the first-run empty state (empty means 6.7) hides every forward action. 'Select a notebook' has no notebooks or New notebook visible, the new-page + is disabled, and 'Create a note' is gated on a selected notebook. Populated Notes views average 8.0."
+  },
+  "owner_baseline": {
+    "round": 3,
+    "score": 6,
+    "satisfied": false,
+    "build": "unknown",
+    "comparable_numeric_delta": false,
+    "note": "Preserved separately: owner screenshot has unknown build; it sets the one-left-region rule and rejection, not a numeric baseline for stage 07."
+  },
+  "owner_objection": {
+    "empty_desktop": "Resolved for layout: one 240px pane, one divider. Fails discoverability (blocker B1).",
+    "management_desktop": "Resolved: management replaces the page list in the same track; editor at x240.",
+    "selected_editor_desktop": "Resolved: sections/pages in the one pane; e2e asserts list x=0 w=240, editor x=240, #notebook-navigation hidden (ui-council.e2e.ts:114-122).",
+    "phone": "Resolved: one column; notebook and page disclosures stack; no side-by-side regions.",
+    "settings": "Already one left pane; now geometrically identical to the workspace shell."
+  },
+  "preserved_function": {
+    "sections": "Preserved in captures: SectionTabs inside the page list with add-section +.",
+    "search": "Preserved in captures: page search beside new page in the pane (desktop and phone).",
+    "teams": "Preserved in source, not captured: Team notebooks label, nested team notebooks, New team notebook, Add person and members render in the management view (main.tsx:2794-2870). Desktop hides .notebook-kind, so the page view no longer says 'Team notebook' (management still marks it). Visual state unproven.",
+    "keyboard_flow": "Source: chooseNotebook focuses the always-visible toggle after a user's selection (main.tsx:1495-1499); startup load uses selectContainer directly and does not close management (main.tsx:1438). Brief reports the full suite 12/12 verifying this; not re-run by this reviewer.",
+    "discoverability": "Populated: the labelled toggle with chevron is visible in every state. Empty/first run: failing (B1)."
+  },
+  "inventory": {
+    "inventory_file": "inventory-v6.json",
+    "inventory_total": 130,
+    "inventory_unique_non_duplicate": 96,
+    "inventory_distinct_sha256": 98,
+    "current_files": 22,
+    "unique_scored": 18,
+    "near_duplicates": 4,
+    "notes_unique": 14,
+    "settings_unique": 4,
+    "hash_check": "All 130 inventory hashes/bytes recomputed and match; all 22 stage-07 hashes match 07-after-manifest.json.",
+    "duplicates": [
+      {
+        "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+        "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-light.png",
+        "changed_pixels": 12,
+        "max_channel_delta": 4,
+        "diff_bbox": [
+          278,
+          197,
+          329,
+          235
+        ],
+        "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+        "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+        "changed_pixels": 15,
+        "max_channel_delta": 4,
+        "diff_bbox": [
+          278,
+          197,
+          329,
+          235
+        ],
+        "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+        "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-light.png",
+        "changed_pixels": 12,
+        "max_channel_delta": 4,
+        "diff_bbox": [
+          16,
+          293,
+          67,
+          331
+        ],
+        "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+        "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+        "changed_pixels": 15,
+        "max_channel_delta": 4,
+        "diff_bbox": [
+          16,
+          293,
+          67,
+          331
+        ],
+        "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+      }
+    ],
+    "cross_stage_identical": "Settings x4 identical to stages 04-06; empty x4 and pages x2 identical to stages 05-06. Editor/navigation phone captures differ from stage 04 only in the save timestamp."
+  },
+  "capture_inputs": {
+    "manifest": "screenshots/07-after-manifest.json",
+    "councilRound": 4,
+    "manifest_head": "d9c413fdcf13edbf722e1c74512f000bd184dfcc",
+    "sourceDiffSha256": "8e2a6bd7a14f5d746aa5e34de9715c00370c039e814abd2afe6ffdfbaf229264",
+    "servedIndexSha256": "ec3b1526952e750a8d4350a632eee53738305e1d9f9dd36481e2d57c68f5f264",
+    "sourceFiles": {
+      "src/main.tsx": "42ec61a480749b6e4ef681d9cbc5d26c45473b0fc96bfda12331a3ddbeeeb7f5",
+      "src/styles.css": "2b5c72d889685f621c7bc1faeddc8e92a73939461578aac82af0f1d73253d3ca",
+      "src/NavIcon.tsx": "70c925c6d23388a4bd99d2575a9e6a0df226275cda9da8f094b84e255fc4bc8b",
+      "src/components/SectionTabs.tsx": "c61baaaa4d46c9f4c66e7300a19aee85d9d34423924b61e471ba825fa1074a1a",
+      "src/ky-ui/VERSION": "884826819a3f2525e8546229d964c32ddad1c6df7153e3c506a4ff228b14e458",
+      "e2e/ui-council.e2e.ts": "16db32e22ef1385c7068c1872293de36c7ce089a74addcc6cff3aae622015ec4",
+      "package-lock.json": "417d094e4a48b0b72212d10a33f2594d95376c9024178f5ae76595a78d97b70e",
+      "e2e/people.ts": "9fc03d18670f0cf8995bc59e15c1bf169a47811fe201bdb523f52beb7c0fbeac"
+    },
+    "browser": "156.0.8078.4",
+    "captured": "2026-10-27T00:43:20.168Z",
+    "fixture": "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1",
+    "verification": "Recomputed during review: all sourceFiles match web/; internal/web/dist/index.html and live http://127.0.0.1:18104/ both hash to servedIndexSha256. HEAD moved to 701a97e/98b63f8 mid-review; git diff d9c413f HEAD -- web/src hashes to the manifest sourceDiffSha256 exactly, so the committed source is the captured source.",
+    "provenance_note": "ui-council.e2e.ts:153-154 writes neither councilRound nor the e2e/people.ts hash; both were added to the manifest after capture. 06-after-manifest.json also carries councilRound 4 for the preliminary stage-06 set."
+  },
+  "files": [
+    {
+      "file": "screenshots/kynotes-07-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop workspace, no notebook selected",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "empty / first run (no notebook)",
+      "theme": "light",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 6,
+        "typography": 8,
+        "density_layout": 6,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 6
+      },
+      "observations": {
+        "hierarchy": "Two competing instructions: left h2 'Select a notebook' and centre h2 'Your private desk.' with nothing to select and no primary action.",
+        "typography": "Space throughout; heading/body/meta steps are clean; Mono 'Ready'/'Encrypted locally' meta is small but legible.",
+        "density_layout": "One 240px region (single divider x239/240), but below the disabled search row it is an empty rule; the forward path is folded away.",
+        "color": "Tokens hold: cream/charcoal panels, green status, neutral copy; nothing accent-filled because no action is offered.",
+        "visible_affordances": "First-run account (startup picks loaded[0] only when a notebook exists, main.tsx:1438): New notebook is hidden behind the closed 'Notebooks and account' toggle (main.tsx:655 initial false), new-page + is disabled, and 'Create a note' renders only when a notebook is selected (main.tsx:3226). UA filled triangle on the recovery disclosure.",
+        "coherence": "Copy says select/create while every select/create control is hidden or disabled; desktop regressed from the stage-04 always-visible New notebook."
+      },
+      "total": 6.5,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.3,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Fixture owner has no notebook (ui-council.e2e.ts:45-53); this is every new account's first screen."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop workspace, no notebook selected",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "empty / first run (no notebook)",
+      "theme": "dark",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 6,
+        "typography": 8,
+        "density_layout": 6,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 6
+      },
+      "observations": {
+        "hierarchy": "Two competing instructions: left h2 'Select a notebook' and centre h2 'Your private desk.' with nothing to select and no primary action.",
+        "typography": "Space throughout; heading/body/meta steps are clean; Mono 'Ready'/'Encrypted locally' meta is small but legible.",
+        "density_layout": "One 240px region (single divider x239/240), but below the disabled search row it is an empty rule; the forward path is folded away.",
+        "color": "Tokens hold: cream/charcoal panels, green status, neutral copy; nothing accent-filled because no action is offered.",
+        "visible_affordances": "First-run account (startup picks loaded[0] only when a notebook exists, main.tsx:1438): New notebook is hidden behind the closed 'Notebooks and account' toggle (main.tsx:655 initial false), new-page + is disabled, and 'Create a note' renders only when a notebook is selected (main.tsx:3226). UA filled triangle on the recovery disclosure.",
+        "coherence": "Copy says select/create while every select/create control is hidden or disabled; desktop regressed from the stage-04 always-visible New notebook."
+      },
+      "total": 6.5,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.3,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Fixture owner has no notebook (ui-council.e2e.ts:45-53); this is every new account's first screen."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone workspace, no notebook selected",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "empty / first run (no notebook)",
+      "theme": "light",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 6
+      },
+      "observations": {
+        "hierarchy": "Stacked order is clear (disclosure, 'Select a notebook', search, then 'Your private desk.'), but two headings give two instructions and neither leads to an action.",
+        "typography": "Space throughout; heading/body/meta steps are clean; Mono 'Ready'/'Encrypted locally' meta is small but legible.",
+        "density_layout": "Single column, no overflow; the empty list rule and the desk message sit 25px apart, so the page reads as two empty states.",
+        "color": "Tokens hold: cream/charcoal panels, green status, neutral copy; nothing accent-filled because no action is offered.",
+        "visible_affordances": "First-run account (startup picks loaded[0] only when a notebook exists, main.tsx:1438): New notebook is hidden behind the closed 'Notebooks and account' toggle (main.tsx:655 initial false), new-page + is disabled, and 'Create a note' renders only when a notebook is selected (main.tsx:3226). UA filled triangle on the recovery disclosure.",
+        "coherence": "Same contradiction as desktop; on phones notebooks were already behind this disclosure before round 4, so this is a carried defect rather than a new regression."
+      },
+      "total": 6.9,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.3,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Fixture owner has no notebook (ui-council.e2e.ts:45-53); this is every new account's first screen."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone workspace, no notebook selected",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "empty / first run (no notebook)",
+      "theme": "dark",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 6
+      },
+      "observations": {
+        "hierarchy": "Stacked order is clear (disclosure, 'Select a notebook', search, then 'Your private desk.'), but two headings give two instructions and neither leads to an action.",
+        "typography": "Space throughout; heading/body/meta steps are clean; Mono 'Ready'/'Encrypted locally' meta is small but legible.",
+        "density_layout": "Single column, no overflow; the empty list rule and the desk message sit 25px apart, so the page reads as two empty states.",
+        "color": "Tokens hold: cream/charcoal panels, green status, neutral copy; nothing accent-filled because no action is offered.",
+        "visible_affordances": "First-run account (startup picks loaded[0] only when a notebook exists, main.tsx:1438): New notebook is hidden behind the closed 'Notebooks and account' toggle (main.tsx:655 initial false), new-page + is disabled, and 'Create a note' renders only when a notebook is selected (main.tsx:3226). UA filled triangle on the recovery disclosure.",
+        "coherence": "Same contradiction as desktop; on phones notebooks were already behind this disclosure before round 4, so this is a carried defect rather than a new regression."
+      },
+      "total": 6.9,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.3,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Fixture owner has no notebook (ui-council.e2e.ts:45-53); this is every new account's first screen."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-desktop-light.png",
+      "sha256": "e6c8872e35479263711d5987100ae7653be0182a0aa3c6f8c3bb07c9d3b6290f",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop notebook management in the single left pane, editor beside it",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, management open",
+      "theme": "light",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 8,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Toggle bar heads the one pane; Focus / Notebooks / Account labels order it; selected Project Atlas carries the accent rail; 'Launch checklist' still leads the page.",
+        "typography": "Space nav at one size; section labels small bold neutral; no competing title in the pane.",
+        "density_layout": "Management fully replaces the page list inside the same 240px track (single divider x239/240); 42px row rhythm; Account pinned to the bottom.",
+        "color": "Accent only on the selected notebook and the Comment fill; light avatar chip shares the sidebar surface (styles.css:484), so 'O' reads like a stray zero.",
+        "visible_affordances": "New/Rename/Export notebook carry stroked icons; chevron rotates up while open; return to pages is the same toggle or a notebook choice (no separate back label, acceptable).",
+        "coherence": "Matches the Settings shell exactly (240px pane + content); owner's adjacent-column objection is visibly resolved."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 8,
+          "type_geometry": 8,
+          "shell": 9,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-desktop-dark.png",
+      "sha256": "d6d5b12d707c052079a62c65d7b56d4b5ae5d4884a3517b3c177761e5105aaed",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop notebook management in the single left pane, editor beside it",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, management open",
+      "theme": "dark",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Toggle bar heads the one pane; Focus / Notebooks / Account labels order it; selected Project Atlas carries the accent rail; 'Launch checklist' still leads the page.",
+        "typography": "Space nav at one size; section labels small bold neutral; no competing title in the pane.",
+        "density_layout": "Management fully replaces the page list inside the same 240px track (single divider x239/240); 42px row rhythm; Account pinned to the bottom.",
+        "color": "Accent only on the selected notebook and the Comment fill; avatar chip separates from the dark sidebar.",
+        "visible_affordances": "New/Rename/Export notebook carry stroked icons; chevron rotates up while open; return to pages is the same toggle or a notebook choice (no separate back label, acceptable).",
+        "coherence": "Matches the Settings shell exactly (240px pane + content); owner's adjacent-column objection is visibly resolved."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 9,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.8,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-desktop-light.png",
+      "sha256": "375df600642661f45f6c45ac87130cbff239f2bf42e51ac0ee5266150fc45a1e",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop workspace: single pane with sections/pages, editor on Launch checklist",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, page open",
+      "theme": "light",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "'Launch checklist' is the only 24px title; 'Project Atlas' now drops to section size in the pane; selected row has the accent rail.",
+        "typography": "Space body 15/22.5 (manifest), clear H2 steps; 12px truncated previews legible.",
+        "density_layout": "Pane holds notebook title, recovery disclosure, Quick Notes tab + add, search + new page and four rows; editor starts at x240 (one divider). Canvas text column ~600px leaves a wide right void at 1280; Comments partly below the fold.",
+        "color": "Restrained tokens; accent on selection, Type tab and Comment; Delete in danger red.",
+        "visible_affordances": "Sections, search, new page and the toggle are all visible; Outdent visibly disabled; recovery disclosure still the UA filled triangle.",
+        "coherence": "One left region holding sections/pages; same geometry as Settings. Only slip is the triangle beside stroked chevrons."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 9,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.8,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+      "sha256": "b7864d59b1827f608dd181fd4a7a8f2ef7885da0186f6989df71d8889561a104",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop workspace: single pane with sections/pages, editor on Launch checklist",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, page open",
+      "theme": "dark",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "'Launch checklist' is the only 24px title; 'Project Atlas' now drops to section size in the pane; selected row has the accent rail.",
+        "typography": "Space body 15/22.5 (manifest), clear H2 steps; 12px truncated previews legible.",
+        "density_layout": "Pane holds notebook title, recovery disclosure, Quick Notes tab + add, search + new page and four rows; editor starts at x240 (one divider). Canvas text column ~600px leaves a wide right void at 1280; Comments partly below the fold.",
+        "color": "Restrained tokens; accent on selection, Type tab and Comment; Delete in danger red.",
+        "visible_affordances": "Sections, search, new page and the toggle are all visible; Outdent visibly disabled; recovery disclosure still the UA filled triangle.",
+        "coherence": "One left region holding sections/pages; same geometry as Settings. Only slip is the triangle beside stroked chevrons."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 9,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.8,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-mobile-light.png",
+      "sha256": "ecebdc699bdf88b23686cc1a1591bcf4a0785aacd44aea5a6329b73d4605c24f",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone editor with notebook and page disclosures collapsed",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, page open",
+      "theme": "light",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Title leads after two quiet disclosure bars and the version/saved meta.",
+        "typography": "Same Space contract; bullets wrap cleanly at 390.",
+        "density_layout": "Two 48px disclosure bars plus meta put the title at y≈255; footer select/Indent sit at the fold. Pixels match stage 04 except the save timestamp, so this lower density score is reviewer drift, not a product change.",
+        "color": "Same restrained palette as desktop.",
+        "visible_affordances": "Both disclosures state their target ('Pages in Project Atlas') with chevrons; Save outlined in header.",
+        "coherence": "Consistent with the desktop pane's content order."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+      "sha256": "cd02bc6f7f5df890678b955bfd4e61edaf7505eb35ab970ea2fe36349adc5047",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone editor with notebook and page disclosures collapsed",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, page open",
+      "theme": "dark",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Title leads after two quiet disclosure bars and the version/saved meta.",
+        "typography": "Same Space contract; bullets wrap cleanly at 390.",
+        "density_layout": "Two 48px disclosure bars plus meta put the title at y≈255; footer select/Indent sit at the fold. Pixels match stage 04 except the save timestamp, so this lower density score is reviewer drift, not a product change.",
+        "color": "Same restrained palette as desktop.",
+        "visible_affordances": "Both disclosures state their target ('Pages in Project Atlas') with chevrons; Save outlined in header.",
+        "coherence": "Consistent with the desktop pane's content order."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone page picker with section tab and search",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, page picker open",
+      "theme": "light",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Open 'Pages in Project Atlas' bar, then section tab, search, four rows with the open page railed.",
+        "typography": "Row titles semibold, previews 12px with ellipsis; repeated preview text is fixture content.",
+        "density_layout": "Section tabs now sit inside the list (stage-04 diff confined to y198-290); rows start ~y378 and are fully in view.",
+        "color": "Accent on the section underline and selected row only.",
+        "visible_affordances": "Add-section +, new-page +, search and disclosure chevrons visible; UA triangle remains.",
+        "coherence": "Same nested order as the desktop pane: one navigation region expressed as one column."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone page picker with section tab and search",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, page picker open",
+      "theme": "dark",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Open 'Pages in Project Atlas' bar, then section tab, search, four rows with the open page railed.",
+        "typography": "Row titles semibold, previews 12px with ellipsis; repeated preview text is fixture content.",
+        "density_layout": "Section tabs now sit inside the list (stage-04 diff confined to y198-290); rows start ~y378 and are fully in view.",
+        "color": "Accent on the section underline and selected row only.",
+        "visible_affordances": "Add-section +, new-page +, search and disclosure chevrons visible; UA triangle remains.",
+        "coherence": "Same nested order as the desktop pane: one navigation region expressed as one column."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-mobile-light.png",
+      "sha256": "7379fb43401414f4dcac11dbeb2aadf257845c7ea387a466d1e9cd2878111851",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone notebook management expanded above the page bar and editor",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, management open",
+      "theme": "light",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Management list, then the 'Pages in Project Atlas' bar, then the Research notes editor stack in one column; three layers compete for the first screen.",
+        "typography": "Consistent nav/label sizes.",
+        "density_layout": "Management takes ~480px before the page bar; acceptable on phone but long. Pixels match stage 04 except the timestamp, so the lower score versus round 3 is reviewer drift.",
+        "color": "Light avatar chip shares the panel surface; accent only on the selected notebook.",
+        "visible_affordances": "Every notebook action and Work queue reachable with icons; chevrons show open/closed.",
+        "coherence": "Single column, single navigation region; matches desktop item order."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 8,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.3,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-mobile-dark.png",
+      "sha256": "e733d102a61356b24fb3dcbc448b41f0a8b5e57b0cae0a10a86efc8798ba5d03",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone notebook management expanded above the page bar and editor",
+      "filename_matches_content": true,
+      "cohort": "notes",
+      "state": "populated, management open",
+      "theme": "dark",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Management list, then the 'Pages in Project Atlas' bar, then the Research notes editor stack in one column; three layers compete for the first screen.",
+        "typography": "Consistent nav/label sizes.",
+        "density_layout": "Management takes ~480px before the page bar; acceptable on phone but long. Pixels match stage 04 except the timestamp, so the lower score versus round 3 is reviewer drift.",
+        "color": "accent only on the selected notebook.",
+        "visible_affordances": "Every notebook action and Work queue reachable with icons; chevrons show open/closed.",
+        "coherence": "Single column, single navigation region; matches desktop item order."
+      },
+      "total": 7.8,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop Settings > Appearance",
+      "filename_matches_content": true,
+      "cohort": "settings",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Settings h1, subtitle, Appearance, Theme label, Match system selected.",
+        "typography": "Space steps hold; card meta ('Light'/'Dark') is small; lines are comfortably measured.",
+        "density_layout": "5-column card grid with the sixth row cut at the fold.",
+        "color": "Card swatches carry the palette; accent on the selected card, radio and nav rail only.",
+        "visible_affordances": "Native radio cards, '← Workspace' return, railed nav item.",
+        "coherence": "Same 240px left pane as the workspace now, so Notes and Settings share one shell."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 9,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.8,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Byte-identical to stages 04-06 (same SHA-256); desktop totals are 0.4-0.5 below my round-3 scores for the same bytes: reviewer drift, not product change."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Desktop Settings > Appearance",
+      "filename_matches_content": true,
+      "cohort": "settings",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": "desktop 1280x900 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Settings h1, subtitle, Appearance, Theme label, Match system selected.",
+        "typography": "Space steps hold; card meta ('Light'/'Dark') is small; lines are comfortably measured.",
+        "density_layout": "5-column card grid with the sixth row cut at the fold.",
+        "color": "Card swatches carry the palette; accent on the selected card, radio and nav rail only.",
+        "visible_affordances": "Native radio cards, '← Workspace' return, railed nav item.",
+        "coherence": "Same 240px left pane as the workspace now, so Notes and Settings share one shell."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 9,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.8,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Byte-identical to stages 04-06 (same SHA-256); desktop totals are 0.4-0.5 below my round-3 scores for the same bytes: reviewer drift, not product change."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone Settings > Appearance",
+      "filename_matches_content": true,
+      "cohort": "settings",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings h1, subtitle, Appearance, Theme label, Match system selected.",
+        "typography": "Space steps hold; card meta ('Light'/'Dark') is small; subtitle wraps leaving 'security.' alone.",
+        "density_layout": "Nav block ~205px with 'Colleague keys' alone on its row before content.",
+        "color": "Card swatches carry the palette; accent on the selected card, radio and nav rail only.",
+        "visible_affordances": "Native radio cards, '← Workspace' return, railed nav item.",
+        "coherence": "Phone Settings is single-column like the phone workspace."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Byte-identical to stages 04-06 (same SHA-256); desktop totals are 0.4-0.5 below my round-3 scores for the same bytes: reviewer drift, not product change."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone Settings > Appearance",
+      "filename_matches_content": true,
+      "cohort": "settings",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": "mobile 390x844 scale 1",
+      "artifacts": "none; synthetic fixture, Chromium 156.0.8078.4, scale 1",
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings h1, subtitle, Appearance, Theme label, Match system selected.",
+        "typography": "Space steps hold; card meta ('Light'/'Dark') is small; subtitle wraps leaving 'security.' alone.",
+        "density_layout": "Nav block ~205px with 'Colleague keys' alone on its row before content.",
+        "color": "Card swatches carry the palette; accent on the selected card, radio and nav rail only.",
+        "visible_affordances": "Native radio cards, '← Workspace' return, railed nav item.",
+        "coherence": "Phone Settings is single-column like the phone workspace."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "mean": 8.5,
+        "note": "4-dim mean; never added to total"
+      },
+      "confidence": "high",
+      "caveat": "Byte-identical to stages 04-06 (same SHA-256); desktop totals are 0.4-0.5 below my round-3 scores for the same bytes: reviewer drift, not product change."
+    }
+  ],
+  "excluded": [
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+      "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c",
+      "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-light.png",
+      "changed_pixels": 12,
+      "max_channel_delta": 4,
+      "diff_bbox": [
+        278,
+        197,
+        329,
+        235
+      ],
+      "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+      "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0",
+      "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+      "changed_pixels": 15,
+      "max_channel_delta": 4,
+      "diff_bbox": [
+        278,
+        197,
+        329,
+        235
+      ],
+      "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+      "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc",
+      "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-light.png",
+      "changed_pixels": 12,
+      "max_channel_delta": 4,
+      "diff_bbox": [
+        16,
+        293,
+        67,
+        331
+      ],
+      "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+      "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f",
+      "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+      "changed_pixels": 15,
+      "max_channel_delta": 4,
+      "diff_bbox": [
+        16,
+        293,
+        67,
+        331
+      ],
+      "reason": "near duplicate (caret anti-aliasing); scored once on the editor file"
+    }
+  ],
+  "cohort_rankings": {
+    "notes": {
+      "n": 14,
+      "mean": 7.66,
+      "min": 6.5
+    },
+    "settings": {
+      "n": 4,
+      "mean": 8.15,
+      "min": 8.0
+    },
+    "note": "Ky-only; no competitor files and no whole-suite claim; cohorts not blended."
+  },
+  "ky_fit_summary": {
+    "mean_of_unique": 8.5,
+    "note": "suite_cohesion N/A (only KyNotes inspected); ky_fit never added to total."
+  },
+  "drift": {
+    "method": "All 18 unique stage-07 images scored before opening prior numeric reports, except that a schema inspection of opus-round3.json showed its 8.1 verdict and two per-file vectors first. Disclosed.",
+    "files": [
+      {
+        "file": "appearance-desktop-light/dark",
+        "prior_total": "8.8/8.7",
+        "total": 8.3,
+        "cause": "reviewer drift: byte-identical images"
+      },
+      {
+        "file": "editor-mobile-light/dark",
+        "prior_total": 8.2,
+        "total": 8.0,
+        "cause": "reviewer drift: identical except timestamp"
+      },
+      {
+        "file": "navigation-mobile-light/dark",
+        "prior_total": "8.0/8.2",
+        "total": "7.6/7.8",
+        "cause": "reviewer drift: identical except timestamp"
+      },
+      {
+        "file": "editor-desktop-light",
+        "prior_total": 8.0,
+        "total": 8.2,
+        "cause": "product: adjacent page column removed, notebook title reduced"
+      },
+      {
+        "file": "pages-mobile-light/dark",
+        "prior_total": 8.0,
+        "total": 8.2,
+        "cause": "product: section tabs nested in the list"
+      }
+    ],
+    "sensitivity": "Substituting my round-3 vectors for the timestamp-only phone captures gives Notes 108.4/14 = 7.74 -> 7.7; verdict unchanged."
+  },
+  "gates": {
+    "single_left_geometry": {
+      "status": "pass (scripted)",
+      "evidence": "Pixel scan for full-height vertical edges, x 1-900, y 130-880: stage-07 desktop empty/navigation/editor light+dark -> [239, 240] only; stage-04 editor control -> [239, 240, 499, 500]."
+    },
+    "keyboard": {
+      "status": "untested by this reviewer (claimed pass)",
+      "evidence": "Brief: full suite 12/12 on final source with same/different-page focus, held PUT save, recovery disclosure and toggle focus; not re-run here."
+    },
+    "focus": {
+      "status": "untested",
+      "evidence": "No focus-ring captures; .recovery-notice summary:focus-visible exists (styles.css:487)."
+    },
+    "states": {
+      "status": "partial",
+      "evidence": "Empty first-run now captured (fails B1); loading, error, team and work-queue states uncaptured."
+    },
+    "responsive": {
+      "status": "partial",
+      "evidence": "overflow 0 at 390 and 1280 for all 22; the 801-1100px breakpoint was removed (styles.css diff) and no capture exists at that width."
+    },
+    "contrast": {
+      "status": "untested",
+      "evidence": "No computed-contrast measurement this round."
+    }
+  },
+  "blockers": [
+    {
+      "id": "B1",
+      "title": "First-run empty state hides every forward action",
+      "evidence": [
+        "kynotes-07-after-empty-{desktop,mobile}-{light,dark}.png",
+        "main.tsx:655 showNotebookNavigation starts false",
+        "main.tsx:1438 startup selects only when a notebook exists",
+        "main.tsx:2882 heading 'Select a notebook'",
+        "main.tsx:3226-3228 'Create a note' renders only when selected",
+        "styles.css: .workspace > .sidebar { display: none } unless .show-notebook-navigation",
+        "d9c413f desktop always showed the notebook sidebar with New notebook"
+      ],
+      "impact": "Every new account lands with instructions to select or create while the only route, New notebook, is folded behind 'Notebooks and account'. This is a desktop regression from stage 04 and the owner-named empty-screen state.",
+      "smallest_fix": "Use existing state, no new feature: treat management as open while no notebook or queue is selected (e.g. derive open = showNotebookNavigation || (!selected && !queueMode) for the class and aria-expanded), so New notebook is visible on first run. Re-capture the four empty views."
+    }
+  ],
+  "non_blocking": [
+    "Light avatar chip still shares the sidebar surface (styles.css:484); minor, previously recorded.",
+    "Recovery disclosure keeps the UA filled triangle beside stroked chevrons (desktop pane and phone).",
+    "main.tsx:1493-1494: two doc comments above chooseNotebook describe selectContainer's null return and leaveQueue; move them to selectContainer.",
+    "docs/ui-notes-eight/AGENTS.md:28 still names inventory-v3 as current; line 9 says v6.",
+    "Manifest councilRound and people.ts hash are post-capture annotations, not writer output; note that in provenance or add them to the writer."
+  ],
+  "path_to_8": "Fix B1 and re-capture the empty views. Populated Notes already average 8.0 (min 7.6); the remaining empty views decide the cohort mean.",
+  "unscored": [
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-pages-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-pages-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-pages-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-pages-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-desktop-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-desktop-light.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-mobile-dark.png",
+      "reason": "prior stage; not CURRENT input"
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-mobile-light.png",
+      "reason": "prior stage; not CURRENT input"
+    }
+  ],
+  "limits": [
+    "Scoped 8/10 visual progression only; full 9/10 needs WebKit, every state (loading/error/team/queue/conflict), focus rings in both themes and a 801-1100px capture: unproven.",
+    "No competitor score and no whole-suite claim; KyCalendar/KyDrive single-left status is outside this review.",
+    "Gemini not invoked; its round-3 raw 8.1 stays excluded per gemini-audit."
+  ],
+  "live_inspection": "GET / on http://127.0.0.1:18104 only (index hash match). No sign-in, no content mutated, no servers started or stopped, no source edits."
+}

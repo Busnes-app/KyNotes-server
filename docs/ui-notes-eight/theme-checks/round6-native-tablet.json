@@ -1,0 +1,69 @@
+{
+  "scope": "Supplemental native T3 Computer Use, not a scored source image or full tablet acceptance",
+  "fixture": "http://127.0.0.1:18108; synthetic owner; stage09 bundle",
+  "toolIcon": {
+    "_tag": "website",
+    "pageUrl": "http://127.0.0.1:18108/#/cnt_p0cvtscv7k51mn8qphsb6zpev8/quick/obj_1vq4240qwjy3fn95jd7vbk1g9r"
+  },
+  "value": {
+    "controls": [
+      {
+        "appearance": "none",
+        "border": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+        "fill": "rgba(0, 0, 0, 0)",
+        "radius": "0px",
+        "selector": ".comments",
+        "tag": "SECTION"
+      },
+      {
+        "appearance": "auto",
+        "border": "rgba(24, 35, 38, 0.38)",
+        "fill": "rgb(255, 255, 255)",
+        "radius": "12px",
+        "selector": ".comment-compose button",
+        "tag": "BUTTON"
+      },
+      {
+        "appearance": "none",
+        "border": "color(srgb 0.44549 0.468235 0.465882)",
+        "fill": "rgb(255, 255, 255)",
+        "radius": "8px",
+        "selector": ".editor-actions select",
+        "tag": "SELECT"
+      },
+      {
+        "appearance": "auto",
+        "border": "color(srgb 0.44549 0.468235 0.465882)",
+        "fill": "rgb(255, 255, 255)",
+        "radius": "12px",
+        "selector": ".note-search",
+        "tag": "INPUT"
+      },
+      {
+        "appearance": "auto",
+        "border": "color(srgb 0.44549 0.468235 0.465882)",
+        "fill": "rgb(255, 255, 255)",
+        "radius": "12px",
+        "selector": ".list-actions .icon-button",
+        "tag": "BUTTON"
+      }
+    ],
+    "editor": {
+      "width": 720,
+      "x": 240
+    },
+    "management": null,
+    "overflow": 0,
+    "pages": {
+      "width": 240,
+      "x": 0
+    },
+    "viewport": [
+      960,
+      900
+    ]
+  },
+  "servedIndexSha256": "72df2d955d34f8aea60d81b4f5efe3ae7e4d598ea078e36fe332516cb7a70eec",
+  "screenshot": "round6-native-tablet-light.png",
+  "limit": "One selected editor at960x900 in light only; not all tablet/theme/state acceptance."
+}

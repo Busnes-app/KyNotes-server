@@ -1,0 +1,190 @@
+{
+  "scope": "Supplemental Computer Use: three representative placeholders in Busnes light/dark, not all product contrast gates",
+  "fixture": "127.0.0.1:18111; synthetic owner; stage11",
+  "method": "Computed CSS placeholder color/opacity painted over computed field background on1pxcanvas; WCAG relative luminance ratio. Measured after waiting for lazy canvas page. Native1280x800/Chromium154/scale2 differs from scored Chromium156/scale1.",
+  "beforeStage10": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:18110/#/cnt_6ak4f6maa31fpqgj3mamht1pvg/quick/obj_7zn8vmqpxfd7yzg9y54c1pv9yr"
+    },
+    "value": {
+      "dark": true,
+      "placeholders": [
+        {
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(117, 117, 117)",
+          "label": "Search this notebook",
+          "opacity": "1"
+        },
+        {
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(117, 117, 117)",
+          "label": "Section (optional)",
+          "opacity": "1"
+        },
+        {
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(117, 117, 117)",
+          "label": "Add a comment\u2026",
+          "opacity": "1"
+        }
+      ]
+    }
+  },
+  "afterLight": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:18111/#/cnt_rm3k9f91x5m2rhfd91n62139d8/quick/obj_3m0c2vdy8v8f10hx5n9vqkjyer"
+    },
+    "value": {
+      "dark": false,
+      "overflow": 0,
+      "placeholders": [
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(86, 100, 97)",
+          "contrast": 6.192555238688089,
+          "foreground": [
+            86,
+            100,
+            97
+          ],
+          "label": "Search this notebook",
+          "opacity": "1"
+        },
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(86, 100, 97)",
+          "contrast": 6.192555238688089,
+          "foreground": [
+            86,
+            100,
+            97
+          ],
+          "label": "Section (optional)",
+          "opacity": "1"
+        },
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "color": "rgb(86, 100, 97)",
+          "contrast": 6.192555238688089,
+          "foreground": [
+            86,
+            100,
+            97
+          ],
+          "label": "Add a comment\u2026",
+          "opacity": "1"
+        }
+      ],
+      "sectionButton": {
+        "height": 40,
+        "width": 40,
+        "x": 144.1875,
+        "y": 239.390625
+      },
+      "toolbarDivider": {
+        "height": 24,
+        "width": 1,
+        "x": 544.09375,
+        "y": 204
+      },
+      "viewport": [
+        1280,
+        800
+      ],
+      "workIconPath": "M4 4h16v16H4V4Zm0 10h4l2 3h4l2-3h4"
+    }
+  },
+  "afterDark": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:18111/#/cnt_rm3k9f91x5m2rhfd91n62139d8/quick/obj_3m0c2vdy8v8f10hx5n9vqkjyer"
+    },
+    "value": {
+      "dark": true,
+      "overflow": 0,
+      "placeholders": [
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "color": "rgb(179, 188, 184)",
+          "contrast": 7.484543289053253,
+          "foreground": [
+            179,
+            188,
+            184
+          ],
+          "label": "Search this notebook",
+          "opacity": "1"
+        },
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "color": "rgb(179, 188, 184)",
+          "contrast": 7.484543289053253,
+          "foreground": [
+            179,
+            188,
+            184
+          ],
+          "label": "Section (optional)",
+          "opacity": "1"
+        },
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "color": "rgb(179, 188, 184)",
+          "contrast": 7.484543289053253,
+          "foreground": [
+            179,
+            188,
+            184
+          ],
+          "label": "Add a comment\u2026",
+          "opacity": "1"
+        }
+      ],
+      "sectionButton": {
+        "height": 40,
+        "width": 40,
+        "x": 144.1875,
+        "y": 239.390625
+      },
+      "toolbarDivider": {
+        "height": 24,
+        "width": 1,
+        "x": 544.09375,
+        "y": 204
+      },
+      "viewport": [
+        1280,
+        800
+      ],
+      "workIconPath": "M4 4h16v16H4V4Zm0 10h4l2 3h4l2-3h4"
+    }
+  },
+  "sectionMenu": "Clicked New section or group: native popover showed New section and New section group; toggled closed without creating content.",
+  "servedIndexSha256": "8ef267ad2fa8339725c1fbf7ea6f469efddb7877c1afb014dc71331c04c4debc"
+}

@@ -32,6 +32,12 @@ export async function withDialog(who: Person, dialog: Dialog, action: () => Prom
   await expect.poll(async () => { await expect(stepUpPrompt(who.page)).toBeHidden(); return who.expected.length; }, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
 }
 
+/** Open the notebook/account view of the single navigation pane. */
+export async function openNotebooks(page: Page) {
+  const toggle = page.getByRole("button", { name: "Notebooks and account", exact: true });
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+}
+
 /** An everyday account on its own password: lands in the workspace. */
 export async function signIn(page: Page, username: string, password: string) {
   await page.goto("/");

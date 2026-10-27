@@ -655,6 +655,7 @@ function Workspace({
   const [showNotebookNavigation, setShowNotebookNavigation] = useState(false);
   const [showPageNavigation, setShowPageNavigation] = useState(false);
   const pageTitleRef = useRef<HTMLInputElement>(null);
+  const notebookNavigationRef = useRef<HTMLButtonElement>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -1489,6 +1490,12 @@ function Workspace({
     }
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
+  async function chooseNotebook(container: Container) {
+    if (await selectContainer(container)) {
+      setShowNotebookNavigation(false);
+      notebookNavigationRef.current?.focus();
+    }
+  }
   /** Null when the open page could not be flushed and stays open. */
   /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
   async function selectContainer(container: Container, route?: Route, leaveQueue = true): Promise<Note[] | null> {
@@ -1579,6 +1586,8 @@ function Workspace({
     setQueueEntries(entries);
   }
   async function openWorkQueue() {
+    setShowNotebookNavigation(false);
+    notebookNavigationRef.current?.focus();
     setView("workspace");
     setQueueMode(true);
     setBusy(true);
@@ -1683,7 +1692,7 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      await selectContainer(await createNamed(() => newContainer(floorSink, "workbook"), name));
+      await chooseNotebook(await createNamed(() => newContainer(floorSink, "workbook"), name));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to create notebook");
     } finally {
@@ -1695,7 +1704,7 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      await selectContainer(await createNamed(() => newContainer(floorSink, "workbook", teamContainer.id), name));
+      await chooseNotebook(await createNamed(() => newContainer(floorSink, "workbook", teamContainer.id), name));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to create team notebook");
     } finally {
@@ -2758,7 +2767,7 @@ function Workspace({
       <>
         <div className={`workspace-view ${view !== "workspace" ? "workspace-view-hidden" : ""}`}>
           <div className={`workspace${showNotebookNavigation ? " show-notebook-navigation" : ""}${showPageNavigation ? " show-page-navigation" : ""}${selectedNote ? " has-open-page" : ""}${queueMode ? " queue-mode" : ""}`}>
-          <button type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}><span>Notebooks and account</span><NavIcon name="chevron" /></button>
+          <button ref={notebookNavigationRef} type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}><span>Notebooks and account</span><NavIcon name="chevron" /></button>
           {selectedNote && <button type="button" className="page-navigation-toggle quiet" aria-expanded={showPageNavigation} aria-controls={queueMode ? "page-navigation" : "page-navigation section-navigation"} onClick={() => setShowPageNavigation((open) => !open)}><span>Pages in {queueMode ? "Work queue" : selected ? nameOf(selected) : "this notebook"}</span><NavIcon name="chevron" /></button>}
           <aside id="notebook-navigation" className="sidebar">
             <div className="section-label">Focus</div>
@@ -2777,7 +2786,7 @@ function Workspace({
                 className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
                 aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
                 key={container.id}
-                onClick={() => void selectContainer(container)}
+                onClick={() => void chooseNotebook(container)}
               >
                 <NavIcon name="notebook" />
                 <span>{nameOf(container)}</span>
@@ -2789,7 +2798,7 @@ function Workspace({
                 <button
                   className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
                   aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
-                  onClick={() => void selectContainer(container)}
+                  onClick={() => void chooseNotebook(container)}
                 >
                   <NavIcon name="team" />
                   <span>{nameOf(container)}</span>
@@ -2799,7 +2808,7 @@ function Workspace({
                     className={`ky-nav-item nav-item nested-nav-item ${!queueMode && selected?.id === workspace.id ? "selected" : ""}`}
                     aria-current={!queueMode && selected?.id === workspace.id ? "page" : undefined}
                     key={workspace.id}
-                    onClick={() => void selectContainer(workspace)}
+                    onClick={() => void chooseNotebook(workspace)}
                   >
                     <NavIcon name="notebook" />
                     <span>{nameOf(workspace)}</span>
@@ -2868,6 +2877,41 @@ function Workspace({
               </div>
             </div>
           </aside>
+          <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer}>
+            <div className="list-header">
+              <div>
+                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : items.length ? "Select a notebook" : "No notebooks yet"}</h2>
+                {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind notebook-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
+                {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
+                  const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
+                  const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
+                  return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
+                })()}</div>}
+                {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
+                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></div>}
+                {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
+                {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
+                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+                {identityState === "held" && live && !live.recoveryId && <details className="recovery-notice"><summary><span>Save a recovery code</span><NavIcon name="chevron" /></summary><div role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div></details>}
+                {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
+                  <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
+                )}
+                {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
+                  <div className="conflict-banner" role="status" key={member.userId}>
+                    {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
+                  </div>
+                ))}
+                <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
+                {invitation && (
+                  <div className="conflict-banner" role="status">
+                    You were invited to a team notebook.{" "}
+                    <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
+                    <button className="quiet" onClick={dropInvitation}>Not now</button>
+                  </div>
+                )}
+                {selected && <h3 className="notes-heading">{queueMode ? `${queueRows.length} open task${queueRows.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
+              </div>
           {selected && !queueMode && (
             <SectionTabs
               sections={groupSections}
@@ -2893,42 +2937,7 @@ function Workspace({
               }}
             />
           )}
-          <section id="page-navigation" className="note-list" aria-busy={loadingContainer}>
-            <div className="list-header">
-              <div>
-                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind notebook-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
-                  const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
-                  const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
-                  return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
-                })()}</div>}
-                {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
-                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></div>}
-                {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
-                {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
-                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
-                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
-                {identityState === "held" && live && !live.recoveryId && <details className="recovery-notice"><summary>Save a recovery code</summary><div role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div></details>}
-                {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
-                  <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
-                )}
-                {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
-                  <div className="conflict-banner" role="status" key={member.userId}>
-                    {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
-                  </div>
-                ))}
-                <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
-                {invitation && (
-                  <div className="conflict-banner" role="status">
-                    You were invited to a team notebook.{" "}
-                    <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
-                    <button className="quiet" onClick={dropInvitation}>Not now</button>
-                  </div>
-                )}
-                {selected && <h3 className="notes-heading">{queueMode ? `${queueRows.length} open task${queueRows.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
-              </div>
-              <div className="list-actions">
+              {(selected || queueMode) && <div className="list-actions">
                 <input
                   aria-label="Search this notebook"
                   className="note-search"
@@ -2943,9 +2952,9 @@ function Workspace({
                   aria-label="New page"
                   onClick={() => void newNote()}
                 >
-                  ＋
+                  <NavIcon name="plus" />
                 </button>
-              </div>
+              </div>}
             </div>
             {queueMode && TASK_GROUPS.map(([group, label]) => {
               const rows = queueRows.filter((task) => task.group === group);
@@ -3123,6 +3132,7 @@ function Workspace({
                   </Suspense>
                 </div>
                 <div className="editor-actions">
+                  <div className="page-section-control">
                   <select
                     aria-label="Move page to section"
                     disabled={keyWait}
@@ -3132,6 +3142,8 @@ function Workspace({
                     {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
                     <option value={QUICK_NOTES}>Quick Notes</option>
                   </select>
+                  <NavIcon name="chevron" />
+                  </div>
                   <button
                     className="quiet"
                     disabled={keyWait || !canShift(selectedNote.id, 1)}
@@ -3180,7 +3192,7 @@ function Workspace({
                       onChange={(event) => setCommentText(event.target.value)}
                       placeholder="Add a comment…"
                     />
-                    <button disabled={busy || keyWait} onClick={() => void addComment()}>
+                    <button className="secondary" disabled={busy || keyWait} onClick={() => void addComment()}>
                       Comment
                     </button>
                   </div>
@@ -3212,9 +3224,11 @@ function Workspace({
               <div className="empty-editor">
                 <h2>Your private desk.</h2>
                 <p>
-                  Select a note or create one. The server receives ciphertext
-                  only.
+                  {!selected && !queueMode ? "Start with a notebook to keep your notes together." : "Select a note or create one."} The server receives ciphertext only.
                 </p>
+                {!selected && !queueMode && (
+                  <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
+                )}
                 {selected && (
                   <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
                 )}

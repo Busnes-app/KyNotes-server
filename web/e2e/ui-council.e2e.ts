@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { adminConsole, OWNER, person, signIn, withDialog } from "./people";
+import { adminConsole, OWNER, person, signIn, withDialog, openNotebooks } from "./people";
 
 test.use({ actionTimeout: 15_000 });
 
@@ -11,22 +11,69 @@ test.use({ actionTimeout: 15_000 });
 test("notebook reading, phone page navigation and shared editor typography", async ({ browser }) => {
   const stage = process.env.KYNOTES_COUNCIL_STAGE;
   const round = process.env.KYNOTES_COUNCIL_ROUND ?? "02";
+  const councilRound = Number(process.env.KYNOTES_COUNCIL_REVIEW_ROUND ?? Number(round) - 1);
   const output = "../docs/ui-notes-eight/screenshots";
   const files: object[] = [];
   const admin = await person(browser, { viewport: { width: 1280, height: 900 } });
   const owner = await person(browser, { viewport: { width: 1280, height: 900 } });
   const { page } = owner;
+    const shot = async (surface: string, device: string, theme: "light" | "dark") => {
+      if (!stage) return;
+      await mkdir(output, { recursive: true });
+      await page.mouse.move(0, 0);
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(250);
+      const file = `kynotes-${round}-${stage}-${surface}-${device}-${theme}.png`;
+      const png = await page.screenshot({ path: `${output}/${file}` });
+      const facts = await page.evaluate(() => {
+        const body = document.querySelector<HTMLElement>(".bn-editor");
+        const toolbar = document.querySelector(".canvas-toolbar");
+        const line = document.querySelector(".bn-inline-content");
+        return {
+          viewport: { width: innerWidth, height: innerHeight }, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          bodyFont: body && getComputedStyle(body).font, bodyColor: body && getComputedStyle(body).color,
+          toolbarToBody: toolbar && line && Math.round(line.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom),
+          fonts: [...document.fonts].filter((font) => font.status === "loaded").map((font) => font.family),
+          controls: [...document.querySelectorAll<HTMLElement>(".note-search, .list-actions .icon-button, .avatar, .comment-compose button, .editor-actions select, .comments")].map((element) => {
+            const style = getComputedStyle(element);
+            return { selector: element.className || element.tagName, background: style.backgroundColor, color: style.color, fontSize: style.fontSize, borderColor: style.borderColor, borderRadius: style.borderRadius, minHeight: style.minHeight, appearance: style.appearance };
+          }),
+        };
+      });
+      files.push({ file, surface, device, theme, sha256: createHash("sha256").update(png).digest("hex"), bytes: png.length, ...facts });
+    };
   try {
     await adminConsole(admin.page);
     const containersLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/containers" && response.request().method() === "GET");
     await signIn(page, OWNER.username, OWNER.password);
-    await containersLoaded;
-    await expect(page.getByRole("button", { name: "＋ New notebook" })).toBeEnabled();
+    const initialContainers: unknown = await (await containersLoaded).json();
+    if (!Array.isArray(initialContainers)) throw new Error("Expected a notebook list");
+    const hasNotebooks = initialContainers.length > 0;
+    if (hasNotebooks) await expect(page.locator("#page-navigation")).not.toHaveClass(/no-notebook/);
+    if (stage && Number(round) >= 5) {
+      await expect(page.locator(".nav-item", { hasText: "Project Atlas" })).toHaveCount(0);
+      for (const theme of ["light", "dark"] as const) {
+        for (const [device, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
+          await page.setViewportSize({ width, height });
+          await page.emulateMedia({ colorScheme: theme });
+          if (stage !== "before") {
+            await expect(page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).toBeInViewport({ ratio: 1 });
+            await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
+            await expect(page.locator(".recovery-notice")).toBeVisible();
+          }
+          await shot("empty", device, theme);
+        }
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
     const existing = page.locator(".nav-item", { hasText: "Project Atlas" }).last();
     const reuse = await existing.count() > 0;
+    if (reuse || hasNotebooks || stage === "before") await openNotebooks(page);
     if (reuse) await existing.click();
-    else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
+    else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => (hasNotebooks || stage === "before" ? page.getByRole("button", { name: "＋ New notebook" }) : page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).click());
     await expect(page.locator(".workspace-title")).toHaveText("Project Atlas");
+    await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
+    if (stage !== "before") await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
     if (stage !== "before") {
       const notice = page.locator(".recovery-notice");
       await notice.locator("summary").focus();
@@ -58,27 +105,6 @@ test("notebook reading, phone page navigation and shared editor typography", asy
     if (reuse) await page.locator(".note-row", { hasText: "Launch checklist" }).click();
     await expect(page.locator(".title-input")).toHaveValue("Launch checklist");
     const noteURL = page.url();
-    const shot = async (surface: string, device: string, theme: "light" | "dark") => {
-      if (!stage) return;
-      await mkdir(output, { recursive: true });
-      await page.mouse.move(0, 0);
-      await page.evaluate(() => document.fonts.ready);
-      await page.waitForTimeout(250);
-      const file = `kynotes-${round}-${stage}-${surface}-${device}-${theme}.png`;
-      const png = await page.screenshot({ path: `${output}/${file}` });
-      const facts = await page.evaluate(() => {
-        const body = document.querySelector<HTMLElement>(".bn-editor");
-        const toolbar = document.querySelector(".canvas-toolbar");
-        const line = document.querySelector(".bn-inline-content");
-        return {
-          viewport: { width: innerWidth, height: innerHeight }, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          bodyFont: body && getComputedStyle(body).font, bodyColor: body && getComputedStyle(body).color,
-          toolbarToBody: toolbar && line && Math.round(line.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom),
-          fonts: [...document.fonts].filter((font) => font.status === "loaded").map((font) => font.family),
-        };
-      });
-      files.push({ file, surface, device, theme, sha256: createHash("sha256").update(png).digest("hex"), bytes: png.length, ...facts });
-    };
     for (const theme of ["light", "dark"] as const) {
       for (const [device, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
         await page.setViewportSize({ width, height });
@@ -97,6 +123,18 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           expect(family).toContain("Space");
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
           expect(overflow).toBe(0);
+        }
+        if (device === "desktop" && stage !== "before") {
+          await expect(page.locator("#notebook-navigation")).toBeHidden();
+          const list = await page.locator("#page-navigation").boundingBox();
+          const editor = await page.locator(".editor").boundingBox();
+          expect(list!.x).toBe(0);
+          expect(list!.width).toBe(240);
+          expect(editor!.x).toBe(240);
+          await openNotebooks(page);
+          await expect(page.locator("#page-navigation")).toBeHidden();
+          await shot("navigation", device, theme);
+          await page.getByRole("button", { name: "Notebooks and account" }).click();
         }
         if (device === "mobile") {
           if (stage !== "before") {
@@ -125,8 +163,8 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
       const diff = execFileSync("git", ["diff", "HEAD", "--", "src"]);
       const index = await (await page.request.get("/")).body();
-      const sourceFiles = Object.fromEntries(await Promise.all(["src/main.tsx", "src/styles.css", "src/NavIcon.tsx", "src/components/SectionTabs.tsx", "src/ky-ui/VERSION", "e2e/ui-council.e2e.ts", "package-lock.json"].map(async (file) => [file, createHash("sha256").update(await readFile(file)).digest("hex")])));
-      await writeFile(`${output}/${round}-${stage}-manifest.json`, JSON.stringify({ head, sourceDiffSha256: createHash("sha256").update(diff).digest("hex"), sourceFiles, servedIndexSha256: createHash("sha256").update(index).digest("hex"), stage, captured: new Date().toISOString(), browser: browser.version(), fixture: "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1", files }, null, 2) + "\n");
+      const sourceFiles = Object.fromEntries(await Promise.all(["src/main.tsx", "src/styles.css", "src/NavIcon.tsx", "src/CanvasPage.tsx", "src/components/SectionTabs.tsx", "src/ky-ui/VERSION", "e2e/ui-council.e2e.ts", "e2e/people.ts", "package-lock.json"].map(async (file) => [file, createHash("sha256").update(await readFile(file)).digest("hex")])));
+      await writeFile(`${output}/${round}-${stage}-manifest.json`, JSON.stringify({ head, councilRound, sourceDiffSha256: createHash("sha256").update(diff).digest("hex"), sourceFiles, servedIndexSha256: createHash("sha256").update(index).digest("hex"), stage, captured: new Date().toISOString(), browser: browser.version(), fixture: "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1", files }, null, 2) + "\n");
     }
     if (stage !== "before") {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -160,6 +198,11 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       await page.locator(".title-input").fill("Launch checklist");
       await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(page.locator(".sync-dot")).toHaveText("● Saved to server");
+      await openNotebooks(page);
+      await page.getByRole("button", { name: "Work queue", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
+      await expect(page.locator("#notebook-navigation")).toBeHidden();
     }
   } finally {
     await admin.page.context().close();

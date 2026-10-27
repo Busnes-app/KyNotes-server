@@ -4,15 +4,18 @@
 
 `docs/ui-notes-eight/` records the editor/phone-navigation changes, independent
 review rounds, source and bundle hashes, matched screenshots and verification.
-The editor now uses Space and strong ink, desktop panels fit the viewport, and
-phones switch between a page list and the open page. Save remains in the header;
+The editor uses Space and strong ink. Desktop has one240px navigation region:
+Notebooks and account switches that pane to management; sections/pages occupy the
+same pane, and the editor begins atx240. Phones switch between a page list and the open page. Save remains in the header;
 same-page navigation preserves dirty state. Settings marks its selected section
 and wraps navigation on phones. Ky-ui 0.4.2 supplies theme-aware status colors and
 field borders. Earlier sections below are historical observations; their mobile
 layout and typography findings do not describe this pass.
 
-The 8/10 progression gate is separate from full 9/10 acceptance. Refer to the
-current council report for actual scores and untested states.
+The owner rejected the old adjacent left columns at6/10, reopening the progression
+gate. Current stage07 is under fresh round4 review. Earlier8-level model ratings
+describe stage04 only. Full9/10 acceptance remains unproven. Refer to the current
+council report for owner and model scores and untested states.
 
 > Evidence scope: this document records the revision, environment and capture conditions below. Screenshots and generated fixtures demonstrate appearance; they do not qualify live email delivery, push delivery, recovery custody or every product feature. Test counts describe that recorded run, not the current suite.
 

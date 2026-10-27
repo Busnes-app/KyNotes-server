@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { adminConsole, heldKeys, OWNER, person, signIn, vaultOf, withDialog } from "./people";
+import { adminConsole, heldKeys, OWNER, person, signIn, vaultOf, withDialog, openNotebooks } from "./people";
 import { base64, decryptContainerMeta, decryptObject, hkdfSha256, type KeyRef } from "../src/crypto";
 
 const NOTEBOOK = "Migration E2E";
@@ -40,6 +40,7 @@ test("an older notebook migrates to bound content in the background, and older f
     await adminConsole(admin.page);
     await signIn(first.page, OWNER.username, OWNER.password);
     const { page } = first;
+    await openNotebooks(page);
     await withDialog(first, { type: "prompt", text: "Notebook name", answer: NOTEBOOK }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
     await expect(page.locator(".workspace-title")).toHaveText(NOTEBOOK);
     await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");

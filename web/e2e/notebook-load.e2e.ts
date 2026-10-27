@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { adminConsole, OWNER, person, signIn, withDialog } from "./people";
+import { adminConsole, OWNER, person, signIn, withDialog, openNotebooks } from "./people";
 
 const EARLIER = "Load race earlier";
 const FRESH = "Load race fresh";
@@ -13,6 +13,7 @@ test("a notebook created while the notebook list loads stays open", async ({ bro
     const { page } = owner;
     const title = page.locator(".workspace-title");
     // Another notebook, so the list load has something else to pick.
+    await openNotebooks(page);
     await withDialog(owner, { type: "prompt", text: "Notebook name", answer: EARLIER }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
     await expect(title).toHaveText(EARLIER);
     await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
@@ -35,12 +36,16 @@ test("a notebook created while the notebook list loads stays open", async ({ bro
     await page.goto("about:blank");
     await page.goto("/");
     await fetching;
+    await openNotebooks(page);
+    await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "true");
     await withDialog(owner, { type: "prompt", text: "Notebook name", answer: FRESH }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
     await expect(title).toHaveText(FRESH);
+    await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
 
     // The list load finishes after the creation; it must not switch back to its own pick.
     const picked = page.waitForRequest((request) => request.url().includes(`/api/v1/containers/${earlier}/changes`), { timeout: 3_000 }).then(() => true, () => false);
     release();
+    await openNotebooks(page);
     await expect(page.getByRole("button", { name: EARLIER })).toBeVisible();
     expect(await picked).toBe(false);
     await expect(title).toHaveText(FRESH);
