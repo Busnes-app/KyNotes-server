@@ -133,5 +133,15 @@
     "check": "Historical inventory correction",
     "result": "pass",
     "detail": "inventory-v12 unions10 missed exactSHA groups, removing24 excess representatives without changing any image or score. Corrected stage12:240PNGs/184SHA groups/138normalized groups. Stage13 inventory-v13:262PNGs/148normalized groups; no duplicate chains or false exact links. round9-evidence-audit.json corrects Opus exact-versus-normalized wording and parent repeatability tree typo."
+  },
+  {
+    "check": "Gemini round10 advisory audit",
+    "result": "completed; raw rating excluded from screenshot progression",
+    "detail": "Fixed weights and22file hashes/arithmetic pass, Notes112.4/14\u21928.0,Appearance32.4/4=8.1. Original PNGs were not visually read; native live app cannot substitute. Incorrect input path/pixel counts/precise recovery gap corrected in gemini-round10-audit.md/json. No product code changed."
+  },
+  {
+    "check": "Report eligibility and separate cohort exports",
+    "result": "pass",
+    "detail": "Generator validates262image hashes/438score rows and both raw-report hash sets. Executable output checks confirm Gemini10 weight conformity=true,rating_comparable=false,raw* in Notes and Appearance across JSON/Markdown/XLSX; primary Notes8.0/8.1,Appearance8.0/8.2 unchanged.8-sheet ZIP/XML and offline six-pair contrast check pass."
   }
 ]

@@ -1,0 +1,61 @@
+{
+  "round": 10,
+  "auditor": "GPT-6.1-Sol parent",
+  "reviewer_model_requested": "antigravity/gemini-4-argon-high",
+  "raw_reports": {
+    "argon-round10.md": "f8f6b715a342de402024fec2ee948a6e9409cf038b894fd874ce8ff7a5860ea3",
+    "argon-round10.json": "83cbfbe7609203856ca07e94c162bececb4f693f668a7512504f046bccbd7fb7"
+  },
+  "raw_notes_score": 8.0,
+  "raw_settings_score": 8.1,
+  "raw_satisfied": true,
+  "weights_conform": true,
+  "source_evidence_conforms": false,
+  "rating_comparable": false,
+  "progression_basis": "Opus Notes8.0/Appearance8.0 and Sol Notes8.1/Appearance8.2, both satisfied. Gemini raw scores retained but excluded because original captured PNGs were not visually inspected. Supported live observations are advisory only.",
+  "product_changes_from_advisory": false,
+  "findings": [
+    {
+      "id": "A10-E1-source-rating",
+      "status": "rejected as comparable screenshot rating",
+      "evidence": "argon-round10 blind_freeze.image_inspection_disclosure and limitations admit PNG reads returned binary text; visual inspection used live nativeChromium154/scale2 instead of the original Chromium156/scale1 source set.",
+      "reason": "Hashes establish file identity, not visual inspection. Live Computer Use is useful supplemental evidence but cannot validate per-file original-capture ratings. Arithmetic112.4/14=8.028571\u21928.0 and32.4/4=8.1, fixed weights and22file hashes all pass; those facts do not repair the missing visual-source review. Keep raw files; do not request another Gemini pass."
+    },
+    {
+      "id": "A10-E2-provenance-path",
+      "status": "corrected in audit",
+      "evidence": "inputs.inventory names docs/ui-notes-eight/screenshots/inventory-v13.json, which does not exist. Actual docs/ui-notes-eight/inventory-v13.json has the declared0066dbe7\u2026 hash.",
+      "reason": "Correct path documented without changing original model reports; this is not a product defect."
+    },
+    {
+      "id": "A10-E3-pixel-counts",
+      "status": "rejected numerical details",
+      "evidence": "Independent RGBA diff stage12\u219213 phone Appearance: light114429,dark114536,bbox[0,130,390,844]. Raw review claims light114724,dark114685.",
+      "reason": "The layout change and44px shift are supported, but the raw changed-pixel counts are inaccurate. Preserve originals and use the independent values."
+    },
+    {
+      "id": "A10-1-layout",
+      "status": "supported; already resolved",
+      "evidence": "Three scoped CSS rules, scored phone Appearance pairs and parent/Opus/Sol native samples confirm3x2 navigation,min40px links,balanced subtitle and previews44px higher.",
+      "reason": "Corroboration of an implemented correction; no new source change."
+    },
+    {
+      "id": "A10-2-nav-polish",
+      "status": "supported; deferred optional polish",
+      "evidence": "Current phone captures show a left-aligned Workspace back control above centered link cells and the existing Trusted Device label.",
+      "reason": "Visible minor consistency choices, acknowledged by primaries; no blocked task or required8gate correction."
+    },
+    {
+      "id": "A10-3-carried-observations",
+      "status": "partly supported; no new action",
+      "evidence": "Current empty desktop status, desktop25px body gutter and matching notebook-command row styling are visible and already recorded. Parent native390: notebook/account bar bottom120, Pages bottom168, recovery row top192:24px after Pages and72px after Notebooks. Raw44px gap claim is not reproduced.",
+      "reason": "Keep the supported general spacing reservation without reusing unsupported44px geometry. Native coordinates are supplemental/browser-dependent. Desktop gutter preserves stored canvas coordinates; none of these carried observations establishes a new regression or necessary correction."
+    },
+    {
+      "id": "A10-E4-behavior-and-geometry",
+      "status": "narrowed to actual evidence",
+      "evidence": "Both primary reviewers retain first-open phone BODY focus,320px classic-scrollbar overflow,unverified full contrast/state/role/WebKit/softkeyboard matrix. Native Chromium154 geometry differs from original capturedChromium156.",
+      "reason": "Retain actual limits; avoid full behavior acceptance or treating Appearance as a boxed card. Live geometry is supplemental and cannot replace the scored PNG set."
+    }
+  ]
+}

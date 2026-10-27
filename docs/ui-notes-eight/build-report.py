@@ -26,6 +26,14 @@ for row in inventory:
     assert len(data) == row["bytes"], row["file"]
     assert data[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", data[16:24]) == (row["width"], row["height"]), row["file"]
 
+audits = {3: json.loads((ROOT / "gemini-audit.json").read_text())}
+for path in ROOT.glob("gemini-round*-audit.json"):
+    audit = json.loads(path.read_text())
+    audits[audit["round"]] = audit
+for audit in audits.values():
+    for file, expected in audit.get("raw_reports", {}).items():
+        assert hashlib.sha256((ROOT / file).read_bytes()).hexdigest() == expected, file
+
 reports = {}
 score_rows = [["Reviewer", "Round", "File", "Cohort", *WEIGHTS, "Fixed-rubric quality", "Raw reported quality", "Duplicate of", "Confidence", "Caveat", "Declared weights conform"]]
 for name in ("opus", "sol", "gemini"):
@@ -34,10 +42,12 @@ for name in ("opus", "sol", "gemini"):
         report = json.loads(path.read_text())
         verdict = report.get("verdict", report)
         conforms = all(Decimal(str(report.get("weights", WEIGHTS)[key])) == Decimal(weight) for key, weight in WEIGHTS.items())
-        reports[name, number] = {"score": verdict.get("score", verdict.get("notes_mean")), "satisfied": verdict.get("satisfied"), "report": path.name, "rubric_conforms": conforms, "basis": verdict.get("score_basis", verdict.get("scope", verdict.get("reason", verdict.get("summary", ""))))}
-        if not conforms:
-            assert name == "gemini" and (ROOT / "gemini-audit.json").exists(), path.name
-            reports[name, number]["basis"] = "Raw advisory score; nonconforming weights and contradicted observations. See gemini-audit.json; excluded from progression gate."
+        audit = audits.get(number, {}) if name == "gemini" else {}
+        comparable = conforms and audit.get("rating_comparable", True)
+        reports[name, number] = {"score": verdict.get("score", verdict.get("notes_mean")), "settings_score": verdict.get("settings_mean"), "satisfied": verdict.get("satisfied"), "report": path.name, "rubric_conforms": conforms, "rating_comparable": comparable, "basis": verdict.get("score_basis", verdict.get("scope", verdict.get("reason", verdict.get("summary", ""))))}
+        if not comparable:
+            assert name == "gemini" and audit, path.name
+            reports[name, number]["basis"] = audit["progression_basis"]
         for row in report.get("files", []):
             scores = row.get("scores", {})
             if not all(isinstance(scores.get(key), (int, float)) for key in WEIGHTS):
@@ -56,8 +66,8 @@ round_count = max([manifest.get("councilRound", current_stage - 1), *[number for
 owner_path = ROOT / "owner-review.json"
 owner = json.loads(owner_path.read_text()) if owner_path.exists() else {}
 rounds = []
-round_rows = [["Round", "Claude Opus 5.5", "Satisfied", "GPT Sol", "Satisfied", "Gemini 4 Argon", "Satisfied", "Basis", "Owner"]]
-markdown = ["# KyNotes council score history", "", "Raw reviewer verdicts; scores are not averaged across reviewers or cohorts. Owner rejection reopens progression.", "", "| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon | Owner |", "| --- | ---: | ---: | ---: | --- |"]
+round_rows = [["Round", "Claude Opus 5.5", "Satisfied", "GPT Sol", "Satisfied", "Gemini 4 Argon", "Satisfied", "Basis", "Owner", "Opus Appearance", "Sol Appearance", "Gemini Appearance"]]
+markdown = ["# KyNotes council score history", "", "Notes cohort verdicts; Appearance is separate below. Scores are not averaged across reviewers or cohorts. Owner rejection reopens progression.", "", "| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon | Owner |", "| --- | ---: | ---: | ---: | --- |"]
 for number in range(1, round_count + 1):
     row = {"round": number, **{name: reports.get((name, number), {}) for name in ("opus", "sol", "gemini")}}
     rounds.append(row)
@@ -66,18 +76,28 @@ for number in range(1, round_count + 1):
     for name in ("opus", "sol", "gemini"):
         review = row[name]
         score = review.get("score")
-        pending_advisory = name == "gemini" and all(row[primary].get("satisfied") is True for primary in ("opus", "sol"))
-        cells.append((f"{score:.1f}/10" + (" (raw*)" if not review.get("rubric_conforms", True) else "")) if score is not None else ("Pending advisory" if pending_advisory else "Deferred" if name == "gemini" else "Pending"))
-        values.extend([score if score is not None and review.get("rubric_conforms", True) else cells[-1], review.get("satisfied", "")])
-    values.append("Separate raw verdicts; Gemini raw* is excluded from progression because its weights/claims fail the audit. See original reviews and Gemini audit.")
+        pending_advisory = name == "gemini" and number == round_count and all(row[primary].get("satisfied") is True for primary in ("opus", "sol"))
+        cells.append((f"{score:.1f}/10" + (" (raw*)" if not review.get("rating_comparable", True) else "")) if score is not None else ("Pending advisory" if pending_advisory else "Deferred" if name == "gemini" else "Pending"))
+        values.extend([score if score is not None and review.get("rating_comparable", True) else cells[-1], review.get("satisfied", "")])
+    values.append("Notes means are separate from Appearance. Gemini raw* is excluded where rubric or source-evidence requirements fail the parent audit.")
     owner_cell = f"{owner['score']}/10 — rejected double left navigation" if number == owner.get("round") else "Not scored"
     values.append(owner_cell)
+    for name in ("opus", "sol", "gemini"):
+        score = row[name].get("settings_score")
+        values.append((f"{score:.1f}/10 (raw*)" if not row[name]["rating_comparable"] else score) if score is not None else "Not scored")
     row["owner"] = owner if number == owner.get("round") else {"status": owner_cell}
     round_rows.append(values)
     markdown.append(f"| {number} | {' | '.join(cells)} | {owner_cell} |")
 (ROOT / "council-rounds.json").write_text(json.dumps(rounds, indent=2) + "\n")
-if any(not report["rubric_conforms"] for report in reports.values()):
-    markdown.extend(["", "*Gemini's raw 8.1 is retained. Its weights and several factual claims fail the audit; owner rejection supersedes the prior approvals. See gemini-audit.md and the workbook audit sheet."])
+if any(not report["rating_comparable"] for report in reports.values()):
+    markdown.extend(["", "*Gemini raw ratings are preserved but excluded where rubric or source evidence fails audit. Round3 has changed weights/unsupported claims; round10 could not visually inspect the original PNGs. See gemini-audit.md, gemini-round10-audit.md and the workbook audit sheet."])
+markdown.extend(["", "## Appearance cohort", "", "Separate cohort means; never pooled with Notes above.", "", "| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon |", "| --- | ---: | ---: | ---: |"])
+for row in rounds:
+    cells = []
+    for name in ("opus", "sol", "gemini"):
+        score = row[name].get("settings_score")
+        cells.append(f"{score:.1f}/10" + (" (raw*)" if not row[name]["rating_comparable"] else "") if score is not None else "Not scored")
+    markdown.append(f"| {row['round']} | {' | '.join(cells)} |")
 (ROOT / "COUNCIL.md").write_text("\n".join(markdown) + "\n")
 
 evidence_rows = [["File", "SHA-256", "Bytes", "Width", "Height", "Duplicate of", "Kind", "Changed pixels", "Max channel delta"]]
@@ -97,15 +117,13 @@ for device in ("desktop", "mobile"):
 checks_path = ROOT / "checks.json"
 checks = json.loads(checks_path.read_text()) if checks_path.exists() else []
 check_rows = [["Check", "Result", "Evidence / limitation"], *[[row["check"], row["result"], row.get("detail", "")] for row in checks]]
-notes = [["Method", "Value"], ["Rubric", "ky-suite-v2; .20/.15/.20/.15/.15/.15; Decimal half-up to one decimal"], ["Scope", "KyNotes editor, phone navigation and Appearance; shared status/field contrast. Not whole-suite acceptance."], ["Source", "Base34849c4 plus recorded source patch hash and served index hashes in capture manifests"], ["Current input", f"Stage{current_stage:02} after; all earlier inputs retained"], ["Missing evidence", "Full empty/loading/error matrix, every product theme/focus path and WebKit remain unproven"], ["Gemini", "Raw advisory8.1 retained; nonconforming weights and unsupported facts audited. Opus/Sol determine progression; see Gemini audit."], ["History", "Handoff6.7 is historical Opus evidence with different coverage; do not treat it as a matched baseline mean"]]
+notes = [["Method", "Value"], ["Rubric", "ky-suite-v2; .20/.15/.20/.15/.15/.15; Decimal half-up to one decimal"], ["Scope", "KyNotes editor, phone navigation and Appearance; shared status/field contrast. Not whole-suite acceptance."], ["Source", "Base34849c4 plus recorded source patch hash and served index hashes in capture manifests"], ["Current input", f"Stage{current_stage:02} after; all earlier inputs retained"], ["Missing evidence", "Full empty/loading/error matrix, every product theme/focus path and WebKit remain unproven"], ["Gemini", "Raw advisory ratings retained; parent audits test rubric, source inspection and findings. Opus/Sol determine progression."], ["History", "Handoff6.7 is historical Opus evidence with different coverage; do not treat it as a matched baseline mean"]]
 delivery_path = ROOT / "delivery.json"
 delivery = json.loads(delivery_path.read_text()) if delivery_path.exists() else []
 delivery_rows = [["Repository", "Pull request", "Branch", "Scope"], *[[row.get(key) for key in ("repository", "url", "branch", "scope")] for row in delivery]]
-audit_path = ROOT / "gemini-audit.json"
-audit = json.loads(audit_path.read_text()) if audit_path.exists() else {}
-for file, expected in audit.get("raw_reports", {}).items():
-    assert hashlib.sha256((ROOT / file).read_bytes()).hexdigest() == expected, file
-audit_rows = [["Finding", "Disposition", "Evidence", "Rationale"], *[[row.get(key) for key in ("id", "status", "evidence", "reason")] for row in audit.get("findings", [])]]
+audit_rows = [["Finding", "Disposition", "Evidence", "Rationale"]]
+for number, audit in sorted(audits.items()):
+    audit_rows.extend([[f"R{number}/{row['id']}", *[row.get(key) for key in ("status", "evidence", "reason")]] for row in audit.get("findings", [])])
 
 # Minimal XLSX with typed cells, frozen headers and filters. All text is inline
 # strings, so report text cannot become an Excel formula.
@@ -164,9 +182,10 @@ for surface, device in [("editor", "desktop"), ("empty", "desktop"), ("empty", "
             pair.append(f'<figure><figcaption>{stage}</figcaption><img src="data:image/png;base64,{data}" alt="{stage} {surface}, {device}, {theme}"/></figure>')
         panels.append(f'<section class="comparison" data-view="{surface}-{device}-{theme}"><h2>{surface.title()} · {device} · {theme}</h2><div class="pair">{"".join(pair)}</div></section>')
 table = "".join("<tr>" + "".join(f"<{'th scope=col' if i == 0 else 'td'}>{html.escape(str(cell))}</{'th' if i == 0 else 'td'}>" for cell in row) + "</tr>" for i, row in enumerate([round_rows[0][0:1] + ["Claude Opus 5.5", "GPT Sol", "Gemini 4 Argon", "Owner"], *[[r[0], r[1], r[3], r[5], r[8]] for r in round_rows[1:]]]))
+appearance_table = "".join("<tr>" + "".join(f"<{'th scope=col' if i == 0 else 'td'}>{html.escape(str(cell))}</{'th' if i == 0 else 'td'}>" for cell in row) + "</tr>" for i, row in enumerate([["Round", "Claude Opus 5.5", "GPT Sol", "Gemini 4 Argon"], *[[r[0], r[9], r[10], r[11]] for r in round_rows[1:]]]))
 options = "".join(f'<option value="{surface}-{device}-{theme}">{surface.title()} · {device} · {theme}</option>' for surface, device in [("editor", "desktop"), ("empty", "desktop"), ("empty", "mobile"), ("editor", "mobile"), ("pages", "mobile"), ("appearance", "mobile")] for theme in ("light", "dark"))
 page = '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KyNotes council</title><style>
 :root{font:16px/1.5 system-ui,sans-serif;color:#182326;background:#f8f6f0}body{margin:0}main{max-width:88rem;margin:auto;padding:1.5rem}h1{font-size:1.5rem}h2{font-size:1.1rem}p{max-width:75ch}table{border-collapse:collapse;width:100%;margin:1.5rem 0}th,td{text-align:left;padding:.75rem;border-bottom:1px solid #566461}select{font:inherit;background:#fff;color:#182326;border:1px solid #566461;padding:.5rem;max-width:100%}:focus-visible{outline:2px solid #bf3f18;outline-offset:3px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem}figure{margin:0;min-width:0}figcaption{font-weight:600;margin:.5rem 0}img{display:block;max-width:100%;height:auto}.comparison{display:none}.comparison.active{display:block}.note{font-size:.875rem;color:#566461}@media(max-width:600px){main{padding:1rem}.pair{grid-template-columns:1fr}}@media(prefers-color-scheme:dark){:root{color:#f2efe8;background:#182326}.note{color:#b3bcb8}select{background:#1f2b2e;color:#f2efe8;border-color:#b3bcb8}:focus-visible{outline-color:#f5865f}}
-</style><main><h1>KyNotes council</h1><p>Independent review scores and real application captures. Current scope: editor, one left navigation region, phone navigation and Appearance. The owner rejected the prior adjacent left columns at6/10; the revised layout is under fresh review. The progression target is8/10; full9/10 acceptance remains separate.</p><table>TABLE</table><p class="note">Raw reviewer verdicts are retained. Gemini raw* uses nonconforming weights and contains unsupported claims; its score is excluded from progression. The parent audit is in the workbook and gemini-audit.md. Notes and settings cohort means are separate in the source reports. Navigation/picker comparisons change state; they do not establish a controlled numeric improvement.</p><label for="view">Compare a view</label><br><select id="view">OPTIONS</select>PANELS<p class="note">Synthetic Project Atlas with four populated pages. Chromium156, scale1, desktop1280×900 or phone390×844; OS light/dark emulated. Before is the previous reviewed stage; manifests record revisions, patch and served-bundle hashes. Fresh fixtures change initials and save times. The empty trailing bullet is captured fixture content. WebKit and a complete empty/loading/error matrix remain unverified.</p></main><script>const picker=document.getElementById('view');function show(){for(const panel of document.querySelectorAll('.comparison'))panel.classList.toggle('active',panel.dataset.view===picker.value)}picker.addEventListener('change',show);show();</script></html>'''
-(ROOT / "comparison.html").write_text(page.replace("TABLE", table).replace("OPTIONS", options).replace("PANELS", "".join(panels)))
+</style><main><h1>KyNotes council</h1><p>Independent review scores and real application captures. Current scope: editor, one left navigation region, phone navigation and Appearance. The owner rejected the prior adjacent left columns at6/10; the revised layout has independent primary reviews. The progression target is8/10; full9/10 acceptance remains separate.</p><h2>Notes cohort</h2><table>TABLE</table><h2>Appearance cohort</h2><table>APPEARANCE</table><p class="note">Raw reviewer verdicts are retained. Gemini raw* is excluded where the rubric or source-evidence requirements fail. Parent audits are in the workbook, gemini-audit.md and gemini-round10-audit.md. Notes and settings cohort means are separate in the source reports. Navigation/picker comparisons change state; they do not establish a controlled numeric improvement.</p><label for="view">Compare a view</label><br><select id="view">OPTIONS</select>PANELS<p class="note">Synthetic Project Atlas with four populated pages. Chromium156, scale1, desktop1280×900 or phone390×844; OS light/dark emulated. Before is the previous reviewed stage; manifests record revisions, patch and served-bundle hashes. Fresh fixtures change initials and save times. The empty trailing bullet is captured fixture content. WebKit and a complete empty/loading/error matrix remain unverified.</p></main><script>const picker=document.getElementById('view');function show(){for(const panel of document.querySelectorAll('.comparison'))panel.classList.toggle('active',panel.dataset.view===picker.value)}picker.addEventListener('change',show);show();</script></html>'''
+(ROOT / "comparison.html").write_text(page.replace("TABLE", table).replace("APPEARANCE", appearance_table).replace("OPTIONS", options).replace("PANELS", "".join(panels)))
 print(f"Verified {len(inventory)} image hashes and {len(score_rows)-1} score rows; wrote {len(sheets)}-sheet workbook and self-contained comparison page.")

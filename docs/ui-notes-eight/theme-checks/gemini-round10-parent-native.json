@@ -1,0 +1,64 @@
+{
+  "fixture": "http://127.0.0.1:18114",
+  "scope": "Parent native T3 supplemental audit; Chromium154/classic-scrollbar variant; no content or theme edits",
+  "editor": {
+    "actions": [
+      {
+        "height": 40,
+        "text": "Indent page",
+        "width": 107.890625,
+        "x": 155,
+        "y": 761
+      },
+      {
+        "height": 40,
+        "text": "Outdent page",
+        "width": 120.015625,
+        "x": 16,
+        "y": 809
+      },
+      {
+        "height": 40,
+        "text": "Delete",
+        "width": 69.5,
+        "x": 289.5,
+        "y": 809
+      }
+    ],
+    "bodyX": 17,
+    "scrollHeight": 1104,
+    "titleX": 16,
+    "viewport": {
+      "height": 844,
+      "width": 390
+    }
+  },
+  "chooser": {
+    "bars": [
+      {
+        "bottom": 120,
+        "height": 48,
+        "selector": ".notebook-navigation-toggle",
+        "top": 72
+      },
+      {
+        "bottom": 168,
+        "height": 48,
+        "selector": ".page-navigation-toggle",
+        "top": 120
+      },
+      {
+        "bottom": 232,
+        "height": 40,
+        "selector": ".recovery-notice",
+        "top": 192
+      }
+    ],
+    "overflow": 0,
+    "viewport": {
+      "height": 844,
+      "width": 390
+    }
+  },
+  "correction": "Recovery row top192 is24px below Pages bottom168 and72px below notebook/account bottom120 in this native sample. Raw44px claim not reproduced; use actual recorded geometry. Native coordinates are supplemental, not scored PNG coordinates."
+}

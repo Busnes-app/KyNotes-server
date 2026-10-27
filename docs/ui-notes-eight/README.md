@@ -1,13 +1,24 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **13-after**, Council round10. The owner rejected the old
-adjacent columns at6/10. Round9 Notes scores **Opus8.0 / Sol8.1**, both satisfied
-for that cohort. Appearance was **Opus7.9 / Sol8.1**, reported separately.
-Round10 changes only phone Settings links into an even responsive grid and
-balances the subtitle; native390 shows two rows of40px links and Appearance44px
-higher. All23 theme choices remain. Its599units/12full browsers and fresh capture
-regressions passed; independent round10 reviews are pending. Gemini stays deferred.
-Full9/10 and complete keyboard/focus acceptance remain unproven.
+The current stage is **13-after**, Council round10. Both primary reviewers are
+satisfied across the covered visual cohorts: **Notes Opus8.0 / Sol8.1** and
+**Appearance Opus8.0 / Sol8.2**. KyNotes clears this evidence-supported visual8
+progression gate; KyPulse is next. Opus Appearance confidence is moderate at
+exactly8.0. Sol's expanded phone management is7.8 within its Notes mean, so
+this is not an every-image agreement or full-product acceptance.
+
+Gemini's round10 raw **Notes8.0 / Appearance8.1**, satisfied, is retained but
+excluded from the screenshot progression rating: its harness could not visually
+read original PNGs and it used the live browser instead. The [round10 audit](gemini-round10-audit.md)
+checks the arithmetic, supports the main layout facts, and corrects the input
+path, pixel counts and unsupported precise recovery spacing. No further Gemini
+run or product change follows that audit.
+
+Round10 uses three phone Settings CSS rules for even wrapping links and a
+balanced subtitle; Appearance starts44px higher at390px. All23 theme choices
+remain. Its599units/12full browsers, fresh capture, Docker/probe/setup and
+repeatable build checks passed. First-open phone focus and full9/browser/state/
+role/theme/contrast/softkeyboard limits remain explicitly unproven.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -76,7 +87,7 @@ Sol round6 observed BODY focus on a first phone page opening from a no-open-note
 WebKit, the complete empty/loading/error matrix and every product theme/focus/role
 path are not certified by this pass. Shared palette probes do not certify all product
 overrides. Optional polish remains in small metadata,
-light avatar separation and minor icon/divider consistency. These remain outside this bounded visual pass. Round10 phone Settings verdicts are pending.
+light avatar separation and minor icon/divider consistency. These remain outside this bounded visual pass. Round10 covered visual verdicts are complete and satisfied.
 
 The design detector retains two narrow existing findings: the semantic 3px key/conflict
 warning rail and the legacy 4px user-colored section border overridden to 2px.
