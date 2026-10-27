@@ -39,6 +39,7 @@ func TestValidateRefusesHostileInput(t *testing.T) {
 		"empty secret":      func(r *Request) { r.SSO.ClientSecret = "" },
 		"control in secret": func(r *Request) { r.SSO.ClientSecret = "a\x00b" },
 		"oversize secret":   func(r *Request) { r.SSO.HMACSecret = strings.Repeat("h", MaxSecretBytes+1) },
+		"short hmac secret": func(r *Request) { r.SSO.HMACSecret = strings.Repeat("h", 15) },
 		"admin issuer":      func(r *Request) { r.Admins[0].Issuer = "https://other.example" },
 		"blank username":    func(r *Request) { r.Admins[0].Username = " " },
 		"control username":  func(r *Request) { r.Admins[0].Username = "a\nb" },

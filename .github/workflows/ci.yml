@@ -83,6 +83,12 @@ jobs:
           cmp "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
       - run: test -z "$(gofmt -l .)"
       - run: make test
+      - name: test supported strong-key profile
+        env:
+          GODEBUG: fips140=on
+        run: make test
+      - name: profile preserves Compose configuration
+        run: python3 docs/check-strong-crypto-compose.py
       - name: Team keys in three real browsers
         run: |
           cd web

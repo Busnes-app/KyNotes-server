@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
+	"github.com/Busnes-app/ky-primitives/syncauth"
 )
 
 const (
@@ -135,6 +136,9 @@ func (s SSO) validate(allowPrivate bool) error {
 	}
 	if s.HMACSecret != "" && !secretOK(s.HMACSecret) {
 		return errors.New("sso directory HMAC secret: over 4 KiB or contains control characters")
+	}
+	if s.HMACSecret != "" && len(s.HMACSecret) < syncauth.MinKeyBytes {
+		return fmt.Errorf("sso directory HMAC secret: shorter than %d bytes", syncauth.MinKeyBytes)
 	}
 	return nil
 }

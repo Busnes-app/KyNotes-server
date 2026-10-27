@@ -384,7 +384,10 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 				WriteError(w, r, 400, "invalid_request", problem)
 				return
 			}
-			if err := ssoStore.Save(in); err != nil {
+			if err := ssoStore.Save(in); errors.Is(err, sso.ErrShortDirectorySecret) {
+				WriteError(w, r, 400, "invalid_request", "directory secret must be at least 16 bytes")
+				return
+			} else if err != nil {
 				WriteError(w, r, 500, "internal", "failed to save SSO settings")
 				return
 			}
@@ -437,7 +440,10 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 				HMACSecret:    resp.HMACSecret,
 			}
 
-			if err := ssoStore.Save(newSettings); err != nil {
+			if err := ssoStore.Save(newSettings); errors.Is(err, sso.ErrShortDirectorySecret) {
+				WriteError(w, r, 400, "pairing_failed", "KySignOn sent a directory secret shorter than 16 bytes")
+				return
+			} else if err != nil {
 				WriteError(w, r, 500, "internal", "failed to save paired SSO settings")
 				return
 			}

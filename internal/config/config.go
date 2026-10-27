@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -138,8 +139,15 @@ func loadMode(path string, probe, createSecrets bool) (Config, error) {
 		if err := Validate(validation); err != nil {
 			return c, err
 		}
-		if c.Backup.BlobTarget.URL != "" {
-			if _, err := offsite.Parse(c.Backup.BlobTarget.Offsite()); err != nil {
+		if target := c.Backup.BlobTarget; target.URL != "" {
+			u, err := url.Parse(target.URL)
+			if err != nil {
+				return c, errors.New("invalid blob probe target")
+			}
+			if err := blobTransportPolicy(u, target); err != nil {
+				return c, err
+			}
+			if _, err := offsite.Parse(target.Offsite()); err != nil {
 				return c, errors.New("invalid blob probe target")
 			}
 		}

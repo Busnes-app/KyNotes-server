@@ -94,10 +94,16 @@ export function randomLoginSalt(): string {
 const V2 = 2;
 const CONTENT_V2 = "kynotes/content/v2";
 
+/** WebCrypto takes 16- and 24-byte AES keys too; every KyNotes key is AES-256. */
+function importAES256(keyBytes: Uint8Array, usage: KeyUsage): Promise<CryptoKey> {
+  if (keyBytes.byteLength !== 32) throw new Error("Refusing a content key that is not 256 bits");
+  return subtle().importKey("raw", buffer(keyBytes), "AES-GCM", false, [usage]);
+}
+
 /** nonce(12) ‖ AES-256-GCM; with aad, the v2 form 0x02 ‖ nonce(12) ‖ AES-256-GCM(…, aad). */
 async function encryptWithKey(keyBytes: Uint8Array, plaintext: Uint8Array, aad?: Uint8Array): Promise<Uint8Array> {
   const iv = getRandomValues(new Uint8Array(12));
-  const key = await subtle().importKey("raw", buffer(keyBytes), "AES-GCM", false, ["encrypt"]);
+  const key = await importAES256(keyBytes, "encrypt");
   const ciphertext = await subtle().encrypt({ name: "AES-GCM", iv: buffer(iv), ...(aad && { additionalData: buffer(aad) }) }, key, buffer(plaintext));
   const head = aad ? 1 : 0;
   const result = new Uint8Array(head + iv.byteLength + ciphertext.byteLength);
@@ -110,7 +116,7 @@ async function encryptWithKey(keyBytes: Uint8Array, plaintext: Uint8Array, aad?:
 async function decryptWithKey(keyBytes: Uint8Array, bytes: Uint8Array, aad?: Uint8Array): Promise<Uint8Array> {
   const head = aad ? 1 : 0;
   if (bytes.byteLength < head + 28) throw new Error("Ciphertext too short");
-  const key = await subtle().importKey("raw", buffer(keyBytes), "AES-GCM", false, ["decrypt"]);
+  const key = await importAES256(keyBytes, "decrypt");
   try {
     return new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv: buffer(bytes.slice(head, head + 12)), ...(aad && { additionalData: buffer(aad) }) }, key, buffer(bytes.slice(head + 12))));
   } catch (e) {
