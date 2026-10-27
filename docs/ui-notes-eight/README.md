@@ -1,10 +1,13 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **07-after**, Council round4. The owner rated the adjacent
-left columns **6/10**, reopening progression despite the historical round3
-Opus8.1/Sol8.2 scores. The revised layout uses **one 240px left navigation pane**;
-notebook management replaces sections/pages in that same region. Fresh reviews
-are pending after599units and12full browser tests passed; no current8/10 or full9/10 acceptance is claimed.
+The current stage is **08-after**, Council round5. The owner rated the adjacent
+left columns **6/10**, reopening progression. Stage07 removed the double-left
+layout; Opus rated it7.7 and blocked first-run guidance, while Sol rated it8.2.
+The empty editor now exposes **New notebook** through the existing creation flow,
+above the phone fold in both themes. Key/setup notices remain visible, and Work
+queue restores focus to the persistent navigation toggle. Fresh Opus/Sol reviews
+are pending after599units and12full browser tests passed. No current8/10 or
+full9/10 acceptance is claimed.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -26,7 +29,8 @@ every supported, rejected and deferred item. No product changes followed the aud
 
 ## What changed
 
-- One left navigation pane; keyboard focus returns when choosing a notebook. A late background load cannot close management.
+- One left navigation pane; keyboard focus returns when choosing a notebook or Work queue. A late background load cannot close management.
+- Visible first-notebook creation in the empty editor; no management detour or hidden key/setup guidance.
 - Strong-ink Space editor text and restrained headings; desktop panels fit the viewport.
 - Phone notebook/account disclosure and a separate page chooser that shows all four
   fixture pages immediately. Choosing a page returns focus to its title.
@@ -40,17 +44,19 @@ every supported, rejected and deferred item. No product changes followed the aud
 ## Capture provenance
 
 Original base: `34849c4d0766901fdf33556855373aa122666049`. Current captures
-are from head `d9c413fdcf13edbf722e1c74512f000bd184dfcc` plus the recorded source patch and
+are from head `5dbf6df0a028c810f7dda767ddb09b8cd7f841fd` plus the recorded source patch and
 explicit file hashes. Current served index SHA256:
-`ec3b1526952e750a8d4350a632eee53738305e1d9f9dd36481e2d57c68f5f264`.
+`00dcf80d36040710ede88cc0e47fd1807933d3969a345497a5ba78403c113343`.
 
-`inventory-v6.json` contains130 PNGs / 96 unique across all stages. Current stage07
+`inventory-v7.json` contains152 PNGs /108 unique across all stages. Current stage08
 has22captures/18unique:14Notes (including4empty and2desktop management views)
-and4Settings. Four workspace aliases are excluded from means. Stages05/06 were preliminary attempts: reviews were interrupted after the startup
-disclosure race and delayed focus return were discovered. No completed score is
-claimed for those attempts. Earlier inputs are frozen.
-The displayed before/current comparison uses stage04 and stage07. New empty and
-desktop-management views have no matched previous capture.
+and4Settings. Four workspace aliases are excluded from means. Stages05/06 were
+preliminary attempts whose reviews were interrupted before completion; earlier
+inputs and completed stage07 round4 reviews remain frozen. The comparison uses
+stage07 and stage08, including matched empty screens. A first stage08 capture
+stopped on a test focus race; the final isolated capture passed after waiting for
+notebook creation's focus handoff before the recovery keypress. No product focus
+workaround or security change was added.
 
 Chromium 156.0.8078.4, scale 1; desktop 1280×900 and phone 390×844; OS light/dark
 emulation, no saved theme choice, real disposable server, synthetic owner and
@@ -62,7 +68,7 @@ Rubric: `ky-suite-v2`, hierarchy .20 / typography .15 / density .20 / color .15 
 visible affordances .15 / coherence .15. Decimal half-up totals; raw reviewer
 verdicts are preserved independently, never averaged across models. Ky fit is separate.
 
-Historical 6.7 and current scores have different coverage and cannot establish a
+Historical6.7 and current scores have different coverage and cannot establish a
 controlled improvement. Page-picker/navigation comparisons also change state;
 the workbook identifies those unmatched pairs. The trailing empty bullet is fixture
 content. No new competitor ranking or whole-suite cohesion score is claimed.
@@ -72,8 +78,7 @@ content. No new competitor ranking or whole-suite cohesion score is claimed.
 WebKit, the complete empty/loading/error matrix and every product theme/focus/role
 path are not certified by this pass. Shared palette probes do not certify all product
 overrides. Optional polish remains in phone Settings spacing, small metadata,
-light avatar separation and minor icon/divider consistency. Neither primary reviewer
-requires these changes for the scoped progression gate.
+light avatar separation and minor icon/divider consistency. These were nonblocking in round4; round5 verdicts are pending.
 
 The design detector retains two narrow existing findings: the semantic 3px key/conflict
 warning rail and the legacy 4px user-colored section border overridden to 2px.
