@@ -1,0 +1,16 @@
+{
+  "round": 4,
+  "interrupted_attempts": [
+    "kynotes-single-nav-opus-r4-20261027",
+    "kynotes-single-nav-sol-r4-20261027",
+    "kynotes-single-nav-opus-r4-final-20261027",
+    "kynotes-single-nav-sol-r4-final-20261027"
+  ],
+  "reason": "Stage05 review interrupted before completion after browser tests found automatic initial notebook load closing an open management view. A second attempt stopped before completion after the full suite exposed delayed focus stealing the next recovery-disclosure keypress; corrected by immediate focus on the always-visible toggle.",
+  "current_stage": "07-after",
+  "no_interrupted_score_claimed": true,
+  "verified_attempts": [
+    "kynotes-single-nav-opus-r4-verified-20261027",
+    "kynotes-single-nav-sol-r4-verified-20261027"
+  ]
+}

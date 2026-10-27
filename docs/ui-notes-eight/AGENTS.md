@@ -6,7 +6,7 @@
 
 ## Ownership
 
-- `screenshots/` and the versioned `inventory*.json` files own the scored source images and capture provenance; `inventory-v3.json` is current and earlier inventories stay frozen.
+- `screenshots/` and the versioned `inventory*.json` files own the scored source images and capture provenance; `inventory-v6.json` is current and earlier inventories stay frozen.
 - Reviewer reports preserve independent scores and objections by model and round. Gemini’s original files are named `argon-round3.md/json`; `gemini-audit.md/json` owns corrections. Nonconforming raw scores remain visible and are excluded from progression decisions.
 - `theme-checks/` holds supplemental interaction checks, outside the scored source set.
 
@@ -24,7 +24,7 @@
 
 ## Verification
 
-- `KYNOTES_COUNCIL_STAGE=before|after KYNOTES_COUNCIL_ROUND=<stage number> npm run e2e -- ui-council.e2e.ts --output=../.playwright-mcp/council-<stage number>` from `web/` captures the source set. Give captures a fixture separate from the full suite's default server and an owned Playwright output directory. Use `KYNOTES_E2E_URL` only for that isolated loopback fixture. Stage 02 is round 1, stage 03 round 2 and stage 04 round 3. Preserve earlier captures.
+- `KYNOTES_COUNCIL_STAGE=before|after KYNOTES_COUNCIL_ROUND=<stage number> npm run e2e -- ui-council.e2e.ts --output=../.playwright-mcp/council-<stage number>` from `web/` captures the source set. Give captures a fixture separate from the full suite's default server and an owned Playwright output directory. Use `KYNOTES_E2E_URL` only for that isolated loopback fixture. Stage 02 is round1, stage03 round2 and stage04 round3. Stages05/06 are interrupted preliminary single-pane attempts; stage07 is current round4 (manifest councilRound). Preserve earlier captures.
 - `python3 docs/ui-notes-eight/build-report.py` verifies current source/bundle hashes, image hashes/dimensions and reviewer arithmetic and generates the round table, workbook and self-contained comparison page. `inventory-v3.json` is the current source inventory; earlier inventories remain frozen.
 - Recompute image hashes, duplicates and weighted totals before publishing scores.
 - Run the product's root verification checks for implementation changes.

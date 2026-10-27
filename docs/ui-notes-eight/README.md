@@ -1,8 +1,10 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **04-after**. Claude Opus 5.5 scores Notes **8.1/10** and
-GPT Sol **8.2/10**; both are satisfied with the scoped visual progression.
-Both score Settings separately at **8.4**. Full 9/10 acceptance remains unproven.
+The current stage is **07-after**, Council round4. The owner rated the adjacent
+left columns **6/10**, reopening progression despite the historical round3
+Opus8.1/Sol8.2 scores. The revised layout uses **one 240px left navigation pane**;
+notebook management replaces sections/pages in that same region. Fresh reviews
+are pending after599units and12full browser tests passed; no current8/10 or full9/10 acceptance is claimed.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -23,6 +25,7 @@ every supported, rejected and deferred item. No product changes followed the aud
 
 ## What changed
 
+- One left navigation pane; keyboard focus returns when choosing a notebook. A late background load cannot close management.
 - Strong-ink Space editor text and restrained headings; desktop panels fit the viewport.
 - Phone notebook/account disclosure and a separate page chooser that shows all four
   fixture pages immediately. Choosing a page returns focus to its title.
@@ -35,16 +38,18 @@ every supported, rejected and deferred item. No product changes followed the aud
 
 ## Capture provenance
 
-Base: `34849c4d0766901fdf33556855373aa122666049`. The manifests record the
-source-diff hash, explicit source-file hashes and served index hash. Current index:
-`191fb200e296b0a18d406bf500db52046a3882e92f55f3ad3060c2d57205892d`.
-The final commits retain these captured application inputs; documentation-only
-closeout does not change the product bundle.
+Original base: `34849c4d0766901fdf33556855373aa122666049`. Current captures
+are from head `d9c413fdcf13edbf722e1c74512f000bd184dfcc` plus the recorded source patch and
+explicit file hashes. Current served index SHA256:
+`ec3b1526952e750a8d4350a632eee53738305e1d9f9dd36481e2d57c68f5f264`.
 
-`inventory-v3.json` contains 64 PNGs / 42 unique across the complete history.
-Stage 04 has 16 captures / 12 unique: 8 Notes and 4 Settings. Four workspace
-images are near duplicates of editor images and excluded from means. Earlier
-inventories and stage 02/03 captures are frozen.
+`inventory-v6.json` contains130 PNGs / 96 unique across all stages. Current stage07
+has22captures/18unique:14Notes (including4empty and2desktop management views)
+and4Settings. Four workspace aliases are excluded from means. Stages05/06 were preliminary attempts: reviews were interrupted after the startup
+disclosure race and delayed focus return were discovered. No completed score is
+claimed for those attempts. Earlier inputs are frozen.
+The displayed before/current comparison uses stage04 and stage07. New empty and
+desktop-management views have no matched previous capture.
 
 Chromium 156.0.8078.4, scale 1; desktop 1280×900 and phone 390×844; OS light/dark
 emulation, no saved theme choice, real disposable server, synthetic owner and

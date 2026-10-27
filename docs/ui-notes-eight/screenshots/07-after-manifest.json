@@ -1,0 +1,441 @@
+{
+  "head": "d9c413fdcf13edbf722e1c74512f000bd184dfcc",
+  "sourceDiffSha256": "8e2a6bd7a14f5d746aa5e34de9715c00370c039e814abd2afe6ffdfbaf229264",
+  "sourceFiles": {
+    "src/main.tsx": "42ec61a480749b6e4ef681d9cbc5d26c45473b0fc96bfda12331a3ddbeeeb7f5",
+    "src/styles.css": "2b5c72d889685f621c7bc1faeddc8e92a73939461578aac82af0f1d73253d3ca",
+    "src/NavIcon.tsx": "70c925c6d23388a4bd99d2575a9e6a0df226275cda9da8f094b84e255fc4bc8b",
+    "src/components/SectionTabs.tsx": "c61baaaa4d46c9f4c66e7300a19aee85d9d34423924b61e471ba825fa1074a1a",
+    "src/ky-ui/VERSION": "884826819a3f2525e8546229d964c32ddad1c6df7153e3c506a4ff228b14e458",
+    "e2e/ui-council.e2e.ts": "16db32e22ef1385c7068c1872293de36c7ce089a74addcc6cff3aae622015ec4",
+    "package-lock.json": "417d094e4a48b0b72212d10a33f2594d95376c9024178f5ae76595a78d97b70e",
+    "e2e/people.ts": "9fc03d18670f0cf8995bc59e15c1bf169a47811fe201bdb523f52beb7c0fbeac"
+  },
+  "servedIndexSha256": "ec3b1526952e750a8d4350a632eee53738305e1d9f9dd36481e2d57c68f5f264",
+  "stage": "after",
+  "captured": "2026-10-27T00:43:20.168Z",
+  "browser": "156.0.8078.4",
+  "fixture": "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1",
+  "files": [
+    {
+      "file": "kynotes-07-after-empty-desktop-light.png",
+      "surface": "empty",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "bytes": 31656,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-empty-mobile-light.png",
+      "surface": "empty",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "bytes": 25577,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-empty-desktop-dark.png",
+      "surface": "empty",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "bytes": 31841,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-empty-mobile-dark.png",
+      "surface": "empty",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "bytes": 26174,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-workspace-desktop-light.png",
+      "surface": "workspace",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c",
+      "bytes": 79043,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-editor-desktop-light.png",
+      "surface": "editor",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "375df600642661f45f6c45ac87130cbff239f2bf42e51ac0ee5266150fc45a1e",
+      "bytes": 79048,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-navigation-desktop-light.png",
+      "surface": "navigation",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "e6c8872e35479263711d5987100ae7653be0182a0aa3c6f8c3bb07c9d3b6290f",
+      "bytes": 70292,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-appearance-desktop-light.png",
+      "surface": "appearance",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-workspace-mobile-light.png",
+      "surface": "workspace",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc",
+      "bytes": 41077,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-editor-mobile-light.png",
+      "surface": "editor",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "ecebdc699bdf88b23686cc1a1591bcf4a0785aacd44aea5a6329b73d4605c24f",
+      "bytes": 41085,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-pages-mobile-light.png",
+      "surface": "pages",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "bytes": 34434,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-navigation-mobile-light.png",
+      "surface": "navigation",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "7379fb43401414f4dcac11dbeb2aadf257845c7ea387a466d1e9cd2878111851",
+      "bytes": 34667,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-appearance-mobile-light.png",
+      "surface": "appearance",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-workspace-desktop-dark.png",
+      "surface": "workspace",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0",
+      "bytes": 79828,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-editor-desktop-dark.png",
+      "surface": "editor",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "b7864d59b1827f608dd181fd4a7a8f2ef7885da0186f6989df71d8889561a104",
+      "bytes": 79828,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-navigation-desktop-dark.png",
+      "surface": "navigation",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "d6d5b12d707c052079a62c65d7b56d4b5ae5d4884a3517b3c177761e5105aaed",
+      "bytes": 71436,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-appearance-desktop-dark.png",
+      "surface": "appearance",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-workspace-mobile-dark.png",
+      "surface": "workspace",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f",
+      "bytes": 41809,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-editor-mobile-dark.png",
+      "surface": "editor",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "cd02bc6f7f5df890678b955bfd4e61edaf7505eb35ab970ea2fe36349adc5047",
+      "bytes": 41809,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-pages-mobile-dark.png",
+      "surface": "pages",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "bytes": 35402,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-navigation-mobile-dark.png",
+      "surface": "navigation",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "e733d102a61356b24fb3dcbc448b41f0a8b5e57b0cae0a10a86efc8798ba5d03",
+      "bytes": 35746,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-07-after-appearance-mobile-dark.png",
+      "surface": "appearance",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ]
+    }
+  ],
+  "councilRound": 4
+}

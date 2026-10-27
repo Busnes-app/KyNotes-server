@@ -655,6 +655,7 @@ function Workspace({
   const [showNotebookNavigation, setShowNotebookNavigation] = useState(false);
   const [showPageNavigation, setShowPageNavigation] = useState(false);
   const pageTitleRef = useRef<HTMLInputElement>(null);
+  const notebookNavigationRef = useRef<HTMLButtonElement>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -1491,6 +1492,12 @@ function Workspace({
   }
   /** Null when the open page could not be flushed and stays open. */
   /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
+  async function chooseNotebook(container: Container) {
+    if (await selectContainer(container)) {
+      setShowNotebookNavigation(false);
+      notebookNavigationRef.current?.focus();
+    }
+  }
   async function selectContainer(container: Container, route?: Route, leaveQueue = true): Promise<Note[] | null> {
     // Every call supersedes the ones before it, a second load of the same notebook included.
     const load = loads.begin();
@@ -1579,6 +1586,7 @@ function Workspace({
     setQueueEntries(entries);
   }
   async function openWorkQueue() {
+    setShowNotebookNavigation(false);
     setView("workspace");
     setQueueMode(true);
     setBusy(true);
@@ -1683,7 +1691,7 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      await selectContainer(await createNamed(() => newContainer(floorSink, "workbook"), name));
+      await chooseNotebook(await createNamed(() => newContainer(floorSink, "workbook"), name));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to create notebook");
     } finally {
@@ -1695,7 +1703,7 @@ function Workspace({
     if (!name) return;
     setBusy(true);
     try {
-      await selectContainer(await createNamed(() => newContainer(floorSink, "workbook", teamContainer.id), name));
+      await chooseNotebook(await createNamed(() => newContainer(floorSink, "workbook", teamContainer.id), name));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to create team notebook");
     } finally {
@@ -2758,7 +2766,7 @@ function Workspace({
       <>
         <div className={`workspace-view ${view !== "workspace" ? "workspace-view-hidden" : ""}`}>
           <div className={`workspace${showNotebookNavigation ? " show-notebook-navigation" : ""}${showPageNavigation ? " show-page-navigation" : ""}${selectedNote ? " has-open-page" : ""}${queueMode ? " queue-mode" : ""}`}>
-          <button type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}><span>Notebooks and account</span><NavIcon name="chevron" /></button>
+          <button ref={notebookNavigationRef} type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}><span>Notebooks and account</span><NavIcon name="chevron" /></button>
           {selectedNote && <button type="button" className="page-navigation-toggle quiet" aria-expanded={showPageNavigation} aria-controls={queueMode ? "page-navigation" : "page-navigation section-navigation"} onClick={() => setShowPageNavigation((open) => !open)}><span>Pages in {queueMode ? "Work queue" : selected ? nameOf(selected) : "this notebook"}</span><NavIcon name="chevron" /></button>}
           <aside id="notebook-navigation" className="sidebar">
             <div className="section-label">Focus</div>
@@ -2777,7 +2785,7 @@ function Workspace({
                 className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
                 aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
                 key={container.id}
-                onClick={() => void selectContainer(container)}
+                onClick={() => void chooseNotebook(container)}
               >
                 <NavIcon name="notebook" />
                 <span>{nameOf(container)}</span>
@@ -2789,7 +2797,7 @@ function Workspace({
                 <button
                   className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
                   aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
-                  onClick={() => void selectContainer(container)}
+                  onClick={() => void chooseNotebook(container)}
                 >
                   <NavIcon name="team" />
                   <span>{nameOf(container)}</span>
@@ -2799,7 +2807,7 @@ function Workspace({
                     className={`ky-nav-item nav-item nested-nav-item ${!queueMode && selected?.id === workspace.id ? "selected" : ""}`}
                     aria-current={!queueMode && selected?.id === workspace.id ? "page" : undefined}
                     key={workspace.id}
-                    onClick={() => void selectContainer(workspace)}
+                    onClick={() => void chooseNotebook(workspace)}
                   >
                     <NavIcon name="notebook" />
                     <span>{nameOf(workspace)}</span>
@@ -2868,31 +2876,6 @@ function Workspace({
               </div>
             </div>
           </aside>
-          {selected && !queueMode && (
-            <SectionTabs
-              sections={groupSections}
-              groups={childGroups}
-              path={groupTrail}
-              current={sectionID}
-              busy={busy || keyWait}
-              canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
-              moveTargets={moveTargets}
-              onSelect={(id) => void selectSection(id)}
-              onCreate={(kind) => void newStructure(kind)}
-              onRename={renameStructure}
-              onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
-              onDelete={(section) => void removeSection(section)}
-              onDeleteGroup={(group) => void removeGroup(group)}
-              onMove={(kind, id, index) => void moveStructure(kind, id, index)}
-              onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
-              onOpenGroup={(id) => void openGroup(id)}
-              onDropPage={(pageID, target) => {
-                // A drop on the page's own section tab is not a move.
-                const page = notesRef.current.find((note) => note.id === pageID);
-                if (page && pageSection(page) !== target) void movePage(pageID, target, null);
-              }}
-            />
-          )}
           <section id="page-navigation" className="note-list" aria-busy={loadingContainer}>
             <div className="list-header">
               <div>
@@ -2928,6 +2911,31 @@ function Workspace({
                 )}
                 {selected && <h3 className="notes-heading">{queueMode ? `${queueRows.length} open task${queueRows.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
               </div>
+          {selected && !queueMode && (
+            <SectionTabs
+              sections={groupSections}
+              groups={childGroups}
+              path={groupTrail}
+              current={sectionID}
+              busy={busy || keyWait}
+              canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
+              moveTargets={moveTargets}
+              onSelect={(id) => void selectSection(id)}
+              onCreate={(kind) => void newStructure(kind)}
+              onRename={renameStructure}
+              onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
+              onDelete={(section) => void removeSection(section)}
+              onDeleteGroup={(group) => void removeGroup(group)}
+              onMove={(kind, id, index) => void moveStructure(kind, id, index)}
+              onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
+              onOpenGroup={(id) => void openGroup(id)}
+              onDropPage={(pageID, target) => {
+                // A drop on the page's own section tab is not a move.
+                const page = notesRef.current.find((note) => note.id === pageID);
+                if (page && pageSection(page) !== target) void movePage(pageID, target, null);
+              }}
+            />
+          )}
               <div className="list-actions">
                 <input
                   aria-label="Search this notebook"

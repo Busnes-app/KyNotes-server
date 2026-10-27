@@ -1,0 +1,28 @@
+{
+  "rule": "Every active Ky web app uses one left navigation region; remove adjacent app and content sidebars wherever confirmed.",
+  "inspection": "Read-only source screening, not a live fleet browser certification. Root checkouts may be stale; verify default-branch source before acting.",
+  "rows": [
+    {
+      "app": "KyNotes",
+      "state": "revised; awaiting verified round4 review",
+      "detail": "Single240px pane for notebook management or sections/pages; no adjacent columns."
+    },
+    {
+      "app": "KyCalendar",
+      "revision": "origin/main34b0a01",
+      "state": "latest source consolidated",
+      "detail": "CalendarSidebar is portaled into AppHeader app-sidebar-slot; CalendarPage main only contains calendar canvas. Root fix/calendar-layout-branding checkout is stale."
+    },
+    {
+      "app": "KyDrive",
+      "revision": "origin/master3fef4e7",
+      "state": "latest source consolidated",
+      "detail": "AppHeader exposes personal/shared workspace destinations; Drive.tsx has no aside and drive-layout is one column. Some unused legacy aside CSS remains; it is not an extra rendered pane."
+    },
+    {
+      "app": "Other active Ky web apps",
+      "state": "screening only; live inspection continues during sequential passes",
+      "detail": "No additional occurrence confirmed by the limited source screen. Existing form/table columns are not automatically navigation; inspect rendered purpose before changing."
+    }
+  ]
+}

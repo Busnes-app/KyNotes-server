@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page, type Request } from "@playwright/test";
-import { adminConsole, OWNER, person, signIn, withDialog } from "./people";
+import { adminConsole, OWNER, person, signIn, withDialog, openNotebooks } from "./people";
 
 const NOTEBOOK = "Export E2E";
 const BODY = "Plaintext only in this browser";
@@ -35,6 +35,7 @@ test("a notebook exports as Markdown and attachments, decrypted only in the brow
     await adminConsole(admin.page);
     await signIn(owner.page, OWNER.username, OWNER.password);
     const { page } = owner;
+    await openNotebooks(page);
     await withDialog(owner, { type: "prompt", text: "Notebook name", answer: NOTEBOOK }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
     await expect(page.locator(".workspace-title")).toHaveText(NOTEBOOK);
     await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
@@ -71,6 +72,7 @@ test("a notebook exports as Markdown and attachments, decrypted only in the brow
     };
     page.on("request", record);
     const download = page.waitForEvent("download");
+    await openNotebooks(page);
     await withDialog(owner, { type: "confirm", text: `${EXPORT_WARNING}\n\nExport "${NOTEBOOK}"?` }, () => page.getByRole("button", { name: "Export notebook", exact: true }).click());
     const file = await download;
     await expect(page.getByText("Exported 1 pages.")).toBeVisible();

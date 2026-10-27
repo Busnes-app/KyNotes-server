@@ -1,11 +1,12 @@
 # KyNotes council score history
 
-Raw reviewer verdicts; scores are not averaged across reviewers or cohorts.
+Raw reviewer verdicts; scores are not averaged across reviewers or cohorts. Owner rejection reopens progression.
 
-| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon |
-| --- | ---: | ---: | ---: |
-| 1 | 6.5/10 | 7.8/10 | Deferred |
-| 2 | 7.4/10 | 8.1/10 | Deferred |
-| 3 | 8.1/10 | 8.2/10 | 8.1/10 (raw*) |
+| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon | Owner |
+| --- | ---: | ---: | ---: | --- |
+| 1 | 6.5/10 | 7.8/10 | Deferred | Not scored |
+| 2 | 7.4/10 | 8.1/10 | Deferred | Not scored |
+| 3 | 8.1/10 | 8.2/10 | 8.1/10 (raw*) | 6/10 — rejected double left navigation |
+| 4 | Pending | Pending | Deferred | Pending |
 
-*Gemini's raw 8.1 is retained. Its weights and several factual claims fail the audit; the primary Opus/Sol scores determine progression. See gemini-audit.md and the workbook audit sheet.
+*Gemini's raw 8.1 is retained. Its weights and several factual claims fail the audit; owner rejection supersedes the prior approvals. See gemini-audit.md and the workbook audit sheet.

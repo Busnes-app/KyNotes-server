@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 WEIGHTS = dict(hierarchy=".20", typography=".15", density_layout=".20", color=".15", visible_affordances=".15", coherence=".15")
-inventory_path = ROOT / ("inventory-v3.json" if (ROOT / "inventory-v3.json").exists() else "inventory-v2.json")
+inventory_path = max(ROOT.glob("inventory-v*.json"), key=lambda path: int(re.search(r"-v(\d+)", path.name)[1]))
 inventory = json.loads(inventory_path.read_text())
 current_stage = max(int(re.search(r"kynotes-(\d+)-after", row["file"])[1]) for row in inventory if re.search(r"kynotes-(\d+)-after", row["file"]))
 manifest = json.loads((ROOT / f"screenshots/{current_stage:02}-after-manifest.json").read_text())
@@ -52,10 +52,12 @@ for name in ("opus", "sol", "gemini"):
                 assert Decimal(str(reported)) == raw_total, (path.name, row["file"], reported, raw_total)
             score_rows.append([name, number, row["file"], row.get("cohort"), *[scores[key] for key in WEIGHTS], float(total), reported, row.get("duplicate_of"), row.get("confidence"), row.get("caveat"), conforms])
 
-round_count = max([current_stage - 1, *[number for _, number in reports]])
+round_count = max([manifest.get("councilRound", current_stage - 1), *[number for _, number in reports]])
+owner_path = ROOT / "owner-review.json"
+owner = json.loads(owner_path.read_text()) if owner_path.exists() else {}
 rounds = []
-round_rows = [["Round", "Claude Opus 5.5", "Satisfied", "GPT Sol", "Satisfied", "Gemini 4 Argon", "Satisfied", "Basis"]]
-markdown = ["# KyNotes council score history", "", "Raw reviewer verdicts; scores are not averaged across reviewers or cohorts.", "", "| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon |", "| --- | ---: | ---: | ---: |"]
+round_rows = [["Round", "Claude Opus 5.5", "Satisfied", "GPT Sol", "Satisfied", "Gemini 4 Argon", "Satisfied", "Basis", "Owner"]]
+markdown = ["# KyNotes council score history", "", "Raw reviewer verdicts; scores are not averaged across reviewers or cohorts. Owner rejection reopens progression.", "", "| Round | Claude Opus 5.5 | GPT Sol | Gemini 4 Argon | Owner |", "| --- | ---: | ---: | ---: | --- |"]
 for number in range(1, round_count + 1):
     row = {"round": number, **{name: reports.get((name, number), {}) for name in ("opus", "sol", "gemini")}}
     rounds.append(row)
@@ -68,11 +70,14 @@ for number in range(1, round_count + 1):
         cells.append((f"{score:.1f}/10" + (" (raw*)" if not review.get("rubric_conforms", True) else "")) if score is not None else ("Pending advisory" if pending_advisory else "Deferred" if name == "gemini" else "Pending"))
         values.extend([score if score is not None and review.get("rubric_conforms", True) else cells[-1], review.get("satisfied", "")])
     values.append("Separate raw verdicts; Gemini raw* is excluded from progression because its weights/claims fail the audit. See original reviews and Gemini audit.")
+    owner_cell = f"{owner['score']}/10 — rejected double left navigation" if number == owner.get("round") else "Pending" if number == round_count else "Not scored"
+    values.append(owner_cell)
+    row["owner"] = owner if number == owner.get("round") else {"status": owner_cell}
     round_rows.append(values)
-    markdown.append(f"| {number} | {' | '.join(cells)} |")
+    markdown.append(f"| {number} | {' | '.join(cells)} | {owner_cell} |")
 (ROOT / "council-rounds.json").write_text(json.dumps(rounds, indent=2) + "\n")
 if any(not report["rubric_conforms"] for report in reports.values()):
-    markdown.extend(["", "*Gemini's raw 8.1 is retained. Its weights and several factual claims fail the audit; the primary Opus/Sol scores determine progression. See gemini-audit.md and the workbook audit sheet."])
+    markdown.extend(["", "*Gemini's raw 8.1 is retained. Its weights and several factual claims fail the audit; owner rejection supersedes the prior approvals. See gemini-audit.md and the workbook audit sheet."])
 (ROOT / "COUNCIL.md").write_text("\n".join(markdown) + "\n")
 
 evidence_rows = [["File", "SHA-256", "Bytes", "Width", "Height", "Duplicate of", "Kind", "Changed pixels", "Max channel delta"]]
@@ -82,7 +87,8 @@ pair_rows = [["Surface", "Device", "Theme", "Original baseline", "Current implem
 for device in ("desktop", "mobile"):
     for theme in ("light", "dark"):
         for surface in ("editor", "appearance", "pages", "navigation"):
-            before = f"screenshots/kynotes-02-before-{surface}-{device}-{theme}.png"
+            baseline = "04-after" if current_stage >= 5 else "02-before"
+            before = f"screenshots/kynotes-{baseline}-{surface}-{device}-{theme}.png"
             after = f"screenshots/kynotes-{current_stage:02}-after-{surface}-{device}-{theme}.png"
             if not (ROOT / before).exists() or not (ROOT / after).exists():
                 continue
@@ -151,14 +157,16 @@ for surface, device in [("editor", "mobile"), ("editor", "desktop"), ("pages", "
     for theme in ("light", "dark"):
         pair = []
         for stage, prefix in [("Before", "02-before"), ("Current", f"{current_stage:02}-after")]:
+            if stage == "Before" and current_stage >= 5:
+                prefix = "04-after"
             path = ROOT / f"screenshots/kynotes-{prefix}-{surface}-{device}-{theme}.png"
             data = base64.b64encode(path.read_bytes()).decode()
             pair.append(f'<figure><figcaption>{stage}</figcaption><img src="data:image/png;base64,{data}" alt="{stage} {surface}, {device}, {theme}"/></figure>')
         panels.append(f'<section class="comparison" data-view="{surface}-{device}-{theme}"><h2>{surface.title()} · {device} · {theme}</h2><div class="pair">{"".join(pair)}</div></section>')
-table = "".join("<tr>" + "".join(f"<{'th scope=col' if i == 0 else 'td'}>{html.escape(str(cell))}</{'th' if i == 0 else 'td'}>" for cell in row) + "</tr>" for i, row in enumerate([round_rows[0][0:1] + ["Claude Opus 5.5", "GPT Sol", "Gemini 4 Argon"], *[[r[0], r[1], r[3], r[5]] for r in round_rows[1:]]]))
+table = "".join("<tr>" + "".join(f"<{'th scope=col' if i == 0 else 'td'}>{html.escape(str(cell))}</{'th' if i == 0 else 'td'}>" for cell in row) + "</tr>" for i, row in enumerate([round_rows[0][0:1] + ["Claude Opus 5.5", "GPT Sol", "Gemini 4 Argon", "Owner"], *[[r[0], r[1], r[3], r[5], r[8]] for r in round_rows[1:]]]))
 options = "".join(f'<option value="{surface}-{device}-{theme}">{surface.title()} · {device} · {theme}</option>' for surface, device in [("editor", "mobile"), ("editor", "desktop"), ("pages", "mobile"), ("appearance", "mobile")] for theme in ("light", "dark"))
 page = '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KyNotes council</title><style>
 :root{font:16px/1.5 system-ui,sans-serif;color:#182326;background:#f8f6f0}body{margin:0}main{max-width:88rem;margin:auto;padding:1.5rem}h1{font-size:1.5rem}h2{font-size:1.1rem}p{max-width:75ch}table{border-collapse:collapse;width:100%;margin:1.5rem 0}th,td{text-align:left;padding:.75rem;border-bottom:1px solid #566461}select{font:inherit;background:#fff;color:#182326;border:1px solid #566461;padding:.5rem;max-width:100%}:focus-visible{outline:2px solid #bf3f18;outline-offset:3px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem}figure{margin:0;min-width:0}figcaption{font-weight:600;margin:.5rem 0}img{display:block;max-width:100%;height:auto}.comparison{display:none}.comparison.active{display:block}.note{font-size:.875rem;color:#566461}@media(max-width:600px){main{padding:1rem}.pair{grid-template-columns:1fr}}@media(prefers-color-scheme:dark){:root{color:#f2efe8;background:#182326}.note{color:#b3bcb8}select{background:#1f2b2e;color:#f2efe8;border-color:#b3bcb8}:focus-visible{outline-color:#f5865f}}
-</style><main><h1>KyNotes council</h1><p>Independent review scores and real application captures. Current scope: editor, phone navigation and Appearance. The progression target is 8/10; full 9/10 acceptance remains separate.</p><table>TABLE</table><p class="note">Raw reviewer verdicts are retained. Gemini raw* uses nonconforming weights and contains unsupported claims; its score is excluded from progression. The parent audit is in the workbook and gemini-audit.md. Notes and settings cohort means are separate in the source reports. Navigation/picker comparisons change state; they do not establish a controlled numeric improvement.</p><label for="view">Compare a view</label><br><select id="view">OPTIONS</select>PANELS<p class="note">Synthetic Project Atlas with four populated pages. Chromium156, scale1, desktop1280×900 or phone390×844; OS light/dark emulated. Baseline34849c4; manifests record patch and served-bundle hashes. Fresh fixtures change initials and save times. The empty trailing bullet is captured fixture content. WebKit and a complete empty/loading/error matrix remain unverified.</p></main><script>const picker=document.getElementById('view');function show(){for(const panel of document.querySelectorAll('.comparison'))panel.classList.toggle('active',panel.dataset.view===picker.value)}picker.addEventListener('change',show);show();</script></html>'''
+</style><main><h1>KyNotes council</h1><p>Independent review scores and real application captures. Current scope: editor, one left navigation region, phone navigation and Appearance. The owner rejected the prior adjacent left columns at6/10; the revised layout is under fresh review. The progression target is8/10; full9/10 acceptance remains separate.</p><table>TABLE</table><p class="note">Raw reviewer verdicts are retained. Gemini raw* uses nonconforming weights and contains unsupported claims; its score is excluded from progression. The parent audit is in the workbook and gemini-audit.md. Notes and settings cohort means are separate in the source reports. Navigation/picker comparisons change state; they do not establish a controlled numeric improvement.</p><label for="view">Compare a view</label><br><select id="view">OPTIONS</select>PANELS<p class="note">Synthetic Project Atlas with four populated pages. Chromium156, scale1, desktop1280×900 or phone390×844; OS light/dark emulated. Baseline34849c4; manifests record patch and served-bundle hashes. Fresh fixtures change initials and save times. The empty trailing bullet is captured fixture content. WebKit and a complete empty/loading/error matrix remain unverified.</p></main><script>const picker=document.getElementById('view');function show(){for(const panel of document.querySelectorAll('.comparison'))panel.classList.toggle('active',panel.dataset.view===picker.value)}picker.addEventListener('change',show);show();</script></html>'''
 (ROOT / "comparison.html").write_text(page.replace("TABLE", table).replace("OPTIONS", options).replace("PANELS", "".join(panels)))
 print(f"Verified {len(inventory)} image hashes and {len(score_rows)-1} score rows; wrote {len(sheets)}-sheet workbook and self-contained comparison page.")

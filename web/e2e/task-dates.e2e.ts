@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person } from "./people";
+import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks } from "./people";
 
 const NOTEBOOK = "Task dates E2E";
 const TASK = "Water plants";
@@ -14,6 +14,7 @@ const items = (page: Page) => page.locator('.bn-editor [data-content-type="check
 /** A new notebook with one canvas page "Chores", the cursor in its first text box. */
 async function newTextPage(owner: Person, notebook: string) {
   const { page } = owner;
+  await openNotebooks(page);
   await withDialog(owner, { type: "prompt", text: "Notebook name", answer: notebook }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
   await expect(page.locator(".workspace-title")).toHaveText(notebook);
   await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
@@ -45,6 +46,7 @@ test("a repeating checklist item rolls forward when ticked, and the work queue g
     await expect(items(page).first()).toContainText(`${TASK} due:${yesterday} repeat:daily`);
 
     // The queue reads the open page live: overdue, with its date and the repeat marker.
+    await openNotebooks(page);
     await page.getByRole("button", { name: "Work queue" }).click();
     await expect(queueRow(page, "overdue")).toContainText(`Due ${yesterday} · repeats · Chores`);
     await expect(queueRow(page, "overdue").locator("strong")).toHaveText(TASK);
@@ -67,6 +69,7 @@ test("a repeating checklist item rolls forward when ticked, and the work queue g
     // The tick's save can land before the rolled-forward edit's; reload only once both are on the server.
     await expect(page.getByText("● Saved to server")).toBeVisible();
     await page.reload();
+    await openNotebooks(page);
     await page.getByRole("button", { name: "Work queue" }).click();
     await expect(queueRow(page, "today")).toHaveCount(1);
     await expect(queueRow(page, "overdue")).toHaveCount(0);
@@ -83,6 +86,7 @@ test("a repeating checklist item rolls forward when ticked, and the work queue g
     const missed = page.locator('[data-task-group="overdue"] .note-row', { hasText: "Call home" });
     await expect(missed).toContainText("missed reminder · Chores");
     await expect(missed.locator("strong")).toHaveText("Call home");
+    await openNotebooks(page);
     await page.getByRole("button", { name: "Work queue" }).click();
     await expect(queueRow(page, "today")).toHaveCount(1);
     await shoot("task-dates", page, "queue", "grouped", queueRow(page, "today"));
@@ -152,6 +156,7 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
     await expect.poll(shown).toEqual([{ title: "KyNotes", body: "A task is due" }]);
     await page.clock.fastForward("10:00");
     expect(await shown()).toHaveLength(1);
+    await openNotebooks(page);
     await page.getByRole("button", { name: "Work queue" }).click();
     // It fired here, so it is not missed: a plain undated task.
     await expect(page.locator('[data-task-group="undated"] .note-row', { hasText: "Call the vet" })).toHaveText("Call the vetChores");
@@ -203,6 +208,7 @@ test("push reminders send the server only an opaque id and a UTC minute", async 
     await page.keyboard.type(`[] Feed the cat remind:${remind} push:yes`);
     await page.keyboard.press("Escape"); // ":" opens the emoji menu
     await expect(items(page)).toHaveCount(1);
+    await openNotebooks(page);
     await page.getByRole("button", { name: "Work queue" }).click();
     const row = page.locator('[data-task-group="undated"] .note-row', { hasText: "Feed the cat" });
     await expect(row).toContainText("push · Chores");

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
-import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, vaultOf, withDialog, type Person } from "./people";
+import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, vaultOf, withDialog, type Person, openNotebooks } from "./people";
 import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
@@ -171,7 +171,13 @@ async function openTeam(page: Page, name = TEAM, cid = teamID) {
 
 const objectSave = (page: Page) => page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok());
 
+async function showPages(page: Page) {
+  const navigation = page.getByRole("button", { name: "Notebooks and account", exact: true });
+  if (await navigation.getAttribute("aria-expanded") === "true") await navigation.click();
+}
+
 async function writePage(page: Page, title: string, comment: string) {
+  await showPages(page);
   const created = objectSave(page);
   await page.getByRole("button", { name: "New page" }).click();
   await created;
@@ -184,6 +190,7 @@ async function writePage(page: Page, title: string, comment: string) {
 }
 
 async function readPage(page: Page, title: string, comments: string[]) {
+  await showPages(page);
   await page.locator(".note-row", { hasText: title }).click();
   await expect(page.locator(".title-input")).toHaveValue(title);
   for (const comment of comments) await expect(page.getByText(comment)).toBeVisible();
@@ -243,6 +250,7 @@ async function ownSettings(page: Page) {
 
 /** From the open team, invites userId; returns the link and the message of the link dialog. */
 async function inviteFrom(owner: Person, userId: string, carries: RegExp) {
+  await openNotebooks(owner.page);
   const shown = { link: "", message: "" };
   owner.expected.push({ type: "prompt", text: /^User ID to invite/, answer: userId });
   await withDialog(owner, { type: "prompt", text: new RegExp(`${carries.source}.*Send this link to the person you invited`, "s"), seen: (value, message) => Object.assign(shown, { link: value, message }) }, () =>
@@ -395,6 +403,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
 
   // Remove the newcomer; the owner's browser re-mints at once, before anyone writes.
   const newcomerDevice = (await vaultOf(newcomer.page))!.identity!.deviceId;
+  await openNotebooks(owner.page);
   await withDialog(owner, { type: "confirm", text: "Remove this person from the team?" }, () =>
     owner.page.locator(".member-row", { hasText: "newcomer" }).getByRole("button", { name: "Remove" }).click());
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toHaveCount(0);
@@ -472,6 +481,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
 
   // An invitation issued before a removal cannot undo it.
   const stale = await inviteFrom(owner, editorOwn.userId, /The invitation carries/);
+  await openNotebooks(owner.page);
   await withDialog(owner, { type: "confirm", text: "Remove this person from the team?" }, () =>
     owner.page.locator(".member-row", { hasText: "editor" }).getByRole("button", { name: "Remove" }).click());
   await expect(owner.page.locator(".member-row", { hasText: "editor" })).toHaveCount(0);
@@ -536,6 +546,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   await openTeam(owner.page, SECOND, second);
   owner.expected.push({ type: "prompt", text: /^User ID to invite/, answer: newcomerOwn.userId });
   owner.expected.push({ type: "confirm", text: new RegExp(`^The encryption key of ${newcomerOwn.userId} · newcomer changed since this browser last saw it\\.[\\s\\S]*${renewed.fingerprint} \\(was ${newcomerOwn.fingerprint}\\)`), decline: true });
+  await openNotebooks(owner.page);
   await withDialog(owner, { type: "prompt", text: /^The invitation carries no keys: you did not confirm this person's new encryption key\. Send this link/ }, () =>
     owner.page.getByRole("button", { name: /Add person/ }).click());
 
@@ -623,6 +634,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
       resolve([...document.querySelectorAll(".note-row")].map((row) => row.textContent ?? ""));
     }).observe(list, { attributes: true, attributeFilter: ["aria-busy"] }));
   });
+  await openNotebooks(editor.page);
   await editor.page.getByRole("button", { name: TEAM }).click();
   release();
   expect(await editor.page.evaluate(() => (window as unknown as Settled).settled)).toContainEqual(expect.stringContaining("Owner page"));
@@ -851,6 +863,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   };
   editor.page.on("request", record);
   const before = editor.page.url();
+  await openNotebooks(editor.page);
   await withDialog(editor, { type: "prompt", text: "Notebook name", answer: KEYED }, () => editor.page.getByRole("button", { name: "＋ New notebook" }).click());
   await expect(editor.page.locator(".workspace-title")).toHaveText(KEYED);
   // The title shows before the load ends; the address names the notebook only once it has (the step-up comes between).

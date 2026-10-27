@@ -2,7 +2,7 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599 tests / 47 files; source-string recovery guard updated for same held/live/no-code condition and native disclosure"
+    "detail": "599tests/47files on final single-pane implementation, including explicit-selection wrapper; /tmp/kynotes-single-nav-unit-final.log"
   },
   {
     "check": "Production build and TypeScript",
@@ -12,12 +12,12 @@
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "12/12 on a fresh default e2e server; capture outputs isolated from suite traces"
+    "detail": "12/12 full fresh-server browser tests on final implementation; /tmp/kynotes-single-nav-browser-verified.log. Covers saved content, team keys, startup race, notebook management, keyboard disclosure and phone reachability."
   },
   {
-    "check": "Stage04 capture and regressions",
+    "check": "Stage07 single-pane capture and regressions",
     "result": "pass",
-    "detail": "16 captures; first picker row in viewport, same/different-id focus, held PUT dirty state and reload persistence, recovery warning/action keyboard disclosure"
+    "detail": "22captures/18unique, including4empty and2desktop management views. Single240px pane geometry, phone chooser, same/different pagefocus, heldPUTsave and recoverykeyboard pass; /tmp/kynotes-single-nav-capture-verified.log."
   },
   {
     "check": "Go build / vet / format / embed",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Two clean private extractions of staged source tree cd1200e4379252f86bebd63e48f41ad324a4d016; CGO_ENABLED=0 go build -trimpath, release0.0.0; both binary SHA256 71b0e7716ce571a6b3284b0ad6b6c935f2809fd141d82d17cd969f80d260eb21. No product/build input changed afterward."
+    "detail": "Verified final-source treee9cd105a6896cd4fc35828ebae05e0612836353d; two clean private extractions, CGO_ENABLED=0 -trimpath release0.0.0; both binarySHA256 d15e35eceb80b338347561f3aad24f03578e71525e16cf832bdac4978afd8558. Product inputs unchanged afterward."
   },
   {
     "check": "Required fuzz executions",
@@ -62,7 +62,7 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Final image build,14-step probe and apply-setup pass; logs /tmp/kynotes-eight-{docker,probe,container-setup}-final.log"
+    "detail": "Final verified-source image build,14-step probe and setup passed; /tmp/kynotes-single-nav-{docker,probe,setup}-verified.log"
   },
   {
     "check": "Design detector",
@@ -82,7 +82,7 @@
   {
     "check": "Native T3 final Computer Use",
     "result": "pass, scoped",
-    "detail": "Real18101 fixture: owner login, open Launch checklist,390x844 page chooser; all4rows visible y355\u2013636, editor hidden while choosing, zero horizontal overflow; computed body15px/22.5px Space strong ink. Native snapshots/geometry can update asynchronously; scored PNGs remain the recorded Chromium156 set."
+    "detail": "Final18104 fixture, signed-in owner. Native1280px: page listx0/editorx240 with management hidden; opening management gives sidebarx0/width240, hides page list and retains editorx240; zero horizontal overflow. Browser automation separately covers390x844 and keyboard/focus/save paths."
   },
   {
     "check": "Existing browser runtime warnings",
