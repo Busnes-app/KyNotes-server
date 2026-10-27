@@ -1,15 +1,13 @@
-import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
-import { randomBytes } from "@noble/ciphers/utils.js";
 import { x25519 } from "@noble/curves/ed25519.js";
-import { hkdfSha256, sha256 } from "./crypto";
-import { concat, generateIdentity, idBytes, sameBytes, type Identity } from "./teamKeys";
+import { sha256 } from "./crypto";
+import { concat, envelopeSuite, generateIdentity, hpkeKeyPair, idBytes, sameBytes, type Identity } from "./teamKeys";
 
-const LINK_LABEL = "kynotes/link/v1";
+const LINK_LABEL = "kynotes/link/v2";
 const COMMIT_LABEL = "kynotes/link-commit/v1";
 const CHECK_LABEL = "kynotes/link-check/v1";
-const LINK_VERSION = 0x01;
-/** 0x01 | nonce(12) | ChaCha20-Poly1305(identity private key)(48). */
-export const LINK_BUNDLE_BYTES = 61;
+const LINK_VERSION = 0x02;
+/** 0x02 | enc(32) | ChaCha20-Poly1305(identity private key)(48): RFC 9180 HPKE mode_auth, the envelope v3 suite. */
+export const LINK_BUNDLE_BYTES = 81;
 const encoder = new TextEncoder();
 
 /** What both sides bind: the account, the request, the identity row, and both one-time keys. */
@@ -44,32 +42,41 @@ export function checkCode(userID: string, requestID: string, approverKey: Uint8A
   return `${digits.slice(0, 3)} ${digits.slice(3)}`;
 }
 
-const aad = (c: LinkContext) => concat(encoder.encode(LINK_LABEL), idBytes("usr", c.userID), idBytes("lnk", c.requestID), idBytes("dev", c.identityDeviceID), key32(c.approverKey), key32(c.newcomerKey));
-const bundleKey = (shared: Uint8Array, c: LinkContext) => hkdfSha256(shared, 32, concat(c.approverKey, c.newcomerKey), encoder.encode(LINK_LABEL));
+/** HPKE info: v2 label | userID | requestID | identityDeviceID | approverKey | newcomerKey. */
+const linkInfo = (c: LinkContext) => concat(encoder.encode(LINK_LABEL), idBytes("usr", c.userID), idBytes("lnk", c.requestID), idBytes("dev", c.identityDeviceID), key32(c.approverKey), key32(c.newcomerKey));
 
-/** Approver: seals this account's identity private key to the newcomer's one-time key. */
-export function sealLinkBundle(identityPrivateKey: Uint8Array, approver: Identity, context: LinkContext, nonce: Uint8Array = randomBytes(12)): Uint8Array {
-  if (identityPrivateKey.length !== 32 || nonce.length !== 12 || !sameBytes(approver.publicKey, context.approverKey)) throw new Error("invalid link input");
-  // noble's getSharedSecret throws on an all-zero result (low-order point).
-  const key = bundleKey(x25519.getSharedSecret(approver.privateKey, key32(context.newcomerKey)), context);
-  return concat(Uint8Array.of(LINK_VERSION), nonce, chacha20poly1305(key, nonce, aad(context)).encrypt(identityPrivateKey));
+/**
+ * Approver: seals this account's identity private key to the newcomer's one-time key, authenticated by
+ * the approver's one-time key (the key the check code covers). ephemeralSeed is the HPKE ikmE, vectors only.
+ */
+async function seal(identityPrivateKey: Uint8Array, approver: Identity, context: LinkContext, ephemeralSeed?: Uint8Array): Promise<Uint8Array> {
+  if (identityPrivateKey.length !== 32 || !sameBytes(approver.publicKey, context.approverKey)) throw new Error("invalid link input");
+  const params = { recipientPublicKey: await envelopeSuite.kem.deserializePublicKey(key32(context.newcomerKey)), senderKey: await hpkeKeyPair(approver.privateKey), info: linkInfo(context) };
+  const { enc, ct } = await envelopeSuite.seal(ephemeralSeed ? { ...params, ekm: ephemeralSeed } : params, identityPrivateKey);
+  return concat(Uint8Array.of(LINK_VERSION), new Uint8Array(enc), new Uint8Array(ct));
 }
+export const sealLinkBundle = (identityPrivateKey: Uint8Array, approver: Identity, context: LinkContext): Promise<Uint8Array> => seal(identityPrivateKey, approver, context);
+/** Test-only: fixed HPKE ephemeral seed for cross-implementation vectors. */
+export const sealLinkBundleForVector = seal;
 
 /** Refusal reasons match the Go reference (`openLink`) and `link_vectors.json` rejects. */
 export type LinkRefusal = "format" | "newcomer-key" | "low-order" | "aead";
 const refused = (reason: LinkRefusal) => new Error(`link bundle refused: ${reason}`);
-function as<T>(reason: LinkRefusal, run: () => T): T {
-  try { return run(); } catch { throw refused(reason); }
-}
 
 /** Newcomer: the identity private key, or a throw naming the check that refused the bytes, binding or key. */
-export function openLinkBundle(bundle: Uint8Array, newcomer: Identity, context: LinkContext): Uint8Array {
-  if (bundle.length !== LINK_BUNDLE_BYTES || bundle[0] !== LINK_VERSION) throw refused("format");
+export async function openLinkBundle(bundle: Uint8Array, newcomer: Identity, context: LinkContext): Promise<Uint8Array> {
+  if (bundle.length !== LINK_BUNDLE_BYTES || bundle[0] !== LINK_VERSION || context.approverKey.length !== 32) throw refused("format");
   if (!sameBytes(newcomer.publicKey, context.newcomerKey)) throw refused("newcomer-key");
-  const ad = aad(context);
-  const shared = as("low-order", () => x25519.getSharedSecret(newcomer.privateKey, context.approverKey));
-  const key = bundleKey(shared, context);
-  return as("aead", () => chacha20poly1305(key, bundle.subarray(1, 13), ad).decrypt(bundle.subarray(13)));
+  // HPKE refuses an all-zero agreement too; this names it. noble throws on a low-order point.
+  try { x25519.getSharedSecret(newcomer.privateKey, context.approverKey); } catch { throw refused("low-order"); }
+  try {
+    return new Uint8Array(await envelopeSuite.open({
+      recipientKey: await hpkeKeyPair(newcomer.privateKey),
+      senderPublicKey: await envelopeSuite.kem.deserializePublicKey(context.approverKey),
+      enc: bundle.subarray(1, 33),
+      info: linkInfo(context),
+    }, bundle.subarray(33)));
+  } catch { throw refused("aead"); }
 }
 
 const confirmations = new WeakSet<CheckCodeConfirmation>();

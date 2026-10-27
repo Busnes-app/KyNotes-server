@@ -169,7 +169,7 @@ export async function finishNewcomerLink(link: NewcomerLink, bundle: Uint8Array,
   try {
     const listed = await api.myIdentity();
     if (!listed) throw new Error("Your account has no encryption key to link.");
-    const privateKey = openLinkBundle(bundle, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: listed.deviceId, approverKey: pin.approverKey, newcomerKey: link.key.publicKey });
+    const privateKey = await openLinkBundle(bundle, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: listed.deviceId, approverKey: pin.approverKey, newcomerKey: link.key.publicKey });
     const publicKey = x25519.getPublicKey(privateKey);
     if (!sameBytes(publicKey, publicKeyBytes(listed.publicKey))) throw new Error("The key sent is not your account's encryption key. Nothing was linked.");
     const identity = { deviceId: listed.deviceId, publicKey, privateKey };
@@ -215,7 +215,7 @@ export async function approveLink(link: ApproverLink, confirmation: CheckCodeCon
   live(link, userID);
   if (!link.newcomerKey || !link.code) throw new Error("The other browser has not answered yet.");
   if (!isTypedCheckCodeConfirmation(confirmation, link.id) || confirmation.code !== link.code) throw new Error("Type the code the other browser shows first.");
-  const bundle = sealLinkBundle(identity.privateKey, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: identity.deviceId, approverKey: link.key.publicKey, newcomerKey: link.newcomerKey });
+  const bundle = await sealLinkBundle(identity.privateKey, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: identity.deviceId, approverKey: link.key.publicKey, newcomerKey: link.newcomerKey });
   // A failed step-up or send keeps the attempt: approving again re-seals to the same keys.
   await stepUp();
   await send(confirmation, link.id, bundle);

@@ -357,13 +357,46 @@ account, the request and both keys. The newcomer confirms its code; the approver
 code shown on the newcomer's screen, so a click cannot replace the comparison. The newcomer pins
 the approver's key before it reveals its own, and a failed reveal ends the attempt. The commitment means a relay
 cannot pick a key to fit the code after seeing the other one. Only then is the identity private key
-sealed to the newcomer (`kynotes/link/v1`, `testdata/protocol/link_vectors.json`), after a fresh
+sealed to the newcomer, after a fresh
 step-up, and collected once (a CSRF-protected `POST …/collect` the newcomer polls). Requests are per user, single use, expire after ten minutes (checked in the step's transaction), need a
 live session of that user on both sides, are rate-limited (creation with device pairing, collect polls
-by `ratelimit.link_poll_per_minute`) and are audited, except collect misses. Relay success
-without the user's help is about 10^-6 per visible attempt.
+by `ratelimit.link_poll_per_minute`) and are audited, except collect misses.
 Recovery, an administrator reset and the self-service reset delete the account's open link requests
 in the same transaction.
+
+The commitment is `SHA-256("kynotes/link-commit/v1" | newcomerKey)`. The check code is the first four
+bytes (big-endian) of `SHA-256("kynotes/link-check/v1" | userID | requestID | approverKey |
+newcomerKey)` mod 10^6, so it binds the account, the request and both one-time keys in order. This is
+the published commit-then-reveal pattern for authenticating a key agreement with a short
+authenticated string (SAS): Vaudenay, "Secure Communications over Insecure Channels Based on Short
+Authenticated Strings", CRYPTO 2005, LNCS 3621, pp. 309-326 (doi:10.1007/11535218_19), §4 and
+Appendix A (Diffie-Hellman over SAS-based cross-authentication), and ZRTP's hash commitment and SAS,
+RFC 6189 §4.4.1.1 and §7. As in ZRTP, the party that commits (the newcomer, ZRTP's initiator) reveals
+its key only after receiving the other's (the approver, ZRTP's responder), so an attacker gets one
+guess per attempt: Vaudenay's Theorem 5 bounds a one-shot attack by 2^-k + ε for a k-bit SAS, and
+RFC 6189 §7 makes the same point for a 16-bit SAS. Six digits give 10^6 ≈ 2^20 values, so relay
+success without the user's help is about 2^-20 (10^-6) per attempt; across attempts it adds up
+(Vaudenay's Lemma 6), which the three-live-requests cap, the rate limits and the visible failure of
+each wrong code keep small. The code and commitment differ from those papers in detail: the code is a
+hash of public values rather than Vaudenay's XOR of committed nonces or ZRTP's hash of the shared
+secret, and the commitment is a plain hash (as in ZRTP), not the extractable or equivocable commitment
+Vaudenay's proof assumes.
+
+The bundle is RFC 9180 HPKE in mode_auth with the envelope v3 suite (DHKEM(X25519, HKDF-SHA256),
+HKDF-SHA256, ChaCha20Poly1305), single shot from the approver's one-time key (skS) to the newcomer's
+(pkR): `0x02 | enc(32) | ChaCha20-Poly1305(identity private key)(48)`, 81 bytes. HPKE `info` is
+`kynotes/link/v2 | userID | requestID | identityDeviceID | approverKey | newcomerKey` and `aad` is
+empty. Auth mode binds the bundle to the approver key the check code covers, so the relay cannot seal
+a bundle of its own to the newcomer. The newcomer refuses a bundle for one reason: `format` (version
+or length), `newcomer-key` (the context's key is not its own), `low-order` (the approver key) or
+`aead` (HPKE open failed). `testdata/protocol/link_vectors.json` (Go, through circl with a fixed
+ephemeral seed) pins the bytes and the reject cases; `web/src/linking.test.ts` reseals them
+byte-identically. The earlier v1 bundle (`0x01 | nonce | ct`, 61 bytes, a custom HKDF and AAD
+construction) is gone: its one-time keys live only in the memory of the tab that made them, so a v1
+bundle left on the relay across an upgrade is collected and opened by that pre-upgrade tab's own code,
+and a new client never holds a key a v1 bundle was sealed to. The server accepts only 81-byte
+bundles, so a pre-upgrade approver tab fails at approve, a pre-upgrade newcomer tab refuses a v2
+bundle as `format`, and the user starts again.
 
 ### Device enrollment and revocation
 

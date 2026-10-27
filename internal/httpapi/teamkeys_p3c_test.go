@@ -860,6 +860,9 @@ func TestLinkApprovalNeedsStepUpAndIsCollectedOnce(t *testing.T) {
 	if code, _ := approve(trusted, b64(bytes.Repeat([]byte{6}, linkBundleBytes-1)), true); code != 400 {
 		t.Fatal("short bundle", code)
 	}
+	if code, _ := approve(trusted, b64(bytes.Repeat([]byte{1}, 61)), true); code != 400 {
+		t.Fatal("retired v1-length bundle", code)
+	}
 	if code, _ := approve(trusted, bundle, false); code != 403 {
 		t.Fatal("approved without CSRF", code)
 	}
@@ -882,7 +885,7 @@ func TestLinkApprovalNeedsStepUpAndIsCollectedOnce(t *testing.T) {
 	if err := trusted.db.QueryRow(`SELECT COUNT(*) FROM link_requests`).Scan(&rows); err != nil || rows != 0 || audited(t, trusted, "identity.link.approve") != 1 || audited(t, trusted, "identity.link.collect") != 1 {
 		t.Fatal("rows or audit", rows, err)
 	}
-	if refused(t, trusted, "identity.link.approve", "403") != 2 || refused(t, trusted, "identity.link.approve", "404") != 2 || refused(t, trusted, "identity.link.approve", "400") != 1 {
+	if refused(t, trusted, "identity.link.approve", "403") != 2 || refused(t, trusted, "identity.link.approve", "404") != 2 || refused(t, trusted, "identity.link.approve", "400") != 2 {
 		t.Fatal("approval refusals not audited")
 	}
 	commitment, newcomerKey, approverKey := firstLinkVector(t)

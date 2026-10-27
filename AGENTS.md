@@ -737,8 +737,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Rate limits: own `link` bucket at `pairing_per_hour`, `link-step` at `login_per_minute`, collect at
   `ratelimit.link_poll_per_minute` (default 60; the newcomer polls every 4 s, so the 3 live requests make 45 a
   minute).
-  Web: `linking.ts` (commitment, six-digit check code, 61-byte bundle, frozen branded confirmations;
-  `testdata/protocol/link_vectors.json` from `internal/teamkeys`), `linkFlow.ts` (newcomer pins the approver
+  Web: `linking.ts` (commitment, six-digit check code, 81-byte v2 bundle in RFC 9180 HPKE mode_auth from the
+  approver's one-time key on the envelope v3 suite, info binding user, request, identity row and both keys; no v1
+  path (DESIGN.md "Device linking"); frozen branded confirmations; `testdata/protocol/link_vectors.json` from
+  `internal/teamkeys`, resealed byte-identically through `sealLinkBundleForVector`;
+  `scripts/link-negative-control.sh` shows the tests fail without the info binding or Auth mode), `linkFlow.ts` (newcomer pins the approver
   key before revealing, a failed reveal ends the attempt, no auto-retry with a new key; `awaitLinkBundle` keeps the
   attempt through a 429 or network error and backs off to 30 s, ending on a 404 or a streak past the TTL; a create
   404 is `LinkNoIdentityError`; the approver types the newcomer's code,
