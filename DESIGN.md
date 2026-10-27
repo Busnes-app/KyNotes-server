@@ -171,10 +171,23 @@ clear the flag by changing the password. A local-only account has no second proo
 until its user changes the password, whoever set it can act as the user. That is
 an accepted residual of administrator-set passwords. The change revokes every
 other session and device credential of the account in the same transaction. Envelopes are
-`0x02 | senderDeviceID | ephPub | nonce | ChaCha20-Poly1305(CK)` (123 bytes),
-keyed by both an ephemeral and the sender identity's X25519 agreement and bound
-by AAD to container, key generation, recipient and sender (IDs in the AAD are
-fixed-length); `testdata/protocol/envelope_vectors.json` pins the bytes. A
+v3, RFC 9180 HPKE in mode_auth with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and
+ChaCha20Poly1305 (alg `hpke-auth-x25519-hkdfsha256-chacha20poly1305`):
+`0x03 | senderDeviceID(30) | enc(32) | ChaCha20-Poly1305(CK)(48)` (111 bytes), a
+single-shot seal of the content key from the sender identity's key to the
+recipient's. HPKE `info` is `kynotes/envelope/v3 | containerID | generation (u32 BE) |
+recipientDeviceID | senderDeviceID` (fixed-length IDs) and `aad` is empty: the context
+is fixed per envelope, so it belongs in the key schedule, and one message gains nothing
+from aad. Auth mode binds both identity keys and `enc`. Stored v2 envelopes
+(`x25519-hkdf-sha256-chacha20poly1305`, `0x02 | senderDeviceID | ephPub | nonce |
+ChaCha20-Poly1305(CK)`, 123 bytes, the same agreements through a custom HKDF with this
+context as AAD under the label `kynotes/envelope/v2`) still open and are never rewritten;
+nothing seals them. A client opens by the row's `alg`; alg, version byte and length must
+agree. Like v2, Auth mode is not resistant to key-compromise impersonation (RFC 9180
+§9.1.1): whoever holds a recipient's identity private key can forge envelopes to that
+recipient that appear to come from any sender. An identity key compromise is already a
+full compromise of that member's keys, so this adds no new exposure.
+`testdata/protocol/envelope_vectors.json` pins the bytes of both versions. A
 browser accepts an envelope from its own identity, from a current owner or
 admin whose identity key matches its local trust-on-first-use pin, or, for
 history below the device's high-water mark, from an identity already pinned
@@ -246,7 +259,7 @@ stale base is `409 version_conflict`, so concurrent renames never overwrite
 each other. Conflict listings report each
 copy's `keyGeneration`. Owners and admins mint keys only through rotation;
 envelope `PUT` may add a member to any shared generation that already has
-envelopes (history for newcomers) and never mints one. Envelopes are v2 and sender-authenticated:
+envelopes (history for newcomers) and never mints one. Envelopes are sender-authenticated:
 a browser accepts a key only from its own identity, from a current owner or
 admin whose identity matches its pin, or from a pinned identity for a
 generation below the device's high-water mark. The first key per generation

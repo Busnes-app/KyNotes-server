@@ -13,7 +13,12 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
-const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
+// Envelope formats a client may store (internal/teamkeys, web/src/teamKeys.ts): v3 RFC 9180
+// HPKE Auth, which every current client seals, and v2, still written by older clients.
+const (
+	envelopeAlg       = "hpke-auth-x25519-hkdfsha256-chacha20poly1305"
+	legacyEnvelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
+)
 
 var (
 	errNotMember             = errors.New("not a member")
@@ -42,7 +47,7 @@ type envelopeIn struct {
 
 func (v envelopeIn) bytes() ([]byte, bool) {
 	env, err := base64.StdEncoding.DecodeString(v.Envelope)
-	return env, err == nil && v.Alg == envelopeAlg && len(env) > 0 && len(env) <= 4096 && ids.Validate("dev", v.DeviceID) == nil
+	return env, err == nil && (v.Alg == envelopeAlg || v.Alg == legacyEnvelopeAlg) && len(env) > 0 && len(env) <= 4096 && ids.Validate("dev", v.DeviceID) == nil
 }
 
 // writeTeamKeyError maps team-key and write-gate errors; false when err is nil.

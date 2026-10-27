@@ -1,6 +1,6 @@
 import { expect, type Browser, type BrowserContextOptions, type Locator, type Page } from "@playwright/test";
 import { asContentKey, fromBase64, type KeyRef } from "../src/crypto";
-import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
+import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
 /** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
 export type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
@@ -234,11 +234,13 @@ export function vaultOf(page: Page) {
  */
 export async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array>): Promise<Map<number, KeyRef>> {
   const own = (await vaultOf(page))!.identity!;
-  const rows = await page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; envelope: string }>;
-  return new Map(rows.filter((row) => row.deviceId === own.deviceId).map((row) => {
+  const rows = await page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; alg: string; envelope: string }>;
+  return new Map(await Promise.all(rows.filter((row) => row.deviceId === own.deviceId).map(async (row): Promise<[number, KeyRef]> => {
+    // Browsers seal only v3 (HPKE) envelopes.
+    if (row.alg !== ENVELOPE_ALG) throw new Error(`envelope alg ${row.alg} (generation ${row.keyGeneration} for ${own.deviceId})`);
     const envelope = fromBase64(row.envelope);
-    const sender = senders.get(envelopeSender(envelope));
-    if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(envelope)} (generation ${row.keyGeneration} for ${own.deviceId}; known: ${[...senders.keys()].join(", ")})`);
-    return [row.keyGeneration, asContentKey(unwrapEnvelope(envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
-  }));
+    const sender = senders.get(envelopeSender(row.alg, envelope));
+    if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(row.alg, envelope)} (generation ${row.keyGeneration} for ${own.deviceId}; known: ${[...senders.keys()].join(", ")})`);
+    return [row.keyGeneration, asContentKey(await unwrapEnvelope(row.alg, envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
+  })));
 }

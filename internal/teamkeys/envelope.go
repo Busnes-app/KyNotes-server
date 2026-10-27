@@ -1,132 +1,139 @@
 package teamkeys
 
 import (
-	"bytes"
-	"crypto/cipher"
 	"crypto/ecdh"
-	"crypto/hkdf"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"io"
 	"regexp"
 
-	"golang.org/x/crypto/chacha20poly1305"
+	"github.com/cloudflare/circl/hpke"
 )
 
-// EnvelopeBytes is the sealed size of a 32-byte content key:
+// Envelope v3 is RFC 9180 HPKE in mode_auth, suite DHKEM(X25519, HKDF-SHA256) /
+// HKDF-SHA256 / ChaCha20Poly1305, single-shot over the 32-byte content key:
+// 0x03 | senderDeviceID(30) | enc(32) | ct+tag(48). Every new envelope is v3.
+const (
+	EnvelopeAlg   = "hpke-auth-x25519-hkdfsha256-chacha20poly1305"
+	EnvelopeBytes = 111
+)
+
+// Envelope v2 is the earlier custom construction, opened for stored rows only:
 // 0x02 | senderDeviceID(30) | ephPub(32) | nonce(12) | ct+tag(48).
-const EnvelopeBytes = 123
+const (
+	LegacyEnvelopeAlg   = "x25519-hkdf-sha256-chacha20poly1305"
+	LegacyEnvelopeBytes = 123
+)
 
 const (
-	envelopeLabel   = "kynotes/envelope/v2"
-	envelopeVersion = 0x02
+	envelopeLabel   = "kynotes/envelope/v3"
+	envelopeVersion = 0x03
 	idLen           = 30
 )
 
-var aadID = regexp.MustCompile(`^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`)
+var (
+	suite     = hpke.NewSuite(hpke.KEM_X25519_HKDF_SHA256, hpke.KDF_HKDF_SHA256, hpke.AEAD_ChaCha20Poly1305)
+	kemScheme = hpke.KEM_X25519_HKDF_SHA256.Scheme()
+	aadID     = regexp.MustCompile(`^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`)
+)
 
 func validID(prefix, id string) bool { return aadID.MatchString(id) && id[:3] == prefix }
 
-func envelopeAAD(containerID string, generation uint32, recipientDeviceID, senderDeviceID string) ([]byte, error) {
+// envelopeContext is label | containerID | generation (u32 BE) | recipientDeviceID |
+// senderDeviceID: the v3 HPKE info and, with the v2 label, the v2 AAD.
+func envelopeContext(label, containerID string, generation uint32, recipientDeviceID, senderDeviceID string) ([]byte, error) {
 	if !validID("cnt", containerID) || !validID("dev", recipientDeviceID) || !validID("dev", senderDeviceID) || generation == 0 {
 		return nil, errors.New("teamkeys: invalid envelope binding")
 	}
-	aad := append([]byte(envelopeLabel), containerID...)
-	aad = binary.BigEndian.AppendUint32(aad, generation)
-	aad = append(aad, recipientDeviceID...)
-	return append(aad, senderDeviceID...), nil
+	ctx := append([]byte(label), containerID...)
+	ctx = binary.BigEndian.AppendUint32(ctx, generation)
+	ctx = append(ctx, recipientDeviceID...)
+	return append(ctx, senderDeviceID...), nil
 }
 
-// envelopeAEAD keys the envelope from both the ephemeral and the sender's
-// static identity agreement, so only the sender (or the recipient) can seal it.
-func envelopeAEAD(ephShared, staticShared, ephPub, recipientPub, senderPub []byte) (cipher.AEAD, error) {
-	salt := append(append(bytes.Clone(ephPub), recipientPub...), senderPub...)
-	key, err := hkdf.Key(sha256.New, append(bytes.Clone(ephShared), staticShared...), salt, envelopeLabel, 32)
-	if err != nil {
-		return nil, err
-	}
-	return chacha20poly1305.New(key)
-}
-
-// SealEnvelope wraps contentKey for recipientPub (raw X25519), authenticated by
-// the sender's identity key and bound to the container, generation and both
-// devices. Same bytes as web/src/teamKeys.ts.
+// SealEnvelope wraps contentKey for recipientPub (raw X25519) as a v3 envelope,
+// authenticated by the sender's identity key and bound to the container,
+// generation and both devices. Same bytes as web/src/teamKeys.ts.
 func SealEnvelope(contentKey, recipientPub []byte, containerID string, generation uint32, recipientDeviceID string, sender *ecdh.PrivateKey, senderDeviceID string) ([]byte, error) {
-	aad, err := envelopeAAD(containerID, generation, recipientDeviceID, senderDeviceID)
+	return sealEnvelope(rand.Reader, contentKey, recipientPub, containerID, generation, recipientDeviceID, sender, senderDeviceID)
+}
+
+// sealEnvelope reads the HPKE ephemeral seed (ikmE) from rnd; tests pass a fixed one.
+func sealEnvelope(rnd io.Reader, contentKey, recipientPub []byte, containerID string, generation uint32, recipientDeviceID string, sender *ecdh.PrivateKey, senderDeviceID string) ([]byte, error) {
+	info, err := envelopeContext(envelopeLabel, containerID, generation, recipientDeviceID, senderDeviceID)
 	if err != nil || len(contentKey) != 32 {
 		return nil, errors.New("teamkeys: invalid envelope input")
 	}
-	recipient, err := ecdh.X25519().NewPublicKey(recipientPub)
+	pkR, err := kemScheme.UnmarshalBinaryPublicKey(recipientPub)
 	if err != nil {
 		return nil, err
 	}
-	eph, err := ecdh.X25519().GenerateKey(rand.Reader)
+	skS, err := kemScheme.UnmarshalBinaryPrivateKey(sender.Bytes())
 	if err != nil {
 		return nil, err
 	}
-	ephShared, err := eph.ECDH(recipient)
+	s, err := suite.NewSender(pkR, info)
 	if err != nil {
 		return nil, err
 	}
-	staticShared, err := sender.ECDH(recipient)
+	enc, sealer, err := s.SetupAuth(rnd, skS)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := envelopeAEAD(ephShared, staticShared, eph.PublicKey().Bytes(), recipientPub, sender.PublicKey().Bytes())
+	ct, err := sealer.Seal(contentKey, nil)
 	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, chacha20poly1305.NonceSize)
-	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
 	out := append([]byte{envelopeVersion}, senderDeviceID...)
-	out = append(out, eph.PublicKey().Bytes()...)
-	out = append(out, nonce...)
-	return aead.Seal(out, nonce, contentKey, aad), nil
+	return append(append(out, enc...), ct...), nil
 }
 
-// EnvelopeSender returns the sender device ID the envelope claims. It is
-// unauthenticated until OpenEnvelope succeeds with that device's identity key.
-func EnvelopeSender(envelope []byte) (string, error) {
-	if len(envelope) != EnvelopeBytes || envelope[0] != envelopeVersion || !validID("dev", string(envelope[1:1+idLen])) {
+// EnvelopeSender returns the sender device ID an envelope of the given alg
+// claims. It is unauthenticated until OpenEnvelope succeeds with that device's
+// identity key. The alg, version byte and length must agree.
+func EnvelopeSender(alg string, envelope []byte) (string, error) {
+	version, size := byte(envelopeVersion), EnvelopeBytes
+	if alg == LegacyEnvelopeAlg {
+		version, size = legacyEnvelopeVersion, LegacyEnvelopeBytes
+	} else if alg != EnvelopeAlg {
+		return "", errors.New("teamkeys: unsupported envelope alg")
+	}
+	if len(envelope) != size || envelope[0] != version || !validID("dev", string(envelope[1:1+idLen])) {
 		return "", errors.New("teamkeys: malformed envelope")
 	}
 	return string(envelope[1 : 1+idLen]), nil
 }
 
-// OpenEnvelope returns the content key sealed by SealEnvelope. senderPub is the
-// identity key the caller resolved for EnvelopeSender(envelope).
-func OpenEnvelope(envelope []byte, recipient *ecdh.PrivateKey, containerID string, generation uint32, recipientDeviceID string, senderPub []byte) ([]byte, error) {
-	senderDeviceID, err := EnvelopeSender(envelope)
+// OpenEnvelope returns the content key of a v3 or v2 envelope, selected by alg.
+// senderPub is the identity key the caller resolved for EnvelopeSender.
+func OpenEnvelope(alg string, envelope []byte, recipient *ecdh.PrivateKey, containerID string, generation uint32, recipientDeviceID string, senderPub []byte) ([]byte, error) {
+	senderDeviceID, err := EnvelopeSender(alg, envelope)
 	if err != nil {
 		return nil, err
 	}
-	aad, err := envelopeAAD(containerID, generation, recipientDeviceID, senderDeviceID)
+	if alg == LegacyEnvelopeAlg {
+		return openLegacyEnvelope(envelope, recipient, containerID, generation, recipientDeviceID, senderDeviceID, senderPub)
+	}
+	info, err := envelopeContext(envelopeLabel, containerID, generation, recipientDeviceID, senderDeviceID)
 	if err != nil {
 		return nil, err
 	}
-	ephPub, nonce, sealed := envelope[1+idLen:63], envelope[63:75], envelope[75:]
-	eph, err := ecdh.X25519().NewPublicKey(ephPub)
+	skR, err := kemScheme.UnmarshalBinaryPrivateKey(recipient.Bytes())
 	if err != nil {
 		return nil, err
 	}
-	sender, err := ecdh.X25519().NewPublicKey(senderPub)
+	pkS, err := kemScheme.UnmarshalBinaryPublicKey(senderPub)
 	if err != nil {
 		return nil, err
 	}
-	ephShared, err := recipient.ECDH(eph)
+	r, err := suite.NewReceiver(skR, info)
 	if err != nil {
 		return nil, err
 	}
-	staticShared, err := recipient.ECDH(sender)
+	opener, err := r.SetupAuth(envelope[1+idLen:1+idLen+32], pkS)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := envelopeAEAD(ephShared, staticShared, ephPub, recipient.PublicKey().Bytes(), senderPub)
-	if err != nil {
-		return nil, err
-	}
-	return aead.Open(nil, nonce, sealed, aad)
+	return opener.Open(envelope[1+idLen+32:], nil)
 }

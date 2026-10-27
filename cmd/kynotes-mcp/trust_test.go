@@ -5,6 +5,8 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -44,7 +46,7 @@ func seal(t *testing.T, cid string, generation int64, contentKey []byte, sender,
 	if err != nil {
 		t.Fatal(err)
 	}
-	return envelopeRow{DeviceID: to.deviceID, KeyGeneration: generation, Alg: envelopeAlg, Envelope: base64.StdEncoding.EncodeToString(env)}
+	return envelopeRow{DeviceID: to.deviceID, KeyGeneration: generation, Alg: teamkeys.EnvelopeAlg, Envelope: base64.StdEncoding.EncodeToString(env)}
 }
 
 func randomKey() []byte {
@@ -186,5 +188,58 @@ func TestTrustFileIsPrivateAndRoundTrips(t *testing.T) {
 	_ = os.Chmod(path, 0o644)
 	if _, err := loadTrust(path); err == nil {
 		t.Fatal("a world-readable trust file was accepted")
+	}
+}
+
+// TestStoredV2RowsStillOpen: a v2 row written before HPKE envelopes opens through the bridge
+// keyring beside a v3 row; either one labelled with the other's alg is skipped.
+func TestStoredV2RowsStillOpen(t *testing.T) {
+	raw, err := os.ReadFile("../../testdata/protocol/envelope_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Envelopes []struct {
+			ContainerID         string `json:"containerId"`
+			KeyGeneration       int64  `json:"keyGeneration"`
+			RecipientDeviceID   string `json:"recipientDeviceId"`
+			RecipientPrivateKey string `json:"recipientPrivateKey"`
+			SenderDeviceID      string `json:"senderDeviceId"`
+			SenderPublicKey     string `json:"senderPublicKey"`
+			ContentKey          string `json:"contentKey"`
+			Envelope            string `json:"envelope"`
+		} `json:"envelopes"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	e := v.Envelopes[0]
+	unhex := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	key, err := ecdh.X25519().NewPrivateKey(unhex(e.RecipientPrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := ids.Mint("usr")
+	agent := person{u, e.RecipientDeviceID, key}
+	ownerUser, _ := ids.Mint("usr")
+	owner := member{UserID: ownerUser, Username: "owner", Role: "owner", identity: &publicIdentity{e.SenderDeviceID, base64.StdEncoding.EncodeToString(unhex(e.SenderPublicKey))}}
+	me := self{agent.userID, agent.deviceID, agent.key}
+	v2 := envelopeRow{DeviceID: agent.deviceID, KeyGeneration: e.KeyGeneration, Alg: teamkeys.LegacyEnvelopeAlg, Envelope: base64.StdEncoding.EncodeToString(unhex(e.Envelope))}
+	k2 := randomKey()
+	v3 := seal(t, e.ContainerID, e.KeyGeneration+1, k2, agent, agent)
+	got, err := openKeyring(e.ContainerID, []envelopeRow{v2, v3}, me, []member{agent.as("editor"), owner}, map[string]string{}, keyState{})
+	if err != nil || hex.EncodeToString(got.ring[e.KeyGeneration]) != e.ContentKey || !bytes.Equal(got.ring[e.KeyGeneration+1], k2) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	v2.Alg, v3.Alg = teamkeys.EnvelopeAlg, teamkeys.LegacyEnvelopeAlg
+	got, err = openKeyring(e.ContainerID, []envelopeRow{v2, v3}, me, []member{agent.as("editor"), owner}, map[string]string{}, keyState{})
+	if err != nil || len(got.ring) != 0 {
+		t.Fatalf("opened a row under the other alg: %+v %v", got, err)
 	}
 }

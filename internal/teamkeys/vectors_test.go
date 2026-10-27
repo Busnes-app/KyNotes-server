@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/cloudflare/circl/hpke"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
@@ -65,10 +66,27 @@ type envelopeVector struct {
 	Envelope            string `json:"envelope"`
 }
 
+// hpkeEnvelopeVector is a v3 envelope; EphemeralSeed is the HPKE ikmE (RFC 9180 DeriveKeyPair input).
+type hpkeEnvelopeVector struct {
+	ContainerID         string `json:"containerId"`
+	KeyGeneration       uint32 `json:"keyGeneration"`
+	RecipientDeviceID   string `json:"recipientDeviceId"`
+	RecipientPrivateKey string `json:"recipientPrivateKey"`
+	RecipientPublicKey  string `json:"recipientPublicKey"`
+	SenderDeviceID      string `json:"senderDeviceId"`
+	SenderPrivateKey    string `json:"senderPrivateKey"`
+	SenderPublicKey     string `json:"senderPublicKey"`
+	EphemeralSeed       string `json:"ephemeralSeed"`
+	Info                string `json:"info"`
+	ContentKey          string `json:"contentKey"`
+	Envelope            string `json:"envelope"`
+}
+
 type vectors struct {
-	Login     []loginVector    `json:"login"`
-	Identity  []identityVector `json:"identity"`
-	Envelopes []envelopeVector `json:"envelopes"`
+	Login         []loginVector        `json:"login"`
+	Identity      []identityVector     `json:"identity"`
+	Envelopes     []envelopeVector     `json:"envelopes"`
+	HPKEEnvelopes []hpkeEnvelopeVector `json:"hpkeEnvelopes"`
 }
 
 func unhex(t *testing.T, s string) []byte {
@@ -162,6 +180,45 @@ func envelope(t *testing.T, containerID string, generation uint32, deviceID, rec
 	return envelopeVector{containerID, generation, deviceID, recipientPriv, hex.EncodeToString(recipientPub), senderDeviceID, senderPriv, hex.EncodeToString(senderPub), ephPriv, nonce, contentKey, hex.EncodeToString(env)}
 }
 
+// hpkeEnvelope seals a v3 envelope straight through circl's HPKE (not through
+// SealEnvelope), with the context bytes built here independently.
+func hpkeEnvelope(t *testing.T, containerID string, generation uint32, deviceID, recipientPriv, senderDeviceID, senderPriv, seed, contentKey string) hpkeEnvelopeVector {
+	mustID(t, "cnt", containerID)
+	mustID(t, "dev", deviceID)
+	mustID(t, "dev", senderDeviceID)
+	info := append([]byte("kynotes/envelope/v3"), containerID...)
+	info = binary.BigEndian.AppendUint32(info, generation)
+	info = append(append(info, deviceID...), senderDeviceID...)
+	scheme := hpke.KEM_X25519_HKDF_SHA256.Scheme()
+	recipientPub := x25519(t, unhex(t, recipientPriv), curve25519.Basepoint)
+	senderPub := x25519(t, unhex(t, senderPriv), curve25519.Basepoint)
+	pkR, err := scheme.UnmarshalBinaryPublicKey(recipientPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skS, err := scheme.UnmarshalBinaryPrivateKey(unhex(t, senderPriv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := suite.NewSender(pkR, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, sealer, err := s.SetupAuth(bytes.NewReader(unhex(t, seed)), skS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, err := sealer.Seal(unhex(t, contentKey), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := append(append(append([]byte{0x03}, senderDeviceID...), enc...), ct...)
+	if len(env) != 111 {
+		t.Fatalf("envelope is %d bytes, want 111", len(env))
+	}
+	return hpkeEnvelopeVector{containerID, generation, deviceID, recipientPriv, hex.EncodeToString(recipientPub), senderDeviceID, senderPriv, hex.EncodeToString(senderPub), seed, hex.EncodeToString(info), contentKey, hex.EncodeToString(env)}
+}
+
 // Fixed recipient and ephemeral scalars are the RFC 7748 §6.1 Alice/Bob keys; the password matches
 // testdata/protocol/auth_vectors.json so authSecret is pinned twice.
 func generate(t *testing.T) vectors {
@@ -177,6 +234,10 @@ func generate(t *testing.T) vectors {
 		Envelopes: []envelopeVector{
 			envelope(t, "cnt_00000000000000000000000000", 1, "dev_00000000000000000000000000", bob, "dev_11111111111111111111111111", carol, alice, "000102030405060708090a0b", "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"),
 			envelope(t, "cnt_tvwxyz0123456789abcdefghjk", 4294967295, "dev_mnpqrstvwxyz0123456789abcd", alice, "dev_zyxwvtsrqpnmkjhgfedcba9876", dave, bob, "0c0d0e0f1011121314151617", "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f"),
+		},
+		HPKEEnvelopes: []hpkeEnvelopeVector{
+			hpkeEnvelope(t, "cnt_00000000000000000000000000", 1, "dev_00000000000000000000000000", bob, "dev_11111111111111111111111111", carol, "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f", "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f"),
+			hpkeEnvelope(t, "cnt_tvwxyz0123456789abcdefghjk", 4294967295, "dev_mnpqrstvwxyz0123456789abcd", alice, "dev_zyxwvtsrqpnmkjhgfedcba9876", dave, "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f", "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f"),
 		},
 	}
 }

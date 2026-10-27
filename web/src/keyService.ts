@@ -83,7 +83,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     const members: MemberKey[] = await Promise.all((await api.members(container.id)).map(async (member) => ({ ...member, identity: member.userId === caller.userId && own ? own : await api.userIdentity(member.userId) })));
     // An open is speculative while it holds first-contact pins this device has not stored: its keys,
     // digests and mark are used and saved only once those pins are persisted (trusted).
-    const open = (pins: Pins, rows: Envelope[], ring?: Keyring): OpenedKeyring =>
+    const open = (pins: Pins, rows: Envelope[], ring?: Keyring): Promise<OpenedKeyring> =>
       openKeyring({ containerID: container.id, envelopes: rows, me, members, pins, known, held: ring ?? held });
     const trusted = (opened: OpenedKeyring): OpenedKeyring => {
       latest.saved = { containerID: container.id, known: raiseFloor(opened.known, container) };
@@ -96,10 +96,10 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
      */
     const persistedOnly = async (): Promise<OpenedKeyring> => {
       const stored = await store.load();
-      const again = open(stored, envelopes);
+      const again = await open(stored, envelopes);
       if (!again.fresh.length) return trusted(again);
       latest.saved = { containerID: container.id, known };
-      return { ...open(stored, []), known };
+      return { ...(await open(stored, [])), known };
     };
     /** A conflict means another pass pinned a different key first: stop; the next pass asks about it. */
     const pinFailure = (stored: PinsStored): KeySync["plan"] | undefined => {
@@ -121,7 +121,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     const targets = (next: SweepPlan): MemberKey[] => (next.kind === "mint" ? next.recipients : next.kind === "wrap" ? next.grants.map((grant) => grant.member) : []).filter((member) => member.userId !== caller.userId);
 
     let pins = await store.load();
-    let opened = open(pins, envelopes);
+    let opened = await open(pins, envelopes);
     // Reads only: nothing is pinned, wrapped or minted against a rolled-back server.
     if (rollback) {
       const safe = opened.fresh.length ? await persistedOnly() : trusted(opened);
@@ -148,7 +148,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
         if (!(await store.confirm(confirmation, change.pinned))) return stopped({ kind: "pins-unsaved" }, []);
         pins = confirmation.pins;
       }
-      opened = open(pins, envelopes);
+      opened = await open(pins, envelopes);
       sweep = plan(opened);
     }
     const fresh = [...opened.fresh];
@@ -160,18 +160,23 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
     pins = opened.pins;
-    const seal = (member: MemberKey, generation: number, key: KeyRef) => {
-      const sealed = sealFor(member, container.id, generation, key, me!, pins);
-      pins = sealed.pins;
-      fresh.push(...sealed.fresh);
-      return sealed.envelope;
+    /** One at a time: each seal sees the pins the one before it added. */
+    const sealAll = async (grants: Array<{ member: MemberKey; generation: number; key: KeyRef }>): Promise<Envelope[]> => {
+      const out: Envelope[] = [];
+      for (const { member, generation, key } of grants) {
+        const sealed = await sealFor(member, container.id, generation, key, me!, pins);
+        pins = sealed.pins;
+        fresh.push(...sealed.fresh);
+        out.push(sealed.envelope);
+      }
+      return out;
     };
     let rows: Envelope[];
     if (sweep.kind === "mint") {
       const key = newContainerKey();
-      rows = sweep.recipients.map((member) => seal(member, container.keyGeneration + 1, key));
+      rows = await sealAll(sweep.recipients.map((member) => ({ member, generation: container.keyGeneration + 1, key })));
     } else {
-      rows = sweep.grants.map((grant) => seal(grant.member, grant.generation, opened.ring.get(grant.generation)!));
+      rows = await sealAll(sweep.grants.map((grant) => ({ member: grant.member, generation: grant.generation, key: opened.ring.get(grant.generation)! })));
     }
     // A pin another pass stored meanwhile wins: the sealed rows are discarded, never uploaded.
     const sealedFor = fresh.length > opened.fresh.length ? pinFailure(await store.addFresh(pins)) : undefined;
@@ -196,7 +201,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     // The rows just accepted include this browser's own envelope for the new key: no re-fetch to fail.
     seen = [...envelopes, ...rows];
     if (sweep.kind === "wrap") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
-    const after = trusted(open(pins, seen, opened.ring));
+    const after = trusted(await open(pins, seen, opened.ring));
     // One more plan in the same pass, never more: a steward who mints also wraps the older
     // generations members are missing (a reset member's team history). Its recipients were all
     // sealed for by the mint, so it asks nothing new; a changed or unstored pin, or a failed
@@ -204,7 +209,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     const history = plan(after, seen);
     if (history.kind === "wrap" && !comparePins(pins, targets(history)).changed.length) {
       const before = fresh.length;
-      const wrapped = history.grants.map((grant) => seal(grant.member, grant.generation, after.ring.get(grant.generation)!));
+      const wrapped = await sealAll(history.grants.map((grant) => ({ member: grant.member, generation: grant.generation, key: after.ring.get(grant.generation)! })));
       const unstored = fresh.length > before ? pinFailure(await store.addFresh(pins)) : undefined;
       if (!unstored) {
         try {
@@ -292,7 +297,7 @@ export async function inviteWithKeys(api: InviteAPI, target: InviteTarget, invit
     if (!(await store.confirm(confirmation, changed[0].pinned))) return plain("pins-unsaved");
     pins = confirmation.pins;
   }
-  const sealed = sealFor(member, container.id, container.keyGeneration, key, { ...caller.identity, userId: caller.userId }, pins);
+  const sealed = await sealFor(member, container.id, container.keyGeneration, key, { ...caller.identity, userId: caller.userId }, pins);
   // A first-seen pin is kept before the key leaves; a different pin another pass stored meanwhile wins.
   if (sealed.fresh.length) {
     // Only the invitee's pin: storePins merges under stored pins, so an unrelated pin never conflicts here.

@@ -214,7 +214,7 @@ describe("syncContainerKeys", () => {
     const { state, api } = server([owner, editor, reader], 1, 1);
     const me = { ...editor.held!, userId: editor.member.userId };
     const target = { ...reader.member, identity: reader.public };
-    state.envelopes.push(sealFor(target, cnt, 1, newContainerKey(), me, {}).envelope);
+    state.envelopes.push((await sealFor(target, cnt, 1, newContainerKey(), me, {})).envelope);
     const store = memoryStore();
     const result = await syncContainerKeys(api, cnt, as(reader), store, never);
     expect(result.ring.size).toBe(0);
@@ -438,8 +438,8 @@ describe("keys from a refused first-contact sender", () => {
   it("are never returned, remembered or accepted later when a concurrent pass pinned another key", async () => {
     const owner = user("owner", "b", "owner"), forged = user("owner", "b", "owner"), editor = user("editor", "c", "editor");
     expect(forged.public!.deviceId).toBe(owner.public!.deviceId); // the server swaps only the key
-    const view = (sender: User, key: KeyRef): KeyAPI => {
-      const envelope = sealFor({ ...editor.member, identity: editor.public }, cnt, 2, key, { ...sender.held!, userId: owner.member.userId }, {}).envelope;
+    const view = async (sender: User, key: KeyRef): Promise<KeyAPI> => {
+      const envelope = (await sealFor({ ...editor.member, identity: editor.public }, cnt, 2, key, { ...sender.held!, userId: owner.member.userId }, {})).envelope;
       return {
         container: async () => ({ id: cnt, keyGeneration: 2, sharedGeneration: 2 }),
         envelopes: async () => [envelope],
@@ -449,7 +449,7 @@ describe("keys from a refused first-contact sender", () => {
       };
     };
     const real = newContainerKey(), substituted = newContainerKey();
-    const views = [view(owner, real), view(forged, substituted)];
+    const views = [await view(owner, real), await view(forged, substituted)];
     // Both passes read the empty pins before either stores its first-contact pin.
     let arrived = 0;
     let release!: () => void;
@@ -610,7 +610,7 @@ describe("inviteWithKeys", () => {
     expect((api.stepUp as Mock).mock.invocationCallOrder[0]).toBeLessThan(sent);
     // The invitee opens the key as one a current steward sent.
     const steward = { ...owner.member, identity: { deviceId: owner.public!.deviceId, publicKey: owner.public!.publicKey } };
-    const opened = openKeyring({ containerID: team.id, envelopes: calls[0].envelopes, me: { ...invitee.held!, userId: invitee.member.userId }, members: [steward], pins: {}, known: { mark: 0, digests: {} } });
+    const opened = await openKeyring({ containerID: team.id, envelopes: calls[0].envelopes, me: { ...invitee.held!, userId: invitee.member.userId }, members: [steward], pins: {}, known: { mark: 0, digests: {} } });
     expect(opened.ring.get(team.keyGeneration)).toEqual(teamKey);
   });
 
