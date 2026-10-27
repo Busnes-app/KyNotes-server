@@ -521,12 +521,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   after the user's own password change. Any new path that sets a password for someone else must
   set the flag. `/setup` accepts only `authSecret`. A password change needs no content warning
   (`web/src/passwordChange.ts`).
-  `web/src/teamKeys.ts` holds the envelope/identity primitives on `@noble/curves`/`@noble/ciphers`
-  (exact pins); `web/src/identity.ts` creates the identity silently after a local password login
+  `web/src/teamKeys.ts` holds the envelope/identity primitives (exact pins): envelopes on hpke-js
+  (`@hpke/core`, `@hpke/dhkem-x25519`, `@hpke/chacha20poly1305`), Go on `github.com/cloudflare/circl/hpke`
+  (stdlib `crypto/hpke` has no Auth mode), identities on `@noble/curves`/`@noble/ciphers`. New envelopes are
+  v3 (RFC 9180 HPKE Auth, alg `hpke-auth-x25519-hkdfsha256-chacha20poly1305`); stored v2 rows
+  (`x25519-hkdf-sha256-chacha20poly1305`) are opened, never sealed or rewritten. Opening is selected by the
+  row's `alg`, and alg, version byte and length must agree. `testdata/protocol/rfc9180_a2_3_auth.json` is
+  RFC 9180 A.2.3; `TestHPKEMatchesRFC9180AuthVector` and `teamKeys.test.ts` check both libraries against it; `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
   ("Forget this device" clears it). SSO sessions create device-only identities (P3c).
-  `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`);
-  `web/src/teamKeys.test.ts` replays it. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
+  `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`; v2 `envelopes`
+  are frozen, v3 `hpkeEnvelopes` are sealed through circl with a fixed ephemeral seed);
+  `web/src/teamKeys.test.ts` reproduces the v3 bytes and opens both. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
   `TestRecoveryAndAdminResetKeepIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
   `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
@@ -561,7 +567,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestSaveRacing*`, `TestAdminMemberRemovalRotatesLikeOwnerRemoval`,
   `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
   `TestInvitation*`, `TestUserIdentityVisibility`,
-  `TestOpenEnvelopeAgreesWithVectors` and the probe.
+  `TestOpenEnvelopeAgreesWithVectors`, `TestOpenLegacyEnvelopeVectors`, `TestSenderAuthentication`,
+  `TestEnvelopeWriteAcceptsBothFormats`, `TestStoredV2RowsStillOpen` and the probe.
 - Team keys P3a (web): `web/src/keyring.ts` (pure: envelopes → generation keys, write key, exact-generation
   read key, steward sweep plan), `web/src/keyService.ts` (one sweep against an injected API: mint via
   rotation, backfill wraps, one retry on 409) and `web/src/pins.ts` (add-only TOFU pins in the vault
@@ -656,8 +663,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   ever requests a `/legacy` path. Every browser dialog must
   be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
-- Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are v2 only
-  (sender-authenticated, spec §1); `openKeyring` accepts a key only from this identity or a current
+- Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are sender-authenticated
+  v3, or stored v2 (spec §1); `openKeyring` and `sealFor` are async (HPKE runs on WebCrypto); `openKeyring` accepts a key only from this identity or a current
   owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,
   below this device's vault high-water mark (`getKeyState`/`storeKeyState`, never from the server), an
   identity already pinned here; the first key per generation wins, across reloads via stored key

@@ -283,6 +283,30 @@ func TestEnvelopeWriteIsInsertOnlyExceptOwnIdentity(t *testing.T) {
 	}
 }
 
+// TestEnvelopeWriteAcceptsBothFormats: v3 (HPKE) and v2 rows are stored with their alg; any other alg is refused.
+func TestEnvelopeWriteAcceptsBothFormats(t *testing.T) {
+	tm := newTeam(t)
+	keyForTest(t, tm.owner.db, tm.id, pairUser)
+	put := func(alg, device string) (int, string) {
+		item := strings.Replace(envJSON(device, 1, 1), legacyEnvelopeAlg, alg, 1)
+		return status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(item), true, false))
+	}
+	for _, alg := range []string{"x25519-hkdf-sha256-chacha20poly1305-v4", "hpke-base-x25519-hkdfsha256-chacha20poly1305", ""} {
+		if code, body := put(alg, tm.editorID); code != http.StatusBadRequest || !strings.Contains(body, "invalid_request") {
+			t.Fatalf("alg %q: %d %s", alg, code, body)
+		}
+	}
+	for device, alg := range map[string]string{tm.editorID: envelopeAlg, tm.adminID: legacyEnvelopeAlg} {
+		if code, body := put(alg, device); code != http.StatusNoContent {
+			t.Fatalf("alg %q: %d %s", alg, code, body)
+		}
+		var stored string
+		if err := tm.owner.db.QueryRow(`SELECT alg FROM key_envelopes WHERE device_id=?`, device).Scan(&stored); err != nil || stored != alg {
+			t.Fatalf("stored alg %q: %v", stored, err)
+		}
+	}
+}
+
 func TestMemberMayWriteOnlyOwnEnvelopes(t *testing.T) {
 	tm := newTeam(t)
 	keyForTest(t, tm.owner.db, tm.id, pairUser)

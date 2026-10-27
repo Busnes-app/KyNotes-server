@@ -118,7 +118,7 @@ func (b browser) envelope(t *testing.T, cid string, generation int64, key []byte
 	t.Helper()
 	env, err := teamkeys.SealEnvelope(key, to.identity.PublicKey().Bytes(), cid, uint32(generation), to.identityDevice, b.identity, b.identityDevice)
 	must(t, err)
-	return map[string]any{"deviceId": to.identityDevice, "keyGeneration": generation, "alg": envelopeAlg, "envelope": base64.StdEncoding.EncodeToString(env)}
+	return map[string]any{"deviceId": to.identityDevice, "keyGeneration": generation, "alg": teamkeys.EnvelopeAlg, "envelope": base64.StdEncoding.EncodeToString(env)}
 }
 
 // rotate mints a new key for the members given, as an owner's browser sweep does.

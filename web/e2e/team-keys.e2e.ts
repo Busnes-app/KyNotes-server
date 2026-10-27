@@ -4,7 +4,7 @@ import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, c
 import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
-import { envelopeSender, unwrapEnvelope } from "../src/teamKeys";
+import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
 // Three people in three isolated browser contexts (cookies and IndexedDB apart).
 const TEMPORARY = "temporary horse battery staple";
@@ -472,9 +472,9 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   await openTeam(editor.page, SECOND, second);
   await expect(editor.page.getByText(WAITING)).toHaveCount(0);
   await readPage(editor.page, "Second page", ["second comment"]);
-  const fromInvitation = await editor.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), second) as Array<{ deviceId: string; envelope: string }>;
+  const fromInvitation = await editor.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), second) as Array<{ deviceId: string; alg: string; envelope: string }>;
   const editorDevice = (await vaultOf(editor.page))!.identity!.deviceId;
-  expect(fromInvitation.filter((row) => row.deviceId === editorDevice).map((row) => envelopeSender(fromBase64(row.envelope)))).toEqual([ownerDevice]);
+  expect(fromInvitation.filter((row) => row.deviceId === editorDevice).map((row) => envelopeSender(row.alg, fromBase64(row.envelope)))).toEqual([ownerDevice]);
   expect((await heldKeys(editor.page, second, senders)).size).toBe(1);
   await openTeam(owner.page, SECOND, second);
   await expect(owner.page.locator(".member-row", { hasText: "editor" })).toContainText("has key");
@@ -568,16 +568,17 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   await readPage(newcomer.page, "Owner page", ["owner comment"]);
   // The steward re-shared for the new key only: the old key is gone from the server and opens none of it.
   const newIdentity = (await vaultOf(newcomer.page))!.identity!;
-  const rows = await newcomer.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; envelope: string }>;
+  const rows = await newcomer.page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; alg: string; envelope: string }>;
   expect(rows.filter((row) => row.deviceId === oldIdentity.deviceId)).toEqual([]);
   const reshared = rows.filter((row) => row.deviceId === newIdentity.deviceId);
   expect(reshared.length).toBeGreaterThan(0);
   for (const row of reshared) {
     const envelope = fromBase64(row.envelope);
-    const sender = senders.get(envelopeSender(envelope))!;
-    expect(() => unwrapEnvelope(envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toThrow();
-    expect(() => unwrapEnvelope(envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, oldIdentity.deviceId, sender)).toThrow();
-    expect(unwrapEnvelope(envelope, Uint8Array.from(newIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toHaveLength(32);
+    expect(row.alg).toBe(ENVELOPE_ALG);
+    const sender = senders.get(envelopeSender(row.alg, envelope))!;
+    await expect(unwrapEnvelope(row.alg, envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).rejects.toThrow();
+    await expect(unwrapEnvelope(row.alg, envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, oldIdentity.deviceId, sender)).rejects.toThrow();
+    expect(await unwrapEnvelope(row.alg, envelope, Uint8Array.from(newIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toHaveLength(32);
   }
   // The reset retired the old key's generations: the steward minted a new one, so content written
   // afterwards sits above them all and no retained pre-reset key opens the server's bytes.

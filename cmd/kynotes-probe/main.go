@@ -23,8 +23,6 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
-const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
-
 type client struct {
 	base, user, password, config  string
 	original, authSecret, keyPath string
@@ -211,7 +209,7 @@ func (p *client) keyContainer() error {
 	if err = p.stepUp(); err != nil {
 		return err
 	}
-	body := []byte(fmt.Sprintf(`{"expectedGeneration":1,"envelopes":[{"deviceId":%q,"keyGeneration":2,"alg":%q,"envelope":%q}]}`, p.identityDevice, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	body := []byte(fmt.Sprintf(`{"expectedGeneration":1,"envelopes":[{"deviceId":%q,"keyGeneration":2,"alg":%q,"envelope":%q}]}`, p.identityDevice, teamkeys.EnvelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
 	res, err = p.request(http.MethodPost, "/api/v1/containers/"+p.containerID+"/key-rotations", body, nil, false)
 	if err != nil {
 		return err
@@ -551,7 +549,7 @@ func (p *client) envelope() error {
 	if err != nil {
 		return err
 	}
-	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":%d,"alg":%q,"envelope":%q}]}`, p.deviceID, p.generation, envelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":%d,"alg":%q,"envelope":%q}]}`, p.deviceID, p.generation, teamkeys.EnvelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
 	res, err := p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false)
 	if err != nil {
 		return err
@@ -569,6 +567,7 @@ func (p *client) envelope() error {
 		return err
 	}
 	var envelopes []struct {
+		Alg      string `json:"alg"`
 		Envelope string `json:"envelope"`
 	}
 	if err = decode(res, &envelopes); err != nil {
@@ -581,7 +580,7 @@ func (p *client) envelope() error {
 	if err != nil {
 		return err
 	}
-	opened, err := teamkeys.OpenEnvelope(raw, p.deviceKey, p.containerID, uint32(p.generation), p.deviceID, p.identityKey.PublicKey().Bytes())
+	opened, err := teamkeys.OpenEnvelope(envelopes[0].Alg, raw, p.deviceKey, p.containerID, uint32(p.generation), p.deviceID, p.identityKey.PublicKey().Bytes())
 	if err != nil || !bytes.Equal(opened, p.contentKey) {
 		return fmt.Errorf("device could not open its envelope: %v", err)
 	}

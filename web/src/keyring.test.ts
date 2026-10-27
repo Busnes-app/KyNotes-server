@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { asContentKey, base64, decryptNote, encryptNote, type KeyRef } from "./crypto";
 import { guardContainer, mergeFloor, memberKeyStatus, keysAllowed, NO_FLOOR, ownCopyKeys, raiseFloor, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, waitingKey, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
-import { generateIdentity } from "./teamKeys";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import vectors from "../../testdata/protocol/envelope_vectors.json";
+import { ENVELOPE_ALG, generateIdentity, LEGACY_ENVELOPE_ALG } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -16,22 +18,39 @@ const person = (name: string, c: string, role = "editor") => {
 const open = (mark: number, envelopes: Envelope[], me: Me | undefined, members: MemberKey[], pins: Record<string, string>, held?: Map<number, KeyRef>, digests: Record<number, string> = {}) =>
   openKeyring({ containerID: cnt, envelopes, me, members, pins, known: { mark, digests }, held });
 /** An envelope sealed with no pins in play. */
-const seal = (member: MemberKey, generation: number, key: KeyRef, by: Me) => sealFor(member, cnt, generation, key, by, {}).envelope;
+const seal = async (member: MemberKey, generation: number, key: KeyRef, by: Me) => (await sealFor(member, cnt, generation, key, by, {})).envelope;
 
 describe("keyring", () => {
-  it("opens only this identity's envelopes, by generation, and skips rows it cannot open", () => {
+  it("opens only this identity's envelopes, by generation, and skips rows it cannot open", async () => {
     const owner = person("owner", "b", "owner");
     const editor = person("editor", "c");
     const k2 = newContainerKey();
     const k3 = newContainerKey();
-    const rows: Envelope[] = [seal(owner.member, 2, k2, owner.held), seal(editor.member, 2, k2, owner.held), seal(owner.member, 3, k3, owner.held)];
-    const forged = { ...seal(owner.member, 4, k3, owner.held), keyGeneration: 5 }; // AAD binds the generation
-    const opened = open(3, [...rows, forged], owner.held, [owner.member, editor.member], {});
+    const rows: Envelope[] = [await seal(owner.member, 2, k2, owner.held), await seal(editor.member, 2, k2, owner.held), await seal(owner.member, 3, k3, owner.held)];
+    const forged = { ...(await seal(owner.member, 4, k3, owner.held)), keyGeneration: 5 }; // AAD binds the generation
+    const opened = await open(3, [...rows, forged], owner.held, [owner.member, editor.member], {});
     expect([...opened.ring.keys()].sort()).toEqual([2, 3]);
     expect(opened.ring.get(3)).toEqual(k3);
     // Self-sealed envelopes need no pin and add none.
     expect(opened).toMatchObject({ pins: {}, fresh: [], changed: [] });
-    expect(open(3, rows, undefined, [owner.member], {}).ring.size).toBe(0);
+    expect((await open(3, rows, undefined, [owner.member], {})).ring.size).toBe(0);
+  });
+
+  it("opens stored v2 rows beside v3 ones, and neither under the other's alg", async () => {
+    const v = vectors.envelopes[0];
+    const me: Me = { privateKey: hexToBytes(v.recipientPrivateKey), publicKey: hexToBytes(v.recipientPublicKey), deviceId: v.recipientDeviceId, userId: `usr_${"r".repeat(26)}` };
+    const owner: MemberKey = { userId: `usr_${"s".repeat(26)}`, username: "owner", role: "owner", identity: { deviceId: v.senderDeviceId, publicKey: base64(hexToBytes(v.senderPublicKey)) } };
+    const self: MemberKey = { userId: me.userId, username: "me", role: "editor", identity: { deviceId: me.deviceId, publicKey: base64(me.publicKey) } };
+    const v2: Envelope = { deviceId: me.deviceId, keyGeneration: v.keyGeneration, alg: LEGACY_ENVELOPE_ALG, envelope: base64(hexToBytes(v.envelope)) };
+    const k3 = newContainerKey();
+    const v3 = (await sealFor(self, v.containerId, v.keyGeneration + 1, k3, me, {})).envelope;
+    expect(v3.alg).toBe(ENVELOPE_ALG);
+    const openAll = (rows: Envelope[]) => openKeyring({ containerID: v.containerId, envelopes: rows, me, members: [self, owner], pins: {}, known: { mark: 0, digests: {} } });
+    const opened = await openAll([v2, v3]);
+    expect(bytesToHex(opened.ring.get(v.keyGeneration)!)).toBe(v.contentKey);
+    expect(opened.ring.get(v.keyGeneration + 1)).toEqual(k3);
+    expect(opened.fresh.map((member) => member.userId)).toEqual([owner.userId]);
+    expect((await openAll([{ ...v2, alg: ENVELOPE_ALG }, { ...v3, alg: LEGACY_ENVELOPE_ALG }])).ring.size).toBe(0);
   });
 
   describe("sender authentication", () => {
@@ -40,143 +59,144 @@ describe("keyring", () => {
     const editor = person("editor", "c");
     const k2 = newContainerKey();
     const members = [owner.member, admin.member, editor.member];
-    const fromOwner = [seal(editor.member, 2, k2, owner.held)];
+    let fromOwner: Envelope[] = [];
+    beforeAll(async () => { fromOwner = [await seal(editor.member, 2, k2, owner.held)]; });
 
-    it("accepts a current steward whose key matches its pin", () => {
+    it("accepts a current steward whose key matches its pin", async () => {
       const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
-      const opened = open(2, fromOwner, editor.held, members, pins);
+      const opened = await open(2, fromOwner, editor.held, members, pins);
       expect(opened.ring.get(2)).toEqual(k2);
       expect(opened).toMatchObject({ pins, fresh: [], changed: [] });
     });
 
-    it("pins a first-contact steward and surfaces it as a new key holder", () => {
-      const opened = open(2, fromOwner, editor.held, members, {});
+    it("pins a first-contact steward and surfaces it as a new key holder", async () => {
+      const opened = await open(2, fromOwner, editor.held, members, {});
       expect(opened.ring.get(2)).toEqual(k2);
       expect(opened.pins).toEqual({ [owner.member.userId]: owner.member.identity!.publicKey });
       expect(opened.fresh).toEqual([owner.member]);
     });
 
-    it("rejects and surfaces a steward whose key no longer matches its pin", () => {
+    it("rejects and surfaces a steward whose key no longer matches its pin", async () => {
       const pinned = admin.member.identity!.publicKey;
-      const opened = open(2, fromOwner, editor.held, members, { [owner.member.userId]: pinned });
+      const opened = await open(2, fromOwner, editor.held, members, { [owner.member.userId]: pinned });
       expect(opened.ring.size).toBe(0);
       expect(opened.changed).toEqual([{ member: owner.member, pinned }]);
       expect(opened.pins).toEqual({ [owner.member.userId]: pinned });
     });
 
-    it("ignores senders that are not current stewards", () => {
-      const fromEditor = [seal(owner.member, 2, k2, editor.held)];
-      expect(open(2, fromEditor, owner.held, members, {}).ring.size).toBe(0);
+    it("ignores senders that are not current stewards", async () => {
+      const fromEditor = [await seal(owner.member, 2, k2, editor.held)];
+      expect((await open(2, fromEditor, owner.held, members, {})).ring.size).toBe(0);
       // A removed steward is no longer in the member list.
-      expect(open(2, fromOwner, editor.held, [admin.member, editor.member], {}).ring.size).toBe(0);
+      expect((await open(2, fromOwner, editor.held, [admin.member, editor.member], {})).ring.size).toBe(0);
     });
 
-    it("ignores an envelope forged in a steward's name and pins nothing", () => {
+    it("ignores an envelope forged in a steward's name and pins nothing", async () => {
       const server = generateIdentity();
-      const forged = [seal(editor.member, 2, k2, { ...server, deviceId: owner.held.deviceId, userId: owner.held.userId })];
-      const opened = open(2, forged, editor.held, members, {});
+      const forged = [await seal(editor.member, 2, k2, { ...server, deviceId: owner.held.deviceId, userId: owner.held.userId })];
+      const opened = await open(2, forged, editor.held, members, {});
       expect(opened).toMatchObject({ pins: {}, fresh: [], changed: [] });
       expect(opened.ring.size).toBe(0);
     });
 
-    it("ignores a steward listed under this user's ID with another identity", () => {
+    it("ignores a steward listed under this user's ID with another identity", async () => {
       const impostor = person("editor", "g", "owner");
       const fake: MemberKey = { ...impostor.member, userId: editor.member.userId };
-      const rows = [seal(editor.member, 2, k2, impostor.held)];
-      expect(open(2, rows, editor.held, [owner.member, fake], {}).ring.size).toBe(0);
+      const rows = [await seal(editor.member, 2, k2, impostor.held)];
+      expect((await open(2, rows, editor.held, [owner.member, fake], {})).ring.size).toBe(0);
     });
 
-    it("keeps history from a pinned former steward, but never at the current generation", () => {
+    it("keeps history from a pinned former steward, but never at the current generation", async () => {
       const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
       const remaining = [admin.member, editor.member]; // owner removed; this device has since accepted generation 3
-      const old = open(3, fromOwner, editor.held, remaining, pins);
+      const old = await open(3, fromOwner, editor.held, remaining, pins);
       expect(old.ring.get(2)).toEqual(k2);
       expect(old).toMatchObject({ pins, fresh: [], changed: [] });
       // At or above this device's mark, the same sender needs to be a current steward.
-      expect(open(2, fromOwner, editor.held, remaining, pins).ring.size).toBe(0);
+      expect((await open(2, fromOwner, editor.held, remaining, pins)).ring.size).toBe(0);
       // Demoted rather than removed: same rule.
       const demoted = [{ ...owner.member, role: "editor" }, editor.member];
-      expect(open(3, fromOwner, editor.held, demoted, pins).ring.get(2)).toEqual(k2);
-      expect(open(2, fromOwner, editor.held, demoted, pins).ring.size).toBe(0);
+      expect((await open(3, fromOwner, editor.held, demoted, pins)).ring.get(2)).toEqual(k2);
+      expect((await open(2, fromOwner, editor.held, demoted, pins)).ring.size).toBe(0);
     });
 
-    it("ignores a pinned former steward at a generation this device never accepted from a current steward", () => {
+    it("ignores a pinned former steward at a generation this device never accepted from a current steward", async () => {
       const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
       // The server may claim any keyGeneration; only this device's own mark counts.
-      expect(open(1, fromOwner, editor.held, [admin.member, editor.member], pins).ring.size).toBe(0);
-      expect(open(0, fromOwner, editor.held, [admin.member, editor.member], pins).ring.size).toBe(0);
+      expect((await open(1, fromOwner, editor.held, [admin.member, editor.member], pins)).ring.size).toBe(0);
+      expect((await open(0, fromOwner, editor.held, [admin.member, editor.member], pins)).ring.size).toBe(0);
     });
 
-    it("raises the mark only for keys accepted from a current steward or itself, and never lowers it", () => {
-      expect(open(0, fromOwner, editor.held, members, {}).known.mark).toBe(2);
-      expect(open(5, fromOwner, editor.held, members, {}).known.mark).toBe(5);
+    it("raises the mark only for keys accepted from a current steward or itself, and never lowers it", async () => {
+      expect((await open(0, fromOwner, editor.held, members, {})).known.mark).toBe(2);
+      expect((await open(5, fromOwner, editor.held, members, {})).known.mark).toBe(5);
       const pins = { [owner.member.userId]: owner.member.identity!.publicKey };
       // Accepted only through the pinned exception: no new mark.
-      expect(open(3, fromOwner, editor.held, [admin.member, editor.member], pins).known.mark).toBe(3);
-      expect(open(0, [seal(owner.member, 4, k2, owner.held)], owner.held, members, {}).known.mark).toBe(4);
+      expect((await open(3, fromOwner, editor.held, [admin.member, editor.member], pins)).known.mark).toBe(3);
+      expect((await open(0, [await seal(owner.member, 4, k2, owner.held)], owner.held, members, {})).known.mark).toBe(4);
     });
 
-    it("keeps the first key accepted for a generation and reports a different one as a conflict", () => {
+    it("keeps the first key accepted for a generation and reports a different one as a conflict", async () => {
       const other = newContainerKey();
-      const second = seal(editor.member, 2, other, admin.held);
-      const both = open(0, [...fromOwner, second], editor.held, members, {});
+      const second = await seal(editor.member, 2, other, admin.held);
+      const both = await open(0, [...fromOwner, second], editor.held, members, {});
       expect(both.ring.get(2)).toEqual(k2);
       expect(both.conflicts).toEqual([2]);
-      expect(open(0, [...fromOwner, ...fromOwner], editor.held, members, {}).conflicts).toEqual([]);
+      expect((await open(0, [...fromOwner, ...fromOwner], editor.held, members, {})).conflicts).toEqual([]);
       // A key already held from an earlier open is never replaced.
       const held = new Map([[2, other]]);
-      const later = open(0, fromOwner, editor.held, members, {}, held);
+      const later = await open(0, fromOwner, editor.held, members, {}, held);
       expect(later.ring.get(2)).toEqual(other);
       expect(later.conflicts).toEqual([2]);
       expect(held.get(2)).toEqual(other);
     });
 
-    it("after a reload, refuses a pinned-history key that differs from the one this device accepted", () => {
-      const first = open(0, fromOwner, editor.held, members, {});
+    it("after a reload, refuses a pinned-history key that differs from the one this device accepted", async () => {
+      const first = await open(0, fromOwner, editor.held, members, {});
       expect(first.known).toEqual({ mark: 2, digests: { 2: expect.stringMatching(/^[0-9a-f]{64}$/) } });
       // Reload: nothing held. The server withholds the owner's envelope and serves a pinned
       // former steward's envelope for generation 2 with another key.
       const pins = { ...first.pins, [admin.member.userId]: admin.member.identity!.publicKey };
       const known = { mark: 3, digests: first.known.digests };
-      const swapped = [seal(editor.member, 2, newContainerKey(), admin.held)];
-      const reloaded = openKeyring({ containerID: cnt, envelopes: swapped, me: editor.held, members: [editor.member], pins, known });
+      const swapped = [await seal(editor.member, 2, newContainerKey(), admin.held)];
+      const reloaded = await openKeyring({ containerID: cnt, envelopes: swapped, me: editor.held, members: [editor.member], pins, known });
       expect(reloaded.ring.size).toBe(0);
       expect(reloaded.conflicts).toEqual([2]);
       expect(reloaded.known).toEqual(known);
       // The same key from that pinned sender is fine.
-      const same = [seal(editor.member, 2, k2, admin.held)];
-      expect(openKeyring({ containerID: cnt, envelopes: same, me: editor.held, members: [editor.member], pins, known }).ring.get(2)).toEqual(k2);
+      const same = [await seal(editor.member, 2, k2, admin.held)];
+      expect((await openKeyring({ containerID: cnt, envelopes: same, me: editor.held, members: [editor.member], pins, known })).ring.get(2)).toEqual(k2);
     });
 
-    it("drops a held key that disagrees with the stored digest, even beside a matching envelope", () => {
-      const digests = open(0, fromOwner, editor.held, members, {}).known.digests;
+    it("drops a held key that disagrees with the stored digest, even beside a matching envelope", async () => {
+      const digests = (await open(0, fromOwner, editor.held, members, {})).known.digests;
       const other = newContainerKey();
-      const opened = open(2, fromOwner, editor.held, members, {}, new Map([[2, other]]), digests);
+      const opened = await open(2, fromOwner, editor.held, members, {}, new Map([[2, other]]), digests);
       expect(opened.ring.get(2)).toEqual(k2);
       expect(opened.conflicts).toEqual([2]);
       expect(opened.known.digests).toEqual(digests);
       // A held key with no stored digest is recorded.
-      const recorded = open(0, [], editor.held, members, {}, new Map([[5, other]]));
+      const recorded = await open(0, [], editor.held, members, {}, new Map([[5, other]]));
       expect(recorded.ring.get(5)).toEqual(other);
       expect(Object.keys(recorded.known.digests)).toEqual(["5"]);
     });
 
-    it("never rewrites a pin from server data", () => {
+    it("never rewrites a pin from server data", async () => {
       const pinned = admin.member.identity!.publicKey;
       const pins = { [owner.member.userId]: pinned };
-      const opened = open(0, fromOwner, editor.held, members, pins);
+      const opened = await open(0, fromOwner, editor.held, members, pins);
       expect(opened.pins[owner.member.userId]).toBe(pinned);
       expect(pins).toEqual({ [owner.member.userId]: pinned });
     });
 
-    it("ignores an unpinned non-steward even for an old generation", () => {
-      const fromEditor = [seal(owner.member, 2, k2, editor.held)];
-      expect(open(3, fromEditor, owner.held, members, {}).ring.size).toBe(0);
-      expect(open(3, fromOwner, editor.held, [admin.member, editor.member], {}).ring.size).toBe(0);
+    it("ignores an unpinned non-steward even for an old generation", async () => {
+      const fromEditor = [await seal(owner.member, 2, k2, editor.held)];
+      expect((await open(3, fromEditor, owner.held, members, {})).ring.size).toBe(0);
+      expect((await open(3, fromOwner, editor.held, [admin.member, editor.member], {})).ring.size).toBe(0);
     });
   });
 
-  it("never writes with the login key: a never-shared container has no write key, a shared one only the current key", () => {
+  it("never writes with the login key: a never-shared container has no write key, a shared one only the current key", async () => {
     const k3 = newContainerKey();
     const ring = new Map([[3, k3]]);
     expect(writeKey({ id: cnt, keyGeneration: 4, sharedGeneration: 0 }, ring, NO_FLOOR)).toBeUndefined();
@@ -226,31 +246,31 @@ describe("sealFor pins", () => {
   const swapped: MemberKey = { ...editor.member, identity: { ...editor.member.identity!, publicKey: base64(generateIdentity().publicKey) } };
   const k2 = newContainerKey();
 
-  it("pins a recipient on first wrap and keeps a matching pin", () => {
-    const first = sealFor(editor.member, cnt, 2, k2, owner.held, {});
+  it("pins a recipient on first wrap and keeps a matching pin", async () => {
+    const first = await sealFor(editor.member, cnt, 2, k2, owner.held, {});
     expect(first.pins).toEqual({ [editor.member.userId]: editor.member.identity!.publicKey });
     expect(first.fresh).toEqual([editor.member]);
-    const again = sealFor(editor.member, cnt, 2, k2, owner.held, first.pins);
+    const again = await sealFor(editor.member, cnt, 2, k2, owner.held, first.pins);
     expect(again.pins).toEqual(first.pins);
     expect(again.fresh).toEqual([]);
   });
 
-  it("refuses a changed key until the user confirms the new fingerprint", () => {
+  it("refuses a changed key until the user confirms the new fingerprint", async () => {
     const pins = { [editor.member.userId]: editor.member.identity!.publicKey };
     let error: unknown;
-    try { sealFor(swapped, cnt, 2, k2, owner.held, pins); } catch (caught) { error = caught; }
+    try { await sealFor(swapped, cnt, 2, k2, owner.held, pins); } catch (caught) { error = caught; }
     expect(error).toBeInstanceOf(FingerprintChangedError);
     expect(error).toMatchObject({ member: swapped, pinned: pins[editor.member.userId] });
     const confirmed = confirmFingerprintChange(pins, swapped);
     expect(confirmed).toBeInstanceOf(PinConfirmation);
     expect(confirmed.pins).toEqual({ [editor.member.userId]: swapped.identity!.publicKey });
-    expect(sealFor(swapped, cnt, 2, k2, owner.held, confirmed.pins).envelope.deviceId).toBe(editor.member.identity!.deviceId);
+    expect((await sealFor(swapped, cnt, 2, k2, owner.held, confirmed.pins)).envelope.deviceId).toBe(editor.member.identity!.deviceId);
   });
 
-  it("wraps for this user only to this browser's own identity", () => {
+  it("wraps for this user only to this browser's own identity", async () => {
     const self: MemberKey = { ...owner.member, identity: { deviceId: dev("h"), publicKey: base64(generateIdentity().publicKey) } };
-    expect(() => sealFor(self, cnt, 2, k2, owner.held, {})).toThrow();
-    expect(sealFor(owner.member, cnt, 2, k2, owner.held, {}).pins).toEqual({});
+    await expect(sealFor(self, cnt, 2, k2, owner.held, {})).rejects.toThrow();
+    expect((await sealFor(owner.member, cnt, 2, k2, owner.held, {})).pins).toEqual({});
   });
 });
 
@@ -259,18 +279,18 @@ describe("planSweep", () => {
   const editor = person("editor", "c");
   const container = (keyGeneration: number, sharedGeneration: number) => ({ id: cnt, keyGeneration, sharedGeneration });
 
-  it("leaves a member an administrator added out of every mint and wrap until a steward approves them", () => {
+  it("leaves a member an administrator added out of every mint and wrap until a steward approves them", async () => {
     const added = { ...person("added", "f").member, approved: false };
     const base = { me: owner.member.userId, recoverable: true };
     expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, added], envelopes: [], ring: new Map() })).toEqual({ kind: "mint", recipients: [owner.member] });
     const k2 = newContainerKey();
-    const envelopes = [seal(owner.member, 2, k2, owner.held)];
+    const envelopes = [await seal(owner.member, 2, k2, owner.held)];
     expect(planSweep({ ...base, container: container(2, 2), members: [owner.member, added], envelopes, ring: new Map([[2, k2]]) })).toEqual({ kind: "idle" });
     expect(planSweep({ ...base, container: container(2, 2), members: [owner.member, { ...added, approved: true }], envelopes, ring: new Map([[2, k2]]) }).kind).toBe("wrap");
     expect(memberKeyStatus(container(2, 2), [owner.member, added], envelopes)).toMatchObject({ [added.userId]: "unapproved" });
   });
 
-  it("mints the first key for every keyed member, once the caller is recoverable", () => {
+  it("mints the first key for every keyed member, once the caller is recoverable", async () => {
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
     const base = { me: owner.member.userId, envelopes: [], ring: new Map(), recoverable: true };
     // A member without an identity no longer holds the first key back: it is wrapped later by the sweep.
@@ -281,35 +301,35 @@ describe("planSweep", () => {
     expect(planSweep({ ...base, container: container(1, 0), members: [owner.member, editor.member] })).toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
   });
 
-  it("never acts for a non-steward or a steward without an identity", () => {
+  it("never acts for a non-steward or a steward without an identity", async () => {
     const base = { container: container(1, 0), envelopes: [], ring: new Map(), recoverable: true };
     expect(planSweep({ ...base, me: editor.member.userId, members: [owner.member, editor.member] }).kind).toBe("idle");
     expect(planSweep({ ...base, me: owner.member.userId, members: [{ ...owner.member, identity: undefined }, editor.member] }).kind).toBe("idle");
   });
 
-  it("re-mints after a removal emptied the current generation, skipping members without identities", () => {
+  it("re-mints after a removal emptied the current generation, skipping members without identities", async () => {
     const k2 = newContainerKey();
-    const envelopes = [seal(owner.member, 2, k2, owner.held), seal(editor.member, 2, k2, owner.held)];
+    const envelopes = [await seal(owner.member, 2, k2, owner.held), await seal(editor.member, 2, k2, owner.held)];
     const sso: MemberKey = { userId: `usr_${"d".repeat(26)}`, username: "sso-user", role: "editor" };
     expect(planSweep({ container: container(3, 2), recoverable: true, me: owner.member.userId, members: [owner.member, editor.member, sso], envelopes, ring: new Map([[2, k2]]) }))
       .toEqual({ kind: "mint", recipients: [owner.member, editor.member] });
   });
 
-  it("re-mints, never wraps, after a self-service reset retired the generation", () => {
+  it("re-mints, never wraps, after a self-service reset retired the generation", async () => {
     // The editor reset: the server deleted the old identity's envelopes and advanced 2 -> 3.
     const k2 = newContainerKey();
     const reset: MemberKey = { ...editor.member, identity: person("editor", "f").member.identity };
-    const envelopes = [seal(owner.member, 2, k2, owner.held)];
+    const envelopes = [await seal(owner.member, 2, k2, owner.held)];
     const plan = planSweep({ container: container(3, 2), recoverable: true, me: owner.member.userId, members: [owner.member, reset], envelopes, ring: new Map([[2, k2]]) });
     expect(plan).toEqual({ kind: "mint", recipients: [owner.member, reset] });
     // Without the advance the same state would wrap the old key for the new identity.
     expect(planSweep({ container: container(2, 2), recoverable: true, me: owner.member.userId, members: [owner.member, reset], envelopes, ring: new Map([[2, k2]]) }).kind).toBe("wrap");
   });
 
-  it("wraps every held generation for a member missing it, and nothing it does not hold", () => {
+  it("wraps every held generation for a member missing it, and nothing it does not hold", async () => {
     const newcomer = person("newcomer", "e");
     const [k2, k4] = [newContainerKey(), newContainerKey()];
-    const envelopes = [seal(owner.member, 2, k2, owner.held), seal(editor.member, 2, k2, owner.held), seal(owner.member, 4, k4, owner.held), seal(editor.member, 4, k4, owner.held)];
+    const envelopes = [await seal(owner.member, 2, k2, owner.held), await seal(editor.member, 2, k2, owner.held), await seal(owner.member, 4, k4, owner.held), await seal(editor.member, 4, k4, owner.held)];
     // Generation 3 was emptied by a removal and never held; generation 1 predates sharing.
     const plan = planSweep({ container: container(4, 2), recoverable: true, me: owner.member.userId, members: [owner.member, editor.member, newcomer.member], envelopes, ring: new Map([[2, k2], [4, k4]]) });
     expect(plan).toEqual({ kind: "wrap", grants: [{ member: newcomer.member, generation: 2 }, { member: newcomer.member, generation: 4 }] });
@@ -320,13 +340,13 @@ describe("planSweep", () => {
 describe("main.tsx key wiring", () => {
   const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
 
-  it("never hands content crypto the login secret", () => {
+  it("never hands content crypto the login secret", async () => {
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*(?:auth\.)?authSecret\b/);
     // The removed login-key path; `legacy` alone is now a page's v1-child pins, never a key.
     expect(main).not.toMatch(/(?:en|de)crypt\w*\(\s*legacy\b|\blegacy(?:Key|Read|Row)|markLegacy/);
   });
 
-  it("never seals with anything but a write key or the waiting key", () => {
+  it("never seals with anything but a write key or the waiting key", async () => {
     const sources = import.meta.glob<string>(["./drain.ts", "./outbound.ts", "./keyService.ts", "./keyring.ts"], { query: "?raw", import: "default", eager: true });
     for (const [file, source] of Object.entries({ "./main.tsx": main, ...sources }))
       expect(source, file).not.toMatch(/(?:encrypt|seal)\w*\(\s*(?:legacy|login|from)\b/i);
@@ -335,7 +355,7 @@ describe("main.tsx key wiring", () => {
     expect(localKeyFor).toContain("waitingRef.current");
   });
 
-  it("uses ownCopyKeysFor only for entries this browser sealed itself", () => {
+  it("uses ownCopyKeysFor only for entries this browser sealed itself", async () => {
     const own = [...main.matchAll(/ownCopyKeysFor\([^,]+, ([\w.!]+)\)/g)].map((match) => match[1]);
     expect(main.match(/ownCopyKeysFor\(/g)).toHaveLength(own.length);
     expect(own).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
@@ -352,13 +372,13 @@ describe("sharing-state rollback", () => {
   const ring = new Map([[3, k3]]);
   const seen = raiseFloor({}, { id: cnt, keyGeneration: 3, sharedGeneration: 2 });
 
-  it("remembers the highest generations reported, and never lowers them", () => {
+  it("remembers the highest generations reported, and never lowers them", async () => {
     expect(seen).toEqual({ shared: 2, generation: 3 });
     expect(raiseFloor(seen, { id: cnt, keyGeneration: 1, sharedGeneration: 0 })).toEqual(seen);
     expect(raiseFloor(seen, { id: cnt, keyGeneration: 5, sharedGeneration: 2 })).toEqual({ shared: 2, generation: 5 });
   });
 
-  it("refuses every write when the server reports a seen-keyed notebook as unkeyed; reads keep the floor", () => {
+  it("refuses every write when the server reports a seen-keyed notebook as unkeyed; reads keep the floor", async () => {
     const unkeyed = { id: cnt, keyGeneration: 3, sharedGeneration: 0 };
     expect(guardContainer(unkeyed, seen).rollback).toBe(true);
     expect(writeKey(unkeyed, ring, seen)).toBeUndefined();
@@ -367,7 +387,7 @@ describe("sharing-state rollback", () => {
     expect(readKeys(unkeyed, new Map([[1, k3]]), 1, seen)).toEqual([]);
   });
 
-  it("refuses a lowered key generation, so nothing is sealed under an older key", () => {
+  it("refuses a lowered key generation, so nothing is sealed under an older key", async () => {
     const lowered = { id: cnt, keyGeneration: 2, sharedGeneration: 2 };
     const withOld = new Map([[2, newContainerKey()], [3, k3]]);
     expect(guardContainer(lowered, seen).rollback).toBe(true);
@@ -380,13 +400,13 @@ describe("nothing is sealed before the first key, and kind never decides keys", 
   const k2 = newContainerKey();
   const seen = { shared: 2, generation: 2 };
 
-  it("gives an unkeyed notebook no write key and no read key", () => {
+  it("gives an unkeyed notebook no write key and no read key", async () => {
     const fresh = { id: cnt, kind: "workbook", keyGeneration: 1, sharedGeneration: 0 };
     expect(writeKey(fresh, new Map([[1, k2]]), {})).toBeUndefined();
     expect(readKeys(fresh, new Map([[1, k2]]), 1, {})).toEqual([]);
   });
 
-  it("keeps the keys of a keyed notebook the server calls personal; only a lower report pauses it", () => {
+  it("keeps the keys of a keyed notebook the server calls personal; only a lower report pauses it", async () => {
     const personal = { id: cnt, kind: "workbook", keyGeneration: 2, sharedGeneration: 2 };
     expect(keysAllowed(personal, seen)).toBe(true);
     expect(writeKey(personal, new Map([[2, k2]]), seen)).toEqual({ key: k2, generation: 2 });
@@ -396,7 +416,7 @@ describe("nothing is sealed before the first key, and kind never decides keys", 
 });
 
 describe("waiting edits (N3)", () => {
-  it("seal with a key derived from the identity alone, not from the password", () => {
+  it("seal with a key derived from the identity alone, not from the password", async () => {
     const identity = generateIdentity();
     expect(waitingKey(identity)).toEqual(waitingKey({ privateKey: identity.privateKey.slice() }));
     expect(waitingKey(identity)).toHaveLength(32);
@@ -404,7 +424,7 @@ describe("waiting edits (N3)", () => {
     expect(waitingKey(identity)).not.toEqual(identity.privateKey);
   });
 
-  it("open with the waiting key only, for generation 0 only", () => {
+  it("open with the waiting key only, for generation 0 only", async () => {
     const waiting = waitingKey(generateIdentity());
     const k1 = asContentKey(new Uint8Array(32).fill(1));
     const shared = { sharedGeneration: 2 };
@@ -419,23 +439,23 @@ describe("memberKeyStatus", () => {
   const bare: MemberKey = { userId: `usr_${"e".repeat(26)}`, username: "sso", role: "viewer" };
   const row = (member: MemberKey, generation: number): Envelope => ({ deviceId: member.identity!.deviceId, keyGeneration: generation, alg: "x", envelope: "" });
 
-  it("reports has key, waiting and no identity against the current generation only", () => {
+  it("reports has key, waiting and no identity against the current generation only", async () => {
     const status = memberKeyStatus({ id: cnt, keyGeneration: 3, sharedGeneration: 2 }, [owner.member, editor.member, newcomer.member, bare], [row(owner.member, 3), row(editor.member, 3), row(newcomer.member, 2)]);
     expect(status).toEqual({ [owner.member.userId]: "has-key", [editor.member.userId]: "has-key", [newcomer.member.userId]: "waiting", [bare.userId]: "no-identity" });
   });
 
-  it("in a never-shared notebook, names only members without an identity", () => {
+  it("in a never-shared notebook, names only members without an identity", async () => {
     expect(memberKeyStatus({ id: cnt, keyGeneration: 1, sharedGeneration: 0 }, [owner.member, bare], [])).toEqual({ [bare.userId]: "no-identity" });
   });
 });
 
 describe("key floors", () => {
-  it("a floor carries only generations: a stored closure from an older build is dropped", () => {
+  it("a floor carries only generations: a stored closure from an older build is dropped", async () => {
     const merged = mergeFloor({ shared: 2, generation: 3, closed: 2 } as KeyFloor, { shared: 2, generation: 4 });
     expect(merged).toEqual({ shared: 2, generation: 4 });
   });
 
-  it("drops a stale field on either side: a merge holds only shared and generation", () => {
+  it("drops a stale field on either side: a merge holds only shared and generation", async () => {
     const stale = { shared: 3, generation: 5, closed: 2, reopened: true } as KeyFloor;
     for (const merged of [mergeFloor({ shared: 2, generation: 4 }, stale), mergeFloor(stale, stale), mergeFloor(undefined, stale)])
       expect(Object.keys(merged).sort()).toEqual(["generation", "shared"]);
@@ -447,14 +467,14 @@ describe("key decisions read no server claim about kind", () => {
   const sources = import.meta.glob<string>(["./keyring.ts", "./keyService.ts", "./drain.ts", "./outbound.ts", "./floors.ts", "./observe.ts", "./recovery.ts", "./identity.ts"], { query: "?raw", import: "default", eager: true });
   const code = (source: string) => source.replace(/\/\*[^]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
-  it("no key module compares kind or reads teamId", () => {
+  it("no key module compares kind or reads teamId", async () => {
     for (const [file, source] of Object.entries(sources)) {
       // Property reads only: ReportedContainer still declares teamId as a layout field.
       expect(code(source), file).not.toMatch(/\.teamId\b|\.kind\s*[!=]==?\s*["'](?:team|workbook|project|personal)["']/);
     }
   });
 
-  it("main.tsx gives every notebook a key pass and decides keys without kind", () => {
+  it("main.tsx gives every notebook a key pass and decides keys without kind", async () => {
     const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
     expect(main).not.toMatch(/needsKeyPass/);
     for (const start of ["  const writeKeyFor", "  const readKeysFor", "  const ownCopyKeysFor", "  const localKeyFor", "  async function syncKeys(", "  async function sendable("]) {

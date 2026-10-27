@@ -2,7 +2,7 @@ import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
 import { asContentKey, base64, fromBase64, hkdfSha256, sha256, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
-import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope, wrapEnvelope, type Identity } from "./teamKeys";
+import { ENVELOPE_ALG, envelopeSender, LEGACY_ENVELOPE_ALG, unwrapEnvelope, wrapEnvelope, type Identity } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
 export type Envelope = { deviceId: string; keyGeneration: number; alg: string; envelope: string };
@@ -92,7 +92,7 @@ export const isSteward = (role: string) => role === "owner" || role === "admin";
  * opens (TOFU); a changed steward key is surfaced and refused. The first key
  * accepted for a generation wins; a different one is reported, never used.
  */
-export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
+export async function openKeyring(input: OpenKeyringInput): Promise<OpenedKeyring> {
   const { containerID, envelopes, me, members, pins } = input;
   const ring = new Map<number, KeyRef>();
   const known = { ...input.known, mark: Math.max(0, input.known.mark), digests: { ...input.known.digests } };
@@ -114,16 +114,17 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
   // Held keys pass the same digest check as envelopes; a mismatch is dropped and reported.
   for (const [generation, key] of input.held ?? []) accept(generation, key);
   if (!me) return out;
-  const open = (envelope: Uint8Array, generation: number, sender: Uint8Array) => {
-    try { return asContentKey(unwrapEnvelope(envelope, me.privateKey, containerID, generation, me.deviceId, sender)); } catch { return undefined; }
+  const open = async (alg: string, envelope: Uint8Array, generation: number, sender: Uint8Array) => {
+    try { return asContentKey(await unwrapEnvelope(alg, envelope, me.privateKey, containerID, generation, me.deviceId, sender)); } catch { return undefined; }
   };
   // Pass 1: self and current stewards; these alone raise the mark.
-  const deferred: Array<{ envelope: Uint8Array; generation: number }> = [];
+  const deferred: Array<{ alg: string; envelope: Uint8Array; generation: number }> = [];
   for (const row of envelopes) {
-    if (row.deviceId !== me.deviceId || row.alg !== ENVELOPE_ALG) continue;
+    // v3 is sealed today; v2 rows written before it still open.
+    if (row.deviceId !== me.deviceId || (row.alg !== ENVELOPE_ALG && row.alg !== LEGACY_ENVELOPE_ALG)) continue;
     try {
       const envelope = fromBase64(row.envelope);
-      const sender = envelopeSender(envelope);
+      const sender = envelopeSender(row.alg, envelope);
       const self = sender === me.deviceId;
       const member = self ? undefined : members.find((entry) => entry.identity?.deviceId === sender);
       if (member?.userId === me.userId) continue;
@@ -131,8 +132,8 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
       const pinned = steward && out.pins[steward.userId];
       const trusted = self || (steward && (pinned === undefined || sameKey(pinned, steward.identity!.publicKey)));
       if (steward && !trusted && !out.changed.some((change) => change.member.userId === steward.userId)) out.changed.push({ member: steward, pinned: pinned! });
-      const key = trusted ? open(envelope, row.keyGeneration, self ? me.publicKey : publicKeyBytes(steward!.identity!.publicKey)) : undefined;
-      if (!key) { deferred.push({ envelope, generation: row.keyGeneration }); continue; }
+      const key = trusted ? await open(row.alg, envelope, row.keyGeneration, self ? me.publicKey : publicKeyBytes(steward!.identity!.publicKey)) : undefined;
+      if (!key) { deferred.push({ alg: row.alg, envelope, generation: row.keyGeneration }); continue; }
       if (!accept(row.keyGeneration, key)) continue;
       known.mark = Math.max(known.mark, row.keyGeneration);
       if (steward && pinned === undefined) {
@@ -142,10 +143,10 @@ export function openKeyring(input: OpenKeyringInput): OpenedKeyring {
     } catch { /* A row this identity cannot open is someone else's mistake, never a key. */ }
   }
   // Pass 2: history from identities pinned before this call, strictly below the device's mark.
-  for (const { envelope, generation } of deferred) {
+  for (const { alg, envelope, generation } of deferred) {
     if (generation >= known.mark) continue;
     for (const sender of pinnedKeys) {
-      const key = open(envelope, generation, sender);
+      const key = await open(alg, envelope, generation, sender);
       if (key) { accept(generation, key); break; }
     }
   }
@@ -247,7 +248,7 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
  * and returned in fresh (persist pins, surface fresh); a changed key throws
  * FingerprintChangedError.
  */
-export function sealFor(member: MemberKey, containerID: string, generation: number, key: KeyRef, me: Me, pins: Pins): { envelope: Envelope; pins: Pins; fresh: MemberKey[] } {
+export async function sealFor(member: MemberKey, containerID: string, generation: number, key: KeyRef, me: Me, pins: Pins): Promise<{ envelope: Envelope; pins: Pins; fresh: MemberKey[] }> {
   const identity = member.identity!;
   const recipient = publicKeyBytes(identity.publicKey);
   let next = pins;
@@ -260,7 +261,7 @@ export function sealFor(member: MemberKey, containerID: string, generation: numb
   } else if (!sameKey(pins[member.userId], identity.publicKey)) {
     throw new FingerprintChangedError(member, pins[member.userId]);
   }
-  const envelope = base64(wrapEnvelope(key, recipient, containerID, generation, identity.deviceId, me));
+  const envelope = base64(await wrapEnvelope(key, recipient, containerID, generation, identity.deviceId, me));
   return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins: next, fresh };
 }
 

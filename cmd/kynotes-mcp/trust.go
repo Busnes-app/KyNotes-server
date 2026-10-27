@@ -18,8 +18,6 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
-const envelopeAlg = "x25519-hkdf-sha256-chacha20poly1305"
-
 func sha256Sum(b []byte) [32]byte { return sha256.Sum256(b) }
 
 // member is a notebook member as the server lists it, with the identity it shows for them.
@@ -175,11 +173,11 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 		out.ring[generation], out.known.Digests[g] = key, digest
 		return true
 	}
-	open := func(envelope []byte, generation int64, sender []byte) []byte {
+	open := func(alg string, envelope []byte, generation int64, sender []byte) []byte {
 		if generation < 1 || generation > math.MaxUint32 {
 			return nil
 		}
-		key, err := teamkeys.OpenEnvelope(envelope, me.key, containerID, uint32(generation), me.deviceID, sender)
+		key, err := teamkeys.OpenEnvelope(alg, envelope, me.key, containerID, uint32(generation), me.deviceID, sender)
 		if err != nil {
 			return nil
 		}
@@ -187,26 +185,28 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 	}
 	newPins := map[string]string{}
 	type row struct {
+		alg        string
 		envelope   []byte
 		generation int64
 	}
 	var deferred []row
 	for _, r := range rows {
-		if r.DeviceID != me.deviceID || r.Alg != envelopeAlg {
+		// v3 is sealed today; v2 rows written before it still open.
+		if r.DeviceID != me.deviceID || (r.Alg != teamkeys.EnvelopeAlg && r.Alg != teamkeys.LegacyEnvelopeAlg) {
 			continue
 		}
 		envelope, err := base64.StdEncoding.DecodeString(r.Envelope)
 		if err != nil {
 			continue
 		}
-		sender, err := teamkeys.EnvelopeSender(envelope)
+		sender, err := teamkeys.EnvelopeSender(r.Alg, envelope)
 		if err != nil {
 			continue
 		}
 		var key []byte
 		var steward *member
 		if sender == me.deviceID {
-			key = open(envelope, r.KeyGeneration, me.key.PublicKey().Bytes())
+			key = open(r.Alg, envelope, r.KeyGeneration, me.key.PublicKey().Bytes())
 		} else {
 			for i := range members {
 				if m := &members[i]; m.identity != nil && m.identity.DeviceID == sender && m.UserID != me.userID && isSteward(m.Role) && userID.MatchString(m.UserID) {
@@ -225,11 +225,11 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 				if ok && !sameKey(pinned, steward.identity.PublicKey) {
 					return openedRing{}, &pinChangedError{steward.UserID, steward.Username, pinned, steward.identity.PublicKey}
 				}
-				key = open(envelope, r.KeyGeneration, pub)
+				key = open(r.Alg, envelope, r.KeyGeneration, pub)
 			}
 		}
 		if key == nil {
-			deferred = append(deferred, row{envelope, r.KeyGeneration})
+			deferred = append(deferred, row{r.Alg, envelope, r.KeyGeneration})
 			continue
 		}
 		if !accept(r.KeyGeneration, key) {
@@ -251,7 +251,7 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 			continue
 		}
 		for _, sender := range pinnedKeys {
-			if key := open(d.envelope, d.generation, sender); key != nil {
+			if key := open(d.alg, d.envelope, d.generation, sender); key != nil {
 				accept(d.generation, key)
 				break
 			}

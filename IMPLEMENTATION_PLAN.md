@@ -1388,7 +1388,9 @@ deliberately every phase).
 * Registering a public key that already exists for that user returns the
   existing device ID **and a freshly minted secret**, replacing the old hash.
   Re-pairing a phone must not create a second device row.
-* `alg` is validated against the allowlist `{"x25519-hkdf-sha256-chacha20poly1305"}`.
+* `alg` is validated against the allowlist `{"hpke-auth-x25519-hkdfsha256-chacha20poly1305",
+  "x25519-hkdf-sha256-chacha20poly1305"}`: v3 (RFC 9180 HPKE Auth), which clients seal,
+  and v2, kept so older clients and stored rows keep working (DESIGN.md).
   Unknown algorithms are `400`. The server never parses the envelope bytes.
 * Envelope bytes are capped at 4096 bytes.
 * Revoking a device is a single transaction: `revoked_at`, envelope delete,
@@ -2040,7 +2042,7 @@ None block Phases 1 and 2. Raise these before the phase that needs them.
 
 | Needed by | Question |
 |---|---|
-| Phase 4 | Confirm X25519 as the device key type, or supply the exact algorithm string the KyNotes web client will implement. The plan freezes `x25519-hkdf-sha256-chacha20poly1305`; the client teams must agree before the first pairing ships. |
+| Phase 4 | Confirm X25519 as the device key type, or supply the exact algorithm string the KyNotes web client will implement. The plan froze `x25519-hkdf-sha256-chacha20poly1305`; clients now seal `hpke-auth-x25519-hkdfsha256-chacha20poly1305` (RFC 9180 HPKE Auth) and still open the old string. |
 | Phase 6 | Confirm deterministic/convergent attachment encryption is actually wanted. The server design works either way; DESIGN.md permits it and SECURITY.md documents the equality leak. If clients use random nonces instead, dedup simply stops matching and nothing breaks. |
 | Phase 9 | KyPost push integration: the exact registration and delivery endpoints of the KyPost push relay. Until supplied, implement pull fallback only and leave `push.transport` unconfigured (routes answer `503 unavailable`). |
 | Phase 3 | Administrator account bootstrap: whether `kynotes-server user add` prompts interactively or takes a pre-derived auth secret. Default in this plan: it takes `--username` and reads a client-derived auth secret from stdin, so the server never sees a password. Proceed on that default unless told otherwise. |
