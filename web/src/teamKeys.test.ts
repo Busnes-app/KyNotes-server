@@ -219,6 +219,14 @@ describe("v3 binding and sender authentication", () => {
     expect(one[0]).toBe(0x03);
     expect(bytesToHex(one)).not.toBe(bytesToHex(two));
     expect(bytesToHex(await unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey))).toBe(bytesToHex(ck));
+    // A fresh seal opens in its own context only.
+    const other = "dev_00000000000000000000000009";
+    const relabelled = Uint8Array.from(one);
+    relabelled.set(new TextEncoder().encode(other), 1);
+    await expect(unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, "cnt_00000000000000000000000009", 1, v.recipientDeviceId, b.publicKey), "container").rejects.toThrow();
+    await expect(unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, v.containerId, 2, v.recipientDeviceId, b.publicKey), "generation").rejects.toThrow();
+    await expect(unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, v.containerId, 1, other, b.publicKey), "recipient").rejects.toThrow();
+    await expect(unwrapEnvelope(ENVELOPE_ALG, relabelled, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey), "sender").rejects.toThrow();
   });
 });
 

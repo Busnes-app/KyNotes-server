@@ -153,6 +153,19 @@ func TestSealEnvelopeRoundTrip(t *testing.T) {
 	if got, err := OpenEnvelope(EnvelopeAlg, env, priv, cid, 7, did, sender.PublicKey().Bytes()); err != nil || !bytes.Equal(got, ck) {
 		t.Fatalf("open: %v", err)
 	}
+	// A fresh seal opens in its own context only.
+	other := "dev_00000000000000000000000009"
+	for what, ctx := range map[string]struct {
+		cid string
+		gen uint32
+		did string
+		sid string
+	}{"container": {"cnt_00000000000000000000000009", 7, did, sid}, "generation": {cid, 8, did, sid}, "recipient": {cid, 7, other, sid}, "sender": {cid, 7, did, other}} {
+		relabelled := append(append([]byte{0x03}, ctx.sid...), env[31:]...)
+		if _, err := OpenEnvelope(EnvelopeAlg, relabelled, priv, ctx.cid, ctx.gen, ctx.did, sender.PublicKey().Bytes()); err == nil {
+			t.Fatalf("opened in another %s", what)
+		}
+	}
 	again, err := SealEnvelope(ck, priv.PublicKey().Bytes(), cid, 7, did, sender, sid)
 	if err != nil || bytes.Equal(again, env) {
 		t.Fatal("two seals share an ephemeral key")
