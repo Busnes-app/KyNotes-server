@@ -1,13 +1,13 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **09-after**, Council round6. The owner rated the old adjacent
-left columns **6/10**, reopening progression. Round5 resolved the hidden first-notebook
-action, but Opus7.3/Sol8.2 disagreed on existing polish. Their raw scores and the
-[findings audit](round5-findings-audit.json) remain separate; unchanged-pixel rating
-variance is not a product regression. Round6 simplifies the empty pane, outlines
-Comment, removes curved comment-divider ends, separates the avatar and aligns
-native disclosure/select chevrons and field borders. Fresh reviews are pending
-after599units and12full browser tests passed. No current8/10 or full9/10 is claimed.
+The current stage is **10-after**, Council round7. The owner rejected the old
+adjacent left columns at6/10. Round6 preserved one region and resolved the prior
+polish; Opus7.8/Sol8.1 disagreed on remaining control details. The
+[findings audit](round6-findings-audit.json) accepts the verified secondary-border
+contrast failure, inconsistent control sizes and extra desktop inset. Round7 uses
+the field-border token,14px control text,8px control corners and aligned pane edges.
+Four live representative controls measure4.54:1 light/5.32:1 dark. Fresh reviews are
+pending after599units/12full browsers passed. No current8/10 or full9/10 is claimed.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -44,15 +44,15 @@ every supported, rejected and deferred item. No product changes followed the aud
 ## Capture provenance
 
 Original base: `34849c4d0766901fdf33556855373aa122666049`. Current captures
-are from head `022d5e2d4163ea12012d5da139c4de40abdc1ffe` plus the recorded source patch and
+are from head `c8b00d8f7ddebab768587a49a1cb124416f4cd1e` plus the recorded source patch and
 explicit file hashes. Current served index SHA256:
-`72df2d955d34f8aea60d81b4f5efe3ae7e4d598ea078e36fe332516cb7a70eec`.
+`6d04305612ce6034809972328b8438f4c5ffd67e5a8edfa824a3ab4595d31399`.
 
-`inventory-v8.json` contains174 PNGs /122 unique across all stages. Current stage09
+`inventory-v9.json` contains196 PNGs /140 unique across all stages. Current stage10
 has22captures/18unique:14Notes (including4empty and2desktop management views)
 and4Settings. Four workspace aliases are excluded from means. Stages05/06 were
 preliminary attempts whose reviews were interrupted before completion; earlier
-inputs and completed round4/5 reviews remain frozen. The comparison uses stage08 and stage09, including matched empty screens. The final stage09 capture followed test-only corrections for the new empty-state copy and existing-notebook startup timing; no app startup/key/save workaround was added.
+inputs and completed round4/5/6 reviews remain frozen. The comparison uses stage09 and stage10, including matched empty screens. Stage10 capture passed on its first attempt. inventory-v9 adds exact near-duplicate diff bounds and neutral rasterization labels; duplicate-metadata-audit.json records corrections to earlier caret wording without rewriting frozen inventories, images or scores.
 
 Chromium 156.0.8078.4, scale 1; desktop 1280×900 and phone 390×844; OS light/dark
 emulation, no saved theme choice, real disposable server, synthetic owner and
@@ -70,6 +70,8 @@ the workbook identifies those unmatched pairs. The trailing empty bullet is fixt
 content. No new competitor ranking or whole-suite cohesion score is claimed.
 
 ## Limits and remaining polish
+
+Sol round6 observed BODY focus on a first phone page opening from a no-open-note list; later chooser selection focuses its title. This existing startup-path residual is retained outside the bounded CSS pass. Full focus acceptance is not claimed.
 
 WebKit, the complete empty/loading/error matrix and every product theme/focus/role
 path are not certified by this pass. Shared palette probes do not certify all product

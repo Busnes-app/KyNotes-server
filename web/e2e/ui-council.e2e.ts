@@ -36,7 +36,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           fonts: [...document.fonts].filter((font) => font.status === "loaded").map((font) => font.family),
           controls: [...document.querySelectorAll<HTMLElement>(".note-search, .list-actions .icon-button, .avatar, .comment-compose button, .editor-actions select, .comments")].map((element) => {
             const style = getComputedStyle(element);
-            return { selector: element.className || element.tagName, background: style.backgroundColor, color: style.color, borderColor: style.borderColor, borderRadius: style.borderRadius, minHeight: style.minHeight, appearance: style.appearance };
+            return { selector: element.className || element.tagName, background: style.backgroundColor, color: style.color, fontSize: style.fontSize, borderColor: style.borderColor, borderRadius: style.borderRadius, minHeight: style.minHeight, appearance: style.appearance };
           }),
         };
       });

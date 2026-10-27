@@ -447,6 +447,7 @@ body { color: var(--ink-strong); background: var(--bg); }
   .workspace.show-notebook-navigation { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "switcher page" "nav page"; }
   .workspace.show-notebook-navigation > .note-list { display: none; }
   .workspace > .note-list { background: var(--sidebar-start); }
+  .note-list .list-header { padding-inline: 0; }
   .workspace .note-list .list-header h2.workspace-title { font-size: var(--ky-type-section); }
   .workspace:not(.queue-mode) .list-header .notes-heading, .notebook-kind { display: none; }
   .note-list .section-tabs { padding: 12px 0 0; margin-bottom: 16px; background: transparent; }
@@ -474,6 +475,7 @@ body { color: var(--ink-strong); background: var(--bg); }
 /* One primary per view: the accent fills the selection and the view's main action only.
    Other actions are outlined; labels are sentence case; icons and decoration stay neutral. */
 .secondary, .toast { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line-strong); }
+.secondary { border-color: var(--ky-field-border); }
 .secondary:hover:not(:disabled) { background: var(--panel-hover); }
 .toast { border-radius: var(--ky-control-radius); box-shadow: var(--ky-shadow-overlay); font-size: var(--ky-type-meta); }
 .section-label { text-transform: none; letter-spacing: normal; color: var(--ink); }
@@ -497,6 +499,8 @@ body { color: var(--ink-strong); background: var(--bg); }
 .preferences-layout > .settings-sidebar { grid-area: nav; }
 .preferences-layout > .settings-content { grid-area: content; padding-top: 24px; }
 .save-button { min-height: var(--ky-control-size); padding: 0 12px; }
+.note-search, .comment-compose input, .comment-compose button, .top-actions button { font-size: var(--ky-type-nav); }
+.note-search, .list-actions .icon-button, .comment-compose input, .comment-compose button, .save-button { border-radius: var(--ky-control-radius); }
 .workspace > .sidebar .new-workspace { display: flex; align-items: center; gap: 8px; min-height: var(--ky-control-size); margin: 0; padding: 0 12px; border: 0; border-radius: var(--ky-control-radius); color: var(--ink-strong); }
 .workspace > .sidebar .new-workspace, .workspace > .sidebar .nav-item { font-size: var(--ky-type-nav); }
 .workspace > .sidebar .new-workspace:hover:not(:disabled) { background: var(--panel-hover); }

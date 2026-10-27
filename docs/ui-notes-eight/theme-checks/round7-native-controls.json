@@ -1,0 +1,176 @@
+{
+  "scope": "Supplemental Computer Use measurements, four representative controls, not every theme/control contrast acceptance",
+  "fixture": "127.0.0.1:18110; synthetic owner; stage10 bundle",
+  "method": "Computed CSS colors painted on one-pixel canvas; alpha-composited RGB, WCAG relative luminance ratio. No application state or content changed.",
+  "light": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:18110/#/cnt_6ak4f6maa31fpqgj3mamht1pvg/quick/obj_7zn8vmqpxfd7yzg9y54c1pv9yr"
+    },
+    "value": {
+      "controls": [
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "contrast": 4.544870497132786,
+          "edge": [
+            114,
+            119,
+            119
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".save-button"
+        },
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "contrast": 4.544870497132786,
+          "edge": [
+            114,
+            119,
+            119
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".note-search"
+        },
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "contrast": 4.544870497132786,
+          "edge": [
+            114,
+            119,
+            119
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".comment-compose input"
+        },
+        {
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "contrast": 4.544870497132786,
+          "edge": [
+            114,
+            119,
+            119
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".comment-compose button"
+        }
+      ],
+      "dark": false,
+      "edges": {
+        "heading": 16,
+        "search": 16,
+        "toggleText": 16
+      },
+      "overflow": 0,
+      "viewport": [
+        1280,
+        800
+      ]
+    }
+  },
+  "dark": {
+    "toolIcon": {
+      "_tag": "website",
+      "pageUrl": "http://127.0.0.1:18110/#/cnt_6ak4f6maa31fpqgj3mamht1pvg/quick/obj_7zn8vmqpxfd7yzg9y54c1pv9yr"
+    },
+    "value": {
+      "controls": [
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "contrast": 5.323435501013278,
+          "edge": [
+            155,
+            157,
+            154
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".save-button"
+        },
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "contrast": 5.323435501013278,
+          "edge": [
+            155,
+            157,
+            154
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".note-search"
+        },
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "contrast": 5.323435501013278,
+          "edge": [
+            155,
+            157,
+            154
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".comment-compose input"
+        },
+        {
+          "background": [
+            31,
+            43,
+            46
+          ],
+          "contrast": 5.323435501013278,
+          "edge": [
+            155,
+            157,
+            154
+          ],
+          "font": "14px",
+          "radius": "8px",
+          "selector": ".comment-compose button"
+        }
+      ],
+      "dark": true,
+      "edges": {
+        "heading": 16,
+        "search": 16,
+        "toggleText": 16
+      },
+      "overflow": 0,
+      "viewport": [
+        1280,
+        800
+      ]
+    }
+  },
+  "servedIndexSha256": "6d04305612ce6034809972328b8438f4c5ffd67e5a8edfa824a3ab4595d31399"
+}

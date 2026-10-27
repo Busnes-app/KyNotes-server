@@ -2,17 +2,17 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599 tests/47files on round6 product source; /tmp/kynotes-polish-r6-unit.log."
+    "detail": "599 tests/47 files on round7; /tmp/kynotes-controls-r7-unit.log."
   },
   {
     "check": "Production build and TypeScript",
     "result": "pass",
-    "detail": "Round6 production/TypeScript build and exact rsync embed comparison pass; /tmp/kynotes-polish-r6-build.log. Existing603kB lazy BlockNote warning."
+    "detail": "Round7 build/TypeScript/exact embed pass; /tmp/kynotes-controls-r7-build.log. Existing603kB lazy BlockNote warning."
   },
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "Final current-source fresh-server12/12 in /tmp/kynotes-polish-r6-browser-final.log. Initial run:10pass/2fail, one stale Select a notebook expectation and one test choosing transient first-run control before an existing notebook load. Updated expected No notebooks yet and await settled nonempty notebook state; no app startup/key/save workaround."
+    "detail": "12/12 fresh full browser tests, first attempt on round7; /tmp/kynotes-controls-r7-browser.log. No changed application behavior; stage10 also passes the creation/focus/held-save/recovery regressions."
   },
   {
     "check": "Stage07 single-pane capture and regressions",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Round6 product source in staged tree f7f5123510e606694f8ae1b857e9d8f5c7dee534; two private clean git-archive builds,CGO_ENABLED=0,-trimpath,release0.0.0. Both SHA2567da9602cdcda53627ab39b40607cf42f6d18f3f939e3dc97598e89de001531bf. /tmp/kynotes-polish-r6-repeatability.log; later evidence metadata cannot affect binary."
+    "detail": "Round7 staged tree d1c6c9af46a321b6c8ac07378828cd0fad6227c5; two private clean archives,CGO_ENABLED=0,-trimpath,release0.0.0. Both SHA256f608e0de3bc4a6fb56099fa2c060741d1a661a5cc52c218c3aa24ee1fe4c2d6c; /tmp/kynotes-controls-r7-repeatability.log. Later report metadata does not affect binary."
   },
   {
     "check": "Required fuzz executions",
@@ -62,12 +62,12 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Round6 current-source kynotes-polish:r6 image,14-step probe and apply-setup pass; /tmp/kynotes-polish-r6-{docker,probe,setup}.log."
+    "detail": "Round7 current-source kynotes-controls:r7 image,14-step probe,setup pass; /tmp/kynotes-controls-r7-{docker,probe,setup}.log."
   },
   {
     "check": "Design detector",
     "result": "2 existing documented exceptions",
-    "detail": "Round6 main/CSS detector retains only semantic conflict/key-warning rail3px and legacy user-section border4px overridden2px; polish-round6-detector.json. No suppression."
+    "detail": "Round7 CSS detector: only semantic key/conflict rail3px and legacy section top4px overridden2px; controls-round7-detector.json. No suppression."
   },
   {
     "check": "Report page",
@@ -81,8 +81,8 @@
   },
   {
     "check": "Native T3 final Computer Use",
-    "result": "pass, scoped",
-    "detail": "Round6 Computer Use on18108 at960x900: one240px pane/editorx240,width720,zero overflow; comments radius0; matching search/plus field borders; section element remains SELECT. Same live/embedded stage09 hash verified. Supplemental theme-checks/round6-native-tablet.json/PNG; not all tablet themes/states."
+    "result": "pass, narrow measurements",
+    "detail": "stage10 live18110 at1280x800: representative Save/Search/comment inputs/Comment have14px text,8px radius,equal edges4.5449:1(light) and5.3234:1(dark),heading/search/toggletextx16,overflow0. theme-checks/round7-native-controls.json and darkPNG. These samples do not certify every theme/control/state."
   },
   {
     "check": "Existing browser runtime warnings",
@@ -103,5 +103,15 @@
     "check": "Stage09 bounded polish capture and regressions",
     "result": "pass",
     "detail": "Final22captures/18unique on fresh18109; /tmp/kynotes-polish-r6-capture-final.log. Same four populated Project Atlas pages, empty first-run action, recovery keyboard, one-pane geometry, phone chooser, held-save/reload and Work queue focus. Re-captured once after test-only fixture corrections; source pins current. Manifest includes computed control styles."
+  },
+  {
+    "check": "Stage10 control contrast/scale capture and regressions",
+    "result": "pass",
+    "detail": "22captures/18unique, first attempt, fresh18110 fixture; /tmp/kynotes-controls-r7-capture.log. Same synthetic content and scored viewports/themes; manifest now includes control font sizes."
+  },
+  {
+    "check": "First-open phone focus",
+    "result": "known residual; not full focus acceptance",
+    "detail": "Sol round6 native review: first page opening from no-open-note phone list left BODY focused, later page-chooser choices focused Page title. Existing effect only moves focus when a disclosure was open. No content/save failure or round6 regression established. Retained outside bounded CSS pass; never claim full keyboard/focus gate."
   }
 ]

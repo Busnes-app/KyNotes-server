@@ -117,6 +117,27 @@
   },
   {
     "round": 6,
+    "opus": {
+      "score": 7.8,
+      "satisfied": false,
+      "report": "opus-round6.json",
+      "rubric_conforms": true,
+      "basis": "Notes cohort mean of 14 unique current images (stage 09, councilRound 6); Settings reported separately; brand fit separate."
+    },
+    "sol": {
+      "score": 8.1,
+      "satisfied": true,
+      "report": "sol-round6.json",
+      "rubric_conforms": true,
+      "basis": "Notes current unique cohort only; separate Settings cohort, no cross-cohort ranking"
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 7,
     "opus": {},
     "sol": {},
     "gemini": {},
