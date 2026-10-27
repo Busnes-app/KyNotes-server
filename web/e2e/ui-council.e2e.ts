@@ -34,6 +34,10 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           bodyFont: body && getComputedStyle(body).font, bodyColor: body && getComputedStyle(body).color,
           toolbarToBody: toolbar && line && Math.round(line.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom),
           fonts: [...document.fonts].filter((font) => font.status === "loaded").map((font) => font.family),
+          controls: [...document.querySelectorAll<HTMLElement>(".note-search, .list-actions .icon-button, .avatar, .comment-compose button, .editor-actions select, .comments")].map((element) => {
+            const style = getComputedStyle(element);
+            return { selector: element.className || element.tagName, background: style.backgroundColor, color: style.color, borderColor: style.borderColor, borderRadius: style.borderRadius, minHeight: style.minHeight, appearance: style.appearance };
+          }),
         };
       });
       files.push({ file, surface, device, theme, sha256: createHash("sha256").update(png).digest("hex"), bytes: png.length, ...facts });
@@ -42,7 +46,10 @@ test("notebook reading, phone page navigation and shared editor typography", asy
     await adminConsole(admin.page);
     const containersLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/containers" && response.request().method() === "GET");
     await signIn(page, OWNER.username, OWNER.password);
-    await containersLoaded;
+    const initialContainers: unknown = await (await containersLoaded).json();
+    if (!Array.isArray(initialContainers)) throw new Error("Expected a notebook list");
+    const hasNotebooks = initialContainers.length > 0;
+    if (hasNotebooks) await expect(page.locator("#page-navigation")).not.toHaveClass(/no-notebook/);
     if (stage && Number(round) >= 5) {
       await expect(page.locator(".nav-item", { hasText: "Project Atlas" })).toHaveCount(0);
       for (const theme of ["light", "dark"] as const) {
@@ -61,9 +68,9 @@ test("notebook reading, phone page navigation and shared editor typography", asy
     }
     const existing = page.locator(".nav-item", { hasText: "Project Atlas" }).last();
     const reuse = await existing.count() > 0;
-    if (reuse || stage === "before") await openNotebooks(page);
+    if (reuse || hasNotebooks || stage === "before") await openNotebooks(page);
     if (reuse) await existing.click();
-    else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => (stage === "before" ? page.getByRole("button", { name: "＋ New notebook" }) : page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).click());
+    else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => (hasNotebooks || stage === "before" ? page.getByRole("button", { name: "＋ New notebook" }) : page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).click());
     await expect(page.locator(".workspace-title")).toHaveText("Project Atlas");
     await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
     if (stage !== "before") await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();

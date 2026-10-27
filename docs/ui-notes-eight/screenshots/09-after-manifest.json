@@ -1,0 +1,1493 @@
+{
+  "head": "022d5e2d4163ea12012d5da139c4de40abdc1ffe",
+  "councilRound": 6,
+  "sourceDiffSha256": "65a8f5b67513f4d9446ff760687b805839c18fc2dc04d543ccb79381952df4be",
+  "sourceFiles": {
+    "src/main.tsx": "7a393a5e05635f2ea656508b674a0b0760b7723495025033bf8e927051bba24f",
+    "src/styles.css": "ed8770c307d4f5d1ad2ecb9715e7e3417327796066cb1dc5c5058b3ee4ecccc5",
+    "src/NavIcon.tsx": "70c925c6d23388a4bd99d2575a9e6a0df226275cda9da8f094b84e255fc4bc8b",
+    "src/components/SectionTabs.tsx": "c61baaaa4d46c9f4c66e7300a19aee85d9d34423924b61e471ba825fa1074a1a",
+    "src/ky-ui/VERSION": "884826819a3f2525e8546229d964c32ddad1c6df7153e3c506a4ff228b14e458",
+    "e2e/ui-council.e2e.ts": "394e23b97e96f1b00d3de15edc521225c03440a6924f2be108177b17601e1382",
+    "e2e/people.ts": "9fc03d18670f0cf8995bc59e15c1bf169a47811fe201bdb523f52beb7c0fbeac",
+    "package-lock.json": "417d094e4a48b0b72212d10a33f2594d95376c9024178f5ae76595a78d97b70e"
+  },
+  "servedIndexSha256": "72df2d955d34f8aea60d81b4f5efe3ae7e4d598ea078e36fe332516cb7a70eec",
+  "stage": "after",
+  "captured": "2026-10-27T01:22:10.755Z",
+  "browser": "156.0.8078.4",
+  "fixture": "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1",
+  "files": [
+    {
+      "file": "kynotes-09-after-empty-desktop-light.png",
+      "surface": "empty",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "bd16ee0bb585bd01410a1b757301d6c1d199f4d44d4f28c622f95a8cc8774beb",
+      "bytes": 32809,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space",
+        "Mono"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-empty-mobile-light.png",
+      "surface": "empty",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "c6c5167298643be53ca55aaa50d3a0042de3517064ea8c4ec480d7f19fb27c26",
+      "bytes": 25431,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-empty-desktop-dark.png",
+      "surface": "empty",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "102de74a46d6b2b270950b26ce5be4047ca66f072f1a7909f81aff40bcc2d255",
+      "bytes": 33137,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-empty-mobile-dark.png",
+      "surface": "empty",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "704235903801f3fa951a2a6c8652277b99ef670d6520b8f1843279df339e87b0",
+      "bytes": 25806,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": null,
+      "bodyColor": null,
+      "toolbarToBody": null,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-workspace-desktop-light.png",
+      "surface": "workspace",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "955664b2188a899a53c484fd446c601be0dd06baf5c8a495f0b581ea06b2988f",
+      "bytes": 78431,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-editor-desktop-light.png",
+      "surface": "editor",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "62b400633f0f713c66f5cef6f2fe6e9c0d91ce0b4b8e7a02bd54fae17a8abe8f",
+      "bytes": 78437,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-navigation-desktop-light.png",
+      "surface": "navigation",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "61fd2acad54a1a6237680766a375344a6d1ab4adac113110bb792025778b927b",
+      "bytes": 70508,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-appearance-desktop-light.png",
+      "surface": "appearance",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-workspace-mobile-light.png",
+      "surface": "workspace",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "9cc03507f3a1f30d2aa2d7fdb114ce38277a9869fc38fa04cc000530f453a006",
+      "bytes": 41209,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-editor-mobile-light.png",
+      "surface": "editor",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "e33bb08f814fb3837cb22a9a2e47984fededdc139187f67d5ea5c7c12a062efd",
+      "bytes": 41216,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-pages-mobile-light.png",
+      "surface": "pages",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "3ed61c863e3b4b75a667dbd0c97c04c2b17e290c948997f0ac2cfd408c0a94d5",
+      "bytes": 34165,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-navigation-mobile-light.png",
+      "surface": "navigation",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "b6cd31e896ba950b82abc7badda32425f974c3a87fcc3d20af9e5ab98f9ada3c",
+      "bytes": 35268,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-appearance-mobile-light.png",
+      "surface": "appearance",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(24, 35, 38)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(86, 100, 97)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "color(srgb 0.44549 0.468235 0.465882)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.22) rgb(24, 35, 38) rgb(24, 35, 38)",
+          "borderRadius": "0px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(255, 255, 255)",
+          "color": "rgb(24, 35, 38)",
+          "borderColor": "rgba(24, 35, 38, 0.38)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-workspace-desktop-dark.png",
+      "surface": "workspace",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "3e6f46d9c0982a9412d4b31d44923a7f9a4783ee938b0e548745a8347a28f140",
+      "bytes": 79554,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-editor-desktop-dark.png",
+      "surface": "editor",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "ce2fbc5e880f86ef7acf4886b5741732d6b25cae97ac05cbc8821f42acd64a25",
+      "bytes": 79553,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-navigation-desktop-dark.png",
+      "surface": "navigation",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "1e1bc223b1865688180e4bf4bae0bad9b1289c72c04d8394d83d466b29e50f29",
+      "bytes": 71566,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 45,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-appearance-desktop-dark.png",
+      "surface": "appearance",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-workspace-mobile-dark.png",
+      "surface": "workspace",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "78d6ddcf01bd3005b3c09ef79716fc5c6ec2403ef389847ca2e36bf8a8f318d3",
+      "bytes": 42001,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-editor-mobile-dark.png",
+      "surface": "editor",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "12f9c91c06a21fb03aed2fda69b9f956f512ec4c0ae3b4f6bc574b4e3d8ee27d",
+      "bytes": 42000,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-pages-mobile-dark.png",
+      "surface": "pages",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "a8318632a6aca8bac960868046ff53c06a3695d747dad50398a3bf2236149ec8",
+      "bytes": 35170,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-navigation-mobile-dark.png",
+      "surface": "navigation",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "67fe6fe32e4265f1bc28c668962fbbbd7215ede8f59d58ebea74c1655bbade73",
+      "bytes": 36164,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 35,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "auto",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "auto",
+          "appearance": "auto"
+        }
+      ]
+    },
+    {
+      "file": "kynotes-09-after-appearance-mobile-dark.png",
+      "surface": "appearance",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "15px / 22.5px Space, system-ui, sans-serif",
+      "bodyColor": "rgb(242, 239, 232)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space"
+      ],
+      "controls": [
+        {
+          "selector": "avatar",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(179, 188, 184)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "note-search",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "40px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "icon-button secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        },
+        {
+          "selector": "SELECT",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "color(srgb 0.607059 0.617255 0.60549)",
+          "borderRadius": "8px",
+          "minHeight": "40px",
+          "appearance": "none"
+        },
+        {
+          "selector": "comments",
+          "background": "rgba(0, 0, 0, 0)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.24) rgb(242, 239, 232) rgb(242, 239, 232)",
+          "borderRadius": "0px",
+          "minHeight": "0px",
+          "appearance": "none"
+        },
+        {
+          "selector": "secondary",
+          "background": "rgb(31, 43, 46)",
+          "color": "rgb(242, 239, 232)",
+          "borderColor": "rgba(242, 239, 232, 0.42)",
+          "borderRadius": "12px",
+          "minHeight": "0px",
+          "appearance": "auto"
+        }
+      ]
+    }
+  ]
+}

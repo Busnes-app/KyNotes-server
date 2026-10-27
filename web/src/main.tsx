@@ -2877,10 +2877,10 @@ function Workspace({
               </div>
             </div>
           </aside>
-          <section id="page-navigation" className="note-list" aria-busy={loadingContainer}>
+          <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer}>
             <div className="list-header">
               <div>
-                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : "Select a notebook"}</h2>
+                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : items.length ? "Select a notebook" : "No notebooks yet"}</h2>
                 {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind notebook-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
                 {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
                   const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
@@ -2893,7 +2893,7 @@ function Workspace({
                 {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
                 {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
                 {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
-                {identityState === "held" && live && !live.recoveryId && <details className="recovery-notice"><summary>Save a recovery code</summary><div role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div></details>}
+                {identityState === "held" && live && !live.recoveryId && <details className="recovery-notice"><summary><span>Save a recovery code</span><NavIcon name="chevron" /></summary><div role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div></details>}
                 {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
                   <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
                 )}
@@ -2937,7 +2937,7 @@ function Workspace({
               }}
             />
           )}
-              <div className="list-actions">
+              {(selected || queueMode) && <div className="list-actions">
                 <input
                   aria-label="Search this notebook"
                   className="note-search"
@@ -2954,7 +2954,7 @@ function Workspace({
                 >
                   ＋
                 </button>
-              </div>
+              </div>}
             </div>
             {queueMode && TASK_GROUPS.map(([group, label]) => {
               const rows = queueRows.filter((task) => task.group === group);
@@ -3132,6 +3132,7 @@ function Workspace({
                   </Suspense>
                 </div>
                 <div className="editor-actions">
+                  <div className="page-section-control">
                   <select
                     aria-label="Move page to section"
                     disabled={keyWait}
@@ -3141,6 +3142,8 @@ function Workspace({
                     {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
                     <option value={QUICK_NOTES}>Quick Notes</option>
                   </select>
+                  <NavIcon name="chevron" />
+                  </div>
                   <button
                     className="quiet"
                     disabled={keyWait || !canShift(selectedNote.id, 1)}
@@ -3189,7 +3192,7 @@ function Workspace({
                       onChange={(event) => setCommentText(event.target.value)}
                       placeholder="Add a comment…"
                     />
-                    <button disabled={busy || keyWait} onClick={() => void addComment()}>
+                    <button className="secondary" disabled={busy || keyWait} onClick={() => void addComment()}>
                       Comment
                     </button>
                   </div>

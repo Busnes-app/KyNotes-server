@@ -187,7 +187,7 @@ button, input, textarea, select { border-radius: 12px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .note-row, .account-chip, .member-row, .admin-user, .audit-row { border-radius: 14px; corner-shape: squircle; }
 .nav-item, .note-row-wrap, .config-card, .auth-card { overflow: hidden; }
 .format-toolbar button { border-radius: 10px; corner-shape: squircle; }
-.markdown-preview, .markdown-editor, .comments, .comment { border-radius: 16px; corner-shape: squircle; }
+.markdown-preview, .markdown-editor, .comment { border-radius: 16px; corner-shape: squircle; }
 .comment { overflow: hidden; }
 .note-search { min-width: 110px; width: 150px; padding: 7px 9px; border: 1px solid var(--line); color: var(--ink-strong); background: var(--panel); }
 .context-panel { display: grid; gap: 7px; margin: 24px 4px 0; padding-top: 16px; border-top: 1px solid var(--line); }
@@ -421,6 +421,9 @@ body { color: var(--ink-strong); background: var(--bg); }
 .editor-actions { justify-content: flex-start; gap: 8px; padding-block: 16px; }
 .editor-actions button, .editor-actions select { margin-top: 0; min-height: var(--ky-control-size); border-radius: var(--ky-control-radius); font-size: var(--ky-type-nav); padding: 8px 12px; }
 .editor-actions select, .note-search { border-color: var(--ky-field-border); }
+.page-section-control { position: relative; min-width: 0; max-width: 100%; }
+.editor-actions .page-section-control select { appearance: none; width: 100%; padding-right: 36px; }
+.page-section-control > svg { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .editor-actions .danger { margin-inline-start: auto; }
 .section-menu > .danger { color: var(--danger); }
 .section-tabs { padding-top: 14px; gap: 8px; }
@@ -481,9 +484,11 @@ body { color: var(--ink-strong); background: var(--bg); }
 .sync-dot { font: 500 var(--ky-type-meta) Space, system-ui, sans-serif; }
 .editor-meta .encrypted { color: var(--ink); }
 .section-tab-quick { border-top-color: transparent; }
-.avatar { background: var(--panel-hover); color: var(--ink); font: 600 var(--ky-type-meta) Space, system-ui, sans-serif; }
+.avatar { background: var(--panel); border: 1px solid var(--ky-field-border); color: var(--ink); font: 600 var(--ky-type-meta) Space, system-ui, sans-serif; }
 .recovery-notice { margin-top: 16px; color: var(--ink-strong); font-size: var(--ky-type-meta); line-height: 1.5; }
-.recovery-notice summary { min-height: var(--ky-control-size); padding-block: 10px; cursor: pointer; }
+.recovery-notice summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: var(--ky-control-size); padding-block: 10px; cursor: pointer; list-style: none; }
+.recovery-notice summary::-webkit-details-marker { display: none; }
+.recovery-notice[open] > summary > svg { transform: rotate(180deg); }
 .recovery-notice summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .recovery-notice button { min-height: var(--ky-control-size); padding: 8px 12px; margin-top: 8px; }
 .preferences-layout { grid-template-areas: "nav heading" "nav content"; grid-template-rows: auto 1fr; }
@@ -497,7 +502,10 @@ body { color: var(--ink-strong); background: var(--bg); }
 .workspace > .sidebar .new-workspace:hover:not(:disabled) { background: var(--panel-hover); }
 .workspace > .sidebar .personal-create { margin-top: 16px; }
 .list-actions .note-search { min-height: var(--ky-control-size); }
-.list-actions .icon-button { width: var(--ky-control-size); height: var(--ky-control-size); flex: none; }
+.list-actions .icon-button { width: var(--ky-control-size); height: var(--ky-control-size); flex: none; border-color: var(--ky-field-border); }
+.workspace > .note-list.no-notebook { padding-block: 16px; }
+.workspace .no-notebook .list-header h2.workspace-title { font-size: var(--ky-type-section); }
+.note-list.no-notebook .list-header { border-bottom: 0; padding-bottom: 0; }
 .conflict-banner { border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: var(--ky-control-radius); background: var(--panel); color: var(--ink-strong); line-height: 1.5; }
 .conflict-banner .secondary { display: inline-flex; align-items: center; min-height: var(--ky-control-size); margin-top: 8px; padding: 0 12px; }
 @media (max-width: 800px) {

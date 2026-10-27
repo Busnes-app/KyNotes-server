@@ -2,17 +2,17 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599 tests/47 files; /tmp/kynotes-first-notebook-unit.log."
+    "detail": "599 tests/47files on round6 product source; /tmp/kynotes-polish-r6-unit.log."
   },
   {
     "check": "Production build and TypeScript",
     "result": "pass",
-    "detail": "npm run build --prefix web; rsync generated assets with deletion; diff -qr web/dist internal/web/dist clean. Existing 603kB lazy BlockNote warning."
+    "detail": "Round6 production/TypeScript build and exact rsync embed comparison pass; /tmp/kynotes-polish-r6-build.log. Existing603kB lazy BlockNote warning."
   },
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "12/12 full fresh-server tests; /tmp/kynotes-first-notebook-browser.log. Final stage08 separately runs exact current capture driver with explicit creation-focus wait."
+    "detail": "Final current-source fresh-server12/12 in /tmp/kynotes-polish-r6-browser-final.log. Initial run:10pass/2fail, one stale Select a notebook expectation and one test choosing transient first-run control before an existing notebook load. Updated expected No notebooks yet and await settled nonempty notebook state; no app startup/key/save workaround."
   },
   {
     "check": "Stage07 single-pane capture and regressions",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Current stage08 product source in staged tree a5d5b228a05673c06ee59349b7ff50b259a713a8; two private clean git-archive builds, CGO_ENABLED=0 -trimpath release0.0.0. Identical SHA256 f899bddbf75e2dc615262ad1ee085b6657c6d14f7075989ebb77679e964a8be9. /tmp/kynotes-first-notebook-repeatability.log; later evidence-only metadata cannot affect binary."
+    "detail": "Round6 product source in staged tree f7f5123510e606694f8ae1b857e9d8f5c7dee534; two private clean git-archive builds,CGO_ENABLED=0,-trimpath,release0.0.0. Both SHA2567da9602cdcda53627ab39b40607cf42f6d18f3f939e3dc97598e89de001531bf. /tmp/kynotes-polish-r6-repeatability.log; later evidence metadata cannot affect binary."
   },
   {
     "check": "Required fuzz executions",
@@ -62,12 +62,12 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Current-source kynotes-first-notebook:r5 built;14-step probe and apply-setup pass. /tmp/kynotes-first-notebook-{docker,probe,setup}.log. Initial probe invocation used unsupported docker:<name>; corrected to documented docker transport and fixed container name."
+    "detail": "Round6 current-source kynotes-polish:r6 image,14-step probe and apply-setup pass; /tmp/kynotes-polish-r6-{docker,probe,setup}.log."
   },
   {
     "check": "Design detector",
-    "result": "pass on changed target; existing CSS exceptions retained",
-    "detail": "Current main.tsx detector returned []; /tmp/kynotes-first-notebook-detector.json. Existing CSS exceptions remain documented in detector.json."
+    "result": "2 existing documented exceptions",
+    "detail": "Round6 main/CSS detector retains only semantic conflict/key-warning rail3px and legacy user-section border4px overridden2px; polish-round6-detector.json. No suppression."
   },
   {
     "check": "Report page",
@@ -82,7 +82,7 @@
   {
     "check": "Native T3 final Computer Use",
     "result": "pass, scoped",
-    "detail": "Current served bundle on18105: desktop management x0,width240; pages hidden; editor x240; zero overflow. Work queue closes management and activeElement is Notebooks and account. Stage08 Chromium156 separately tests first-notebook creation and390px reachability. Native input tool required DOM input events for login; no source/security change."
+    "detail": "Round6 Computer Use on18108 at960x900: one240px pane/editorx240,width720,zero overflow; comments radius0; matching search/plus field borders; section element remains SELECT. Same live/embedded stage09 hash verified. Supplemental theme-checks/round6-native-tablet.json/PNG; not all tablet themes/states."
   },
   {
     "check": "Existing browser runtime warnings",
@@ -98,5 +98,10 @@
     "check": "Stage08 first-notebook capture and regressions",
     "result": "pass",
     "detail": "22 captures/18 unique on fresh18106 fixture; /tmp/kynotes-first-notebook-capture-final.log. New notebook above phone fold in both themes, real creation, key/recovery guidance, one-pane geometry, immediate selection focus, held-save/reload and Work queue focus. Initial capture failed on a test focus race; explicit wait for completed navigation corrected it before any round5 delegation."
+  },
+  {
+    "check": "Stage09 bounded polish capture and regressions",
+    "result": "pass",
+    "detail": "Final22captures/18unique on fresh18109; /tmp/kynotes-polish-r6-capture-final.log. Same four populated Project Atlas pages, empty first-run action, recovery keyboard, one-pane geometry, phone chooser, held-save/reload and Work queue focus. Re-captured once after test-only fixture corrections; source pins current. Manifest includes computed control styles."
   }
 ]

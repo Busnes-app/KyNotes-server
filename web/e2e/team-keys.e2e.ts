@@ -429,7 +429,7 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   const listed = newcomer.page.waitForResponse((response) => response.url().endsWith("/api/v1/containers") && response.ok());
   await newcomer.page.goto("/");
   expect(await (await listed).text()).not.toContain(cid);
-  await expect(newcomer.page.getByText("Select a notebook")).toBeVisible();
+  await expect(newcomer.page.getByRole("heading", { name: "No notebooks yet", exact: true })).toBeVisible();
   await expect(newcomer.page.getByRole("button", { name: /Team Keys E2E|Notebook / })).toHaveCount(0);
   await openTeam(editor.page);
   await readPage(editor.page, "After removal", ["after comment"]);

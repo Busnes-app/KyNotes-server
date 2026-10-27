@@ -96,6 +96,27 @@
   },
   {
     "round": 5,
+    "opus": {
+      "score": 7.3,
+      "satisfied": false,
+      "report": "opus-round5.json",
+      "rubric_conforms": true,
+      "basis": "Notes cohort mean of 14 unique CURRENT stage08 images (4 empty, 2 desktop management, 2 phone chooser, 4 editor, 2 phone page lists); Settings separate, never blended; 4 workspace aliases excluded."
+    },
+    "sol": {
+      "score": 8.2,
+      "satisfied": true,
+      "report": "sol-round5.json",
+      "rubric_conforms": true,
+      "basis": "Notes cohort mean only, not a cross-cohort ranking or full acceptance"
+    },
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
+  },
+  {
+    "round": 6,
     "opus": {},
     "sol": {},
     "gemini": {},

@@ -1,13 +1,13 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **08-after**, Council round5. The owner rated the adjacent
-left columns **6/10**, reopening progression. Stage07 removed the double-left
-layout; Opus rated it7.7 and blocked first-run guidance, while Sol rated it8.2.
-The empty editor now exposes **New notebook** through the existing creation flow,
-above the phone fold in both themes. Key/setup notices remain visible, and Work
-queue restores focus to the persistent navigation toggle. Fresh Opus/Sol reviews
-are pending after599units and12full browser tests passed. No current8/10 or
-full9/10 acceptance is claimed.
+The current stage is **09-after**, Council round6. The owner rated the old adjacent
+left columns **6/10**, reopening progression. Round5 resolved the hidden first-notebook
+action, but Opus7.3/Sol8.2 disagreed on existing polish. Their raw scores and the
+[findings audit](round5-findings-audit.json) remain separate; unchanged-pixel rating
+variance is not a product regression. Round6 simplifies the empty pane, outlines
+Comment, removes curved comment-divider ends, separates the avatar and aligns
+native disclosure/select chevrons and field borders. Fresh reviews are pending
+after599units and12full browser tests passed. No current8/10 or full9/10 is claimed.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -44,24 +44,20 @@ every supported, rejected and deferred item. No product changes followed the aud
 ## Capture provenance
 
 Original base: `34849c4d0766901fdf33556855373aa122666049`. Current captures
-are from head `5dbf6df0a028c810f7dda767ddb09b8cd7f841fd` plus the recorded source patch and
+are from head `022d5e2d4163ea12012d5da139c4de40abdc1ffe` plus the recorded source patch and
 explicit file hashes. Current served index SHA256:
-`00dcf80d36040710ede88cc0e47fd1807933d3969a345497a5ba78403c113343`.
+`72df2d955d34f8aea60d81b4f5efe3ae7e4d598ea078e36fe332516cb7a70eec`.
 
-`inventory-v7.json` contains152 PNGs /108 unique across all stages. Current stage08
+`inventory-v8.json` contains174 PNGs /122 unique across all stages. Current stage09
 has22captures/18unique:14Notes (including4empty and2desktop management views)
 and4Settings. Four workspace aliases are excluded from means. Stages05/06 were
 preliminary attempts whose reviews were interrupted before completion; earlier
-inputs and completed stage07 round4 reviews remain frozen. The comparison uses
-stage07 and stage08, including matched empty screens. A first stage08 capture
-stopped on a test focus race; the final isolated capture passed after waiting for
-notebook creation's focus handoff before the recovery keypress. No product focus
-workaround or security change was added.
+inputs and completed round4/5 reviews remain frozen. The comparison uses stage08 and stage09, including matched empty screens. The final stage09 capture followed test-only corrections for the new empty-state copy and existing-notebook startup timing; no app startup/key/save workaround was added.
 
 Chromium 156.0.8078.4, scale 1; desktop 1280×900 and phone 390×844; OS light/dark
 emulation, no saved theme choice, real disposable server, synthetic owner and
 Project Atlas with four populated pages. Screenshots come through the real UI.
-Native T3 Computer Use navigation and CSS inspection supplement the full-resolution
+A supplemental light960x900 native T3 capture verifies one-pane geometry and computed control styles; it is not full tablet acceptance. Native T3 Computer Use navigation and CSS inspection supplement the full-resolution
 capture set; native preview snapshots are not substituted into scored inputs.
 
 Rubric: `ky-suite-v2`, hierarchy .20 / typography .15 / density .20 / color .15 /
@@ -78,7 +74,7 @@ content. No new competitor ranking or whole-suite cohesion score is claimed.
 WebKit, the complete empty/loading/error matrix and every product theme/focus/role
 path are not certified by this pass. Shared palette probes do not certify all product
 overrides. Optional polish remains in phone Settings spacing, small metadata,
-light avatar separation and minor icon/divider consistency. These were nonblocking in round4; round5 verdicts are pending.
+light avatar separation and minor icon/divider consistency. These remain outside the bounded round6 polish; its verdicts are pending.
 
 The design detector retains two narrow existing findings: the semantic 3px key/conflict
 warning rail and the legacy 4px user-colored section border overridden to 2px.
