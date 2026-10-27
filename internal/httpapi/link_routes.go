@@ -22,7 +22,7 @@ import (
 const (
 	linkTTL         = 10 * time.Minute
 	linkMaxPending  = 3
-	linkBundleBytes = 61 // 0x01 | nonce(12) | ChaCha20-Poly1305(identity private key)(48)
+	linkBundleBytes = 81 // 0x02 | HPKE enc(32) | ChaCha20-Poly1305(identity private key)(48); the retired v1 was 61
 	linkCommitLabel = "kynotes/link-commit/v1"
 )
 

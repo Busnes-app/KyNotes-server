@@ -184,7 +184,7 @@ describe("device linking", () => {
 
   it("refuses a bundle holding another key than the account's identity", async () => {
     const { r, link, approver } = await shown();
-    const forged = sealLinkBundle(generateIdentity().privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
+    const forged = await sealLinkBundle(generateIdentity().privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
     const store = vault();
     await expect(finishNewcomerLink(link, forged, confirmed(link), me, r.newcomer, store)).rejects.toThrow(/not your account's encryption key/);
     expect(store.save).not.toHaveBeenCalled();
@@ -193,7 +193,7 @@ describe("device linking", () => {
 
   it("keeps the identity with compare-and-swap: a key another tab kept meanwhile is never overwritten", async () => {
     const { r, link, approver } = await shown();
-    const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
+    const honest = await sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
     const store = vault();
     // Another tab keeps a key between this run's read and its write.
     const load = store.load;
@@ -205,7 +205,7 @@ describe("device linking", () => {
 
   it.each([["pending", ""], ["orphaned", `dev_${"e".repeat(26)}`]])("refuses to link over another %s copy this browser holds", async (_kind, deviceId) => {
     const { r, link, approver } = await shown();
-    const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
+    const honest = await sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
     const other = { ...generateIdentity(), deviceId };
     const store = vault(other);
     await expect(finishNewcomerLink(link, honest, confirmed(link), me, r.newcomer, store)).rejects.toThrow("This browser holds another copy of your key. Use Forget this device first.");
@@ -230,13 +230,13 @@ describe("device linking", () => {
 
   it("reports a browser that could not keep the linked key", async () => {
     const { r, link, approver } = await shown();
-    const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
+    const honest = await sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
     await expect(finishNewcomerLink(link, honest, confirmed(link), me, r.newcomer, vault(undefined, false))).rejects.toBeInstanceOf(LinkStorageError);
   });
 
   it("opens the bundle only with a confirmation of the code this browser showed", async () => {
     const { r, link, approver } = await shown();
-    const honest = sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
+    const honest = await sealLinkBundle(identity.privateKey, approver.key, { userID: me, requestID: link.id, identityDeviceID: dev, approverKey: approver.key.publicKey, newcomerKey: link.key.publicKey });
     const store = vault();
     await expect(finishNewcomerLink(link, honest, confirmCheckCode(link.id, "000 000"), me, r.newcomer, store)).rejects.toThrow(/check codes/);
     expect(store.save).not.toHaveBeenCalled();
