@@ -21,7 +21,8 @@ every supported, rejected and deferred item. No product changes followed the aud
 - Shared source change: [ky-ui #25](https://github.com/Busnes-app/ky-ui/pull/25),
   version 0.4.2, commit `cbc37bf9d607f2a3558c899f139165818202434d`.
 
-- Product change: [KyNotes #118](https://github.com/Busnes-app/KyNotes-server/pull/118).
+- Original UI pass: [KyNotes #118](https://github.com/Busnes-app/KyNotes-server/pull/118), merged.
+- Current single-pane correction: [KyNotes #119](https://github.com/Busnes-app/KyNotes-server/pull/119).
 
 ## What changed
 

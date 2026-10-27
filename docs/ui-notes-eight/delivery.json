@@ -10,5 +10,11 @@
     "url": "https://github.com/Busnes-app/KyNotes-server/pull/118",
     "branch": "ui/notes-eight",
     "scope": "Editor, phone navigation and frozen council evidence; no merge/deployment"
+  },
+  {
+    "repository": "Busnes-app/KyNotes-server",
+    "url": "https://github.com/Busnes-app/KyNotes-server/pull/119",
+    "branch": "ui/notes-eight",
+    "scope": "Follow-up after merged118: single left navigation pane, owner6 record and fresh round4 evidence; no merge/deployment"
   }
 ]
