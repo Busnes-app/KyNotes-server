@@ -1,0 +1,3871 @@
+{
+  "schema": "ky-ui-council-scores/2",
+  "round": 4,
+  "reviewer": "GPT-6.1 Sol (independent Council review sub-agent)",
+  "generated_at": "2026-10-27T00:54:01.951141+00:00",
+  "method": "Requested single Council review using Impeccable Operate/Read and fixed ky-suite-v2, not nested /impeccable critique. All 18 unique stage 07 images viewed at original full resolution and six integer vectors frozen before opening prior numeric reports. No nested delegates.",
+  "rubric": {
+    "version": "ky-suite-v2",
+    "weights": {
+      "hierarchy": 0.2,
+      "typography": 0.15,
+      "density_layout": 0.2,
+      "color": 0.15,
+      "visible_affordances": 0.15,
+      "coherence": 0.15
+    },
+    "rounding": "Exact Decimal weighted sums and unique rounded-total means, HALF_UP to1 decimal.",
+    "blind_order_verified": true,
+    "ky_fit": "Separate equal mean of 4 available dimensions; suite_cohesion N/A."
+  },
+  "verdict": {
+    "score": 8.2,
+    "score_basis": "Notes cohort mean across 14 unique CURRENT stage 07 images, including 4 empty and 2 desktop management; Settings 4 unique separate, never blended.",
+    "satisfied": true,
+    "target": 8,
+    "scope": "KyNotes single-left desktop/empty/management/editor navigation, phone disclosures and preserved search/section/team paths; scoped 8 visual progression.",
+    "reason": "One 240px region switches between management and pages; editor stays at x=240. Empty desktop has one region and phones stack full-width disclosures. Notes 8.2/Settings 8.3 plus scoped behavior support progression; no remaining P1 blocker. Empty-phone7.6 and focus/spacing polish remain explicit.",
+    "owner_objection_resolved": true,
+    "owner_approval_inferred": false,
+    "accept_9": false,
+    "remaining_progression_blockers": [],
+    "full_acceptance_blockers": [
+      "Full 9 not accepted: Notes 8.2/Settings 8.3 and separate Kyfit 8.5 are below9.",
+      "Every-product keyboard/focus path, named-theme focus/contrast roles, loading/error/announcement matrix, screen readers and WebKit remain unproven.",
+      "Team/section handlers retained in source; dense teams/group layouts lack current screenshot coverage. Only one personal notebook/Quick Notes fixture inspected."
+    ],
+    "merge_or_deploy_authorized": false
+  },
+  "provenance": {
+    "head": "d9c413fdcf13edbf722e1c74512f000bd184dfcc",
+    "sourceDiffSha256": "8e2a6bd7a14f5d746aa5e34de9715c00370c039e814abd2afe6ffdfbaf229264",
+    "sourceFiles": {
+      "src/main.tsx": "42ec61a480749b6e4ef681d9cbc5d26c45473b0fc96bfda12331a3ddbeeeb7f5",
+      "src/styles.css": "2b5c72d889685f621c7bc1faeddc8e92a73939461578aac82af0f1d73253d3ca",
+      "src/NavIcon.tsx": "70c925c6d23388a4bd99d2575a9e6a0df226275cda9da8f094b84e255fc4bc8b",
+      "src/components/SectionTabs.tsx": "c61baaaa4d46c9f4c66e7300a19aee85d9d34423924b61e471ba825fa1074a1a",
+      "src/ky-ui/VERSION": "884826819a3f2525e8546229d964c32ddad1c6df7153e3c506a4ff228b14e458",
+      "e2e/ui-council.e2e.ts": "16db32e22ef1385c7068c1872293de36c7ce089a74addcc6cff3aae622015ec4",
+      "package-lock.json": "417d094e4a48b0b72212d10a33f2594d95376c9024178f5ae76595a78d97b70e",
+      "e2e/people.ts": "9fc03d18670f0cf8995bc59e15c1bf169a47811fe201bdb523f52beb7c0fbeac"
+    },
+    "servedIndexSha256": "ec3b1526952e750a8d4350a632eee53738305e1d9f9dd36481e2d57c68f5f264",
+    "stage": "after",
+    "captured": "2026-10-27T00:43:20.168Z",
+    "browser": "156.0.8078.4",
+    "fixture": "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1",
+    "councilRound": 4
+  },
+  "capture_input_hashes": {
+    "manifest": {
+      "file": "screenshots/07-after-manifest.json",
+      "sha256": "e7546e870a2da5e7db7e522921a37a63552d9cb2cb549d752e683f9f087ce92b"
+    },
+    "inventory": {
+      "file": "inventory-v6.json",
+      "sha256": "bfac52f83c9910eb6b8b48c5cc36faf60032aa086d7b8912ef8b57a18c40e06b"
+    },
+    "images": [
+      {
+        "file": "screenshots/kynotes-07-after-appearance-desktop-dark.png",
+        "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-appearance-desktop-light.png",
+        "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-appearance-mobile-dark.png",
+        "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-appearance-mobile-light.png",
+        "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+        "sha256": "b7864d59b1827f608dd181fd4a7a8f2ef7885da0186f6989df71d8889561a104"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-desktop-light.png",
+        "sha256": "375df600642661f45f6c45ac87130cbff239f2bf42e51ac0ee5266150fc45a1e"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+        "sha256": "cd02bc6f7f5df890678b955bfd4e61edaf7505eb35ab970ea2fe36349adc5047"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-mobile-light.png",
+        "sha256": "ecebdc699bdf88b23686cc1a1591bcf4a0785aacd44aea5a6329b73d4605c24f"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-desktop-dark.png",
+        "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-desktop-light.png",
+        "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-mobile-dark.png",
+        "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-mobile-light.png",
+        "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-desktop-dark.png",
+        "sha256": "d6d5b12d707c052079a62c65d7b56d4b5ae5d4884a3517b3c177761e5105aaed"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-desktop-light.png",
+        "sha256": "e6c8872e35479263711d5987100ae7653be0182a0aa3c6f8c3bb07c9d3b6290f"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-mobile-dark.png",
+        "sha256": "e733d102a61356b24fb3dcbc448b41f0a8b5e57b0cae0a10a86efc8798ba5d03"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-mobile-light.png",
+        "sha256": "7379fb43401414f4dcac11dbeb2aadf257845c7ea387a466d1e9cd2878111851"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-pages-mobile-dark.png",
+        "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-pages-mobile-light.png",
+        "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+        "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+        "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+        "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f"
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+        "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc"
+      }
+    ]
+  },
+  "source_validation": {
+    "capture_head": "d9c413fdcf13edbf722e1c74512f000bd184dfcc",
+    "current_head": "e51d07eb97b8dc6bcd326a5e2cd4f8c45e10571e",
+    "capture_source_files_match": true,
+    "source_diff_from_capture_head_matches": true,
+    "live_and_embedded_index_match": true,
+    "head_changed_during_review": "Checkout advanced by parent commits; every capture source file remains byte-identical. Reconstructed git diff from capture HEAD matches capture diff hash.",
+    "shared_ky_ui_version": "0.4.2",
+    "native_browser": "T3 collaborative Chromium 154/deviceScale 2,1280x900 and 390x844; 18104new origin; tab closed.",
+    "manifest_note": "07-after-manifest is current councilRound4; 06also says4but is interrupted and excluded."
+  },
+  "inventory": [
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "sha256": "dbdd54e9e91a0fb09bda089a279af5d800b15f82fc455edfd5e464e401aaeb9e",
+      "bytes": 100983,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "sha256": "6ec450216d330779395bce777f53fb3d68ca0b08560d6f85494dfae04786133b",
+      "bytes": 99957,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "sha256": "fb462b749c65d3e0a21ba373547c12050825f3294273723351ff1f105e38ba13",
+      "bytes": 43240,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "sha256": "636fb513d0c8879d0b38af11837123e6121c1f32aa019903b18add9e8ea2bdab",
+      "bytes": 42621,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "sha256": "befed209375eddc95586b194cfb0f99ca56cc0c233763c3a79b6d189739ae778",
+      "bytes": 36088,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "sha256": "e990bc03a39f2c6e644b47cc3054bd5f3aa73313d8b9e7ff74ce7c4667ed3ad7",
+      "bytes": 35630,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "sha256": "b3bbd6eabcebe452699b05b127f2a4055c3d4e2f066cf909169b447a24355f45",
+      "bytes": 43169,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "sha256": "3d4a87b7b3c18f075a956655ade525c0970bbd0ab856293893716574c0ade473",
+      "bytes": 42826,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+      "sha256": "bca725fc24672454712ebcd4abc6d0cb7704d3fd6231789da287a5c9e4a8c5d6",
+      "bytes": 100985,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+      "sha256": "60d03eb75e4754707564d5a1dcf1a9c4fb7ec0991ed81a32045545738c5fd96b",
+      "bytes": 99953,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+      "sha256": "76e6a222a146c4d89db36f124d76212d87cbe2a483dd3be7e9c308600f0a6ed6",
+      "bytes": 43241,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+      "sha256": "44dfd2959b0299e94b862707bac59762529487affa24601d7d153b861c563465",
+      "bytes": 42613,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+      "bytes": 105730,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+      "bytes": 104429,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+      "bytes": 37472,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+      "bytes": 37127,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+      "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+      "bytes": 105726,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 13,
+      "pixel_fraction": 1.1284722222222222e-05,
+      "max_channel_delta": 7
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+      "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+      "bytes": 104427,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 9,
+      "pixel_fraction": 7.8125e-06,
+      "max_channel_delta": 7
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "duplicate_kind": "exact",
+      "changed_pixels": 0,
+      "max_channel_delta": 0
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+      "sha256": "1b7baf66f46aa4e65c85a5efbad49a9762739ae8644ffdf3f0a7866a37573f39",
+      "bytes": 69919,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+      "sha256": "c3792debcef96eab6aa685d768cd12521848cc1f1688de38a9dbf0005a68c793",
+      "bytes": 68933,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+      "sha256": "56f6a8ce806e68bc6cbd898a7a848ea328073bb76d3aaccad42d71024482fe82",
+      "bytes": 41078,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+      "sha256": "56cf7b3822011d825e9b4663713dc594e24168b362a92765195ae7ee14c17035",
+      "bytes": 40601,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "sha256": "59d222d7592cba7064379d3e37134264f8e8bc27f21c5e229777100be6b2302a",
+      "bytes": 98857,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "sha256": "2be8d27ab309dac2386cb164fdef15e6fc7833d905763bd434ac5a9d6054d278",
+      "bytes": 97526,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "sha256": "a106db11bb40ad57bf0c13489d16bac462648f2ac452f6ec44a7f2554cfd06e3",
+      "bytes": 42954,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "sha256": "16c0d58f133c99a1e77114147d1260dfbd4d25cc1bbe5864f73253abd70ca1fd",
+      "bytes": 42355,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+      "sha256": "8c4456cccad3ea6638e13d567f92faf9c6040f2411d14eda9d616df049a5ffdc",
+      "bytes": 35910,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+      "sha256": "f4c8e4cffcfd8322de8907c6c5cc3140023c3178cfc21bb99dede0018594f4ca",
+      "bytes": 35199,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+      "sha256": "316bf09b573163f65f9e210117d527ca8162091abb7c0014a6fd136f004182ac",
+      "bytes": 45979,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+      "sha256": "3c1cf7c7a6f3f7a67bc577cfe8f5c8a90b6815e02a7d3e2f27e739c505ae2c27",
+      "bytes": 44829,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-dark.png",
+      "sha256": "edd58b54cef1b4a4c360fc00584e6cd15d3b18ef60ef65df0eb862a421830b59",
+      "bytes": 98857,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-light.png",
+      "sha256": "e8835696dcce831f3bade9270ee5cead7aad63fa2820739ad91d27fb9b924547",
+      "bytes": 97526,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-dark.png",
+      "sha256": "d5da610b5a572a3605b5258c8d00fc30914859bbd15a12f9e8f436ec72ee378b",
+      "bytes": 42954,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-light.png",
+      "sha256": "0502da304aea0e3ec6b6122401cbbf9df7549395b6d593d4fc16fc9cebce884d",
+      "bytes": 42346,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "sha256": "5f62d8e8326c6912228a48be2de30f154e38e5d96e4245dba4819222e5cf7758",
+      "bytes": 88939,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "sha256": "0badc566e9da68c29793d44be33726aca19f205a02a480cbf2bf173b351847b9",
+      "bytes": 87473,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "sha256": "298738a33459282ee66a7d6a2c1ebf3ba686cbfbacf6bacb7a5c495be3233da5",
+      "bytes": 41823,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "sha256": "fdddeb711563c5d52849c42e2214d999767042e699a2985aa5edd9a8c593fd9a",
+      "bytes": 41096,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+      "sha256": "5c0b4f30f4e4029e6bc1944f3d974abf104a809662185a08c2ae2bda855b3873",
+      "bytes": 35763,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+      "sha256": "88a86083dd3cdefa1b17f5a6f934e317260fe887a6e9b224002b03d90bbedf46",
+      "bytes": 34676,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+      "sha256": "56477f48651c319786dd7277ec902a18356013a4c901e1461293f2670cb8086c",
+      "bytes": 35398,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+      "sha256": "fe930d0dc94f55bbdb05bfb2c4768f3062e4ae399a0e2dcb1470b63eefa983b6",
+      "bytes": 34430,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+      "sha256": "474917bb173b238a0db5482cd2f40abebe26799afb50f197189cfd328d4f5dca",
+      "bytes": 88938,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 1.3020833333333334e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+      "sha256": "a1be9a6556815decec35a19c43c7a952260e715dd43f853f1c9b68a11aeacf30",
+      "bytes": 87467,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 1.0416666666666666e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+      "sha256": "59268afebdb263c9eda0f4158a4b4ea54e26f002c46b72e4b2029773211fbf22",
+      "bytes": 41824,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "pixel_fraction": 4.557054320087495e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+      "sha256": "95d966110857b682bca742f834afca2bba3da9546ab1ed1f095971ad79003ce6",
+      "bytes": 41088,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "pixel_fraction": 3.645643456069996e-05,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-desktop-dark.png",
+      "sha256": "abb8b87e11114d2e7b8a7e0d094d79cc4ae38475737d19e9ee43a076edce63eb",
+      "bytes": 79727,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-desktop-light.png",
+      "sha256": "636850b73dadbb684d3b31b7614c17a4acdc0bc53f77ba48a44dad0f08afee3b",
+      "bytes": 78936,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-mobile-dark.png",
+      "sha256": "8c71a1cc4942d47450585d3bbc90108815563297a094032f90279893373e7e61",
+      "bytes": 41995,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-mobile-light.png",
+      "sha256": "e7df73214f0e6fef0df1f0e3a57d768e91700060df8dcfaf0c0b98a8d90ae7dd",
+      "bytes": 41261,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "bytes": 31841,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "bytes": 31656,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "bytes": 26174,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "bytes": 25577,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-desktop-dark.png",
+      "sha256": "660f457322bfeaca470632ba6ef486aeeba43ea22e21c29ada32615d7de59a2f",
+      "bytes": 71332,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-desktop-light.png",
+      "sha256": "09aaa8a16c2e6de9308f1bee239d036a344bfac07f5b3b4045ab4577cbe0902c",
+      "bytes": 70180,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-mobile-dark.png",
+      "sha256": "4386905eae64c0f5e2b235d07e0c82ab6634c6a9152f5b166153661726f442a7",
+      "bytes": 35933,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-mobile-light.png",
+      "sha256": "cb25ccff9a7d0fb4111f103e434b7a560e5aaf00e3d413095268dd2164365c5d",
+      "bytes": 34830,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "bytes": 35402,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "bytes": 34434,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-desktop-dark.png",
+      "sha256": "c121214a77c2935d02a1152a30038f9da1bd6582b44bc655e0e0315560010c87",
+      "bytes": 79729,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-05-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-desktop-light.png",
+      "sha256": "fb0d176c282cb503526811a31a1507bd09b14d34f85dc1130b7b5f95be9ce43d",
+      "bytes": 78931,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-05-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-mobile-dark.png",
+      "sha256": "30bd84772a120fefe3b5a34bb7d56054ecaf85fc066c52d577ef6024e00532e4",
+      "bytes": 41996,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-05-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-mobile-light.png",
+      "sha256": "9dbeeec004801353f47f9e45520c7c129aa93bc3881e4855909609be33156cfc",
+      "bytes": 41254,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-05-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-desktop-dark.png",
+      "sha256": "d710fd517093bf43b1f5952b15e5b882e9f66c6178fd5b378e7bd1e5cab8f1f3",
+      "bytes": 79652,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-desktop-light.png",
+      "sha256": "dff310f13e7b07e3f0f3a70bcff14d3d4db31125f3f3b80fb1e0b7e56b0526df",
+      "bytes": 79032,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-mobile-dark.png",
+      "sha256": "a33657e7fe1a45d046a05009a9cb53b8dcf6d1ee1ecc40011735dcb2a17a8976",
+      "bytes": 41766,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-mobile-light.png",
+      "sha256": "d17eddc8a6bbc12345f7a39df8b00f5b0ebb18d8ee693b4c3c6dd889ea2dc7c1",
+      "bytes": 41299,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "bytes": 31841,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "bytes": 31656,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "bytes": 26174,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "bytes": 25577,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-desktop-dark.png",
+      "sha256": "b8d0f7563abf34ebc420f8dafdeb85ed1cfa6f83512cb672c97e3d10b9cb6bf0",
+      "bytes": 71261,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-desktop-light.png",
+      "sha256": "55ad7a58c0897a189213daaba6caa2025c678759eb1edf9c4da477a6c06f59cd",
+      "bytes": 70274,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-mobile-dark.png",
+      "sha256": "d36f2191acc1ba8eb7904ed6cd8ddb3657eab1d1a5b373a17e5318ce79a757c1",
+      "bytes": 35703,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-mobile-light.png",
+      "sha256": "fe58d45ede35fd58c1dadaf9ddd7bf7c405e534912bb54153ce6068c92595c6f",
+      "bytes": 34868,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "bytes": 35402,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "bytes": 34434,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-desktop-dark.png",
+      "sha256": "d3fd6d485d450857ca65082ef91633989044439ab1ef6670652aa5679af1be24",
+      "bytes": 79652,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-06-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-desktop-light.png",
+      "sha256": "f9eacb23b698618807b651be715db2676b6a8521c561729868f7e0c2260cd1e3",
+      "bytes": 79027,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-06-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-mobile-dark.png",
+      "sha256": "59953ec07884149c848c5f7f1dc7e6c3f451e5f2bcdd742c2300df96bb1d0f23",
+      "bytes": 41766,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-06-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-mobile-light.png",
+      "sha256": "dbff11dec9d4c901f619d95f2a93bc0928d69ab322286369cd939ddac947d18c",
+      "bytes": 41291,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-06-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+      "sha256": "b7864d59b1827f608dd181fd4a7a8f2ef7885da0186f6989df71d8889561a104",
+      "bytes": 79828,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-desktop-light.png",
+      "sha256": "375df600642661f45f6c45ac87130cbff239f2bf42e51ac0ee5266150fc45a1e",
+      "bytes": 79048,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+      "sha256": "cd02bc6f7f5df890678b955bfd4e61edaf7505eb35ab970ea2fe36349adc5047",
+      "bytes": 41809,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-mobile-light.png",
+      "sha256": "ecebdc699bdf88b23686cc1a1591bcf4a0785aacd44aea5a6329b73d4605c24f",
+      "bytes": 41085,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "bytes": 31841,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "bytes": 31656,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "bytes": 26174,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "bytes": 25577,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-desktop-dark.png",
+      "sha256": "d6d5b12d707c052079a62c65d7b56d4b5ae5d4884a3517b3c177761e5105aaed",
+      "bytes": 71436,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-desktop-light.png",
+      "sha256": "e6c8872e35479263711d5987100ae7653be0182a0aa3c6f8c3bb07c9d3b6290f",
+      "bytes": 70292,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-mobile-dark.png",
+      "sha256": "e733d102a61356b24fb3dcbc448b41f0a8b5e57b0cae0a10a86efc8798ba5d03",
+      "bytes": 35746,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-mobile-light.png",
+      "sha256": "7379fb43401414f4dcac11dbeb2aadf257845c7ea387a466d1e9cd2878111851",
+      "bytes": 34667,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "bytes": 35402,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "bytes": 34434,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+      "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0",
+      "bytes": 79828,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+      "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c",
+      "bytes": 79043,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+      "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f",
+      "bytes": 41809,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+      "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc",
+      "bytes": 41077,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4
+    }
+  ],
+  "inventory_validation": {
+    "file_count": 130,
+    "historical_unique_count": 96,
+    "current_file_count": 22,
+    "current_unique_count": 18,
+    "notes_unique_count": 14,
+    "settings_unique_count": 4,
+    "historical_excluded": 108,
+    "current_duplicate_count": 4,
+    "all_hashes_bytes_dimensions_match": true,
+    "all_current_unique_viewed_full_resolution": true,
+    "current_duplicate_pair_measurements": [
+      {
+        "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+        "changed_pixels": 15,
+        "pixel_fraction": 1.3020833333333334e-05,
+        "max_channel_delta": 4
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-light.png",
+        "changed_pixels": 12,
+        "pixel_fraction": 1.0416666666666666e-05,
+        "max_channel_delta": 4
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+        "changed_pixels": 15,
+        "pixel_fraction": 4.557054320087495e-05,
+        "max_channel_delta": 4
+      },
+      {
+        "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+        "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-light.png",
+        "changed_pixels": 12,
+        "pixel_fraction": 3.645643456069996e-05,
+        "max_channel_delta": 4
+      }
+    ],
+    "current_duplicate_classification_recomputed": true,
+    "canonical_pair_comparisons": 109
+  },
+  "files": [
+    {
+      "file": "screenshots/kynotes-07-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "bytes": 70014,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance radio-card picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named choices plus Match system; later choices below fold",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance establish location; the large equally weighted theme catalog still requires deliberate scanning.",
+        "typography": "Title, section, explanation, theme names and modes use consistent Space type steps, with repeated small mode captions.",
+        "density_layout": "Five aligned columns repeat preview/name/radio geometry, with further choices continuing below the captured viewport.",
+        "color": "Preview hues are theme data; neutral page chrome leaves orange for selected Appearance and Match system.",
+        "visible_affordances": "Native radios plus the accent selected-card outline clearly separate Match system from alternatives.",
+        "coherence": "One settings navigation region leads a flat form with one repeated theme-preview vocabulary."
+      },
+      "weighted_unrounded": "8.45",
+      "total": 8.5,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "bytes": 69039,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance radio-card picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named choices plus Match system; later choices below fold",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance establish location; the large equally weighted theme catalog still requires deliberate scanning.",
+        "typography": "Title, section, explanation, theme names and modes use consistent Space type steps, with repeated small mode captions.",
+        "density_layout": "Five aligned columns repeat preview/name/radio geometry, with further choices continuing below the captured viewport.",
+        "color": "Preview hues are theme data; neutral page chrome leaves orange for selected Appearance and Match system.",
+        "visible_affordances": "Native radios plus the accent selected-card outline clearly separate Match system from alternatives.",
+        "coherence": "One settings navigation region leads a flat form with one repeated theme-preview vocabulary."
+      },
+      "weighted_unrounded": "8.45",
+      "total": 8.5,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "bytes": 41587,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance radio-card picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named choices plus Match system; later choices below fold",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings appears before its navigation links, followed by Appearance, explanation and Theme.",
+        "typography": "Title, section, body and card captions keep readable scale steps with comfortably wrapping text.",
+        "density_layout": "Wrapped settings links consume several rows before the two-column grid starts near y570; cards fit within390px.",
+        "color": "Neutral chrome surrounds preview data and orange identifies selected Appearance/Match system.",
+        "visible_affordances": "Checked native radio plus accent boundary identify the selected card; theme names/modes are explicit.",
+        "coherence": "The same card geometry works in two columns, with a tall navigation preamble limiting concision."
+      },
+      "weighted_unrounded": "8.10",
+      "total": 8.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "bytes": 41014,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Settings > Appearance radio-card picker",
+      "cohort": "settings",
+      "state": "populated",
+      "state_detail": "22 named choices plus Match system; later choices below fold",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 9,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings appears before its navigation links, followed by Appearance, explanation and Theme.",
+        "typography": "Title, section, body and card captions keep readable scale steps with comfortably wrapping text.",
+        "density_layout": "Wrapped settings links consume several rows before the two-column grid starts near y570; cards fit within390px.",
+        "color": "Neutral chrome surrounds preview data and orange identifies selected Appearance/Match system.",
+        "visible_affordances": "Checked native radio plus accent boundary identify the selected card; theme names/modes are explicit.",
+        "coherence": "The same card geometry works in two columns, with a tall navigation preamble limiting concision."
+      },
+      "weighted_unrounded": "8.10",
+      "total": 8.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+      "sha256": "b7864d59b1827f608dd181fd4a7a8f2ef7885da0186f6989df71d8889561a104",
+      "bytes": 79828,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The smaller Project Atlas notebook title stays within the sole left region; Launch checklist leads the wide editor.",
+        "typography": "Space body text and headings are legible; version/save-time captions are noticeably smaller.",
+        "density_layout": "Only one 240px navigation region precedes the editor at x240; short content leaves a large gap before lower actions.",
+        "color": "Neutral surfaces and strong ink carry the document; restrained orange marks selections and semantic Save/Delete colors retain text.",
+        "visible_affordances": "Selected Launch checklist has both a soft surface and slim left rail; bounded Search/plus and readable mode buttons show available actions.",
+        "coherence": "Notebook, sections and pages share one left region; the toolbar, page actions and Comments still form several distinct control bands."
+      },
+      "weighted_unrounded": "8.35",
+      "total": 8.4,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-desktop-light.png",
+      "sha256": "375df600642661f45f6c45ac87130cbff239f2bf42e51ac0ee5266150fc45a1e",
+      "bytes": 79048,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The smaller Project Atlas notebook title stays within the sole left region; Launch checklist leads the wide editor.",
+        "typography": "Space body text and headings are legible; version/save-time captions are noticeably smaller.",
+        "density_layout": "Only one 240px navigation region precedes the editor at x240; short content leaves a large gap before lower actions.",
+        "color": "Neutral surfaces and strong ink carry the document; restrained orange marks selections and semantic Save/Delete colors retain text.",
+        "visible_affordances": "Selected Launch checklist has both a soft surface and slim left rail; bounded Search/plus and readable mode buttons show available actions.",
+        "coherence": "Notebook, sections and pages share one left region; the toolbar, page actions and Comments still form several distinct control bands."
+      },
+      "weighted_unrounded": "8.35",
+      "total": 8.4,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+      "sha256": "cd02bc6f7f5df890678b955bfd4e61edaf7505eb35ab970ea2fe36349adc5047",
+      "bytes": 41809,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the document below two clearly named collapsed navigation disclosures.",
+        "typography": "Body text wraps into a readable column with distinct heading weights and a small version/save-time line.",
+        "density_layout": "The editor uses full phone width; two48px disclosures and vertical document spacing consume substantial initial space.",
+        "color": "Strong text remains clear against the captured theme; selected Type has a restrained orange underline.",
+        "visible_affordances": "Notebooks and account and Pages in Project Atlas identify their destinations; Save and lower section selection remain visible.",
+        "coherence": "One text/control vocabulary continues through the full-width editor, with several horizontal navigation and action bands."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-editor-mobile-light.png",
+      "sha256": "ecebdc699bdf88b23686cc1a1591bcf4a0785aacd44aea5a6329b73d4605c24f",
+      "bytes": 41085,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the document below two clearly named collapsed navigation disclosures.",
+        "typography": "Body text wraps into a readable column with distinct heading weights and a small version/save-time line.",
+        "density_layout": "The editor uses full phone width; two48px disclosures and vertical document spacing consume substantial initial space.",
+        "color": "Strong text remains clear against the captured theme; selected Type has a restrained orange underline.",
+        "visible_affordances": "Notebooks and account and Pages in Project Atlas identify their destinations; Save and lower section selection remain visible.",
+        "coherence": "One text/control vocabulary continues through the full-width editor, with several horizontal navigation and action bands."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "bytes": 31841,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "No-notebook empty workspace",
+      "cohort": "notes",
+      "state": "empty",
+      "state_detail": "No notebook; new-page plus disabled",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Select a notebook and Your private desk explain the state, but no primary creation action appears in the content area.",
+        "typography": "The state title, quiet explanation and compact recovery label are clearly separated and readable.",
+        "density_layout": "One 240px left region avoids double-left chrome, leaving a calm but mostly unused editor surface.",
+        "color": "Neutral cream/charcoal surfaces and strong text remain restrained, without ornamental accent.",
+        "visible_affordances": "Notebooks and account is a labeled chevron button; the central select/create-note instruction sits beside disabled plus while New notebook is behind the toggle.",
+        "coherence": "The same shell, recovery disclosure and search vocabulary are retained without a second navigation column."
+      },
+      "weighted_unrounded": "7.95",
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "bytes": 31656,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "No-notebook empty workspace",
+      "cohort": "notes",
+      "state": "empty",
+      "state_detail": "No notebook; new-page plus disabled",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Select a notebook and Your private desk explain the state, but no primary creation action appears in the content area.",
+        "typography": "The state title, quiet explanation and compact recovery label are clearly separated and readable.",
+        "density_layout": "One 240px left region avoids double-left chrome, leaving a calm but mostly unused editor surface.",
+        "color": "Neutral cream/charcoal surfaces and strong text remain restrained, without ornamental accent.",
+        "visible_affordances": "Notebooks and account is a labeled chevron button; the central select/create-note instruction sits beside disabled plus while New notebook is behind the toggle.",
+        "coherence": "The same shell, recovery disclosure and search vocabulary are retained without a second navigation column."
+      },
+      "weighted_unrounded": "7.95",
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "bytes": 26174,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "No-notebook empty workspace",
+      "cohort": "notes",
+      "state": "empty",
+      "state_detail": "No notebook; new-page plus disabled",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Select a notebook leads the view; the central select/create-note instruction does not directly name the notebook-creation step.",
+        "typography": "The large state title and body copy are legible, with smaller Ready/Encrypted locally captions.",
+        "density_layout": "Header, disclosure, recovery and unused search occupy about 328px before the reassurance in a clear single-column layout.",
+        "color": "The theme uses neutral surfaces and strong readable text with little competing emphasis.",
+        "visible_affordances": "The management toggle is explicit, but disabled plus and no visible New notebook make the next action less immediate.",
+        "coherence": "Populated-view shell styles are consistent, while the unused list/search block makes the empty composition less concise."
+      },
+      "weighted_unrounded": "7.60",
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "bytes": 25577,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "No-notebook empty workspace",
+      "cohort": "notes",
+      "state": "empty",
+      "state_detail": "No notebook; new-page plus disabled",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Select a notebook leads the view; the central select/create-note instruction does not directly name the notebook-creation step.",
+        "typography": "The large state title and body copy are legible, with smaller Ready/Encrypted locally captions.",
+        "density_layout": "Header, disclosure, recovery and unused search occupy about 328px before the reassurance in a clear single-column layout.",
+        "color": "The theme uses neutral surfaces and strong readable text with little competing emphasis.",
+        "visible_affordances": "The management toggle is explicit, but disabled plus and no visible New notebook make the next action less immediate.",
+        "coherence": "Populated-view shell styles are consistent, while the unused list/search block makes the empty composition less concise."
+      },
+      "weighted_unrounded": "7.60",
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-desktop-dark.png",
+      "sha256": "d6d5b12d707c052079a62c65d7b56d4b5ae5d4884a3517b3c177761e5105aaed",
+      "bytes": 71436,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook/account management with editor still present",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "One personal notebook; no populated-team visual fixture",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Focus, Notebooks and Account group the sole management region while the editor title remains dominant.",
+        "typography": "Small section labels, action labels and larger editor title form a restrained type hierarchy .",
+        "density_layout": "Management replaces pages at x0\u2013240; the editor stays at x240 and Account sits near the lower edge of the sparse region.",
+        "color": "Selected Project Atlas has an orange rail and soft surface; idle management actions remain neutral.",
+        "visible_affordances": "Work queue, Project Atlas, New notebook, Rename notebook and Export notebook have visible labels, with an expanded return chevron.",
+        "coherence": "Management and page-list modes share one left boundary and control vocabulary; no adjacent notebook-plus-pages column remains."
+      },
+      "weighted_unrounded": "8.30",
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Navigation capture shows management beside/before the still-present editor, not the page list."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-desktop-light.png",
+      "sha256": "e6c8872e35479263711d5987100ae7653be0182a0aa3c6f8c3bb07c9d3b6290f",
+      "bytes": 70292,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook/account management with editor still present",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "One personal notebook; no populated-team visual fixture",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Focus, Notebooks and Account group the sole management region while the editor title remains dominant.",
+        "typography": "Small section labels, action labels and larger editor title form a restrained type hierarchy .",
+        "density_layout": "Management replaces pages at x0\u2013240; the editor stays at x240 and Account sits near the lower edge of the sparse region.",
+        "color": "Selected Project Atlas has an orange rail and soft surface; idle management actions remain neutral.",
+        "visible_affordances": "Work queue, Project Atlas, New notebook, Rename notebook and Export notebook have visible labels, with an expanded return chevron.",
+        "coherence": "Management and page-list modes share one left boundary and control vocabulary; no adjacent notebook-plus-pages column remains."
+      },
+      "weighted_unrounded": "8.30",
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Navigation capture shows management beside/before the still-present editor, not the page list."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-mobile-dark.png",
+      "sha256": "e733d102a61356b24fb3dcbc448b41f0a8b5e57b0cae0a10a86efc8798ba5d03",
+      "bytes": 35746,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook/account management with editor still present",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "One personal notebook; no populated-team visual fixture",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Expanded management groups Focus, Notebooks and Account before Pages in Project Atlas and the editor.",
+        "typography": "Action labels, section captions and notebook title are readable at phone width.",
+        "density_layout": "Management consumes about 430px below its toggle and pushes the editor below y600; the disclosure remains a vertical stack.",
+        "color": "Selected Project Atlas has a soft surface plus orange rail; neutral icons/account text stay quiet.",
+        "visible_affordances": "Work queue and notebook creation/rename/export are labeled; an expanded chevron and named Pages disclosure show navigation paths.",
+        "coherence": "The same shell and row styles carry through the stacked management view, though expanded management plus editor creates a long composition."
+      },
+      "weighted_unrounded": "7.95",
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Navigation capture shows management beside/before the still-present editor, not the page list."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-navigation-mobile-light.png",
+      "sha256": "7379fb43401414f4dcac11dbeb2aadf257845c7ea387a466d1e9cd2878111851",
+      "bytes": 34667,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook/account management with editor still present",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "One personal notebook; no populated-team visual fixture",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Expanded management groups Focus, Notebooks and Account before Pages in Project Atlas and the editor.",
+        "typography": "Action labels, section captions and notebook title are readable at phone width.",
+        "density_layout": "Management consumes about 430px below its toggle and pushes the editor below y600; the disclosure remains a vertical stack.",
+        "color": "Selected Project Atlas has a soft surface plus orange rail; neutral icons/account text stay quiet.",
+        "visible_affordances": "Work queue and notebook creation/rename/export are labeled; an expanded chevron and named Pages disclosure show navigation paths.",
+        "coherence": "The same shell and row styles carry through the stacked management view, though expanded management plus editor creates a long composition."
+      },
+      "weighted_unrounded": "7.95",
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Navigation capture shows management beside/before the still-present editor, not the page list."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "bytes": 35402,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone sections/page chooser",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; Launch checklist selected",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 9,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Pages in Project Atlas supplies context and selected Launch checklist is unmistakable among all four visible rows.",
+        "typography": "Semibold page names and quieter one-line excerpts separate primary and secondary text without a redundant notebook heading.",
+        "density_layout": "Recovery, Quick Notes and Search fit above all four rows, beginning around y355; one full-width list forms the navigation surface.",
+        "color": "Orange left rail plus soft selected surface supplement clear page labels, with a restrained section underline.",
+        "visible_affordances": "Search, new-page plus, section tab and selected row are visible; section-add plus still uses its conventional icon.",
+        "coherence": "One continuous list surface uses the same disclosure/input/row vocabulary as desktop."
+      },
+      "weighted_unrounded": "8.70",
+      "total": 8.7,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "bytes": 34434,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Phone sections/page chooser",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; Launch checklist selected",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": true,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 9,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 9
+      },
+      "observations": {
+        "hierarchy": "Pages in Project Atlas supplies context and selected Launch checklist is unmistakable among all four visible rows.",
+        "typography": "Semibold page names and quieter one-line excerpts separate primary and secondary text without a redundant notebook heading.",
+        "density_layout": "Recovery, Quick Notes and Search fit above all four rows, beginning around y355; one full-width list forms the navigation surface.",
+        "color": "Orange left rail plus soft selected surface supplement clear page labels, with a restrained section underline.",
+        "visible_affordances": "Search, new-page plus, section tab and selected row are visible; section-add plus still uses its conventional icon.",
+        "coherence": "One continuous list surface uses the same disclosure/input/row vocabulary as desktop."
+      },
+      "weighted_unrounded": "8.70",
+      "total": 8.7,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+      "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0",
+      "bytes": 79828,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "dark",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The smaller Project Atlas notebook title stays within the sole left region; Launch checklist leads the wide editor.",
+        "typography": "Space body text and headings are legible; version/save-time captions are noticeably smaller.",
+        "density_layout": "Only one 240px navigation region precedes the editor at x240; short content leaves a large gap before lower actions.",
+        "color": "Neutral surfaces and strong ink carry the document; restrained orange marks selections and semantic Save/Delete colors retain text.",
+        "visible_affordances": "Selected Launch checklist has both a soft surface and slim left rail; bounded Search/plus and readable mode buttons show available actions.",
+        "coherence": "Notebook, sections and pages share one left region; the toolbar, page actions and Comments still form several distinct control bands."
+      },
+      "weighted_unrounded": "8.35",
+      "total": 8.4,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Workspace is a near duplicate of selected-editor capture, not another task surface.",
+      "excluded_from_counts_and_means": true
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+      "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c",
+      "bytes": 79043,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-desktop-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "light",
+      "viewport": {
+        "kind": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 9,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The smaller Project Atlas notebook title stays within the sole left region; Launch checklist leads the wide editor.",
+        "typography": "Space body text and headings are legible; version/save-time captions are noticeably smaller.",
+        "density_layout": "Only one 240px navigation region precedes the editor at x240; short content leaves a large gap before lower actions.",
+        "color": "Neutral surfaces and strong ink carry the document; restrained orange marks selections and semantic Save/Delete colors retain text.",
+        "visible_affordances": "Selected Launch checklist has both a soft surface and slim left rail; bounded Search/plus and readable mode buttons show available actions.",
+        "coherence": "Notebook, sections and pages share one left region; the toolbar, page actions and Comments still form several distinct control bands."
+      },
+      "weighted_unrounded": "8.35",
+      "total": 8.4,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Workspace is a near duplicate of selected-editor capture, not another task surface.",
+      "excluded_from_counts_and_means": true
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+      "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f",
+      "bytes": 41809,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 15,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "dark",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the document below two clearly named collapsed navigation disclosures.",
+        "typography": "Body text wraps into a readable column with distinct heading weights and a small version/save-time line.",
+        "density_layout": "The editor uses full phone width; two48px disclosures and vertical document spacing consume substantial initial space.",
+        "color": "Strong text remains clear against the captured theme; selected Type has a restrained orange underline.",
+        "visible_affordances": "Notebooks and account and Pages in Project Atlas identify their destinations; Save and lower section selection remain visible.",
+        "coherence": "One text/control vocabulary continues through the full-width editor, with several horizontal navigation and action bands."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Workspace is a near duplicate of selected-editor capture, not another task surface.",
+      "excluded_from_counts_and_means": true
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+      "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc",
+      "bytes": 41077,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-07-after-editor-mobile-light.png",
+      "duplicate_kind": "near",
+      "changed_pixels": 12,
+      "max_channel_delta": 4,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Selected editor with sections/pages in the sole left region",
+      "cohort": "notes",
+      "state": "sparse",
+      "state_detail": "4real page rows; short synthetic document",
+      "theme": "light",
+      "viewport": {
+        "kind": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "artifacts": [],
+      "filename_matches_content": false,
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the document below two clearly named collapsed navigation disclosures.",
+        "typography": "Body text wraps into a readable column with distinct heading weights and a small version/save-time line.",
+        "density_layout": "The editor uses full phone width; two48px disclosures and vertical document spacing consume substantial initial space.",
+        "color": "Strong text remains clear against the captured theme; selected Type has a restrained orange underline.",
+        "visible_affordances": "Notebooks and account and Pages in Project Atlas identify their destinations; Save and lower section selection remain visible.",
+        "coherence": "One text/control vocabulary continues through the full-width editor, with several horizontal navigation and action bands."
+      },
+      "weighted_unrounded": "8.15",
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Captured cream/charcoal/ink/orange palette matches vendored Busnes tokens; preview colors are selectable data.",
+          "type_geometry": "Space hierarchy and 40px working controls use shared scale; small metadata and long phone stacks remain polish limits.",
+          "shell": "Busnes stamp/wordmark, sole240px desktop region and labeled phone disclosures form a consistent Notes shell; Lock remains in header.",
+          "accent_discipline": "Orange identifies selections; neutral idle actions and text-labeled semantic statuses preserve restraint.",
+          "suite_cohesion": "N/A: no other Ky product screenshots were inspected."
+        },
+        "mean": 8.5,
+        "note": "Equal mean of 4 available dimensions, separate from quality."
+      },
+      "confidence": "high",
+      "caveat": "Static Chromium 156 scale 1 capture cannot establish behavior, computed contrast or unseen states/roles/themes. Blank trailing bullet is fixture content.",
+      "filename_mismatch_reason": "Workspace is a near duplicate of selected-editor capture, not another task surface.",
+      "excluded_from_counts_and_means": true
+    }
+  ],
+  "cohort_rankings": [
+    {
+      "cohort": "notes",
+      "observed_product": "KyNotes web",
+      "n": 14,
+      "mean": 8.2,
+      "unrounded_mean": "8.171428571428571428571428571",
+      "min": 7.6,
+      "max": 8.7,
+      "ky_fit": 8.5,
+      "matched": false,
+      "competitor_mean": null,
+      "ky_gap": null,
+      "note": "Single-product cohort summary; no competitor ranking."
+    },
+    {
+      "cohort": "settings",
+      "observed_product": "KyNotes web",
+      "n": 4,
+      "mean": 8.3,
+      "unrounded_mean": "8.3",
+      "min": 8.1,
+      "max": 8.5,
+      "ky_fit": 8.5,
+      "matched": false,
+      "competitor_mean": null,
+      "ky_gap": null,
+      "note": "Single-product cohort summary; no competitor ranking."
+    }
+  ],
+  "coverage_summary_not_a_ranking": [
+    {
+      "cohort": "notes",
+      "viewport": "desktop",
+      "n": 6,
+      "mean": 8.2,
+      "min": 8.0
+    },
+    {
+      "cohort": "notes",
+      "viewport": "mobile",
+      "n": 8,
+      "mean": 8.1,
+      "min": 7.6
+    },
+    {
+      "cohort": "settings",
+      "viewport": "desktop",
+      "n": 2,
+      "mean": 8.5,
+      "min": 8.5
+    },
+    {
+      "cohort": "settings",
+      "viewport": "mobile",
+      "n": 2,
+      "mean": 8.1,
+      "min": 8.1
+    }
+  ],
+  "ky_fit": {
+    "mean": 8.5,
+    "n": 18,
+    "suite_cohesion": "N/A: no second Ky product visually inspected",
+    "separate_from_quality": true
+  },
+  "product_delta": {
+    "owner_baseline": {
+      "round": 3,
+      "score": 6,
+      "satisfied": false,
+      "reason": "Owner rejects adjacent notebook and page navigation columns, including the empty-screen state; applies the one-left-region rule to every Ky web app.",
+      "scope": "Owner-supplied screenshot has unknown build; it establishes a layout preference and rejection, not a controlled numerical delta from stage 04.",
+      "progression": "reopened; stage 05 revised layout awaits fresh review"
+    },
+    "double_left": "Resolved by mutually exclusive single240px management/pages region. Owner 6 is not numerically subtracted.",
+    "new_views": "4 empty/2 desktop management have no controlled numeric baseline.",
+    "matched_prior_common_notes_mean": {
+      "prior": 8.2,
+      "current": 8.3,
+      "note": "Independent rescoring across changed captures; descriptive, not controlled improvement."
+    }
+  },
+  "drift": {
+    "files": [
+      {
+        "file": "screenshots/kynotes-07-after-appearance-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+        "prior_total": 8.7,
+        "total": 8.5,
+        "delta": -0.2,
+        "same_sha256": true,
+        "cause": "anchor: unchanged catalog hierarchy9\u21928 for deliberate scanning of equal-weight choices; reviewer drift, not product regression.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-appearance-desktop-light.png",
+        "prior_file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+        "prior_total": 8.7,
+        "total": 8.5,
+        "delta": -0.2,
+        "same_sha256": true,
+        "cause": "anchor: unchanged catalog hierarchy9\u21928 for deliberate scanning of equal-weight choices; reviewer drift, not product regression.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-appearance-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+        "prior_total": 8.1,
+        "total": 8.1,
+        "delta": 0.0,
+        "same_sha256": true,
+        "cause": "Identical bytes and vector; no product-quality change.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-appearance-mobile-light.png",
+        "prior_file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+        "prior_total": 8.1,
+        "total": 8.1,
+        "delta": 0.0,
+        "same_sha256": true,
+        "cause": "Identical bytes and vector; no product-quality change.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-desktop-dark.png",
+        "prior_file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+        "prior_total": 8.3,
+        "total": 8.4,
+        "delta": 0.1,
+        "same_sha256": false,
+        "cause": "New one-pane composition and smaller notebook title: hierarchy8\u21929; stricter independent type anchor9\u21928; net+0.1.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-desktop-light.png",
+        "prior_file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+        "prior_total": 8.3,
+        "total": 8.4,
+        "delta": 0.1,
+        "same_sha256": false,
+        "cause": "New one-pane composition and smaller notebook title: hierarchy8\u21929; stricter independent type anchor9\u21928; net+0.1.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "same_sha256": false,
+        "cause": "Same integer vector and total; different capture bytes alone do not prove improved quality.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-editor-mobile-light.png",
+        "prior_file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.2,
+        "delta": 0.0,
+        "same_sha256": false,
+        "cause": "Same integer vector and total; different capture bytes alone do not prove improved quality.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-desktop-dark.png",
+        "prior_file": null,
+        "prior_total": null,
+        "total": 8.0,
+        "delta": null,
+        "same_sha256": null,
+        "cause": "New empty or desktop-management coverage; no controlled numeric baseline.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-desktop-light.png",
+        "prior_file": null,
+        "prior_total": null,
+        "total": 8.0,
+        "delta": null,
+        "same_sha256": null,
+        "cause": "New empty or desktop-management coverage; no controlled numeric baseline.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-mobile-dark.png",
+        "prior_file": null,
+        "prior_total": null,
+        "total": 7.6,
+        "delta": null,
+        "same_sha256": null,
+        "cause": "New empty or desktop-management coverage; no controlled numeric baseline.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-empty-mobile-light.png",
+        "prior_file": null,
+        "prior_total": null,
+        "total": 7.6,
+        "delta": null,
+        "same_sha256": null,
+        "cause": "New empty or desktop-management coverage; no controlled numeric baseline.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-desktop-dark.png",
+        "prior_file": null,
+        "prior_total": null,
+        "total": 8.3,
+        "delta": null,
+        "same_sha256": null,
+        "cause": "New empty or desktop-management coverage; no controlled numeric baseline.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-desktop-light.png",
+        "prior_file": null,
+        "prior_total": null,
+        "total": 8.3,
+        "delta": null,
+        "same_sha256": null,
+        "cause": "New empty or desktop-management coverage; no controlled numeric baseline.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.0,
+        "delta": -0.2,
+        "same_sha256": false,
+        "cause": "anchor/composition: expanded management still consumes430px and pushes editor below y600; density8\u21927.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-navigation-mobile-light.png",
+        "prior_file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.0,
+        "delta": -0.2,
+        "same_sha256": false,
+        "cause": "anchor/composition: expanded management still consumes430px and pushes editor below y600; density8\u21927.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-pages-mobile-dark.png",
+        "prior_file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+        "prior_total": 8.2,
+        "total": 8.7,
+        "delta": 0.5,
+        "same_sha256": false,
+        "cause": "anchor: all 4 rows already fit in stage 04. Current hierarchy9/density9/coherence9 value a clear single-surface chooser; +0.5 is reviewer drift, not a controlled product improvement.",
+        "controlled_delta_claimed": false
+      },
+      {
+        "file": "screenshots/kynotes-07-after-pages-mobile-light.png",
+        "prior_file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+        "prior_total": 8.2,
+        "total": 8.7,
+        "delta": 0.5,
+        "same_sha256": false,
+        "cause": "anchor: all 4 rows already fit in stage 04. Current hierarchy9/density9/coherence9 value a clear single-surface chooser; +0.5 is reviewer drift, not a controlled product improvement.",
+        "controlled_delta_claimed": false
+      }
+    ],
+    "unchanged_images": "All 4 Appearance SHA256s match stage 04. Desktop -0.2 is independent anchor drift; phone unchanged.",
+    "competitor_mean_drift": null,
+    "competitor_reason": "No competitor evidence reviewed.",
+    "mean_drift_ky_matched_not_a_ranking": "0.03333333333333333333333333333",
+    "mean_drift_note": "Mean +0.0333 across12 matched Ky image identities; combines reviewer-anchor drift and changed captures, not a product-quality gain. No competitor drift is measurable."
+  },
+  "gates": {
+    "single_left": {
+      "status": "pass",
+      "scope": "Current empty,editor,desktop management and phone disclosures",
+      "evidence": [
+        "Stage07captures",
+        "web/e2e/mobile-navigation.e2e.ts",
+        "Native T3 managementx0/w240/list hidden/editorx240; inverse when closed."
+      ]
+    },
+    "keyboard": {
+      "status": "untested",
+      "scoped_status": "Notebook/page/recovery regression paths pass; Work queue focus P2",
+      "evidence": [
+        "ui-council.e2e.ts + final capture log: immediate focus, same/different-page reselect, held PUT save/reload, recovery Enter.",
+        "Native notebook selection focuses toggle; phone page selection focuses Page title; recovery action reachable by Tab; Work queue Enter works."
+      ],
+      "limit": "Every task path and dialog not certified."
+    },
+    "focus": {
+      "status": "untested",
+      "scoped_status": "Notebook/page return verified; Work queue BODY focus gap",
+      "evidence": [
+        "Native T3 observations",
+        "chooseNotebook immediate ref focus and capture assertions"
+      ],
+      "limit": "Allcontrols/both/allnamed themes not audited."
+    },
+    "contrast": {
+      "status": "untested",
+      "scoped_status": "Shared 0.4.2 computed evidence retained",
+      "evidence": [
+        "checks.json shared 528 measurements; no fresh product-wide contrast audit"
+      ],
+      "limit": "All product roles/states/themes not measured."
+    },
+    "states": {
+      "status": "untested",
+      "scoped_status": "4 empty captures reviewed",
+      "evidence": [
+        "Stage 07 desktop/mobile light/dark empty images"
+      ],
+      "limit": "Full loading/error/announcement matrix missing."
+    },
+    "responsive": {
+      "status": "pass",
+      "scope": "Captured1280x900/390x844 light/dark navigation",
+      "evidence": [
+        "Manifest overflow 0 on 22 captures",
+        "mobile-navigation.e2e.ts",
+        "Native overflow 0both widths; phone4 rows at y=354/424.8/495.6/566.4"
+      ],
+      "limit": "WebKit,softkeyboard,dense teams/groups and other widths not certified."
+    }
+  },
+  "preserved_paths": {
+    "notebooks": "Persistent labeled toggle; chooseNotebook closes only explicit selection and immediately focuses toggle. Startup automatic load does not own disclosure closing.",
+    "phone_pages": "Page chooser replaces editor; 4initial rows; selecting Research notes returns focus to Page title.",
+    "search": "Native Search this notebook query Launch checklist yielded1matching row; clear restored list.",
+    "sections": "SectionTabs in page-list header; existing creation/group/move handlers retained. OnlyQuick Notes visually covered.",
+    "teams": "Team/child buttons use chooseNotebook; steward/member actions remain in management; final12 tests include3 person sharing/removal. No populated-team visual claim.",
+    "work_queue": "Keyboard activation closes management; next Tab continues; focus handoff differs from notebooks (P2).",
+    "recovery": "Full warning and Create recovery code retained; native Tab reaches action; other key/conflict notices remain visible in source.",
+    "held_save": "Final capture source/log proves held PUT same-page reselect, unsaved/saved transition and reload persistence; reviewer injected no writes."
+  },
+  "issues": [
+    {
+      "id": "S4-empty-guidance",
+      "severity": "P2",
+      "blocking": false,
+      "finding": "No-notebook empty views suggest select/create a note beside disabled plus; New notebook is behind the visible management toggle. The path exists but the instruction is indirect.",
+      "evidence": [
+        "screenshots/kynotes-07-after-empty-desktop-light.png",
+        "screenshots/kynotes-07-after-empty-mobile-light.png",
+        "matching dark captures"
+      ],
+      "minimal_followup": "Optional existing-copy refinement: name Notebooks and account \u2192 New notebook. No new feature required."
+    },
+    {
+      "id": "S4-workqueue-focus",
+      "severity": "P2",
+      "blocking": false,
+      "finding": "Keyboard Work queue selection closes management and leaves activeElement BODY; next Tab reaches Save a recovery code. Notebook selection instead returns focus to the persistent toggle. No trap or unreachable destination was demonstrated.",
+      "evidence": [
+        "web/src/main.tsx:1588",
+        "Native T3 Chromium 154,390x844: Enter on Work queue; aria-expanded false; BODY focus; next Tab reaches recovery summary."
+      ],
+      "minimal_followup": "Use the existing toggle-focus handoff after Work queue selection for consistent orientation; not a double-left blocker."
+    },
+    {
+      "id": "S4-phone-density",
+      "severity": "P3",
+      "blocking": false,
+      "finding": "Expanded management consumes430px and wrapped Settings links postpone the theme cards to about y=570. Navigation remains labeled and reachable.",
+      "evidence": [
+        "screenshots/kynotes-07-after-navigation-mobile-light.png",
+        "screenshots/kynotes-07-after-appearance-mobile-light.png"
+      ],
+      "minimal_followup": "Optional later spacing refinement without new navigation or hiding required controls."
+    }
+  ],
+  "validation": {
+    "reviewer_executed": [
+      "130image hashes/bytes/dimensions",
+      "8 manifest source hashes, reconstructed capture-base src diff, live/embed index",
+      "4 near-duplicate pixel counts/deltas",
+      "18 unique original-resolution visual reviews",
+      "Exact Decimal totals/cohort means/counts/minima and inventory correspondence",
+      "Native T3 desktop/phone navigation, focus, search and recovery; tab closed"
+    ],
+    "implementation_evidence_not_rerun": [
+      {
+        "check": "Frontend units",
+        "result": "pass",
+        "detail": "599tests/47files on final single-pane implementation, including explicit-selection wrapper; /tmp/kynotes-single-nav-unit-final.log"
+      },
+      {
+        "check": "Production build and TypeScript",
+        "result": "pass",
+        "detail": "npm run build --prefix web; exact regenerated embed; existing 603kB lazy BlockNote chunk size warning retained"
+      },
+      {
+        "check": "Browser suite",
+        "result": "pass",
+        "detail": "12/12 full fresh-server browser tests on final implementation; /tmp/kynotes-single-nav-browser-verified.log. Covers saved content, team keys, startup race, notebook management, keyboard disclosure and phone reachability."
+      },
+      {
+        "check": "Stage07 single-pane capture and regressions",
+        "result": "pass",
+        "detail": "22captures/18unique, including4empty and2desktop management views. Single240px pane geometry, phone chooser, same/different pagefocus, heldPUTsave and recoverykeyboard pass; /tmp/kynotes-single-nav-capture-verified.log."
+      },
+      {
+        "check": "Go build / vet / format / embed",
+        "result": "pass",
+        "detail": "go build ./...; go vet ./...; gofmt clean; go test ./internal/web; diff -qr web/dist internal/web/dist"
+      },
+      {
+        "check": "Go race suite",
+        "result": "pass",
+        "detail": "make test (-race -count=1 -timeout20m ./...) on unchanged Go implementation; final static embed separately verified"
+      },
+      {
+        "check": "Current-source release repeatability",
+        "result": "pass",
+        "detail": "Verified final-source treee9cd105a6896cd4fc35828ebae05e0612836353d; two clean private extractions, CGO_ENABLED=0 -trimpath release0.0.0; both binarySHA256 d15e35eceb80b338347561f3aad24f03578e71525e16cf832bdac4978afd8558. Product inputs unchanged afterward."
+      },
+      {
+        "check": "Required fuzz executions",
+        "result": "pass",
+        "detail": "Pairing token150000x; auth secret100000x; IDs6000000x; config2000000x; no Go/config logic changed afterward"
+      },
+      {
+        "check": "Shared ky-ui",
+        "result": "pass",
+        "detail": "Zero-warning ESLint,14 unit tests,36 browser tests;528 computed contrast measurements for22 palettes in both OS schemes and widths"
+      },
+      {
+        "check": "Vendor copy",
+        "result": "pass",
+        "detail": "Exact scoped sync/check from shared0.4.2 into KyNotes; no hand-edited generated copies"
+      },
+      {
+        "check": "Theme behavior",
+        "result": "pass",
+        "detail": "23 historical-source adapter checks on preceding UI build; current shared/real browser suites cover persistence, cross-tab choice, native radios and all previews"
+      },
+      {
+        "check": "Vulnerability scan",
+        "result": "pass, scoped",
+        "detail": "govulncheck:0 reachable vulnerabilities;1 module-only advisory in an uncalled dependency path"
+      },
+      {
+        "check": "Docker final image / probe / apply-setup",
+        "result": "pass",
+        "detail": "Final verified-source image build,14-step probe and setup passed; /tmp/kynotes-single-nav-{docker,probe,setup}-verified.log"
+      },
+      {
+        "check": "Design detector",
+        "result": "2 documented exceptions",
+        "detail": "Semantic conflict/key-warning rail (3px) and user-colored section top border (legacy4px rule overridden to2px). No blanket suppression; raw detector.json retained"
+      },
+      {
+        "check": "Report page",
+        "result": "pass",
+        "detail": "Offline dependency scan and six text/surface contrast pairs pass; workbook XML/ZIP and score arithmetic validated"
+      },
+      {
+        "check": "Full acceptance coverage",
+        "result": "untested",
+        "detail": "WebKit, full product states/roles and every named-theme focus path are not certified by this visual pass"
+      },
+      {
+        "check": "Native T3 final Computer Use",
+        "result": "pass, scoped",
+        "detail": "Final18104 fixture, signed-in owner. Native1280px: page listx0/editorx240 with management hidden; opening management gives sidebarx0/width240, hides page list and retains editorx240; zero horizontal overflow. Browser automation separately covers390x844 and keyboard/focus/save paths."
+      },
+      {
+        "check": "Existing browser runtime warnings",
+        "result": "documented residual",
+        "detail": "Native Chromium154 reports BlockNote inline-style CSP refusals, placeholder-rule insertion and interactive-widget viewport advice. CSP, BlockNote integration and dependency lock are unchanged from baseline34849c4. Existing dynamic placeholder behavior/soft-keyboard resizing remain uncertified; no CSP relaxation or suppression added."
+      },
+      {
+        "check": "Gemini advisory audit",
+        "result": "completed; raw rating nonconforming",
+        "detail": "Raw8.1/satisfied preserved. Ten findings audited with source and native-browser evidence; false desktop-rail and inaccessible-footer claims rejected. Valid optional polish deferred. No product source changed; prior implementation checks remain applicable."
+      }
+    ],
+    "reviewed_log_hashes": [
+      {
+        "file": "/tmp/kynotes-single-nav-browser-verified.log",
+        "sha256": "6dcef0b4a78ddbc1c3be6b201c1c57095f8be67595b637152c8d52e496ad78e7",
+        "reviewed": "Existing final implementation log; not rerun by reviewer."
+      },
+      {
+        "file": "/tmp/kynotes-single-nav-capture-verified.log",
+        "sha256": "79fcfeec1195db8b7da067f2f0676392db14435ba3c5d6a8e7e4f24bdd20779b",
+        "reviewed": "Existing final implementation log; not rerun by reviewer."
+      },
+      {
+        "file": "/tmp/kynotes-single-nav-unit-final.log",
+        "sha256": "66868baa31e4a135460e58a6fbf4dac7e44dd8d845eb09f9fc73892f1cb1ab00",
+        "reviewed": "Existing final implementation log; not rerun by reviewer."
+      },
+      {
+        "file": "/tmp/kynotes-single-nav-docker-verified.log",
+        "sha256": "5f732ada0bd7a72c707f23da800881f13e4f9f8166defc7ba852dcec3265ff67",
+        "reviewed": "Existing final implementation log; not rerun by reviewer."
+      },
+      {
+        "file": "/tmp/kynotes-single-nav-probe-verified.log",
+        "sha256": "01f0376033e7418d7e0a5e3083acee32088295342d8115577f1f314ab27f9a87",
+        "reviewed": "Existing final implementation log; not rerun by reviewer."
+      },
+      {
+        "file": "/tmp/kynotes-single-nav-setup-verified.log",
+        "sha256": "1de41f0f7ef255fef4877d9ca3ab18496a80673e064bb9b624cdfee4e774f64f",
+        "reviewed": "Existing final implementation log; not rerun by reviewer."
+      }
+    ],
+    "note": "checks.json Native T3 pending row refers to oldstage 06/18103; current 07/18104matching hashes and native observations supersede that narrow stale metadata. No general report edited.",
+    "report_checks": "PASS: current set22/18, six integer dimensions and observations per file, all hashes, Decimal totals/cohort means/counts/minima, duplicate inheritance and all canonical pair classifications."
+  },
+  "council_rounds": [
+    {
+      "reviewer": "Claude Opus",
+      "round1": 6.5,
+      "round2": 7.4,
+      "round3": 8.1,
+      "round4": null,
+      "round4_status": "pending/not read by this reviewer"
+    },
+    {
+      "reviewer": "GPT Sol",
+      "round1": 7.8,
+      "round2": 8.1,
+      "round3": 8.2,
+      "round4": 8.2,
+      "round4_status": "complete/satisfied"
+    },
+    {
+      "reviewer": "Gemini4Argon",
+      "round1": null,
+      "round2": null,
+      "round3": 8.1,
+      "round3_status": "raw nonconforming advisory; excluded from progression",
+      "round4": null,
+      "round4_status": "unused; only parent after both primary reviewers satisfied"
+    }
+  ],
+  "owner_review_separate": {
+    "round": 3,
+    "score": 6,
+    "satisfied": false,
+    "reason": "Owner rejects adjacent notebook and page navigation columns, including the empty-screen state; applies the one-left-region rule to every Ky web app.",
+    "scope": "Owner-supplied screenshot has unknown build; it establishes a layout preference and rejection, not a controlled numerical delta from stage04.",
+    "progression": "reopened; stage05 revised layout awaits fresh review"
+  },
+  "interrupted_attempts": {
+    "round": 4,
+    "interrupted_attempts": [
+      "kynotes-single-nav-opus-r4-20261027",
+      "kynotes-single-nav-sol-r4-20261027",
+      "kynotes-single-nav-opus-r4-final-20261027",
+      "kynotes-single-nav-sol-r4-final-20261027"
+    ],
+    "reason": "Stage05 review interrupted before completion after browser tests found automatic initial notebook load closing an open management view. A second attempt stopped before completion after the full suite exposed delayed focus stealing the next recovery-disclosure keypress; corrected by immediate focus on the always-visible toggle.",
+    "current_stage": "07-after",
+    "no_interrupted_score_claimed": true,
+    "verified_attempts": [
+      "kynotes-single-nav-opus-r4-verified-20261027",
+      "kynotes-single-nav-sol-r4-verified-20261027"
+    ]
+  },
+  "gemini_advisory": "Round3raw8.1/satisfied preserved; nonconforming hierarchy .25/coherence .10versus fixed.20/.15and factual errors audited in gemini-audit.json. No missing-desktop-rail/inaccessible-footer claim adopted. No new Gemini invocation.",
+  "unscored": [
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "sha256": "dbdd54e9e91a0fb09bda089a279af5d800b15f82fc455edfd5e464e401aaeb9e",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "sha256": "6ec450216d330779395bce777f53fb3d68ca0b08560d6f85494dfae04786133b",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "sha256": "fb462b749c65d3e0a21ba373547c12050825f3294273723351ff1f105e38ba13",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "sha256": "636fb513d0c8879d0b38af11837123e6121c1f32aa019903b18add9e8ea2bdab",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "sha256": "befed209375eddc95586b194cfb0f99ca56cc0c233763c3a79b6d189739ae778",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "sha256": "e990bc03a39f2c6e644b47cc3054bd5f3aa73313d8b9e7ff74ce7c4667ed3ad7",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "sha256": "b3bbd6eabcebe452699b05b127f2a4055c3d4e2f066cf909169b447a24355f45",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "sha256": "3d4a87b7b3c18f075a956655ade525c0970bbd0ab856293893716574c0ade473",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+      "sha256": "bca725fc24672454712ebcd4abc6d0cb7704d3fd6231789da287a5c9e4a8c5d6",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+      "sha256": "60d03eb75e4754707564d5a1dcf1a9c4fb7ec0991ed81a32045545738c5fd96b",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+      "sha256": "76e6a222a146c4d89db36f124d76212d87cbe2a483dd3be7e9c308600f0a6ed6",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+      "sha256": "44dfd2959b0299e94b862707bac59762529487affa24601d7d153b861c563465",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+      "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+      "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-dark.png",
+      "sha256": "1b7baf66f46aa4e65c85a5efbad49a9762739ae8644ffdf3f0a7866a37573f39",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-desktop-light.png",
+      "sha256": "c3792debcef96eab6aa685d768cd12521848cc1f1688de38a9dbf0005a68c793",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-dark.png",
+      "sha256": "56f6a8ce806e68bc6cbd898a7a848ea328073bb76d3aaccad42d71024482fe82",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-appearance-mobile-light.png",
+      "sha256": "56cf7b3822011d825e9b4663713dc594e24168b362a92765195ae7ee14c17035",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-dark.png",
+      "sha256": "59d222d7592cba7064379d3e37134264f8e8bc27f21c5e229777100be6b2302a",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-desktop-light.png",
+      "sha256": "2be8d27ab309dac2386cb164fdef15e6fc7833d905763bd434ac5a9d6054d278",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-dark.png",
+      "sha256": "a106db11bb40ad57bf0c13489d16bac462648f2ac452f6ec44a7f2554cfd06e3",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-editor-mobile-light.png",
+      "sha256": "16c0d58f133c99a1e77114147d1260dfbd4d25cc1bbe5864f73253abd70ca1fd",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-dark.png",
+      "sha256": "8c4456cccad3ea6638e13d567f92faf9c6040f2411d14eda9d616df049a5ffdc",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-navigation-mobile-light.png",
+      "sha256": "f4c8e4cffcfd8322de8907c6c5cc3140023c3178cfc21bb99dede0018594f4ca",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-dark.png",
+      "sha256": "316bf09b573163f65f9e210117d527ca8162091abb7c0014a6fd136f004182ac",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-pages-mobile-light.png",
+      "sha256": "3c1cf7c7a6f3f7a67bc577cfe8f5c8a90b6815e02a7d3e2f27e739c505ae2c27",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-dark.png",
+      "sha256": "edd58b54cef1b4a4c360fc00584e6cd15d3b18ef60ef65df0eb862a421830b59",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-desktop-light.png",
+      "sha256": "e8835696dcce831f3bade9270ee5cead7aad63fa2820739ad91d27fb9b924547",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-dark.png",
+      "sha256": "d5da610b5a572a3605b5258c8d00fc30914859bbd15a12f9e8f436ec72ee378b",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-03-after-workspace-mobile-light.png",
+      "sha256": "0502da304aea0e3ec6b6122401cbbf9df7549395b6d593d4fc16fc9cebce884d",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-dark.png",
+      "sha256": "5f62d8e8326c6912228a48be2de30f154e38e5d96e4245dba4819222e5cf7758",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-desktop-light.png",
+      "sha256": "0badc566e9da68c29793d44be33726aca19f205a02a480cbf2bf173b351847b9",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-dark.png",
+      "sha256": "298738a33459282ee66a7d6a2c1ebf3ba686cbfbacf6bacb7a5c495be3233da5",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-editor-mobile-light.png",
+      "sha256": "fdddeb711563c5d52849c42e2214d999767042e699a2985aa5edd9a8c593fd9a",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-dark.png",
+      "sha256": "5c0b4f30f4e4029e6bc1944f3d974abf104a809662185a08c2ae2bda855b3873",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-navigation-mobile-light.png",
+      "sha256": "88a86083dd3cdefa1b17f5a6f934e317260fe887a6e9b224002b03d90bbedf46",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-dark.png",
+      "sha256": "56477f48651c319786dd7277ec902a18356013a4c901e1461293f2670cb8086c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-pages-mobile-light.png",
+      "sha256": "fe930d0dc94f55bbdb05bfb2c4768f3062e4ae399a0e2dcb1470b63eefa983b6",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-dark.png",
+      "sha256": "474917bb173b238a0db5482cd2f40abebe26799afb50f197189cfd328d4f5dca",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-desktop-light.png",
+      "sha256": "a1be9a6556815decec35a19c43c7a952260e715dd43f853f1c9b68a11aeacf30",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-dark.png",
+      "sha256": "59268afebdb263c9eda0f4158a4b4ea54e26f002c46b72e4b2029773211fbf22",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-04-after-workspace-mobile-light.png",
+      "sha256": "95d966110857b682bca742f834afca2bba3da9546ab1ed1f095971ad79003ce6",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-desktop-dark.png",
+      "sha256": "abb8b87e11114d2e7b8a7e0d094d79cc4ae38475737d19e9ee43a076edce63eb",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-desktop-light.png",
+      "sha256": "636850b73dadbb684d3b31b7614c17a4acdc0bc53f77ba48a44dad0f08afee3b",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-mobile-dark.png",
+      "sha256": "8c71a1cc4942d47450585d3bbc90108815563297a094032f90279893373e7e61",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-editor-mobile-light.png",
+      "sha256": "e7df73214f0e6fef0df1f0e3a57d768e91700060df8dcfaf0c0b98a8d90ae7dd",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-desktop-dark.png",
+      "sha256": "660f457322bfeaca470632ba6ef486aeeba43ea22e21c29ada32615d7de59a2f",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-desktop-light.png",
+      "sha256": "09aaa8a16c2e6de9308f1bee239d036a344bfac07f5b3b4045ab4577cbe0902c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-mobile-dark.png",
+      "sha256": "4386905eae64c0f5e2b235d07e0c82ab6634c6a9152f5b166153661726f442a7",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-navigation-mobile-light.png",
+      "sha256": "cb25ccff9a7d0fb4111f103e434b7a560e5aaf00e3d413095268dd2164365c5d",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-desktop-dark.png",
+      "sha256": "c121214a77c2935d02a1152a30038f9da1bd6582b44bc655e0e0315560010c87",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-desktop-light.png",
+      "sha256": "fb0d176c282cb503526811a31a1507bd09b14d34f85dc1130b7b5f95be9ce43d",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-mobile-dark.png",
+      "sha256": "30bd84772a120fefe3b5a34bb7d56054ecaf85fc066c52d577ef6024e00532e4",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-05-after-workspace-mobile-light.png",
+      "sha256": "9dbeeec004801353f47f9e45520c7c129aa93bc3881e4855909609be33156cfc",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-desktop-dark.png",
+      "sha256": "7ddd736539fee331b093308c0dd1ff4c85e8476fc5a9be29c3b24476bb791f4c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-desktop-light.png",
+      "sha256": "9e8b869d90fb1dbb3d61bc5165794e4c0d50d7003d3607378e091755b050f704",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-mobile-dark.png",
+      "sha256": "72b2894e5a5204a913f362c7be193442de97ece5db425a294540f17c18cf7520",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-appearance-mobile-light.png",
+      "sha256": "a48727c6f46ce1f3c40512a14cfaab32aa9233280c3d8ace4c42901f8fc54eab",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-desktop-dark.png",
+      "sha256": "d710fd517093bf43b1f5952b15e5b882e9f66c6178fd5b378e7bd1e5cab8f1f3",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-desktop-light.png",
+      "sha256": "dff310f13e7b07e3f0f3a70bcff14d3d4db31125f3f3b80fb1e0b7e56b0526df",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-mobile-dark.png",
+      "sha256": "a33657e7fe1a45d046a05009a9cb53b8dcf6d1ee1ecc40011735dcb2a17a8976",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-editor-mobile-light.png",
+      "sha256": "d17eddc8a6bbc12345f7a39df8b00f5b0ebb18d8ee693b4c3c6dd889ea2dc7c1",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-desktop-dark.png",
+      "sha256": "523fd79e8946c26bc4a59fac57a92eb8d28ce66d21639703ee326fda4e9d9190",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-desktop-light.png",
+      "sha256": "8837f9997b6800ec556339037a6b17f9a3345b59b0e0ee89f6b3891e840b1d93",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-mobile-dark.png",
+      "sha256": "c0a4e4a486d97a1110d9389a2e7431e168029b9c052c0a4eb43d8fa5c4426a9d",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-empty-mobile-light.png",
+      "sha256": "eff88854444211d4122afd5dbd41a0a7a0fe67d6ce77a31d1c8830a9d9763f87",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-desktop-dark.png",
+      "sha256": "b8d0f7563abf34ebc420f8dafdeb85ed1cfa6f83512cb672c97e3d10b9cb6bf0",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-desktop-light.png",
+      "sha256": "55ad7a58c0897a189213daaba6caa2025c678759eb1edf9c4da477a6c06f59cd",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-mobile-dark.png",
+      "sha256": "d36f2191acc1ba8eb7904ed6cd8ddb3657eab1d1a5b373a17e5318ce79a757c1",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-navigation-mobile-light.png",
+      "sha256": "fe58d45ede35fd58c1dadaf9ddd7bf7c405e534912bb54153ce6068c92595c6f",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-pages-mobile-dark.png",
+      "sha256": "34e628e3ffaa2f7f0d7de149e187185c15818fe9ae67b96c928093f186de5fef",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-pages-mobile-light.png",
+      "sha256": "6bef7ce282a47256d80c1d2b28cdd2ef3d6111ad032d2d11e4bab46539525aec",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-desktop-dark.png",
+      "sha256": "d3fd6d485d450857ca65082ef91633989044439ab1ef6670652aa5679af1be24",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-desktop-light.png",
+      "sha256": "f9eacb23b698618807b651be715db2676b6a8521c561729868f7e0c2260cd1e3",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-mobile-dark.png",
+      "sha256": "59953ec07884149c848c5f7f1dc7e6c3f451e5f2bcdd742c2300df96bb1d0f23",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-06-after-workspace-mobile-light.png",
+      "sha256": "dbff11dec9d4c901f619d95f2a93bc0928d69ab322286369cd939ddac947d18c",
+      "reason": "Historical stage; outside current-only round4."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-dark.png",
+      "sha256": "6e3555dfe49824da23ce3c89243d88c128877856daa52aeb4a0a5bd0f36d61d0",
+      "reason": "Near duplicate inherits canonical editor scores and is excluded from counts/means."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-desktop-light.png",
+      "sha256": "ff73028f91f720a172870c2cb1afade85828f9231b05b800843d9b644a05c02c",
+      "reason": "Near duplicate inherits canonical editor scores and is excluded from counts/means."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-dark.png",
+      "sha256": "d7584edfccb02fc7650b31e2b77ace0a76b09ce56f3d9b01033d62f00ee4e26f",
+      "reason": "Near duplicate inherits canonical editor scores and is excluded from counts/means."
+    },
+    {
+      "file": "screenshots/kynotes-07-after-workspace-mobile-light.png",
+      "sha256": "6ffabcfb695a0e4cc17cf4302dda11be547f99d7f7cea3549b44385dba99b0cc",
+      "reason": "Near duplicate inherits canonical editor scores and is excluded from counts/means."
+    }
+  ],
+  "limitations": [
+    "Scoped8 uses Notes cohort mean: empty phone7.6 and empty-state average7.8 are not claimed8.0.",
+    "Full 9 not accepted: Notes 8.2/Settings 8.3 and separate Kyfit 8.5 are below9.",
+    "Every-product keyboard/focus path, named-theme focus/contrast roles, loading/error/announcement matrix, screen readers and WebKit remain unproven.",
+    "Team/section handlers retained in source; dense teams/group layouts lack current screenshot coverage. Only one personal notebook/Quick Notes fixture inspected.",
+    "Only stage 07 PNGscored; interrupted stage 05/06 reviews have no completed claimed score.",
+    "Owner 6unknown-build screenshot is authoritative layout rejection, not a controlled numerical baseline.",
+    "4 Appearance images are byte-identical to stage 04; desktop score decrease is independent anchor drift, not regression.",
+    "No controlled numeric delta for newly captured empty/desktop-management views; no competitor scores or whole-suite acceptance.",
+    "Supplemental native Chromium 154 scale 2 checks do not replace scored Chromium 156 scale 1 inputs.",
+    "Existing BlockNote inline-style CSP refusals, placeholder-rule/viewport warnings remain documented; no CSP relaxation or compliance certification.",
+    "Implementation checks are reviewed existing final logs, not rerun here. Earlier Go race applies to unchanged Go; final embed/Docker independently checked.",
+    "No source edits, merge, deployment, nested delegates or Gemini invocation."
+  ],
+  "dox_pass": {
+    "documents_read": [
+      "/home/yoshi/git/busnes.app/AGENTS.md",
+      "AGENTS.md",
+      "docs/ui-notes-eight/AGENTS.md",
+      "/home/yoshi/git/busnes.app/ky-ui/AGENTS.md",
+      "/home/yoshi/git/busnes.app/ky-ui/reviews/AGENTS.md"
+    ],
+    "owning_docs_unchanged": "Review evidence only; no durable contract changed. User allows only2 report writes. Evidence AGENTS has stale inventory-v3 verification sentence; v6used and documentation repair not performed."
+  },
+  "questions_skipped": "No missing decision required; requested review complete."
+}

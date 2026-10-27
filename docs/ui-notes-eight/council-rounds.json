@@ -75,8 +75,20 @@
   },
   {
     "round": 4,
-    "opus": {},
-    "sol": {},
+    "opus": {
+      "score": 7.7,
+      "satisfied": false,
+      "report": "opus-round4.json",
+      "rubric_conforms": true,
+      "basis": "notes cohort, unique CURRENT stage-07 image mean (n=14, incl. 4 empty first-run views); settings reported separately, not blended"
+    },
+    "sol": {
+      "score": 8.2,
+      "satisfied": true,
+      "report": "sol-round4.json",
+      "rubric_conforms": true,
+      "basis": "Notes cohort mean across 14 unique CURRENT stage 07 images, including 4 empty and 2 desktop management; Settings 4 unique separate, never blended."
+    },
     "gemini": {},
     "owner": {
       "status": "Pending"
