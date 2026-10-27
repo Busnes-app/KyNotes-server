@@ -1,0 +1,62 @@
+[
+  {
+    "round": 1,
+    "opus": {
+      "score": 6.5,
+      "satisfied": false,
+      "report": "opus-round1.json",
+      "rubric_conforms": true,
+      "basis": "KyNotes web UI, branch ui/notes-eight on base 34849c4, after bundle servedIndexSha256 bb1a3b7d159d..."
+    },
+    "sol": {
+      "score": 7.8,
+      "satisfied": false,
+      "report": "sol-round1.json",
+      "rubric_conforms": true,
+      "basis": "notes cohort, after unique-image mean; settings is reported separately, not blended"
+    },
+    "gemini": {}
+  },
+  {
+    "round": 2,
+    "opus": {
+      "score": 7.4,
+      "satisfied": false,
+      "report": "opus-round2.json",
+      "rubric_conforms": true,
+      "basis": "notes cohort, unique CURRENT image mean; settings reported separately"
+    },
+    "sol": {
+      "score": 8.1,
+      "satisfied": true,
+      "report": "sol-round2.json",
+      "rubric_conforms": true,
+      "basis": "notes cohort mean across 8 unique CURRENT views; settings reported separately and not blended"
+    },
+    "gemini": {}
+  },
+  {
+    "round": 3,
+    "opus": {
+      "score": 8.1,
+      "satisfied": true,
+      "report": "opus-round3.json",
+      "rubric_conforms": true,
+      "basis": "notes cohort, unique CURRENT stage-04 image mean (n=8); settings reported separately, not blended"
+    },
+    "sol": {
+      "score": 8.2,
+      "satisfied": true,
+      "report": "sol-round3.json",
+      "rubric_conforms": true,
+      "basis": "notes cohort mean across8 unique CURRENT images; settings separate, not blended"
+    },
+    "gemini": {
+      "score": 8.1,
+      "satisfied": true,
+      "report": "argon-round3.json",
+      "rubric_conforms": false,
+      "basis": "Raw advisory score; nonconforming weights and contradicted observations. See gemini-audit.json; excluded from progression gate."
+    }
+  }
+]

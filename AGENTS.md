@@ -33,7 +33,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - Web themes default to the Busnes.app cream/light and charcoal/dark palettes with orange accents, following the OS until a browser-local choice is saved. Preserve existing named themes and saved choices.
 - Settings → Appearance shows Match system and the ky-ui suite catalog as the shared native radio cards (`ky-appearance`), applied at once with no Apply button and saved by name under `kynotes-theme`; names saved by earlier versions still select their theme. Another tab's choice re-checks the matching card (a `storage` listener, as KyCalendar does; `e2e/appearance-cross-tab.e2e.ts`), and Match system reads "Follows device" like the other products. The section sits flat on the settings page, not in a card, and on phones 16px from the screen edge so two shared cards fit at 390px.
-- The workspace keeps its list/editor layout, but surfaces and selected navigation states must consume the shared theme tokens; selected pages use a slim accent rail. The accent fills the selection and one primary action per view (the empty editor's "Create a note"); other actions, including banner actions and the header note Save, use the outlined `.secondary` style. That rule also outlines every pre-existing `.secondary` control (device link, pinned keys, the encryption-key reset, unsent edits, the locked-session and forget-device sign-outs) and the error toast. Destructive `secondary danger` controls have no danger hue: a known residual (`docs/ui-review-followups-2026-10-26`). Section labels are sentence case, and glyphs, toasts and the phone "Notebooks and account" bar stay neutral.
+- The workspace keeps its list/editor layout, but surfaces and selected navigation states consume shared theme tokens; selected pages use a slim accent rail. The accent fills the selection and one primary action per view (the empty editor's "Create a note"); other actions, including banner actions and the header note Save, use the outlined `.secondary` style. Destructive controls use the shared theme-aware danger color. Section labels, toasts and phone navigation stay neutral. The editor uses the self-hosted Space face and strong ink; stored canvas coordinates remain unchanged.
+- The missing-recovery-code nudge is a compact native disclosure. Expanding it retains the full warning and Create recovery code action; other key/conflict notices remain visible. Phone page selection omits repeated notebook/section headings while retaining section tabs and meaningful work-queue group headings. Settings leads with its title on phones, with all section links reachable.
 
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
@@ -52,7 +53,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - The historical-source capture driver uses a fresh private extraction per run and removes it on completion or failure. `node --test docs/ui-review-followups-2026-10-26/capture.test.mjs` verifies that a planted commit-named temporary directory is ignored, invalid revisions are rejected, and the current checkout is retained.
 
-- On phones, `Notebooks and account` expands the complete notebook sidebar; desktop keeps it visible. The disclosure never changes the selected notebook, note, keys or saved settings. `web/e2e/mobile-navigation.e2e.ts` verifies those actions remain reachable.
+- On phones, `Notebooks and account` expands the complete notebook sidebar; desktop keeps it visible. With an open note, `Pages in…` switches between the full page/section list and the editor. Selecting a page returns focus to its title; reselecting the open page preserves pending saves. The disclosures never change keys or saved settings. `web/e2e/mobile-navigation.e2e.ts` and `ui-council.e2e.ts` verify reachability, initially visible rows, focus and a delayed-save/reload regression.
 
 - In the note editor, ':' opens the emoji menu only where it starts a word (start of text or after whitespace) and two letters follow (`web/src/emoji.ts`), so `due:` and `10:30` never open it; `web/e2e/task-dates.e2e.ts` checks both and that Enter still picks an emoji.
 
@@ -69,6 +70,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Verify vendored files with `node web/src/ky-ui/check-vendor.mjs` from this document's directory. Builds/CI run that check. Rendered evidence and capture limitations are recorded in the repository-root `UI-VERIFICATION.md`.
 
 ## Child DOX Index
+
+- `docs/ui-notes-eight/AGENTS.md` owns the sequential UI council evidence, round scores, capture provenance and supplemental theme checks.
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
   device-validated envelope writes are covered by the package integration

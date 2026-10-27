@@ -1,0 +1,325 @@
+{
+  "head": "34849c4d0766901fdf33556855373aa122666049",
+  "sourceDiffSha256": "23d594c7a7fcbe6d038c0cc5e42be56dcb7f2ea1d6370af54d9595282fe70824",
+  "servedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+  "stage": "before",
+  "captured": "2026-10-26T22:53:46.709Z",
+  "browser": "156.0.8078.4",
+  "fixture": "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1",
+  "files": [
+    {
+      "file": "kynotes-02-before-workspace-desktop-light.png",
+      "surface": "workspace",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+      "bytes": 104427,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 53,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-editor-desktop-light.png",
+      "surface": "editor",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+      "bytes": 104429,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 53,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-appearance-desktop-light.png",
+      "surface": "appearance",
+      "device": "desktop",
+      "theme": "light",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-workspace-mobile-light.png",
+      "surface": "workspace",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-editor-mobile-light.png",
+      "surface": "editor",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-pages-mobile-light.png",
+      "surface": "pages",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-navigation-mobile-light.png",
+      "surface": "navigation",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+      "bytes": 37127,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-appearance-mobile-light.png",
+      "surface": "appearance",
+      "device": "mobile",
+      "theme": "light",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(86, 100, 97)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-workspace-desktop-dark.png",
+      "surface": "workspace",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+      "bytes": 105726,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 53,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-editor-desktop-dark.png",
+      "surface": "editor",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+      "bytes": 105730,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 53,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-appearance-desktop-dark.png",
+      "surface": "appearance",
+      "device": "desktop",
+      "theme": "dark",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-workspace-mobile-dark.png",
+      "surface": "workspace",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-editor-mobile-dark.png",
+      "surface": "editor",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-pages-mobile-dark.png",
+      "surface": "pages",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-navigation-mobile-dark.png",
+      "surface": "navigation",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+      "bytes": 37472,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 43,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    },
+    {
+      "file": "kynotes-02-before-appearance-mobile-dark.png",
+      "surface": "appearance",
+      "device": "mobile",
+      "theme": "dark",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "overflow": 0,
+      "bodyFont": "16px Inter, \"Inter fallback\", \"SF Pro Display\", -apple-system, BlinkMacSystemFont, \"Open Sans\", \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif",
+      "bodyColor": "rgb(179, 188, 184)",
+      "toolbarToBody": 0,
+      "fonts": [
+        "Space",
+        "Mono"
+      ]
+    }
+  ]
+}

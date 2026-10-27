@@ -1,0 +1,75 @@
+{
+  "auditor": "GPT-6.1-Sol parent",
+  "reviewer_model_requested": "antigravity/gemini-4-argon-high",
+  "raw_reports": {
+    "argon-round3.md": "0a23789a9b43bc642e1244d2dd7edee1cccac0a7c3d15604affb909af36e2b98",
+    "argon-round3.json": "84259969a84d8488f7e5a22fd67b300909cf648fe5473996297cb0c342a7a79d"
+  },
+  "raw_notes_score": 8.1,
+  "raw_satisfied": true,
+  "rating_comparable": false,
+  "progression_basis": "Opus8.1 and Sol8.2, satisfied; Gemini advisory excluded from gate",
+  "product_changes_from_advisory": false,
+  "findings": [
+    {
+      "id": "G1-rubric-and-score-integrity",
+      "status": "rejected as comparable rating",
+      "evidence": "argon-round3.json weights hierarchy=.25/coherence=.10; fixed ky-suite-v2=.20/.15. JSON Settings8.5; Markdown/final summary8.4. Desktop editor raw JSON8.1 vs Markdown8.0.",
+      "reason": "Preserve raw Notes8.1/satisfied=true, but exclude Gemini from the progression decision. Its vectors recomputed with the fixed rubric yield Notes8.1 and Settings8.5; these calculations are not a fresh validated visual review. All12raw JSON totals match its declared weights under Decimal half-up; Markdown uses inconsistent rounding."
+    },
+    {
+      "id": "G2-desktop-selected-rail",
+      "status": "rejected",
+      "evidence": "web/src/ky-ui/navigation.css selected [class].ky-nav-item rules; main.tsx selected notebook has ky-nav-item and aria-current=page. Native T3 at1280x900: Project Atlas box-shadow rgb(191,63,24) 3px 0px 0px 0px inset.",
+      "reason": "The shared base selector already supplies the desktop rail. Gemini inspected the phone override without accounting for imported shared CSS. No duplicate product rule added."
+    },
+    {
+      "id": "G3-light-avatar-chip",
+      "status": "supported; deferred optional polish",
+      "evidence": "styles.css avatar uses panel-hover. Native light: avatar and sidebar rgb(242,239,231); avatar text rgb(86,100,97). Opus already records this.",
+      "reason": "The chip has little separation; the visible initial remains legible. Equal colors have1:1 contrast, not the claimed0:1. This is a minor coherence observation, with no blocked workflow or progression objection."
+    },
+    {
+      "id": "G4-secondary-button-border",
+      "status": "partly supported; deferred optional polish",
+      "evidence": "styles.css secondary border uses line-strong; native Save border rgba(24,35,38,.38), label rgb(24,35,38). Strong labels and existing focus treatment identify controls.",
+      "reason": "The subtle border is real. A low border ratio alone does not prove WCAG1.4.11 failure when the control is identified by its readable label. Gemini also substitutes .38 for the dark token actual .42. Do not reopen this accepted visual pass on an unproven compliance claim."
+    },
+    {
+      "id": "G5-mobile-footer-clipping",
+      "status": "rejected as inaccessible clipping; density retained as optional",
+      "evidence": "Native390x844: actions second row y831.5\u2013871.5, page scrollHeight1130. After scrolling the same page286px: Outdent/Delete y545.5\u2013585.5, fully inside viewport.",
+      "reason": "The controls continue below the initial fold on a scrollable page. They are not horizontally clipped or unreachable. Compaction may improve density but is not a required fix."
+    },
+    {
+      "id": "G6-title-search-chevron-settings-polish",
+      "status": "supported; deferred",
+      "evidence": "Source and stage04 captures show24px notebook/page titles,150px desktop search, native recovery summary marker, and wrapped phone Settings links. Opus/Sol already retain these polish limits.",
+      "reason": "These are optional refinements after the scoped8gate. The suggested --ky-text-section token and ChevronIcon in App.tsx do not exist here; actual primitives are --ky-type-section and NavIcon in NavIcon.tsx. No product change made."
+    },
+    {
+      "id": "G7-appearance-and-status-implementation",
+      "status": "rejected factual descriptions",
+      "evidence": "main.tsx Appearance is a fieldset.ky-appearance with native inputs; no ky-appearance custom element or shadow DOM. Current status is sync-dot; there is no claimed status-banner.",
+      "reason": "Gemini describes implementation structures absent from this product. Its findings do not justify corresponding code changes."
+    },
+    {
+      "id": "G8-capture-content-and-sequence",
+      "status": "rejected inaccurate details",
+      "evidence": "Current four pages are Research notes, Team handover, Next steps, Launch checklist; chooser native row bounds355\u2013636. ui-council.e2e.ts captures workspace before editor.",
+      "reason": "Gemini invents Project Atlas overview/Weekly review, reverses the capture order and gives mismatched coordinates. Inventory hashes stay valid, but its detailed visual observations are not fully reliable."
+    },
+    {
+      "id": "G9-behavior-gate-claims",
+      "status": "narrowed to recorded scope",
+      "evidence": "checks.json and primary reports retain partial focus/responsive coverage; keyboard disclosure and page-selection regressions passed, full state/theme/browser matrix untested.",
+      "reason": "Source inspection and a few interactions cannot certify complete keyboard/focus/responsive acceptance. Retain the actual scoped checks and full9limitations."
+    },
+    {
+      "id": "G10-report-provenance",
+      "status": "rejected timestamp; raw artifact retained",
+      "evidence": "argon-round3.json generated_at2026-04-13T21:48:00Z predates this2026-10-26 capture set. Raw model label omits the high variant; orchestration selected gemini-4-argon-high via antigravity.",
+      "reason": "Use orchestration identity and capture manifests for provenance. Preserve the inaccurate original field with this correction; do not silently rewrite it."
+    }
+  ]
+}

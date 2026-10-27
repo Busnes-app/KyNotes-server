@@ -78,7 +78,7 @@ export function SectionTabs(props: Props) {
   const tab = (id: string, title: string, color: SectionColor, index: number, section?: Section) => (
     <li key={id} className="section-tab-item">
       <button
-        className={`quiet ky-nav-item section-tab ${current === id ? "selected" : ""}`}
+        className={`quiet ky-nav-item section-tab ${current === id ? "selected" : ""}${id === QUICK_NOTES ? " section-tab-quick" : ""}`}
         aria-current={current === id ? "page" : undefined}
         style={{ "--tab-color": `var(--section-${color})` } as React.CSSProperties}
         draggable={Boolean(section) && !busy}
@@ -117,7 +117,7 @@ export function SectionTabs(props: Props) {
     </li>
   );
   return (
-    <nav className="section-tabs" aria-label="Sections">
+    <nav id="section-navigation" className="section-tabs" aria-label="Sections">
       {!atRoot && (
         <ol className="section-breadcrumb" aria-label="Section groups">
           {path.map((step, index) => (

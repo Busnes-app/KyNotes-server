@@ -1,0 +1,14 @@
+[
+  {
+    "repository": "Busnes-app/ky-ui",
+    "url": "https://github.com/Busnes-app/ky-ui/pull/25",
+    "branch": "fix/status-theme-contrast",
+    "scope": "Shared0.4.2 status and field contrast; staged consumer adoption"
+  },
+  {
+    "repository": "Busnes-app/KyNotes-server",
+    "url": "https://github.com/Busnes-app/KyNotes-server/pull/118",
+    "branch": "ui/notes-eight",
+    "scope": "Editor, phone navigation and frozen council evidence; no merge/deployment"
+  }
+]

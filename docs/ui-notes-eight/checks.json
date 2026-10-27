@@ -1,0 +1,97 @@
+[
+  {
+    "check": "Frontend units",
+    "result": "pass",
+    "detail": "599 tests / 47 files; source-string recovery guard updated for same held/live/no-code condition and native disclosure"
+  },
+  {
+    "check": "Production build and TypeScript",
+    "result": "pass",
+    "detail": "npm run build --prefix web; exact regenerated embed; existing 603kB lazy BlockNote chunk size warning retained"
+  },
+  {
+    "check": "Browser suite",
+    "result": "pass",
+    "detail": "12/12 on a fresh default e2e server; capture outputs isolated from suite traces"
+  },
+  {
+    "check": "Stage04 capture and regressions",
+    "result": "pass",
+    "detail": "16 captures; first picker row in viewport, same/different-id focus, held PUT dirty state and reload persistence, recovery warning/action keyboard disclosure"
+  },
+  {
+    "check": "Go build / vet / format / embed",
+    "result": "pass",
+    "detail": "go build ./...; go vet ./...; gofmt clean; go test ./internal/web; diff -qr web/dist internal/web/dist"
+  },
+  {
+    "check": "Go race suite",
+    "result": "pass",
+    "detail": "make test (-race -count=1 -timeout20m ./...) on unchanged Go implementation; final static embed separately verified"
+  },
+  {
+    "check": "Current-source release repeatability",
+    "result": "pass",
+    "detail": "Two clean private extractions of staged source tree cd1200e4379252f86bebd63e48f41ad324a4d016; CGO_ENABLED=0 go build -trimpath, release0.0.0; both binary SHA256 71b0e7716ce571a6b3284b0ad6b6c935f2809fd141d82d17cd969f80d260eb21. No product/build input changed afterward."
+  },
+  {
+    "check": "Required fuzz executions",
+    "result": "pass",
+    "detail": "Pairing token150000x; auth secret100000x; IDs6000000x; config2000000x; no Go/config logic changed afterward"
+  },
+  {
+    "check": "Shared ky-ui",
+    "result": "pass",
+    "detail": "Zero-warning ESLint,14 unit tests,36 browser tests;528 computed contrast measurements for22 palettes in both OS schemes and widths"
+  },
+  {
+    "check": "Vendor copy",
+    "result": "pass",
+    "detail": "Exact scoped sync/check from shared0.4.2 into KyNotes; no hand-edited generated copies"
+  },
+  {
+    "check": "Theme behavior",
+    "result": "pass",
+    "detail": "23 historical-source adapter checks on preceding UI build; current shared/real browser suites cover persistence, cross-tab choice, native radios and all previews"
+  },
+  {
+    "check": "Vulnerability scan",
+    "result": "pass, scoped",
+    "detail": "govulncheck:0 reachable vulnerabilities;1 module-only advisory in an uncalled dependency path"
+  },
+  {
+    "check": "Docker final image / probe / apply-setup",
+    "result": "pass",
+    "detail": "Final image build,14-step probe and apply-setup pass; logs /tmp/kynotes-eight-{docker,probe,container-setup}-final.log"
+  },
+  {
+    "check": "Design detector",
+    "result": "2 documented exceptions",
+    "detail": "Semantic conflict/key-warning rail (3px) and user-colored section top border (legacy4px rule overridden to2px). No blanket suppression; raw detector.json retained"
+  },
+  {
+    "check": "Report page",
+    "result": "pass",
+    "detail": "Offline dependency scan and six text/surface contrast pairs pass; workbook XML/ZIP and score arithmetic validated"
+  },
+  {
+    "check": "Full acceptance coverage",
+    "result": "untested",
+    "detail": "WebKit, full product states/roles and every named-theme focus path are not certified by this visual pass"
+  },
+  {
+    "check": "Native T3 final Computer Use",
+    "result": "pass, scoped",
+    "detail": "Real18101 fixture: owner login, open Launch checklist,390x844 page chooser; all4rows visible y355\u2013636, editor hidden while choosing, zero horizontal overflow; computed body15px/22.5px Space strong ink. Native snapshots/geometry can update asynchronously; scored PNGs remain the recorded Chromium156 set."
+  },
+  {
+    "check": "Existing browser runtime warnings",
+    "result": "documented residual",
+    "detail": "Native Chromium154 reports BlockNote inline-style CSP refusals, placeholder-rule insertion and interactive-widget viewport advice. CSP, BlockNote integration and dependency lock are unchanged from baseline34849c4. Existing dynamic placeholder behavior/soft-keyboard resizing remain uncertified; no CSP relaxation or suppression added."
+  },
+  {
+    "check": "Gemini advisory audit",
+    "result": "completed; raw rating nonconforming",
+    "detail": "Raw8.1/satisfied preserved. Ten findings audited with source and native-browser evidence; false desktop-rail and inaccessible-footer claims rejected. Valid optional polish deferred. No product source changed; prior implementation checks remain applicable."
+  }
+]

@@ -1,0 +1,2776 @@
+{
+  "schema": "ky-ui-council-scores/2",
+  "round": 1,
+  "reviewer": "GPT Sol (independent review sub-agent)",
+  "rubric": {
+    "version": "ky-suite-v2",
+    "weights": {
+      "hierarchy": 0.2,
+      "typography": 0.15,
+      "density_layout": 0.2,
+      "color": 0.15,
+      "visible_affordances": 0.15,
+      "coherence": 0.15
+    },
+    "rounding": "Decimal ROUND_HALF_UP to one decimal; cohort means use unique per-file rounded totals",
+    "blind_order": "All 16 AFTER files were viewed at original resolution and score vectors fixed before any BEFORE image or prior score. No prior reviewer scores read. Near-duplicate aliases applied afterwards without changing score vectors."
+  },
+  "verdict": {
+    "score": 7.8,
+    "score_basis": "notes cohort, after unique-image mean; settings is reported separately, not blended",
+    "satisfied": false,
+    "target": 8,
+    "reason": "Notes unique-image mean is 7.8; phone Pages initial composition, same-page dirty state and measured control-border contrast require correction. Editor-only after mean is 8.3, which does not override other notes states."
+  },
+  "provenance": {
+    "head": "34849c4d0766901fdf33556855373aa122666049",
+    "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+    "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+    "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+    "sharedTokensVersion": "0.4.1",
+    "capture_browser": "Chromium 156.0.8078.4",
+    "native_review_browser": "Chromium 154.0.0.0",
+    "native_fixture_url": "http://127.0.0.1:18094",
+    "native_bundle_hash_matched": true
+  },
+  "inventory": {
+    "source": "inventory.json",
+    "files": [
+      {
+        "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+        "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+        "bytes": 72305,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+        "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+        "bytes": 71343,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+        "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+        "bytes": 40896,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+        "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+        "bytes": 40347,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+        "sha256": "dbdd54e9e91a0fb09bda089a279af5d800b15f82fc455edfd5e464e401aaeb9e",
+        "bytes": 100983,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+        "sha256": "6ec450216d330779395bce777f53fb3d68ca0b08560d6f85494dfae04786133b",
+        "bytes": 99957,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+        "sha256": "fb462b749c65d3e0a21ba373547c12050825f3294273723351ff1f105e38ba13",
+        "bytes": 43240,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+        "sha256": "636fb513d0c8879d0b38af11837123e6121c1f32aa019903b18add9e8ea2bdab",
+        "bytes": 42621,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+        "sha256": "befed209375eddc95586b194cfb0f99ca56cc0c233763c3a79b6d189739ae778",
+        "bytes": 36088,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+        "sha256": "e990bc03a39f2c6e644b47cc3054bd5f3aa73313d8b9e7ff74ce7c4667ed3ad7",
+        "bytes": 35630,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+        "sha256": "b3bbd6eabcebe452699b05b127f2a4055c3d4e2f066cf909169b447a24355f45",
+        "bytes": 43169,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+        "sha256": "3d4a87b7b3c18f075a956655ade525c0970bbd0ab856293893716574c0ade473",
+        "bytes": 42826,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+        "sha256": "bca725fc24672454712ebcd4abc6d0cb7704d3fd6231789da287a5c9e4a8c5d6",
+        "bytes": 100985,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+        "sha256": "60d03eb75e4754707564d5a1dcf1a9c4fb7ec0991ed81a32045545738c5fd96b",
+        "bytes": 99953,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+        "sha256": "76e6a222a146c4d89db36f124d76212d87cbe2a483dd3be7e9c308600f0a6ed6",
+        "bytes": 43241,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+        "sha256": "44dfd2959b0299e94b862707bac59762529487affa24601d7d153b861c563465",
+        "bytes": 42613,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+        "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+        "bytes": 72305,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-dark.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+        "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+        "bytes": 71343,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-light.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+        "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+        "bytes": 40896,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-dark.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+        "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+        "bytes": 40347,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-light.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+        "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+        "bytes": 105730,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+        "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+        "bytes": 104429,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+        "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+        "bytes": 49479,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+        "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+        "bytes": 48690,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+        "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+        "bytes": 37472,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+        "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+        "bytes": 37127,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+        "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+        "bytes": 49479,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+        "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+        "bytes": 48690,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+        "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+        "bytes": 105726,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+        "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+        "bytes": 104427,
+        "width": 1280,
+        "height": 900,
+        "duplicate_of": null
+      },
+      {
+        "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+        "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+        "bytes": 49479,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png"
+      },
+      {
+        "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+        "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+        "bytes": 48690,
+        "width": 390,
+        "height": 844,
+        "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png"
+      }
+    ],
+    "hash_dimension_byte_mismatches": [],
+    "exact_duplicate_rows": 8,
+    "additional_near_duplicate_rows": 6,
+    "unique_after": 12,
+    "unique_before_new": 6,
+    "all_unique": 18,
+    "near_duplicate_definition": "same dimensions, changed pixels <0.1%, maximum channel delta <=8",
+    "duplicate_pairs": [
+      {
+        "first": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+        "other": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+        "other": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+        "other": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+        "other": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+        "other": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+        "different_pixels": 15,
+        "different_percent": 0.0013020833333333333,
+        "max_channel_delta": 4,
+        "kind": "near"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-editor-desktop-light.png",
+        "other": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+        "different_pixels": 12,
+        "different_percent": 0.0010416666666666667,
+        "max_channel_delta": 4,
+        "kind": "near"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+        "other": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+        "different_pixels": 15,
+        "different_percent": 0.004557054320087495,
+        "max_channel_delta": 4,
+        "kind": "near"
+      },
+      {
+        "first": "screenshots/kynotes-02-after-editor-mobile-light.png",
+        "other": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+        "different_pixels": 12,
+        "different_percent": 0.0036456434560699965,
+        "max_channel_delta": 4,
+        "kind": "near"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+        "other": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+        "different_pixels": 13,
+        "different_percent": 0.0011284722222222221,
+        "max_channel_delta": 7,
+        "kind": "near"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-editor-desktop-light.png",
+        "other": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+        "different_pixels": 9,
+        "different_percent": 0.00078125,
+        "max_channel_delta": 7,
+        "kind": "near"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+        "other": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+        "other": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-editor-mobile-light.png",
+        "other": "screenshots/kynotes-02-before-pages-mobile-light.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-editor-mobile-light.png",
+        "other": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+        "other": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      },
+      {
+        "first": "screenshots/kynotes-02-before-pages-mobile-light.png",
+        "other": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+        "different_pixels": 0,
+        "different_percent": 0.0,
+        "max_channel_delta": 0,
+        "kind": "exact"
+      }
+    ],
+    "correction": "Supplied inventory records exact hashes only. Four AFTER workspace images and two BEFORE desktop workspace images also satisfy the rubric near-duplicate definition and are excluded from counts/means."
+  },
+  "files": [
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "dark",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance titles lead a clearly grouped theme grid; the global Save remains unrelated chrome.",
+        "typography": "Body copy, section title and card names have distinct, restrained scale steps.",
+        "density_layout": "Five even card columns fit the desktop width, with further cards visibly continuing below the fold.",
+        "color": "Cream/white or charcoal surfaces stay neutral; colored previews describe selectable themes.",
+        "visible_affordances": "Native radio circles and the orange outline identify Match system; settings links show no current-section marker.",
+        "coherence": "The flat settings body and repeated card geometry form one vocabulary; header control heights vary."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Surfaces and ink read as Busnes neutrals; other palette colors are confined to previews.",
+          "type_geometry": "Card radii and type are consistent, but the small header Save is shorter than the 40px contract.",
+          "shell": "The 240px left region and stamp wordmark are consistent; account context is absent from this settings capture.",
+          "accent_discipline": "Orange identifies the checked theme and preview samples rather than decorative headings.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "light",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance titles lead a clearly grouped theme grid; the global Save remains unrelated chrome.",
+        "typography": "Body copy, section title and card names have distinct, restrained scale steps.",
+        "density_layout": "Five even card columns fit the desktop width, with further cards visibly continuing below the fold.",
+        "color": "Cream/white or charcoal surfaces stay neutral; colored previews describe selectable themes.",
+        "visible_affordances": "Native radio circles and the orange outline identify Match system; settings links show no current-section marker.",
+        "coherence": "The flat settings body and repeated card geometry form one vocabulary; header control heights vary."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Surfaces and ink read as Busnes neutrals; other palette colors are confined to previews.",
+          "type_geometry": "Card radii and type are consistent, but the small header Save is shorter than the 40px contract.",
+          "shell": "The 240px left region and stamp wordmark are consistent; account context is absent from this settings capture.",
+          "accent_discipline": "Orange identifies the checked theme and preview samples rather than decorative headings.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance remain clear, but two navigation bands precede the actual settings title.",
+        "typography": "Explanatory copy and card names stay legible without tight wrapping.",
+        "density_layout": "Two complete card columns fit 390px; header and navigation consume about 208px before content.",
+        "color": "Light and dark neutrals remain calm; preview colors are purposeful.",
+        "visible_affordances": "The selected radio is clear; the clipped Trusted Device link has little visible scrolling cue.",
+        "coherence": "Shared cards and typography remain consistent, while the header Save is smaller than the card controls."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 7,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and ink remain coherent around the multicolor theme previews.",
+          "type_geometry": "Two cards fit without truncating names, but the 32px Save and 36px header links miss shared control geometry.",
+          "shell": "A horizontal settings strip preserves labeled navigation; the account region is not visible.",
+          "accent_discipline": "Orange is confined to the chosen radio/card and theme preview examples.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.0,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance remain clear, but two navigation bands precede the actual settings title.",
+        "typography": "Explanatory copy and card names stay legible without tight wrapping.",
+        "density_layout": "Two complete card columns fit 390px; header and navigation consume about 208px before content.",
+        "color": "Light and dark neutrals remain calm; preview colors are purposeful.",
+        "visible_affordances": "The selected radio is clear; the clipped Trusted Device link has little visible scrolling cue.",
+        "coherence": "Shared cards and typography remain consistent, while the header Save is smaller than the card controls."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 7,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and ink remain coherent around the multicolor theme previews.",
+          "type_geometry": "Two cards fit without truncating names, but the 32px Save and 36px header links miss shared control geometry.",
+          "shell": "A horizontal settings strip preserves labeled navigation; the account region is not visible.",
+          "accent_discipline": "Orange is confined to the chosen radio/card and theme preview examples.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.0,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "sha256": "dbdd54e9e91a0fb09bda089a279af5d800b15f82fc455edfd5e464e401aaeb9e",
+      "bytes": 100983,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the editor; notebook, section and page selections remain distinct.",
+        "typography": "Strong body ink and small semibold content headings produce a controlled, readable document hierarchy.",
+        "density_layout": "The 240px notebook column, 260px page column and broad editor align cleanly; the recovery notice takes much page-list space.",
+        "color": "Strong ink reads clearly in both themes; red Delete and green save status have explicit text labels.",
+        "visible_affordances": "Selected page has a slim orange rail; tools are labeled, but outlined top Save and filled Saved repeat the action.",
+        "coherence": "Shared type and flat surfaces tie the columns together; selected tab, page and account chip use slightly different geometry."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Document ink and all three column surfaces read as the shared Busnes palette.",
+          "type_geometry": "Body text and 40px canvas tools follow the contract; page title remains 28px and the top Save remains 32px.",
+          "shell": "Stamp wordmark, 240px navigation and bottom account region establish the intended shell.",
+          "accent_discipline": "Selection rails and Type use orange purposefully; the account chip also carries the accent-soft tint.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "sha256": "6ec450216d330779395bce777f53fb3d68ca0b08560d6f85494dfae04786133b",
+      "bytes": 99957,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the editor; notebook, section and page selections remain distinct.",
+        "typography": "Strong body ink and small semibold content headings produce a controlled, readable document hierarchy.",
+        "density_layout": "The 240px notebook column, 260px page column and broad editor align cleanly; the recovery notice takes much page-list space.",
+        "color": "Strong ink reads clearly in both themes; red Delete and green save status have explicit text labels.",
+        "visible_affordances": "Selected page has a slim orange rail; tools are labeled, but outlined top Save and filled Saved repeat the action.",
+        "coherence": "Shared type and flat surfaces tie the columns together; selected tab, page and account chip use slightly different geometry."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Document ink and all three column surfaces read as the shared Busnes palette.",
+          "type_geometry": "Body text and 40px canvas tools follow the contract; page title remains 28px and the top Save remains 32px.",
+          "shell": "Stamp wordmark, 240px navigation and bottom account region establish the intended shell.",
+          "accent_discipline": "Selection rails and Type use orange purposefully; the account chip also carries the accent-soft tint.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "sha256": "fb462b749c65d3e0a21ba373547c12050825f3294273723351ff1f105e38ba13",
+      "bytes": 43240,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title is prominent and the two collapsed navigation rows clearly precede the document.",
+        "typography": "Content headings fit one line and strong body text stays readable at the phone width.",
+        "density_layout": "Collapsing page chrome leaves the paragraph and checklist visible; metadata still consumes a separate row.",
+        "color": "Strong ink and neutral surfaces work in both captured themes; green save text adds a clear status cue.",
+        "visible_affordances": "Type and Add text are labeled; collapsed notebook/page disclosures are visible, while Save is a smaller target.",
+        "coherence": "The reading column and toolbar share type and dividers; the metadata is smaller than shared 13px labels."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The document stays on shared white or charcoal surfaces with strong Busnes ink.",
+          "type_geometry": "15px reading text and restrained headings fit the phone; the 28px title and 32px Save retain local size exceptions.",
+          "shell": "Two labeled disclosures expose navigation while leaving the note as the main surface.",
+          "accent_discipline": "Orange marks the active Type tool; ordinary headings and navigation disclosure labels stay neutral.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "sha256": "636fb513d0c8879d0b38af11837123e6121c1f32aa019903b18add9e8ea2bdab",
+      "bytes": 42621,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title is prominent and the two collapsed navigation rows clearly precede the document.",
+        "typography": "Content headings fit one line and strong body text stays readable at the phone width.",
+        "density_layout": "Collapsing page chrome leaves the paragraph and checklist visible; metadata still consumes a separate row.",
+        "color": "Strong ink and neutral surfaces work in both captured themes; green save text adds a clear status cue.",
+        "visible_affordances": "Type and Add text are labeled; collapsed notebook/page disclosures are visible, while Save is a smaller target.",
+        "coherence": "The reading column and toolbar share type and dividers; the metadata is smaller than shared 13px labels."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The document stays on shared white or charcoal surfaces with strong Busnes ink.",
+          "type_geometry": "15px reading text and restrained headings fit the phone; the 28px title and 32px Save retain local size exceptions.",
+          "shell": "Two labeled disclosures expose navigation while leaving the note as the main surface.",
+          "accent_discipline": "Orange marks the active Type tool; ordinary headings and navigation disclosure labels stay neutral.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "sha256": "befed209375eddc95586b194cfb0f99ca56cc0c233763c3a79b6d189739ae778",
+      "bytes": 36088,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded notebooks and account navigation",
+      "capture_surface": "navigation",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Focus, Notebooks, Team notebooks and Account form clearly separated groups.",
+        "typography": "Navigation labels and quieter group headings establish a readable hierarchy.",
+        "density_layout": "A single expanded navigation column is orderly, but its empty Team notebooks group adds vertical space.",
+        "color": "Busnes neutrals and one pale selected notebook treatment stay restrained.",
+        "visible_affordances": "Minus indicates the open disclosure, and Project Atlas is visibly selected; action glyphs have text labels.",
+        "coherence": "All navigation uses the same type and spacing; the account chip is a small extra style."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The expanded navigation matches the captured Busnes neutral surfaces and ink.",
+          "type_geometry": "Rows are generously separated and names fit; header Save remains visibly shorter.",
+          "shell": "The stamp, notebook groups and Account region are all present in one phone navigation region.",
+          "accent_discipline": "Orange identifies the selected notebook, with a small accent-soft account chip also visible.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Expanded notebook-navigation comparison is unmatched: after has Research notes selected, before Launch checklist; account initials also differ between fresh fixtures."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "sha256": "e990bc03a39f2c6e644b47cc3054bd5f3aa73313d8b9e7ff74ce7c4667ed3ad7",
+      "bytes": 35630,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded notebooks and account navigation",
+      "capture_surface": "navigation",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Focus, Notebooks, Team notebooks and Account form clearly separated groups.",
+        "typography": "Navigation labels and quieter group headings establish a readable hierarchy.",
+        "density_layout": "A single expanded navigation column is orderly, but its empty Team notebooks group adds vertical space.",
+        "color": "Busnes neutrals and one pale selected notebook treatment stay restrained.",
+        "visible_affordances": "Minus indicates the open disclosure, and Project Atlas is visibly selected; action glyphs have text labels.",
+        "coherence": "All navigation uses the same type and spacing; the account chip is a small extra style."
+      },
+      "total": 8.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The expanded navigation matches the captured Busnes neutral surfaces and ink.",
+          "type_geometry": "Rows are generously separated and names fit; header Save remains visibly shorter.",
+          "shell": "The stamp, notebook groups and Account region are all present in one phone navigation region.",
+          "accent_discipline": "Orange identifies the selected notebook, with a small accent-soft account chip also visible.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Expanded notebook-navigation comparison is unmatched: after has Research notes selected, before Launch checklist; account initials also differ between fresh fixtures."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "sha256": "b3bbd6eabcebe452699b05b127f2a4055c3d4e2f066cf909169b447a24355f45",
+      "bytes": 43169,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded page navigation; notebook heading/recovery notice visible, page rows below pane viewport",
+      "capture_surface": "pages",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 8,
+        "density_layout": 5,
+        "color": 9,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Pages in Project Atlas is expanded, but the notebook heading and recovery notice dominate instead of page choices.",
+        "typography": "Notebook title, warning copy and editor text remain readable and well differentiated.",
+        "density_layout": "The expanded 256px pane shows no page row or search control before it gives way to the editor.",
+        "color": "Neutral surfaces and strong ink remain consistent; the recovery warning has a muted semantic rail.",
+        "visible_affordances": "The disclosure says it is open, yet no page choice is visible to indicate how to switch pages.",
+        "coherence": "The recovery notice, section strip and editor use consistent materials, but the expanded pane does not visually fulfill its label."
+      },
+      "total": 6.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 7,
+          "shell": 5,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The expanded pane and editor retain the same Busnes colors.",
+          "type_geometry": "The controls and warning are neatly spaced, but their combined height crowds the task out of the pane.",
+          "shell": "The Pages disclosure opens a pane whose initial viewport contains no page destinations.",
+          "accent_discipline": "Orange is limited to the selected section and Type state.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "The open page pane has its own scroller; screenshots show neither its hidden rows nor their behavior."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "sha256": "3d4a87b7b3c18f075a956655ade525c0970bbd0ab856293893716574c0ade473",
+      "bytes": 42826,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "after",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded page navigation; notebook heading/recovery notice visible, page rows below pane viewport",
+      "capture_surface": "pages",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 8,
+        "density_layout": 5,
+        "color": 9,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Pages in Project Atlas is expanded, but the notebook heading and recovery notice dominate instead of page choices.",
+        "typography": "Notebook title, warning copy and editor text remain readable and well differentiated.",
+        "density_layout": "The expanded 256px pane shows no page row or search control before it gives way to the editor.",
+        "color": "Neutral surfaces and strong ink remain consistent; the recovery warning has a muted semantic rail.",
+        "visible_affordances": "The disclosure says it is open, yet no page choice is visible to indicate how to switch pages.",
+        "coherence": "The recovery notice, section strip and editor use consistent materials, but the expanded pane does not visually fulfill its label."
+      },
+      "total": 6.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 7,
+          "shell": 5,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The expanded pane and editor retain the same Busnes colors.",
+          "type_geometry": "The controls and warning are neatly spaced, but their combined height crowds the task out of the pane.",
+          "shell": "The Pages disclosure opens a pane whose initial viewport contains no page destinations.",
+          "accent_discipline": "Orange is limited to the selected section and Type state.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "The open page pane has its own scroller; screenshots show neither its hidden rows nor their behavior."
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-dark.png",
+      "sha256": "bca725fc24672454712ebcd4abc6d0cb7704d3fd6231789da287a5c9e4a8c5d6",
+      "bytes": 100985,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "stage": "after",
+      "duplicate_kind": "near",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the editor; notebook, section and page selections remain distinct.",
+        "typography": "Strong body ink and small semibold content headings produce a controlled, readable document hierarchy.",
+        "density_layout": "The 240px notebook column, 260px page column and broad editor align cleanly; the recovery notice takes much page-list space.",
+        "color": "Strong ink reads clearly in both themes; red Delete and green save status have explicit text labels.",
+        "visible_affordances": "Selected page has a slim orange rail; tools are labeled, but outlined top Save and filled Saved repeat the action.",
+        "coherence": "Shared type and flat surfaces tie the columns together; selected tab, page and account chip use slightly different geometry."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Document ink and all three column surfaces read as the shared Busnes palette.",
+          "type_geometry": "Body text and 40px canvas tools follow the contract; page title remains 28px and the top Save remains 32px.",
+          "shell": "Stamp wordmark, 240px navigation and bottom account region establish the intended shell.",
+          "accent_discipline": "Selection rails and Type use orange purposefully; the account chip also carries the accent-soft tint.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-after-editor-desktop-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-desktop-light.png",
+      "sha256": "60d03eb75e4754707564d5a1dcf1a9c4fb7ec0991ed81a32045545738c5fd96b",
+      "bytes": 99953,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "stage": "after",
+      "duplicate_kind": "near",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Launch checklist leads the editor; notebook, section and page selections remain distinct.",
+        "typography": "Strong body ink and small semibold content headings produce a controlled, readable document hierarchy.",
+        "density_layout": "The 240px notebook column, 260px page column and broad editor align cleanly; the recovery notice takes much page-list space.",
+        "color": "Strong ink reads clearly in both themes; red Delete and green save status have explicit text labels.",
+        "visible_affordances": "Selected page has a slim orange rail; tools are labeled, but outlined top Save and filled Saved repeat the action.",
+        "coherence": "Shared type and flat surfaces tie the columns together; selected tab, page and account chip use slightly different geometry."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Document ink and all three column surfaces read as the shared Busnes palette.",
+          "type_geometry": "Body text and 40px canvas tools follow the contract; page title remains 28px and the top Save remains 32px.",
+          "shell": "Stamp wordmark, 240px navigation and bottom account region establish the intended shell.",
+          "accent_discipline": "Selection rails and Type use orange purposefully; the account chip also carries the accent-soft tint.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-after-editor-desktop-light.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-dark.png",
+      "sha256": "76e6a222a146c4d89db36f124d76212d87cbe2a483dd3be7e9c308600f0a6ed6",
+      "bytes": 43241,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "stage": "after",
+      "duplicate_kind": "near",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title is prominent and the two collapsed navigation rows clearly precede the document.",
+        "typography": "Content headings fit one line and strong body text stays readable at the phone width.",
+        "density_layout": "Collapsing page chrome leaves the paragraph and checklist visible; metadata still consumes a separate row.",
+        "color": "Strong ink and neutral surfaces work in both captured themes; green save text adds a clear status cue.",
+        "visible_affordances": "Type and Add text are labeled; collapsed notebook/page disclosures are visible, while Save is a smaller target.",
+        "coherence": "The reading column and toolbar share type and dividers; the metadata is smaller than shared 13px labels."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The document stays on shared white or charcoal surfaces with strong Busnes ink.",
+          "type_geometry": "15px reading text and restrained headings fit the phone; the 28px title and 32px Save retain local size exceptions.",
+          "shell": "Two labeled disclosures expose navigation while leaving the note as the main surface.",
+          "accent_discipline": "Orange marks the active Type tool; ordinary headings and navigation disclosure labels stay neutral.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-after-editor-mobile-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-after-workspace-mobile-light.png",
+      "sha256": "44dfd2959b0299e94b862707bac59762529487affa24601d7d153b861c563465",
+      "bytes": 42613,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "stage": "after",
+      "duplicate_kind": "near",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 9,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "The page title is prominent and the two collapsed navigation rows clearly precede the document.",
+        "typography": "Content headings fit one line and strong body text stays readable at the phone width.",
+        "density_layout": "Collapsing page chrome leaves the paragraph and checklist visible; metadata still consumes a separate row.",
+        "color": "Strong ink and neutral surfaces work in both captured themes; green save text adds a clear status cue.",
+        "visible_affordances": "Type and Add text are labeled; collapsed notebook/page disclosures are visible, while Save is a smaller target.",
+        "coherence": "The reading column and toolbar share type and dividers; the metadata is smaller than shared 13px labels."
+      },
+      "total": 8.3,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "The document stays on shared white or charcoal surfaces with strong Busnes ink.",
+          "type_geometry": "15px reading text and restrained headings fit the phone; the 28px title and 32px Save retain local size exceptions.",
+          "shell": "Two labeled disclosures expose navigation while leaving the note as the main surface.",
+          "accent_discipline": "Orange marks the active Type tool; ordinary headings and navigation disclosure labels stay neutral.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-after-editor-mobile-light.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "sha256": "187f7c5f516d187eda3c1fd4c1029e8ae25ea6aca43b61bf99b9021a733c9315",
+      "bytes": 72305,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "dark",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance titles lead a clearly grouped theme grid; the global Save remains unrelated chrome.",
+        "typography": "Body copy, section title and card names have distinct, restrained scale steps.",
+        "density_layout": "Five even card columns fit the desktop width, with further cards visibly continuing below the fold.",
+        "color": "Cream/white or charcoal surfaces stay neutral; colored previews describe selectable themes.",
+        "visible_affordances": "Native radio circles and the orange outline identify Match system; settings links show no current-section marker.",
+        "coherence": "The flat settings body and repeated card geometry form one vocabulary; header control heights vary."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Surfaces and ink read as Busnes neutrals; other palette colors are confined to previews.",
+          "type_geometry": "Card radii and type are consistent, but the small header Save is shorter than the 40px contract.",
+          "shell": "The 240px left region and stamp wordmark are consistent; account context is absent from this settings capture.",
+          "accent_discipline": "Orange identifies the checked theme and preview samples rather than decorative headings.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven.",
+      "inherited_from": "screenshots/kynotes-02-after-appearance-desktop-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "sha256": "65e9a9a92d057288b6d0fbfda66ff2ab6af52d42a1c9b833ba85db9b19f684d9",
+      "bytes": 71343,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "light",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 8,
+        "typography": 8,
+        "density_layout": 8,
+        "color": 9,
+        "visible_affordances": 8,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance titles lead a clearly grouped theme grid; the global Save remains unrelated chrome.",
+        "typography": "Body copy, section title and card names have distinct, restrained scale steps.",
+        "density_layout": "Five even card columns fit the desktop width, with further cards visibly continuing below the fold.",
+        "color": "Cream/white or charcoal surfaces stay neutral; colored previews describe selectable themes.",
+        "visible_affordances": "Native radio circles and the orange outline identify Match system; settings links show no current-section marker.",
+        "coherence": "The flat settings body and repeated card geometry form one vocabulary; header control heights vary."
+      },
+      "total": 8.2,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Surfaces and ink read as Busnes neutrals; other palette colors are confined to previews.",
+          "type_geometry": "Card radii and type are consistent, but the small header Save is shorter than the 40px contract.",
+          "shell": "The 240px left region and stamp wordmark are consistent; account context is absent from this settings capture.",
+          "accent_discipline": "Orange identifies the checked theme and preview samples rather than decorative headings.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven.",
+      "inherited_from": "screenshots/kynotes-02-after-appearance-desktop-light.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "sha256": "b307c96dfcddf0f7db691d511d62727751bdb60d45a5be2aec496f0578b1ab76",
+      "bytes": 40896,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance remain clear, but two navigation bands precede the actual settings title.",
+        "typography": "Explanatory copy and card names stay legible without tight wrapping.",
+        "density_layout": "Two complete card columns fit 390px; header and navigation consume about 208px before content.",
+        "color": "Light and dark neutrals remain calm; preview colors are purposeful.",
+        "visible_affordances": "The selected radio is clear; the clipped Trusted Device link has little visible scrolling cue.",
+        "coherence": "Shared cards and typography remain consistent, while the header Save is smaller than the card controls."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 7,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and ink remain coherent around the multicolor theme previews.",
+          "type_geometry": "Two cards fit without truncating names, but the 32px Save and 36px header links miss shared control geometry.",
+          "shell": "A horizontal settings strip preserves labeled navigation; the account region is not visible.",
+          "accent_discipline": "Orange is confined to the chosen radio/card and theme preview examples.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.0,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven.",
+      "inherited_from": "screenshots/kynotes-02-after-appearance-mobile-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "sha256": "924da372e356316b9f65a831b57139ebe1f42ca5217d7d2f6b2cbe789687982e",
+      "bytes": 40347,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Appearance theme picker",
+      "capture_surface": "appearance",
+      "cohort": "settings",
+      "state": "populated",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Settings and Appearance remain clear, but two navigation bands precede the actual settings title.",
+        "typography": "Explanatory copy and card names stay legible without tight wrapping.",
+        "density_layout": "Two complete card columns fit 390px; header and navigation consume about 208px before content.",
+        "color": "Light and dark neutrals remain calm; preview colors are purposeful.",
+        "visible_affordances": "The selected radio is clear; the clipped Trusted Device link has little visible scrolling cue.",
+        "coherence": "Shared cards and typography remain consistent, while the header Save is smaller than the card controls."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 7,
+          "shell": 7,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and ink remain coherent around the multicolor theme previews.",
+          "type_geometry": "Two cards fit without truncating names, but the 32px Save and 36px header links miss shared control geometry.",
+          "shell": "A horizontal settings strip preserves labeled navigation; the account region is not visible.",
+          "accent_discipline": "Orange is confined to the chosen radio/card and theme preview examples.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.0,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Only the first part of the theme catalog is visible; no theme selection or all-theme contrast is proven.",
+      "inherited_from": "screenshots/kynotes-02-after-appearance-mobile-light.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "sha256": "8473caa8801048cc159d0a53f6b16546731e401fe519634cf086f64a427cbf8c",
+      "bytes": 105730,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "stage": "before",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 6,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 7,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Page title is obvious, but its scale competes with the large headings in the document.",
+        "typography": "Large light-weight content headings dominate the softer body copy and use a different editor font impression.",
+        "density_layout": "Columns are aligned, but oversized document headings and toolbar reduce usable reading space.",
+        "color": "The neutral palette is calm; body text has weaker apparent contrast than the after image.",
+        "visible_affordances": "Page selection is clear, but the footer actions are below the captured viewport.",
+        "coherence": "Shell and editor share surfaces, but their type weight and scale do not yet feel unified."
+      },
+      "total": 7.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream/charcoal surfaces and selection colors already read as Busnes tokens.",
+          "type_geometry": "The large page and document headings depart from the restrained title/body geometry.",
+          "shell": "The desktop sidebar, wordmark and bottom account are already in place.",
+          "accent_discipline": "Orange identifies current section/page and tool, with a small accent-soft account chip.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.8,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "sha256": "2f1709f7a6b8ad97a8b75d2fa32c05920a5bcc645560aad3d3643ff51d9e1dd5",
+      "bytes": 104429,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": null,
+      "stage": "before",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 6,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 7,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Page title is obvious, but its scale competes with the large headings in the document.",
+        "typography": "Large light-weight content headings dominate the softer body copy and use a different editor font impression.",
+        "density_layout": "Columns are aligned, but oversized document headings and toolbar reduce usable reading space.",
+        "color": "The neutral palette is calm; body text has weaker apparent contrast than the after image.",
+        "visible_affordances": "Page selection is clear, but the footer actions are below the captured viewport.",
+        "coherence": "Shell and editor share surfaces, but their type weight and scale do not yet feel unified."
+      },
+      "total": 7.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream/charcoal surfaces and selection colors already read as Busnes tokens.",
+          "type_geometry": "The large page and document headings depart from the restrained title/body geometry.",
+          "shell": "The desktop sidebar, wordmark and bottom account are already in place.",
+          "accent_discipline": "Orange identifies current section/page and tool, with a small accent-soft account chip.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.8,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "before",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 6,
+        "density_layout": 5,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Notebook title and recovery notice precede the selected page, displacing its main task.",
+        "typography": "The content heading wraps to two large lines while smaller body copy is muted.",
+        "density_layout": "About half the phone viewport is notebook chrome before the page title, leaving little document visible.",
+        "color": "The palette is restrained, with body text less prominent than the headings.",
+        "visible_affordances": "Section and tool states are visible, but no page row is visible in the captured list scroller.",
+        "coherence": "Materials are consistent; oversized editor headings differ from the compact navigation."
+      },
+      "total": 6.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 6,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and orange selected states are already present.",
+          "type_geometry": "Large content headings and the smaller Save target miss the shared type/control scale.",
+          "shell": "Notebook chrome stays open above the page and consumes much of the phone viewport.",
+          "accent_discipline": "Orange stays on the selected section and tool.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "before",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "editor",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 6,
+        "density_layout": 5,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Notebook title and recovery notice precede the selected page, displacing its main task.",
+        "typography": "The content heading wraps to two large lines while smaller body copy is muted.",
+        "density_layout": "About half the phone viewport is notebook chrome before the page title, leaving little document visible.",
+        "color": "The palette is restrained, with body text less prominent than the headings.",
+        "visible_affordances": "Section and tool states are visible, but no page row is visible in the captured list scroller.",
+        "coherence": "Materials are consistent; oversized editor headings differ from the compact navigation."
+      },
+      "total": 6.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 6,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and orange selected states are already present.",
+          "type_geometry": "Large content headings and the smaller Save target miss the shared type/control scale.",
+          "shell": "Notebook chrome stays open above the page and consumes much of the phone viewport.",
+          "accent_discipline": "Orange stays on the selected section and tool.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "sha256": "cd7aa19b234aa3d64478fe450b5a09d48610dea45af69a2f3874aaeb9625ceff",
+      "bytes": 37472,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "before",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded notebooks and account navigation",
+      "capture_surface": "navigation",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Navigation groups are clear, but notebook heading and recovery chrome continue below the navigation.",
+        "typography": "Group labels and navigation names are readable and restrained.",
+        "density_layout": "Single-column navigation is orderly, with an empty Team notebooks group taking space.",
+        "color": "Neutral surfaces and a pale selected notebook remain calm.",
+        "visible_affordances": "Selected notebook and open disclosure are clear; page switching is not visible below.",
+        "coherence": "The component vocabulary is consistent except the small separate account chip."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Navigation already uses the shared cream/charcoal surfaces.",
+          "type_geometry": "Rows and labels are consistent, while header Save is smaller than shared controls.",
+          "shell": "Stamp, grouped navigation and Account are present in one region.",
+          "accent_discipline": "Orange marks the selected notebook; the account chip also uses accent-soft.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Expanded notebook-navigation comparison is unmatched: after has Research notes selected, before Launch checklist; account initials also differ between fresh fixtures."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "sha256": "e6ebcc501ab4362990138f4318d5e12b7cd5b813647fa370e38ee2c0e52526c1",
+      "bytes": 37127,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": null,
+      "stage": "before",
+      "duplicate_kind": null,
+      "included_in_means": true,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded notebooks and account navigation",
+      "capture_surface": "navigation",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 8,
+        "density_layout": 7,
+        "color": 9,
+        "visible_affordances": 7,
+        "coherence": 8
+      },
+      "observations": {
+        "hierarchy": "Navigation groups are clear, but notebook heading and recovery chrome continue below the navigation.",
+        "typography": "Group labels and navigation names are readable and restrained.",
+        "density_layout": "Single-column navigation is orderly, with an empty Team notebooks group taking space.",
+        "color": "Neutral surfaces and a pale selected notebook remain calm.",
+        "visible_affordances": "Selected notebook and open disclosure are clear; page switching is not visible below.",
+        "coherence": "The component vocabulary is consistent except the small separate account chip."
+      },
+      "total": 7.6,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 8,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Navigation already uses the shared cream/charcoal surfaces.",
+          "type_geometry": "Rows and labels are consistent, while header Save is smaller than shared controls.",
+          "shell": "Stamp, grouped navigation and Account are present in one region.",
+          "accent_discipline": "Orange marks the selected notebook; the account chip also uses accent-soft.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 8.3,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Expanded notebook-navigation comparison is unmatched: after has Research notes selected, before Launch checklist; account initials also differ between fresh fixtures."
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded page navigation; notebook heading/recovery notice visible, page rows below pane viewport",
+      "capture_surface": "pages",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 6,
+        "density_layout": 5,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Notebook title and recovery notice precede the selected page, displacing its main task.",
+        "typography": "The content heading wraps to two large lines while smaller body copy is muted.",
+        "density_layout": "About half the phone viewport is notebook chrome before the page title, leaving little document visible.",
+        "color": "The palette is restrained, with body text less prominent than the headings.",
+        "visible_affordances": "Section and tool states are visible, but no page row is visible in the captured list scroller.",
+        "coherence": "Materials are consistent; oversized editor headings differ from the compact navigation."
+      },
+      "total": 6.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 6,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and orange selected states are already present.",
+          "type_geometry": "Large content headings and the smaller Save target miss the shared type/control scale.",
+          "shell": "Notebook chrome stays open above the page and consumes much of the phone viewport.",
+          "accent_discipline": "Orange stays on the selected section and tool.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "The open page pane has its own scroller; screenshots show neither its hidden rows nor their behavior.",
+      "inherited_from": "screenshots/kynotes-02-before-editor-mobile-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Expanded page navigation; notebook heading/recovery notice visible, page rows below pane viewport",
+      "capture_surface": "pages",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 6,
+        "density_layout": 5,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Notebook title and recovery notice precede the selected page, displacing its main task.",
+        "typography": "The content heading wraps to two large lines while smaller body copy is muted.",
+        "density_layout": "About half the phone viewport is notebook chrome before the page title, leaving little document visible.",
+        "color": "The palette is restrained, with body text less prominent than the headings.",
+        "visible_affordances": "Section and tool states are visible, but no page row is visible in the captured list scroller.",
+        "coherence": "Materials are consistent; oversized editor headings differ from the compact navigation."
+      },
+      "total": 6.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 6,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and orange selected states are already present.",
+          "type_geometry": "Large content headings and the smaller Save target miss the shared type/control scale.",
+          "shell": "Notebook chrome stays open above the page and consumes much of the phone viewport.",
+          "accent_discipline": "Orange stays on the selected section and tool.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "The open page pane has its own scroller; screenshots show neither its hidden rows nor their behavior.",
+      "inherited_from": "screenshots/kynotes-02-before-editor-mobile-light.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-dark.png",
+      "sha256": "71f355de9968fd132694a3f43b9d5cd38a71643a2e0647bb1c352f9e8359ba39",
+      "bytes": 105726,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "stage": "before",
+      "duplicate_kind": "near",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 6,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 7,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Page title is obvious, but its scale competes with the large headings in the document.",
+        "typography": "Large light-weight content headings dominate the softer body copy and use a different editor font impression.",
+        "density_layout": "Columns are aligned, but oversized document headings and toolbar reduce usable reading space.",
+        "color": "The neutral palette is calm; body text has weaker apparent contrast than the after image.",
+        "visible_affordances": "Page selection is clear, but the footer actions are below the captured viewport.",
+        "coherence": "Shell and editor share surfaces, but their type weight and scale do not yet feel unified."
+      },
+      "total": 7.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream/charcoal surfaces and selection colors already read as Busnes tokens.",
+          "type_geometry": "The large page and document headings depart from the restrained title/body geometry.",
+          "shell": "The desktop sidebar, wordmark and bottom account are already in place.",
+          "accent_discipline": "Orange identifies current section/page and tool, with a small accent-soft account chip.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.8,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-before-editor-desktop-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-desktop-light.png",
+      "sha256": "f7da3b61d67d267832efff48f91a9aa36b15243acd830a8dedf256a5cdbf3463",
+      "bytes": 104427,
+      "width": 1280,
+      "height": 900,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "stage": "before",
+      "duplicate_kind": "near",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "desktop",
+        "width": 1280,
+        "height": 900,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 7,
+        "typography": 6,
+        "density_layout": 7,
+        "color": 8,
+        "visible_affordances": 7,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Page title is obvious, but its scale competes with the large headings in the document.",
+        "typography": "Large light-weight content headings dominate the softer body copy and use a different editor font impression.",
+        "density_layout": "Columns are aligned, but oversized document headings and toolbar reduce usable reading space.",
+        "color": "The neutral palette is calm; body text has weaker apparent contrast than the after image.",
+        "visible_affordances": "Page selection is clear, but the footer actions are below the captured viewport.",
+        "coherence": "Shell and editor share surfaces, but their type weight and scale do not yet feel unified."
+      },
+      "total": 7.0,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 8,
+          "accent_discipline": 8,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Cream/charcoal surfaces and selection colors already read as Busnes tokens.",
+          "type_geometry": "The large page and document headings depart from the restrained title/body geometry.",
+          "shell": "The desktop sidebar, wordmark and bottom account are already in place.",
+          "accent_discipline": "Orange identifies current section/page and tool, with a small accent-soft account chip.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.8,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-before-editor-desktop-light.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-dark.png",
+      "sha256": "0a8c49e85452351ac803cc8e15356f4581d418eebb7f10afbefc6be4979b5b76",
+      "bytes": 49479,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "dark",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 6,
+        "density_layout": 5,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Notebook title and recovery notice precede the selected page, displacing its main task.",
+        "typography": "The content heading wraps to two large lines while smaller body copy is muted.",
+        "density_layout": "About half the phone viewport is notebook chrome before the page title, leaving little document visible.",
+        "color": "The palette is restrained, with body text less prominent than the headings.",
+        "visible_affordances": "Section and tool states are visible, but no page row is visible in the captured list scroller.",
+        "coherence": "Materials are consistent; oversized editor headings differ from the compact navigation."
+      },
+      "total": 6.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 6,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and orange selected states are already present.",
+          "type_geometry": "Large content headings and the smaller Save target miss the shared type/control scale.",
+          "shell": "Notebook chrome stays open above the page and consumes much of the phone viewport.",
+          "accent_discipline": "Orange stays on the selected section and tool.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-before-editor-mobile-dark.png"
+    },
+    {
+      "file": "screenshots/kynotes-02-before-workspace-mobile-light.png",
+      "sha256": "e044f9ac34401076c7507968633b0a4ffafdcc925f31fba664d96a6c7bd3aef5",
+      "bytes": 48690,
+      "width": 390,
+      "height": 844,
+      "duplicate_of": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "stage": "before",
+      "duplicate_kind": "exact",
+      "included_in_means": false,
+      "observed_product": "KyNotes web",
+      "observed_surface": "Notebook workspace with open page editor",
+      "capture_surface": "workspace",
+      "cohort": "notes",
+      "state": "sparse",
+      "theme": "light",
+      "viewport": {
+        "form": "mobile",
+        "width": 390,
+        "height": 844,
+        "scale": 1
+      },
+      "filename_matches_content": true,
+      "artifacts": [],
+      "scores": {
+        "hierarchy": 6,
+        "typography": 6,
+        "density_layout": 5,
+        "color": 8,
+        "visible_affordances": 5,
+        "coherence": 7
+      },
+      "observations": {
+        "hierarchy": "Notebook title and recovery notice precede the selected page, displacing its main task.",
+        "typography": "The content heading wraps to two large lines while smaller body copy is muted.",
+        "density_layout": "About half the phone viewport is notebook chrome before the page title, leaving little document visible.",
+        "color": "The palette is restrained, with body text less prominent than the headings.",
+        "visible_affordances": "Section and tool states are visible, but no page row is visible in the captured list scroller.",
+        "coherence": "Materials are consistent; oversized editor headings differ from the compact navigation."
+      },
+      "total": 6.1,
+      "ky_fit": {
+        "scores": {
+          "palette_tokens": 9,
+          "type_geometry": 6,
+          "shell": 6,
+          "accent_discipline": 9,
+          "suite_cohesion": "N/A"
+        },
+        "observations": {
+          "palette_tokens": "Busnes surfaces and orange selected states are already present.",
+          "type_geometry": "Large content headings and the smaller Save target miss the shared type/control scale.",
+          "shell": "Notebook chrome stays open above the page and consumes much of the phone viewport.",
+          "accent_discipline": "Orange stays on the selected section and tool.",
+          "suite_cohesion": "Only KyNotes screenshots were inspected; cross-product capture evidence is absent."
+        },
+        "total": 7.5,
+        "active_dimensions": 4,
+        "weight_per_active_dimension": 0.25
+      },
+      "confidence": "high",
+      "caveat": "Synthetic four-page fixture with a trailing blank bullet; capture alone does not prove saving, scrolling or persisted coordinate preservation.",
+      "inherited_from": "screenshots/kynotes-02-before-editor-mobile-light.png"
+    }
+  ],
+  "cohort_rankings": [
+    {
+      "stage": "after",
+      "cohort": "notes",
+      "observed_product": "KyNotes web",
+      "n": 8,
+      "mean": 7.8,
+      "ranking": false,
+      "reason": "Single-product cohort summary; no competitors inspected. Global duplicate exclusion means before Appearance has n=0."
+    },
+    {
+      "stage": "after",
+      "cohort": "settings",
+      "observed_product": "KyNotes web",
+      "n": 4,
+      "mean": 7.9,
+      "ranking": false,
+      "reason": "Single-product cohort summary; no competitors inspected. Global duplicate exclusion means before Appearance has n=0."
+    },
+    {
+      "stage": "before",
+      "cohort": "notes",
+      "observed_product": "KyNotes web",
+      "n": 6,
+      "mean": 6.9,
+      "ranking": false,
+      "reason": "Single-product cohort summary; no competitors inspected. Global duplicate exclusion means before Appearance has n=0."
+    },
+    {
+      "stage": "before",
+      "cohort": "settings",
+      "observed_product": "KyNotes web",
+      "n": 0,
+      "mean": null,
+      "ranking": false,
+      "reason": "Single-product cohort summary; no competitors inspected. Global duplicate exclusion means before Appearance has n=0."
+    }
+  ],
+  "product_delta": [
+    {
+      "after": "screenshots/kynotes-02-after-appearance-desktop-dark.png",
+      "before": "screenshots/kynotes-02-before-appearance-desktop-dark.png",
+      "before_total": 8.2,
+      "after_total": 8.2,
+      "delta": 0.0,
+      "matched": true,
+      "cause": "unchanged exact duplicate"
+    },
+    {
+      "after": "screenshots/kynotes-02-after-appearance-desktop-light.png",
+      "before": "screenshots/kynotes-02-before-appearance-desktop-light.png",
+      "before_total": 8.2,
+      "after_total": 8.2,
+      "delta": 0.0,
+      "matched": true,
+      "cause": "unchanged exact duplicate"
+    },
+    {
+      "after": "screenshots/kynotes-02-after-appearance-mobile-dark.png",
+      "before": "screenshots/kynotes-02-before-appearance-mobile-dark.png",
+      "before_total": 7.6,
+      "after_total": 7.6,
+      "delta": 0.0,
+      "matched": true,
+      "cause": "unchanged exact duplicate"
+    },
+    {
+      "after": "screenshots/kynotes-02-after-appearance-mobile-light.png",
+      "before": "screenshots/kynotes-02-before-appearance-mobile-light.png",
+      "before_total": 7.6,
+      "after_total": 7.6,
+      "delta": 0.0,
+      "matched": true,
+      "cause": "unchanged exact duplicate"
+    },
+    {
+      "after": "screenshots/kynotes-02-after-editor-desktop-dark.png",
+      "before": "screenshots/kynotes-02-before-editor-desktop-dark.png",
+      "before_total": 7.0,
+      "after_total": 8.3,
+      "delta": 1.3,
+      "matched": true,
+      "cause": "Stronger shared editor typography, restrained heading scale, compact page title and collapsed phone navigation."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-editor-desktop-light.png",
+      "before": "screenshots/kynotes-02-before-editor-desktop-light.png",
+      "before_total": 7.0,
+      "after_total": 8.3,
+      "delta": 1.3,
+      "matched": true,
+      "cause": "Stronger shared editor typography, restrained heading scale, compact page title and collapsed phone navigation."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-editor-mobile-dark.png",
+      "before": "screenshots/kynotes-02-before-editor-mobile-dark.png",
+      "before_total": 6.1,
+      "after_total": 8.3,
+      "delta": 2.2,
+      "matched": true,
+      "cause": "Stronger shared editor typography, restrained heading scale, compact page title and collapsed phone navigation."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-editor-mobile-light.png",
+      "before": "screenshots/kynotes-02-before-editor-mobile-light.png",
+      "before_total": 6.1,
+      "after_total": 8.3,
+      "delta": 2.2,
+      "matched": true,
+      "cause": "Stronger shared editor typography, restrained heading scale, compact page title and collapsed phone navigation."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-navigation-mobile-dark.png",
+      "before": "screenshots/kynotes-02-before-navigation-mobile-dark.png",
+      "before_total": 7.6,
+      "after_total": 8.0,
+      "delta": 0.4,
+      "matched": false,
+      "cause": "Different selected page and downstream disclosure state; no matched improvement claim."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-navigation-mobile-light.png",
+      "before": "screenshots/kynotes-02-before-navigation-mobile-light.png",
+      "before_total": 7.6,
+      "after_total": 8.0,
+      "delta": 0.4,
+      "matched": false,
+      "cause": "Different selected page and downstream disclosure state; no matched improvement claim."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-pages-mobile-dark.png",
+      "before": "screenshots/kynotes-02-before-pages-mobile-dark.png",
+      "before_total": 6.1,
+      "after_total": 6.6,
+      "delta": 0.5,
+      "matched": false,
+      "cause": "After has new page-disclosure state; before always exposed its pane, so this is not an equivalent expansion comparison."
+    },
+    {
+      "after": "screenshots/kynotes-02-after-pages-mobile-light.png",
+      "before": "screenshots/kynotes-02-before-pages-mobile-light.png",
+      "before_total": 6.1,
+      "after_total": 6.6,
+      "delta": 0.5,
+      "matched": false,
+      "cause": "After has new page-disclosure state; before always exposed its pane, so this is not an equivalent expansion comparison."
+    }
+  ],
+  "drift": {
+    "prior_scores_loaded": false,
+    "prior_total": null,
+    "mean_ky_drift": null,
+    "competitor_drift": null,
+    "reason": "Independent first round; before/after product deltas are not rubric drift. Unchanged Appearance scores inherit exactly; no competitor or other-provider scoring inspected."
+  },
+  "gates": {
+    "keyboard": {
+      "status": "untested",
+      "evidence": "Exact after fixture, native Tab path: Pages toggle -> Quick Notes -> New section/group -> Create recovery code -> Search -> New page -> Research notes; Enter closes/focuses title; next Tab reaches Type, outside hidden navigation. Different-id pointer selection also focuses title. Other task paths/dialogs not exhaustively checked.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+        "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+        "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+        "sharedTokensVersion": "0.4.1",
+        "capture_browser": "Chromium 156.0.8078.4",
+        "native_review_browser": "Chromium 154.0.0.0",
+        "native_fixture_url": "http://127.0.0.1:18094",
+        "native_bundle_hash_matched": true
+      }
+    },
+    "focus": {
+      "status": "untested",
+      "evidence": "Native dark Quick Notes showed 2px accent outline and Type 3px accent outline; title focus return observed for same/different selection. Every control in both themes was not measured.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+        "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+        "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+        "sharedTokensVersion": "0.4.1",
+        "capture_browser": "Chromium 156.0.8078.4",
+        "native_review_browser": "Chromium 154.0.0.0",
+        "native_fixture_url": "http://127.0.0.1:18094",
+        "native_bundle_hash_matched": true
+      }
+    },
+    "contrast": {
+      "status": "fail",
+      "evidence": "SOL-3: computed border/background samples yield 1.57:1 light and 2.06:1 dark for Search and move-section. All other 22-theme combinations remain untested.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+        "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+        "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+        "sharedTokensVersion": "0.4.1",
+        "capture_browser": "Chromium 156.0.8078.4",
+        "native_review_browser": "Chromium 154.0.0.0",
+        "native_fixture_url": "http://127.0.0.1:18094",
+        "native_bundle_hash_matched": true
+      }
+    },
+    "states": {
+      "status": "untested",
+      "evidence": "Provided inventory covers populated editor, navigation and Appearance. No complete empty/loading/error capture set.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+        "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+        "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+        "sharedTokensVersion": "0.4.1",
+        "capture_browser": "Chromium 156.0.8078.4",
+        "native_review_browser": "Chromium 154.0.0.0",
+        "native_fixture_url": "http://127.0.0.1:18094",
+        "native_bundle_hash_matched": true
+      }
+    },
+    "responsive": {
+      "status": "untested",
+      "evidence": "Supplied after manifest records overflow=0 at 390/1280; native fixture also has zero desktop overflow and usable row navigation. Expanded phone pane composition fails SOL-1. All scope paths and WebKit not checked.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+        "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+        "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+        "sharedTokensVersion": "0.4.1",
+        "capture_browser": "Chromium 156.0.8078.4",
+        "native_review_browser": "Chromium 154.0.0.0",
+        "native_fixture_url": "http://127.0.0.1:18094",
+        "native_bundle_hash_matched": true
+      }
+    },
+    "save_preservation": {
+      "status": "fail",
+      "evidence": "SOL-2 source trace. Different-id path retains flushOpenPage; same-id path unconditionally clears dirty. No mutation-based save test run by reviewer.",
+      "revision": {
+        "head": "34849c4d0766901fdf33556855373aa122666049",
+        "sourceDiffSha256": "dd13920dd4c21680c113cddc2b83aaec7799cf02d095685918a1fdbfc45948f1",
+        "afterServedIndexSha256": "bb1a3b7d159d985ac9e9e8cced3482bad33ed7505036d3d5119aa70fa142e8ea",
+        "beforeServedIndexSha256": "1a66f5d2069549bf6aa4b11d33c6b24ef4ed9ade6c47939cd28d1df971332b12",
+        "sharedTokensVersion": "0.4.1",
+        "capture_browser": "Chromium 156.0.8078.4",
+        "native_review_browser": "Chromium 154.0.0.0",
+        "native_fixture_url": "http://127.0.0.1:18094",
+        "native_bundle_hash_matched": true
+      }
+    }
+  },
+  "issues": [
+    {
+      "id": "SOL-1",
+      "priority": "P1",
+      "title": "Opening Pages should reveal actual page choices",
+      "evidence": [
+        "screenshots/kynotes-02-after-pages-mobile-light.png",
+        "screenshots/kynotes-02-after-pages-mobile-dark.png",
+        "web/src/styles.css:449"
+      ],
+      "detail": "At 390x844 the expanded page pane is 256px high, top 217/bottom 473. The search starts at y505 and first row at y616, clipped by that pane; initial scrollTop is 0. The warning and heading consume the entire pane. Native keyboard/pointer selection can reach rows by auto-scrolling, so this is a discovery/initial-composition defect, not an assertion that pages are inaccessible.",
+      "fix": "Keep the recovery message available, but arrange the expanded phone pane so search and at least the current page plus another destination are visible immediately. For example, place notebook/recovery information outside the bounded row scroller, or compact/collapse the non-page information on phones. Capture the pane before locator auto-scrolling; assert a row intersects the pane viewport."
+    },
+    {
+      "id": "SOL-2",
+      "priority": "P1",
+      "title": "Current-page dismissal also clears dirty edits through selectNote",
+      "evidence": [
+        "web/src/main.tsx:3012",
+        "web/src/main.tsx:1599",
+        "web/src/main.tsx:1604",
+        "web/src/main.tsx:1346",
+        "web/src/main.tsx:1894"
+      ],
+      "detail": "The same-id click branch closes the disclosure and focuses the title, then falls through to selectNote(note). selectNote skips flushOpenPage for the same id and unconditionally markDirty(false). This cancels dirty-driven autosave/retry and makes subsequent flushOpenPage return true without flushing. The encrypted local draft/queue still exists; permanent loss is not proven. The flawed shared behavior predates this diff, but the new explicit same-page dismissal path continues to invoke it.",
+      "fix": "Make current-page reselection a true no-op for the document/save state: return after close/focus, or short-circuit the shared selectNote before it resets state. Add a focused browser regression with a dirty current page and a delayed/refused save; selecting that row must preserve dirty status and the normal save/retry guarantee.",
+      "verification": "Source-confirmed control-flow issue; no fault injection or note edits performed in this read-only review."
+    },
+    {
+      "id": "SOL-3",
+      "priority": "P1",
+      "title": "Search and move-section boundaries fail the measured contrast gate",
+      "evidence": [
+        "web/src/styles.css:189",
+        "web/src/styles.css:57",
+        "web/src/ky-ui/tokens.css:17"
+      ],
+      "detail": "Native computed styles on the exact after bundle use rgba(24,35,38,.22) on white in light, and rgba(242,239,232,.24) on rgb(31,43,46) in dark for .note-search and .editor-actions select. Alpha-composited contrast is 1.57:1 and 2.06:1, below the contract 3:1 control boundary requirement. This is inherited styling, not a visual score deduction invented from pixels.",
+      "fix": "Consume the already-vendored --ky-field-border for these field boundaries, then measure all shipped themes including focus/state indicators. Do not change the palette or hand-edit vendored tokens."
+    },
+    {
+      "id": "SOL-4",
+      "priority": "P2",
+      "title": "Finish the existing control geometry and idle save emphasis",
+      "evidence": [
+        "web/src/styles.css:463",
+        "web/src/main.tsx:3151",
+        "screenshots/kynotes-02-after-editor-desktop-light.png",
+        "screenshots/kynotes-02-after-appearance-mobile-light.png"
+      ],
+      "detail": "Top Save is 32px high and move-section is 35px, while canvas controls are 40px. The saved editor shows an active filled Saved button plus top Save. Appearance has no visible current-section marker in its settings navigation. These are bounded polish issues, not reasons to rebuild the shell.",
+      "fix": "Use shared control sizing where these controls appear, keep an idle Saved state quiet, and make the existing settings location apparent if that can be done without changing routing."
+    }
+  ],
+  "unscored": [],
+  "limitations": [
+    "Only Notes was inspected; suite_cohesion=N/A and no competitor ranking.",
+    "No broad suites, server startup, note mutation, theme preference change or destructive action. Native interactions used the existing synthetic owner fixture.",
+    "599 unit passes, build/vet/embed and the new e2e pass are supplied task context, not freshly executed by this reviewer; full Go races/browser suite were described as pending.",
+    "This is the explicitly requested independent council sub-review using the supplied rubric; Impeccable principles were consulted, not its full multi-agent/detector critique workflow.",
+    "AGENTS.md docs intentionally unchanged: these are review findings and evidence, not implementation or a new durable contract. Requested write scope permits only the two reports."
+  ]
+}
