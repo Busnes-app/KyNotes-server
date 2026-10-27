@@ -1,0 +1,13 @@
+{
+  "input": "inventory-v11.json",
+  "output": "inventory-v12.json",
+  "rows": 240,
+  "exact_sha_groups": 184,
+  "previous_representatives": 162,
+  "corrected_representatives": 138,
+  "missing_exact_groups": 10,
+  "excess_representatives": 24,
+  "method": "Union exact SHA groups and previously verified near links; choose earliest filename; recompute every direct canonical diff and validate thresholds. No source images or review vectors changed.",
+  "opus_correction": "O9-1 correctly found24 excess representatives. Its phrase138 by exact SHA is inaccurate:184 exact SHA groups,138 normalized groups after exact and near equivalence.",
+  "repeatability_correction": "Parent transcribed two wrong/missing hex digits. Correct staged tree40eecf04a440cf0b9f550e106f2c9a945e1a0344 exists; source and binary hashes unchanged. Sol9 quotes the earlier typo; original reviewer report preserved."
+}

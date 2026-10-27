@@ -180,8 +180,20 @@
   },
   {
     "round": 9,
-    "opus": {},
-    "sol": {},
+    "opus": {
+      "score": 8.0,
+      "satisfied": true,
+      "report": "opus-round9.json",
+      "rubric_conforms": true,
+      "basis": "Scoped 8/10 progression of the KyNotes Notes cohort (editor, empty, single-left-region management, phone page chooser) in the stage12 capture set. Settings reported separately and not pooled; it is unchanged pixels since stage10 and at 7.9 does not support a whole-app 8 claim. No full-9, accessibility, keyboard/focus, WebKit, competitor or suite-cohesion claim."
+    },
+    "sol": {
+      "score": 8.1,
+      "satisfied": true,
+      "report": "sol-round9.json",
+      "rubric_conforms": true,
+      "basis": "Notes unique current cohort only;four workspace aliases excluded;Settings separate."
+    },
     "gemini": {},
     "owner": {
       "status": "Not scored"

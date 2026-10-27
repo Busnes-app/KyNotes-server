@@ -1,12 +1,13 @@
 # KyNotes: scoped 8/10 progression
 
 The current stage is **12-after**, Council round9. The owner rejected the old
-adjacent columns at6/10. Round8 finished at **Opus7.9 / Sol8.1**; Opus was not
-satisfied. Its blind8.0 was corrected for drift on unchanged pictures and remains
-in the original report. Round9 matches both plus controls, aligns phone editor
-text with the title and adds24px above the phone empty-editor heading. Fresh
-reviews are pending after599units/12full browsers and the capture regressions
-passed. Gemini stays deferred. No current8/10 or full9/10 is claimed.
+adjacent columns at6/10. Notes now scores **Opus8.0 / Sol8.1**, both satisfied
+for that visual cohort. Appearance remains **Opus7.9 / Sol8.1**, reported
+separately; KyNotes stays active for a bounded phone Settings layout pass.
+Round9 matches both plus controls, aligns phone body text with its title and
+adds24px above the phone empty heading. Its599units/12full browsers and capture
+regressions passed. Gemini stays deferred until the current app pass clears.
+Full9/10 and complete keyboard/focus acceptance remain unproven.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
 Its changed weights, inconsistent Settings scores and unsupported claims make it
@@ -47,7 +48,7 @@ are from head `edb5425bc19c0ef1571e11b6e36fd443484b7e38` plus the recorded sourc
 explicit file hashes. Current served index SHA256:
 `a43a6013f184cae37029978da2501213e1a1c96bbdd427f52c32727499d52aba`.
 
-`inventory-v11.json` contains240 PNGs /162 unique across all stages. Current stage12
+`inventory-v12.json` contains240 PNGs /138 normalized unique across all stages. Current stage12
 has22captures/18unique:14Notes (including4empty and2desktop management views)
 and4Settings. Four workspace aliases are excluded from means. Stages05/06 were
 preliminary attempts whose reviews were interrupted before completion; earlier
@@ -75,7 +76,7 @@ Sol round6 observed BODY focus on a first phone page opening from a no-open-note
 WebKit, the complete empty/loading/error matrix and every product theme/focus/role
 path are not certified by this pass. Shared palette probes do not certify all product
 overrides. Optional polish remains in phone Settings spacing, small metadata,
-light avatar separation and minor icon/divider consistency. These remain outside this bounded visual pass. Round9 verdicts are pending.
+light avatar separation and minor icon/divider consistency. These remain outside this bounded visual pass. Round9 verdicts are complete; phone Settings remains below8 for Opus.
 
 The design detector retains two narrow existing findings: the semantic 3px key/conflict
 warning rail and the legacy 4px user-colored section border overridden to 2px.
@@ -95,3 +96,5 @@ workbook, round table and self-contained comparison. The evidence AGENTS.md reco
 capture commands and isolation requirements. `checks.json` records the local checks;
 current-head CI and autonomous review are separate PR gates. No merge or deployment
 is authorized by this report.
+
+Historical inventory counts were corrected without changing any image or score; see [round9-evidence-audit.json](round9-evidence-audit.json). There are184 exact SHA groups and138 normalized representatives after exact and measured near links. Earlier inventories remain frozen.

@@ -1,0 +1,1848 @@
+{
+ "schema": "ky-ui-council-scores/2",
+ "round": 9,
+ "stage": "12-after",
+ "reviewer": "Claude Opus 5.5 (claude-opus-5-5), independent primary, single context, no subdelegation",
+ "rubric": {
+  "version": "ky-suite-v2",
+  "path": "/home/yoshi/.codex-cpa/skills/ky-suite-ui/references/rubric.md",
+  "weights": {
+   "hierarchy": 0.2,
+   "typography": 0.15,
+   "density_layout": 0.2,
+   "color": 0.15,
+   "visible_affordances": 0.15,
+   "coherence": 0.15
+  },
+  "rounding": "Decimal(str(x)).quantize(Decimal('0.1'), ROUND_HALF_UP); cohort means over rounded unique file totals"
+ },
+ "weights": {
+  "hierarchy": 0.2,
+  "typography": 0.15,
+  "density_layout": 0.2,
+  "color": 0.15,
+  "visible_affordances": 0.15,
+  "coherence": 0.15
+ },
+ "verdict": {
+  "score": 8.0,
+  "notes_mean": 8.0,
+  "notes_mean_exact": "8.0",
+  "notes_sum": "112.0",
+  "notes_n": 14,
+  "notes_min": 8.0,
+  "notes_blind_mean": 8.0,
+  "notes_blind_mean_exact": "7.971428571428571428571428571",
+  "notes_blind_sum": "111.6",
+  "notes_prior_round8_mean_exact": "7.914285714285714285714285714",
+  "settings_mean": 7.9,
+  "settings_mean_exact": "7.9",
+  "settings_sum": "31.6",
+  "settings_n": 4,
+  "settings_min": 7.8,
+  "ky_fit_mean": 8.0,
+  "suite_cohesion": "N/A (only KyNotes captured)",
+  "satisfied": true,
+  "target": 8,
+  "accept_9": false,
+  "scope": "Scoped 8/10 progression of the KyNotes Notes cohort (editor, empty, single-left-region management, phone page chooser) in the stage12 capture set. Settings reported separately and not pooled; it is unchanged pixels since stage10 and at 7.9 does not support a whole-app 8 claim. No full-9, accessibility, keyboard/focus, WebKit, competitor or suite-cohesion claim.",
+  "reason": "B8-1 and B8-2 are fixed in the changed pixels and in my own native measurements. Every Notes file is 8.0 (blind 7.971 -> 8.0 with pages density 7; final 8.000 after keeping the prior pages density on unchanged pixels). The verdict does not depend on that calibration.",
+  "blockers": [],
+  "single_left_region": true,
+  "owner_approval_inferred": false,
+  "merge_or_deploy_authorized": false,
+  "gemini": "Deferred until both current primaries are satisfied; not invoked."
+ },
+ "blind_freeze": {
+  "path": "/tmp/opus-r9-crops/blind.json",
+  "sha256": "527bce586e070ec625408befc0ea7151287bdf28295d7ebbfad283ca4ffec962",
+  "frozen_at": "2026-10-27T02:44:16Z",
+  "read_before_freeze": [
+   "rubric.md",
+   "design-contract.md",
+   "evidence AGENTS.md",
+   "README.md (provenance section only, no scores read)",
+   "12-after-manifest.json",
+   "inventory-v11.json",
+   "checks.json",
+   "source diff"
+  ],
+  "read_after_freeze": [
+   "opus-round8.md/json",
+   "sol-round8.md/json",
+   "round8-findings-audit.json"
+  ],
+  "not_read": [
+   "sol-round9.*",
+   "any other current-round reviewer output"
+  ]
+ },
+ "inventory": {
+  "file": "inventory-v11.json",
+  "rows": 240,
+  "verified_sha_bytes_dimensions": 240,
+  "disk_png_set_equals_inventory": true,
+  "duplicate_of_rows": 78,
+  "duplicate_links_exact": 32,
+  "duplicate_links_near": 46,
+  "all_links_recomputed": "every duplicate_of pair re-diffed: changed px < 0.1% and max channel delta <= 8; recorded changed_pixels/max_channel_delta match where present; no chained links",
+  "rows_with_null_duplicate_of": 162,
+  "distinct_sha256_overall": 184,
+  "distinct_sha256_among_null_rows": 138,
+  "unlinked_exact_groups": {
+   "count": 10,
+   "extra_rows": 24,
+   "stages": "04-07 appearance x4 and 05-07 empty x4, pages-mobile x2",
+   "effect": "README/inventory '162 unique' overcounts the rubric's exact-duplicate dedup by 24; historical only, stage12 rows are correct"
+  },
+  "current_manifest": "screenshots/12-after-manifest.json",
+  "current_captures": 22,
+  "manifest_verified_sha_bytes_dimensions": 22,
+  "current_unique": 18,
+  "aliases": "4 workspace captures near-duplicate their editor captures (12/15 px, max delta 4, bbox [278,197,329,235] desktop, [16,293,67,331] phone); corner antialias of the selected Type chip; inherit scores, excluded from means",
+  "historical_equal_pixels": "6 current files (empty-desktop x2, appearance x4) are byte-identical to stage10 and stage11; inventory links them to stage10. They stay current coverage and are scored, but carry no product-improvement credit.",
+  "unscored": "218 historical rows from earlier stages; scored in their own rounds; not current inputs"
+ },
+ "provenance": {
+  "worktree_head": "d18ef1a298b4410391d53f077d8503c9765b526f",
+  "manifest_head": "edb5425bc19c0ef1571e11b6e36fd443484b7e38",
+  "council_round": 9,
+  "source_diff": "git -C web diff edb5425 HEAD -- src -> sha256 5fe19270... (4731 bytes), equals manifest sourceDiffSha256; touches web/src/main.tsx (page-add uses NavIcon plus) and web/src/styles.css (section-add radius, inherited icon ink, list-action centring, phone bn-editor padding 16px 0, phone empty-editor margin-top 24px) only",
+  "source_pins": "all 9 manifest sourceFiles match the worktree byte-for-byte (main.tsx, styles.css, NavIcon.tsx, CanvasPage.tsx, SectionTabs.tsx, ky-ui/VERSION, e2e/ui-council.e2e.ts, e2e/people.ts, package-lock.json)",
+  "ky_ui_vendor": "src/ky-ui/VERSION 0.4.2; all 12 listed vendored files match their recorded sha256",
+  "bundle": "web/dist/index.html = internal/web/dist/index.html = live 18112 index = manifest servedIndexSha256 a43a6013...; diff -qr web/dist internal/web/dist clean; live index-Ya1ynRr_.js, index-Qa_lU1QX.css and CanvasPage-CZbt_llE.css equal the embedded bytes; served CSS contains '.canvas-box .bn-editor{padding:16px 0}' and '@media (width<=800px){.empty-editor{margin-top:24px}'",
+  "scored_browser": "Chromium 156.0.8078.4, scale 1, captured 2026-10-27T02:34:30.847Z",
+  "parent_checks_not_rerun": "599 units/47 files, 12/12 browser, build/embed, Go build/vet, Docker probe, two byte-identical archives c3018f48... are parent-reported; I read the unit and browser logs in /tmp (47 files/599 passed; 12 passed) but did not rerun anything."
+ },
+ "live_inspection": {
+  "tab": "own incognito T3 tab via preview_open(reuseExistingTab:false), closed after use",
+  "fixture": "http://127.0.0.1:18112 as synthetic owner",
+  "note": "native T3 browser is not the scored Chromium 156 build; measurements supplement, never replace, the captures",
+  "desktop_1280x900": {
+   "section_add": "40x40 at (145,238), radius 8px, svg plus, color/svg rgb(24,35,38)",
+   "page_add": "40x40 at (183,297), radius 8px, svg plus, rgb(24,35,38)",
+   "title_input_x": 278,
+   "first_body_inline_x": 303,
+   "bn_editor_padding": "16px 24px",
+   "overflow": 0,
+   "left_regions": "one visible 240px pane (section-tabs inside it); no second panel"
+  },
+  "phone_390x844": {
+   "title_text_x": 16,
+   "first_body_inline_x": 17,
+   "canvas_box_x": 16,
+   "bn_editor_padding": "16px 0px",
+   "overflow": 0,
+   "section_add": "40x40, 8px, 16px svg",
+   "page_add": "40x40, 8px, 16px svg",
+   "search": "310x40, 8px"
+  },
+  "not_done": "no content created or edited, no Save pressed, no theme choice saved, section popover not reopened (round8 already verified it and the popover code did not change), first-open phone focus not re-tested"
+ },
+ "findings": [
+  {
+   "id": "B8-1",
+   "status": "resolved",
+   "evidence": "Changed pixels confined to the controls; native and capture: both adds 40x40, 8px radius, same 16px strong-ink NavIcon plus in light and dark."
+  },
+  {
+   "id": "B8-2",
+   "status": "resolved",
+   "evidence": "Phone title ink x17 = body x17 (stage11 x33); native title x16/body x17 (1px canvas border). Phone empty status row now 28px below rule and 41px above heading (stage11 28/17). Desktop body x303 unchanged, stored geometry preserved."
+  },
+  {
+   "id": "O9-1",
+   "severity": "non-blocking, evidence hygiene",
+   "summary": "inventory-v11 leaves 10 exact-SHA groups in stages 04-07 unlinked (24 rows), so its 162-unique count is 138 by exact SHA.",
+   "smallest_fix": "Add duplicate_of links in a new inventory version (or state the per-stage convention in README); frozen inventories stay untouched."
+  },
+  {
+   "id": "O9-2",
+   "severity": "non-blocking polish, unchanged pixels",
+   "summary": "Phone page chooser opens with the account-level 'Save a recovery code' disclosure 44px below the Pages bar, and the tab strip sits 9px above Search on phone vs 19px on desktop."
+  },
+  {
+   "id": "O9-3",
+   "severity": "non-blocking, deliberate",
+   "summary": "Desktop body x303 vs title x278 (25px) remains; preserved to keep stored canvas coordinates."
+  },
+  {
+   "id": "O8-3",
+   "severity": "non-blocking, carried",
+   "summary": "Empty desktop header 'Saved to server' with nothing saved; header Settings has no current state; 'Trusted Device' casing; phone Settings band wraps 3/2/1 with orphan 'security.'; dark unselected radios are UA grey; notebook commands share the nav-row style; triple save status on desktop editor."
+  },
+  {
+   "id": "R-focus",
+   "severity": "behavior residual, not retested by me",
+   "summary": "First phone page opening from a notebook with no open page can leave BODY focused (Sol6/7/8). Blocks any keyboard/focus acceptance claim; no save/content failure established; not a screenshot-score penalty."
+  }
+ ],
+ "gates": {
+  "keyboard": "untested by me; known first-open phone focus residual",
+  "focus": "untested; known residual",
+  "contrast": "untested by me this round (add-control ink is the strong token rgb(24,35,38)/rgb(242,239,232); background contrast not recomputed); parent/round8 placeholder measurements 6.19:1 / 7.48:1 not re-verified",
+  "states": "partial: first-run empty and populated only; loading/error not captured",
+  "responsive": "partial pass: 390 and 1280; manifest overflow 0 on all 22, my native overflow 0 at both"
+ },
+ "drift": {
+  "against": "opus-round8.json (stage11)",
+  "files": [
+   {
+    "file": "kynotes-12-after-editor-desktop-light.png",
+    "prior_total": 7.9,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.1,
+    "cause": "product change (not a drift cause): coherence 7->8 because the plus pair is unified in changed pixels",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     7
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-editor-desktop-dark.png",
+    "prior_total": 7.9,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.1,
+    "cause": "product change (not a drift cause): coherence 7->8 because the plus pair is unified in changed pixels",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     7
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-editor-mobile-light.png",
+    "prior_total": 7.8,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.2,
+    "cause": "product change: density 7->8 because body x33->x17 in changed pixels",
+    "prior_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-editor-mobile-dark.png",
+    "prior_total": 7.8,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.2,
+    "cause": "product change: density 7->8 because body x33->x17 in changed pixels",
+    "prior_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-empty-desktop-light.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; byte-identical pixels",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     9,
+     8,
+     8,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-empty-desktop-dark.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; byte-identical pixels",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     9,
+     8,
+     8,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-empty-mobile-light.png",
+    "prior_total": 7.8,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.2,
+    "cause": "product change: density 7->8 because the 24px margin separates the status row from the heading in changed pixels",
+    "prior_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     9,
+     8,
+     8,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-empty-mobile-dark.png",
+    "prior_total": 7.8,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.2,
+    "cause": "product change: density 7->8 because the 24px margin separates the status row from the heading in changed pixels",
+    "prior_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     9,
+     8,
+     8,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-navigation-desktop-light.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; only timestamp/body reflow changed",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-navigation-desktop-dark.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; only timestamp/body reflow changed",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-navigation-mobile-light.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; only timestamp/body reflow changed",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-navigation-mobile-dark.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; only timestamp/body reflow changed",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-pages-mobile-light.png",
+    "prior_total": 7.9,
+    "blind_total": 7.8,
+    "total": 8.0,
+    "delta": 0.1,
+    "cause": "product change: coherence 7->8 for the unified plus pair; blind density 7 on unchanged pixels not adopted (no anchor/cohort/correction/artifact cause)",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     7
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-pages-mobile-dark.png",
+    "prior_total": 7.9,
+    "blind_total": 7.8,
+    "total": 8.0,
+    "delta": 0.1,
+    "cause": "product change: coherence 7->8 for the unified plus pair; blind density 7 on unchanged pixels not adopted (no anchor/cohort/correction/artifact cause)",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     7
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 0
+   },
+   {
+    "file": "kynotes-12-after-appearance-desktop-light.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; byte-identical pixels",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-appearance-desktop-dark.png",
+    "prior_total": 8.0,
+    "blind_total": 8.0,
+    "total": 8.0,
+    "delta": 0.0,
+    "cause": "none: equal score; byte-identical pixels",
+    "prior_vector": [
+     8,
+     8,
+     8,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     8,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-appearance-mobile-light.png",
+    "prior_total": 7.8,
+    "blind_total": 7.8,
+    "total": 7.8,
+    "delta": 0.0,
+    "cause": "none: equal score; byte-identical pixels",
+    "prior_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     7,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   },
+   {
+    "file": "kynotes-12-after-appearance-mobile-dark.png",
+    "prior_total": 7.8,
+    "blind_total": 7.8,
+    "total": 7.8,
+    "delta": 0.0,
+    "cause": "none: equal score; byte-identical pixels",
+    "prior_vector": [
+     8,
+     8,
+     7,
+     8,
+     8,
+     8
+    ],
+    "sol8_vector": [
+     8,
+     8,
+     7,
+     8,
+     9,
+     8
+    ],
+    "max_dim_spread_vs_sol8": 1
+   }
+  ],
+  "notes_mean_prior": "7.914285714285714285714285714",
+  "notes_mean_final": "8.0",
+  "notes_mean_delta": "0.085714285714285714285714286",
+  "settings_delta": "0 (byte-identical, equal vectors)",
+  "max_abs_delta": 0.2,
+  "summary": "Every positive delta sits on pixels the round9 patch changed. Unchanged pixels keep their round8 score; my one blind disagreement on unchanged pixels (pages density 7) was not adopted, the same rule round8 applied to its higher blind reading. Competitor drift N/A."
+ },
+ "second_reviewer_spread": {
+  "current": "sol-round9 not read (instructed); spread vs current second reviewer is the parent's to compute",
+  "context_vs_sol8": "no dimension differs by 2 or more on any file (max 1: empty hierarchy/affordances, appearance affordances, navigation-mobile density)"
+ },
+ "limits": [
+  "Scoped visual review of the stage12 capture set only.",
+  "WebKit, named themes, keyboard/focus, loading/error states, dense teams, soft keyboard, tablet and full contrast matrix remain unproven.",
+  "Existing BlockNote CSP/style/placeholder/viewport warnings and the 603kB build warning remain; no CSP relaxation reviewed or proposed.",
+  "Two detector findings (semantic warning rail styles.css:517, overridden section-color border :300) are existing and narrow."
+ ],
+ "files": [
+  {
+   "file": "screenshots/kynotes-12-after-editor-desktop-light.png",
+   "sha256": "eaee7de84cd1660ceba857d5ff6428dbe96ebe661c0618703ea826f071ee57ed",
+   "bytes": 77284,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Populated editor, Launch checklist open (one left pane: notebook pages)",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "light",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~1.07k px, bbox [144,100,1222,324] = section-add/page-add pair and the saved-at timestamp only; canvas, title and body pixels unchanged",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "'Launch checklist' 24px title leads; accent only on Type mode, Quick Notes tab and selected page rail; header Save is outlined. Save status is said three times (header 'Saved to server', meta 'Saved on server', Save button).",
+    "typography": "One Space family: 24px title, ~20px body headings, 15px body, 14px controls/nav, 13px meta; even steps.",
+    "density_layout": "Pane edges align at x16; toolbar modes|commands split by a 1x24 divider; body starts x303 against title x278 (25px canvas inset, preserved stored geometry).",
+    "color": "Cream pane/white desk (light) or charcoal (dark); danger only on Delete, green only on status; placeholders theme ink.",
+    "visible_affordances": "Section-add and page-add now read as one control: 40x40, 8px radius, same 16px strong-ink plus; Outdent reads disabled; selected page rail unambiguous.",
+    "coherence": "Round8 near-miss plus pair is gone; one bordered-icon vocabulary for both adds; no nested chrome."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-editor-desktop-dark.png",
+   "sha256": "f4dc17dc2149368266a44c90313aa93d28d8d109ae84ba5ecb9bc13e38433bf5",
+   "bytes": 78132,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Populated editor, Launch checklist open (one left pane: notebook pages)",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "dark",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~1.07k px, bbox [144,100,1222,324] = section-add/page-add pair and the saved-at timestamp only; canvas, title and body pixels unchanged",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "'Launch checklist' 24px title leads; accent only on Type mode, Quick Notes tab and selected page rail; header Save is outlined. Save status is said three times (header 'Saved to server', meta 'Saved on server', Save button).",
+    "typography": "One Space family: 24px title, ~20px body headings, 15px body, 14px controls/nav, 13px meta; even steps.",
+    "density_layout": "Pane edges align at x16; toolbar modes|commands split by a 1x24 divider; body starts x303 against title x278 (25px canvas inset, preserved stored geometry).",
+    "color": "Cream pane/white desk (light) or charcoal (dark); danger only on Delete, green only on status; placeholders theme ink.",
+    "visible_affordances": "Section-add and page-add now read as one control: 40x40, 8px radius, same 16px strong-ink plus; Outdent reads disabled; selected page rail unambiguous.",
+    "coherence": "Round8 near-miss plus pair is gone; one bordered-icon vocabulary for both adds; no nested chrome."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-editor-mobile-light.png",
+   "sha256": "06aa3fceec6e800e52837a619c97345dc771d89b5b7152819a2e4f64251c48f4",
+   "bytes": 42211,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Populated editor, Launch checklist open (one left pane: notebook pages)",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "light",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~22.8k px, bbox [16,196,374,844] = timestamp plus body reflow after the phone inset removal",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Title leads after two disclosure bars; outlined Save in header; one Type mode chip.",
+    "typography": "~26px title, 15px body, 14px bars/controls, 13px meta.",
+    "density_layout": "Title ink x17 and first body heading x17 (stage11: x33); native title text x16 / body x17 (1px canvas border). Footer wraps to two rows (Quick Notes + Indent / Outdent + Delete).",
+    "color": "Token surfaces; accent only on Type; Delete in danger.",
+    "visible_affordances": "Disclosures carry chevrons; select with chevron; disabled Outdent distinct.",
+    "coherence": "Same bar/select/button vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-editor-mobile-dark.png",
+   "sha256": "1e33dd62356cf53287e3655ccc3498c58682d8daa1f00fdf1655299daebd1617",
+   "bytes": 43078,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Populated editor, Launch checklist open (one left pane: notebook pages)",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "dark",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~22.8k px, bbox [16,196,374,844] = timestamp plus body reflow after the phone inset removal",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Title leads after two disclosure bars; outlined Save in header; one Type mode chip.",
+    "typography": "~26px title, 15px body, 14px bars/controls, 13px meta.",
+    "density_layout": "Title ink x17 and first body heading x17 (stage11: x33); native title text x16 / body x17 (1px canvas border). Footer wraps to two rows (Quick Notes + Indent / Outdent + Delete).",
+    "color": "Token surfaces; accent only on Type; Delete in danger.",
+    "visible_affordances": "Disclosures carry chevrons; select with chevron; disabled Outdent distinct.",
+    "coherence": "Same bar/select/button vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-empty-desktop-light.png",
+   "sha256": "70340422c86d96f05b2de950ae87c2a10ea4d744d0e9a428914a56c6b7b3a3c5",
+   "bytes": 32544,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": "screenshots/kynotes-10-after-empty-desktop-light.png",
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "First-run empty workspace, no notebooks",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "empty",
+   "theme": "light",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "byte-identical to stage10 and stage11 (historical exact duplicate)",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "One filled 'New notebook' primary under 'Your private desk.'; header 'Saved to server' shows before anything exists.",
+    "typography": "~22px heading, 16px guidance, 14px pane/header, 13px meta.",
+    "density_layout": "Pane rows at x16, chevrons x215; desk content centred; status row pinned top.",
+    "color": "Accent only on the primary.",
+    "visible_affordances": "Filled primary reads at once; recovery disclosure chevron.",
+    "coherence": "Disclosure/button/header vocabulary matches the populated workspace."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content. Pixels equal earlier stages; re-scoring them measures the rater, not the product.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-empty-desktop-dark.png",
+   "sha256": "6bb7c1e9f1bb2e595fef91ad00eb7b483b20fdf7832825094759ef38fc277b1a",
+   "bytes": 32909,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": "screenshots/kynotes-10-after-empty-desktop-dark.png",
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "First-run empty workspace, no notebooks",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "empty",
+   "theme": "dark",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "byte-identical to stage10 and stage11 (historical exact duplicate)",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "One filled 'New notebook' primary under 'Your private desk.'; header 'Saved to server' shows before anything exists.",
+    "typography": "~22px heading, 16px guidance, 14px pane/header, 13px meta.",
+    "density_layout": "Pane rows at x16, chevrons x215; desk content centred; status row pinned top.",
+    "color": "Accent only on the primary.",
+    "visible_affordances": "Filled primary reads at once; recovery disclosure chevron.",
+    "coherence": "Disclosure/button/header vocabulary matches the populated workspace."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content. Pixels equal earlier stages; re-scoring them measures the rater, not the product.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-empty-mobile-light.png",
+   "sha256": "5dc4060a4fbfc7abf43eb94dd0b5510a94607a299559ede998822f6762ce8c26",
+   "bytes": 25144,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "First-run empty workspace, no notebooks",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "empty",
+   "theme": "light",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~16.6k px, bbox [60,286,331,513] = desk heading, guidance and primary moved 24px down",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "'Your private desk.' and one filled 'New notebook' above the fold (ink y466-512); 'No notebooks yet' pane label at similar size.",
+    "typography": "Same steps as desktop; guidance wraps to three even lines.",
+    "density_layout": "Status row ink y257-268 now sits 28px below the rule and 41px above the heading (y310); stage11 was 28/17, so it no longer reads as the heading's caption.",
+    "color": "Token surfaces; accent only on the primary.",
+    "visible_affordances": "Two full-width chevron disclosures and one 46px primary.",
+    "coherence": "Same disclosure/button vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-empty-mobile-dark.png",
+   "sha256": "438ee621fc826ae9fed1506da711bdfa22741878cecffcc74f55ddd47a9f5580",
+   "bytes": 25539,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "First-run empty workspace, no notebooks",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "empty",
+   "theme": "dark",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~16.6k px, bbox [60,286,331,513] = desk heading, guidance and primary moved 24px down",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "'Your private desk.' and one filled 'New notebook' above the fold (ink y466-512); 'No notebooks yet' pane label at similar size.",
+    "typography": "Same steps as desktop; guidance wraps to three even lines.",
+    "density_layout": "Status row ink y257-268 now sits 28px below the rule and 41px above the heading (y310); stage11 was 28/17, so it no longer reads as the heading's caption.",
+    "color": "Token surfaces; accent only on the primary.",
+    "visible_affordances": "Two full-width chevron disclosures and one 46px primary.",
+    "coherence": "Same disclosure/button vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-navigation-desktop-light.png",
+   "sha256": "944a15f28baa2d26ba6016bd8004a545fe43dd3c35aa6ce372b107350d346eac",
+   "bytes": 69288,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Notebook/account management expanded in the single left region (desktop) or phone disclosure",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "light",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~850 px, bbox [1080,100,1222,110] = timestamp only",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Focus / Notebooks / Account groups; selected Project Atlas has tint plus orange rail; commands below it; one left region.",
+    "typography": "13px semibold group labels, 14px rows.",
+    "density_layout": "Group labels x24, row icons x28 inside the x16 pane; Account pinned bottom; empty band is the sparse state. Main pane carries the editor 25px body inset.",
+    "color": "Neutral inbox icon; accent only on the selected notebook and editor selections.",
+    "visible_affordances": "Icon rows (inbox/plus/pencil/download) read as actions; commands share the quiet nav-row style (minor).",
+    "coherence": "One quiet icon-row vocabulary; no plus pair visible."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-navigation-desktop-dark.png",
+   "sha256": "1a092cf900b35c8ed127964ab62eee9d62a5f739f7cc66d1cb38593b8904544c",
+   "bytes": 70165,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Notebook/account management expanded in the single left region (desktop) or phone disclosure",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "dark",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~850 px, bbox [1080,100,1222,110] = timestamp only",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Focus / Notebooks / Account groups; selected Project Atlas has tint plus orange rail; commands below it; one left region.",
+    "typography": "13px semibold group labels, 14px rows.",
+    "density_layout": "Group labels x24, row icons x28 inside the x16 pane; Account pinned bottom; empty band is the sparse state. Main pane carries the editor 25px body inset.",
+    "color": "Neutral inbox icon; accent only on the selected notebook and editor selections.",
+    "visible_affordances": "Icon rows (inbox/plus/pencil/download) read as actions; commands share the quiet nav-row style (minor).",
+    "coherence": "One quiet icon-row vocabulary; no plus pair visible."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-navigation-mobile-light.png",
+   "sha256": "86927b021044a74874668f691445734d7d6233728ff23cbd05c5be6d5f385287",
+   "bytes": 34690,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Notebook/account management expanded in the single left region (desktop) or phone disclosure",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "light",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~3.05k px, bbox [17,626,354,831] = timestamp and phone body text below the drawer",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Expanded Notebooks and account drawer, then Pages bar, then the open page title.",
+    "typography": "Same steps as desktop pane.",
+    "density_layout": "Drawer rows inset x24/x28 with an Account divider; drawer takes y120-549 so the page starts at y630 (sparse management state); body text x17 aligns with title.",
+    "color": "Token surfaces; accent only on the selected notebook and Type mode.",
+    "visible_affordances": "Up chevron marks the open drawer; selected notebook rail.",
+    "coherence": "Same icon-row vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-navigation-mobile-dark.png",
+   "sha256": "65d084d92fbb12be15d26ea1e667423f0fe879bab8470b842ffc5e1460fed6f3",
+   "bytes": 35649,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Notebook/account management expanded in the single left region (desktop) or phone disclosure",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "populated",
+   "theme": "dark",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: ~3.05k px, bbox [17,626,354,831] = timestamp and phone body text below the drawer",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Expanded Notebooks and account drawer, then Pages bar, then the open page title.",
+    "typography": "Same steps as desktop pane.",
+    "density_layout": "Drawer rows inset x24/x28 with an Account divider; drawer takes y120-549 so the page starts at y630 (sparse management state); body text x17 aligns with title.",
+    "color": "Token surfaces; accent only on the selected notebook and Type mode.",
+    "visible_affordances": "Up chevron marks the open drawer; selected notebook rail.",
+    "coherence": "Same icon-row vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-pages-mobile-light.png",
+   "sha256": "0afe486402d1cce5e2035ded1cc3627e90a90cf49557bc7fc73e4dfa55edf158",
+   "bytes": 33682,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Phone page chooser for Project Atlas",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "sparse",
+   "theme": "light",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: 223 px, bbox [144,249,360,324] = the two plus controls only",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 7,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 7.8,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Section tab, search and page list; selected Launch checklist with rail.",
+    "typography": "16px tab label, 14px titles semibold, 13px previews.",
+    "density_layout": "Full-width search x16-326 + 40px page-add; rows x30. 'Save a recovery code' disclosure opens the chooser 44px below the bar; tab-strip-to-search gap is 9px here vs 19px on desktop.",
+    "color": "Token surfaces; accent only on tab underline and selection.",
+    "visible_affordances": "Section-add and page-add are the same 40x40, 8px, strong-ink plus (native measured both themes).",
+    "coherence": "One add-control vocabulary; round8 mismatch resolved."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-pages-mobile-dark.png",
+   "sha256": "c8e90f15770799ed519cd8f248a7202dee1457066a166d53a407961e134de405",
+   "bytes": 34641,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": null,
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Phone page chooser for Project Atlas",
+   "filename_matches_content": true,
+   "cohort": "notes",
+   "state": "sparse",
+   "theme": "dark",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "vs stage11: 223 px, bbox [144,249,360,324] = the two plus controls only",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 7,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 7.8,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Section tab, search and page list; selected Launch checklist with rail.",
+    "typography": "16px tab label, 14px titles semibold, 13px previews.",
+    "density_layout": "Full-width search x16-326 + 40px page-add; rows x30. 'Save a recovery code' disclosure opens the chooser 44px below the bar; tab-strip-to-search gap is 9px here vs 19px on desktop.",
+    "color": "Token surfaces; accent only on tab underline and selection.",
+    "visible_affordances": "Section-add and page-add are the same 40x40, 8px, strong-ink plus (native measured both themes).",
+    "coherence": "One add-control vocabulary; round8 mismatch resolved."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-appearance-desktop-light.png",
+   "sha256": "1e65157f29c09998407a3643285cd11506950fc1784b9e24c48f27a5bc98e1fe",
+   "bytes": 68773,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": "screenshots/kynotes-10-after-appearance-desktop-light.png",
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Settings > Appearance theme picker",
+   "filename_matches_content": true,
+   "cohort": "settings",
+   "state": "populated",
+   "theme": "light",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "byte-identical to stage10 and stage11 (historical exact duplicate)",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Settings h1, Appearance section, one selected Match system card; header Settings link has no current state.",
+    "typography": "24px title, 17px section, 15px body, 13px meta.",
+    "density_layout": "Five-column card grid with even 12px gutters; single left settings nav.",
+    "color": "Theme previews carry their own hues as data; accent only on the selected card, radio and nav item.",
+    "visible_affordances": "Selected card border + filled radio; unselected dark radios are UA grey discs.",
+    "coherence": "Card vocabulary consistent; 'Trusted Device' breaks sentence case."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content. Pixels equal earlier stages; re-scoring them measures the rater, not the product.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-appearance-desktop-dark.png",
+   "sha256": "c75e0f370c7b318a30b96856e857ddee878c559633886009ce2f34bb8916cc89",
+   "bytes": 69755,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": null,
+   "historical_equal_of": "screenshots/kynotes-10-after-appearance-desktop-dark.png",
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Settings > Appearance theme picker",
+   "filename_matches_content": true,
+   "cohort": "settings",
+   "state": "populated",
+   "theme": "dark",
+   "viewport": "desktop 1280x900 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "byte-identical to stage10 and stage11 (historical exact duplicate)",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 8.0,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "hierarchy": "Settings h1, Appearance section, one selected Match system card; header Settings link has no current state.",
+    "typography": "24px title, 17px section, 15px body, 13px meta.",
+    "density_layout": "Five-column card grid with even 12px gutters; single left settings nav.",
+    "color": "Theme previews carry their own hues as data; accent only on the selected card, radio and nav item.",
+    "visible_affordances": "Selected card border + filled radio; unselected dark radios are UA grey discs.",
+    "coherence": "Card vocabulary consistent; 'Trusted Device' breaks sentence case."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content. Pixels equal earlier stages; re-scoring them measures the rater, not the product.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-appearance-mobile-light.png",
+   "sha256": "273573674ce231a8ef3ed13abe078611803aa2db45a6db081ba01488b7400bc1",
+   "bytes": 40731,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": "screenshots/kynotes-10-after-appearance-mobile-light.png",
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Settings > Appearance theme picker",
+   "filename_matches_content": true,
+   "cohort": "settings",
+   "state": "populated",
+   "theme": "light",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "byte-identical to stage10 and stage11 (historical exact duplicate)",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 7,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 7.8,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 7,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 7.8,
+   "observations": {
+    "hierarchy": "Title leads, then the settings link band, then Appearance.",
+    "typography": "Same steps; subtitle leaves an orphan 'security.'.",
+    "density_layout": "Settings link band wraps 3/2/1 and fills y185-390 before content; back link x26 vs title x16.",
+    "color": "Token surfaces; one orange selection per group.",
+    "visible_affordances": "Selected Appearance pill with underline; radio cards clear.",
+    "coherence": "Same card vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content. Pixels equal earlier stages; re-scoring them measures the rater, not the product.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-appearance-mobile-dark.png",
+   "sha256": "d56fb7f8861c404dd66b7540a14a792b09ebd35b4dd87f1cc50e65a0f048d4c2",
+   "bytes": 41329,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": null,
+   "historical_equal_of": "screenshots/kynotes-10-after-appearance-mobile-dark.png",
+   "included_in_current_mean": true,
+   "observed_product": "KyNotes web",
+   "observed_surface": "Settings > Appearance theme picker",
+   "filename_matches_content": true,
+   "cohort": "settings",
+   "state": "populated",
+   "theme": "dark",
+   "viewport": "mobile 390x844 scale 1",
+   "artifacts": "none",
+   "changed_vs_stage11": "byte-identical to stage10 and stage11 (historical exact duplicate)",
+   "blind_scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 7,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "blind_total": 7.8,
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 7,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 7.8,
+   "observations": {
+    "hierarchy": "Title leads, then the settings link band, then Appearance.",
+    "typography": "Same steps; subtitle leaves an orphan 'security.'.",
+    "density_layout": "Settings link band wraps 3/2/1 and fills y185-390 before content; back link x26 vs title x16.",
+    "color": "Token surfaces; one orange selection per group.",
+    "visible_affordances": "Selected Appearance pill with underline; radio cards clear.",
+    "coherence": "Same card vocabulary as desktop."
+   },
+   "confidence": "high",
+   "caveat": "Still image at scale 1: no hover, focus, screen-reader, soft-keyboard or computed-contrast proof beyond cited native samples; fixture page previews repeat synthetic text and the trailing empty bullet is fixture content. Pixels equal earlier stages; re-scoring them measures the rater, not the product.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-workspace-desktop-light.png",
+   "sha256": "e835e862587ba313cd14842c289e719b5193e140ecb045afc966a205f4322cff",
+   "bytes": 77276,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": "screenshots/kynotes-12-after-editor-desktop-light.png",
+   "duplicate_kind": "near",
+   "included_in_current_mean": false,
+   "cohort": "notes",
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "alias": "Measured 12 (light) / 15 (dark) changed px, max channel delta 4, all on the left/right corner columns of the selected Type chip (desktop x278/x327-328, phone x16/x65-66): antialiasing of the chip edge, not a caret or content change."
+   },
+   "confidence": "high",
+   "caveat": "Inherits the editor vector; excluded from every mean.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-workspace-desktop-dark.png",
+   "sha256": "f951c018ce8a5e9090ae472ec51db8016e40089a2f622d36750a81797c2a29b0",
+   "bytes": 78134,
+   "width": 1280,
+   "height": 900,
+   "duplicate_of": "screenshots/kynotes-12-after-editor-desktop-dark.png",
+   "duplicate_kind": "near",
+   "included_in_current_mean": false,
+   "cohort": "notes",
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "alias": "Measured 12 (light) / 15 (dark) changed px, max channel delta 4, all on the left/right corner columns of the selected Type chip (desktop x278/x327-328, phone x16/x65-66): antialiasing of the chip edge, not a caret or content change."
+   },
+   "confidence": "high",
+   "caveat": "Inherits the editor vector; excluded from every mean.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-workspace-mobile-light.png",
+   "sha256": "d9a07d21d26651885f0b368001918215e76085466b9412df8a0e053b5d826523",
+   "bytes": 42203,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": "screenshots/kynotes-12-after-editor-mobile-light.png",
+   "duplicate_kind": "near",
+   "included_in_current_mean": false,
+   "cohort": "notes",
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "alias": "Measured 12 (light) / 15 (dark) changed px, max channel delta 4, all on the left/right corner columns of the selected Type chip (desktop x278/x327-328, phone x16/x65-66): antialiasing of the chip edge, not a caret or content change."
+   },
+   "confidence": "high",
+   "caveat": "Inherits the editor vector; excluded from every mean.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  },
+  {
+   "file": "screenshots/kynotes-12-after-workspace-mobile-dark.png",
+   "sha256": "04f48d64ae27be0da886b91dcf517585ff3e42278c7ceca762c8bb5327c25798",
+   "bytes": 43078,
+   "width": 390,
+   "height": 844,
+   "duplicate_of": "screenshots/kynotes-12-after-editor-mobile-dark.png",
+   "duplicate_kind": "near",
+   "included_in_current_mean": false,
+   "cohort": "notes",
+   "scores": {
+    "hierarchy": 8,
+    "typography": 8,
+    "density_layout": 8,
+    "color": 8,
+    "visible_affordances": 8,
+    "coherence": 8
+   },
+   "total": 8.0,
+   "observations": {
+    "alias": "Measured 12 (light) / 15 (dark) changed px, max channel delta 4, all on the left/right corner columns of the selected Type chip (desktop x278/x327-328, phone x16/x65-66): antialiasing of the chip edge, not a caret or content change."
+   },
+   "confidence": "high",
+   "caveat": "Inherits the editor vector; excluded from every mean.",
+   "ky_fit": {
+    "scores": {
+     "palette_tokens": 8,
+     "type_geometry": 8,
+     "shell": 8,
+     "accent_discipline": 8,
+     "suite_cohesion": "N/A"
+    },
+    "mean": 8.0,
+    "note": "suite_cohesion N/A: only KyNotes captured; mean of four dimensions."
+   }
+  }
+ ]
+}
