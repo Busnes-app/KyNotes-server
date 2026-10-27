@@ -138,8 +138,20 @@
   },
   {
     "round": 7,
-    "opus": {},
-    "sol": {},
+    "opus": {
+      "score": 7.8,
+      "satisfied": false,
+      "report": "opus-round7.json",
+      "rubric_conforms": true,
+      "basis": "Notes cohort mean of 14 unique current images (stage 10, councilRound 7); Settings reported separately; brand fit separate; 4 workspace aliases excluded."
+    },
+    "sol": {
+      "score": 8.2,
+      "satisfied": true,
+      "report": "sol-round7.json",
+      "rubric_conforms": true,
+      "basis": "Notes current unique cohort only. Settings remains a separate cohort; no cross-cohort ranking."
+    },
     "gemini": {},
     "owner": {
       "status": "Pending"
