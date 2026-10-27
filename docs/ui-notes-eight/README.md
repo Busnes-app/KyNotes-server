@@ -4,6 +4,11 @@ The current stage is **04-after**. Claude Opus 5.5 scores Notes **8.1/10** and
 GPT Sol **8.2/10**; both are satisfied with the scoped visual progression.
 Both score Settings separately at **8.4**. Full 9/10 acceptance remains unproven.
 
+Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
+Its changed weights, inconsistent Settings scores and unsupported claims make it
+unsuitable for the progression decision. [Parent audit](gemini-audit.md) records
+every supported, rejected and deferred item. No product changes followed the audit.
+
 ## Review entry points
 
 - [Round history](COUNCIL.md), with original model reports beside it.

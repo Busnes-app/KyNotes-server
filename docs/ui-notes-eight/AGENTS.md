@@ -7,7 +7,7 @@
 ## Ownership
 
 - `screenshots/` and the versioned `inventory*.json` files own the scored source images and capture provenance; `inventory-v3.json` is current and earlier inventories stay frozen.
-- Reviewer reports preserve independent scores and objections by model and round.
+- Reviewer reports preserve independent scores and objections by model and round. Gemini’s original files are named `argon-round3.md/json`; `gemini-audit.md/json` owns corrections. Nonconforming raw scores remain visible and are excluded from progression decisions.
 - `theme-checks/` holds supplemental interaction checks, outside the scored source set.
 
 ## Local Contracts

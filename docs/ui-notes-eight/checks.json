@@ -88,5 +88,10 @@
     "check": "Existing browser runtime warnings",
     "result": "documented residual",
     "detail": "Native Chromium154 reports BlockNote inline-style CSP refusals, placeholder-rule insertion and interactive-widget viewport advice. CSP, BlockNote integration and dependency lock are unchanged from baseline34849c4. Existing dynamic placeholder behavior/soft-keyboard resizing remain uncertified; no CSP relaxation or suppression added."
+  },
+  {
+    "check": "Gemini advisory audit",
+    "result": "completed; raw rating nonconforming",
+    "detail": "Raw8.1/satisfied preserved. Ten findings audited with source and native-browser evidence; false desktop-rail and inaccessible-footer claims rejected. Valid optional polish deferred. No product source changed; prior implementation checks remain applicable."
   }
 ]
