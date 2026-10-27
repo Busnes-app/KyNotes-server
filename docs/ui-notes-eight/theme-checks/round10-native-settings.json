@@ -1,0 +1,450 @@
+{
+  "fixture": "http://127.0.0.1:18114",
+  "scope": "Native T3 Computer Use supplemental only. Chromium154 differs from scored Chromium156. OS emulation; no saved appearance choice.",
+  "samples": [
+    {
+      "state": "390 light",
+      "appearanceY": 371.078125,
+      "grid": "110.328px 110.328px 110.344px",
+      "links": [
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#appearance",
+          "targetExists": true,
+          "text": "Appearance",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 18,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#reminders",
+          "targetExists": true,
+          "text": "Reminders",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 132.328125,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#password",
+          "targetExists": true,
+          "text": "Password",
+          "width": 110.34375,
+          "wrap": "normal",
+          "x": 246.65625,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#device",
+          "targetExists": true,
+          "text": "Trusted Device",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 18,
+          "y": 290.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#link-devices",
+          "targetExists": true,
+          "text": "Link a browser",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 132.328125,
+          "y": 290.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#colleague-keys",
+          "targetExists": true,
+          "text": "Colleague keys",
+          "width": 110.34375,
+          "wrap": "normal",
+          "x": 246.65625,
+          "y": 290.078125
+        }
+      ],
+      "overflow": 0,
+      "radios": 23,
+      "savedChoice": null,
+      "subtitleWrap": "balance",
+      "viewport": {
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "state": "390 dark",
+      "appearanceY": 371.078125,
+      "grid": "110.328px 110.328px 110.344px",
+      "links": [
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#appearance",
+          "targetExists": true,
+          "text": "Appearance",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 18,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#reminders",
+          "targetExists": true,
+          "text": "Reminders",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 132.328125,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#password",
+          "targetExists": true,
+          "text": "Password",
+          "width": 110.34375,
+          "wrap": "normal",
+          "x": 246.65625,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#device",
+          "targetExists": true,
+          "text": "Trusted Device",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 18,
+          "y": 290.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#link-devices",
+          "targetExists": true,
+          "text": "Link a browser",
+          "width": 110.328125,
+          "wrap": "normal",
+          "x": 132.328125,
+          "y": 290.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#colleague-keys",
+          "targetExists": true,
+          "text": "Colleague keys",
+          "width": 110.34375,
+          "wrap": "normal",
+          "x": 246.65625,
+          "y": 290.078125
+        }
+      ],
+      "overflow": 0,
+      "radios": 23,
+      "savedChoice": null,
+      "subtitleWrap": "balance",
+      "viewport": {
+        "height": 844,
+        "width": 390
+      }
+    },
+    {
+      "state": "320 dark",
+      "appearanceY": 415.078125,
+      "grid": "140px 140px",
+      "links": [
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#appearance",
+          "targetExists": true,
+          "text": "Appearance",
+          "width": 140,
+          "wrap": "normal",
+          "x": 18,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#reminders",
+          "targetExists": true,
+          "text": "Reminders",
+          "width": 140,
+          "wrap": "normal",
+          "x": 162,
+          "y": 246.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#password",
+          "targetExists": true,
+          "text": "Password",
+          "width": 140,
+          "wrap": "normal",
+          "x": 18,
+          "y": 290.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#device",
+          "targetExists": true,
+          "text": "Trusted Device",
+          "width": 140,
+          "wrap": "normal",
+          "x": 162,
+          "y": 290.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#link-devices",
+          "targetExists": true,
+          "text": "Link a browser",
+          "width": 140,
+          "wrap": "normal",
+          "x": 18,
+          "y": 334.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#colleague-keys",
+          "targetExists": true,
+          "text": "Colleague keys",
+          "width": 140,
+          "wrap": "normal",
+          "x": 162,
+          "y": 334.078125
+        }
+      ],
+      "overflow": 15,
+      "radios": 23,
+      "savedChoice": null,
+      "subtitleWrap": "balance",
+      "viewport": {
+        "height": 844,
+        "width": 320
+      }
+    },
+    {
+      "state": "800 dark",
+      "appearanceY": 306.078125,
+      "grid": "121.5px 121.5px 121.5px 121.5px 121.5px 121.5px",
+      "links": [
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#appearance",
+          "targetExists": true,
+          "text": "Appearance",
+          "width": 121.5,
+          "wrap": "normal",
+          "x": 18,
+          "y": 225.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#reminders",
+          "targetExists": true,
+          "text": "Reminders",
+          "width": 121.5,
+          "wrap": "normal",
+          "x": 143.5,
+          "y": 225.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#password",
+          "targetExists": true,
+          "text": "Password",
+          "width": 121.5,
+          "wrap": "normal",
+          "x": 269,
+          "y": 225.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#device",
+          "targetExists": true,
+          "text": "Trusted Device",
+          "width": 121.5,
+          "wrap": "normal",
+          "x": 394.5,
+          "y": 225.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#link-devices",
+          "targetExists": true,
+          "text": "Link a browser",
+          "width": 121.5,
+          "wrap": "normal",
+          "x": 520,
+          "y": 225.078125
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "8px 4px",
+          "target": "#colleague-keys",
+          "targetExists": true,
+          "text": "Colleague keys",
+          "width": 121.5,
+          "wrap": "normal",
+          "x": 645.5,
+          "y": 225.078125
+        }
+      ],
+      "overflow": 0,
+      "radios": 23,
+      "savedChoice": null,
+      "subtitleWrap": "balance",
+      "viewport": {
+        "height": 900,
+        "width": 800
+      }
+    },
+    {
+      "state": "1280 dark",
+      "appearanceY": 179.078125,
+      "grid": "203px",
+      "links": [
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "10px 12px",
+          "target": "#appearance",
+          "targetExists": true,
+          "text": "Appearance",
+          "width": 203,
+          "wrap": "normal",
+          "x": 18,
+          "y": 161
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "10px 12px",
+          "target": "#reminders",
+          "targetExists": true,
+          "text": "Reminders",
+          "width": 203,
+          "wrap": "normal",
+          "x": 18,
+          "y": 205
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "10px 12px",
+          "target": "#password",
+          "targetExists": true,
+          "text": "Password",
+          "width": 203,
+          "wrap": "normal",
+          "x": 18,
+          "y": 249
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "10px 12px",
+          "target": "#device",
+          "targetExists": true,
+          "text": "Trusted Device",
+          "width": 203,
+          "wrap": "normal",
+          "x": 18,
+          "y": 293
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "10px 12px",
+          "target": "#link-devices",
+          "targetExists": true,
+          "text": "Link a browser",
+          "width": 203,
+          "wrap": "normal",
+          "x": 18,
+          "y": 337
+        },
+        {
+          "fontSize": "14px",
+          "height": 40,
+          "padding": "10px 12px",
+          "target": "#colleague-keys",
+          "targetExists": true,
+          "text": "Colleague keys",
+          "width": 203,
+          "wrap": "normal",
+          "x": 18,
+          "y": 381
+        }
+      ],
+      "overflow": 0,
+      "radios": 23,
+      "savedChoice": null,
+      "subtitleWrap": "wrap",
+      "viewport": {
+        "height": 900,
+        "width": 1280
+      }
+    }
+  ],
+  "priorRound9At320": {
+    "bodyMinWidth": "320px",
+    "overflow": 15,
+    "viewport": {
+      "height": 844,
+      "width": 320
+    }
+  },
+  "limits": "320px native15px overflow reproduces unchanged round9 body min-width320px with classic scrollbars. Scored390/1280 and extra800 have zero overflow. Full theme/focus/state matrix remains untested; first-open phone BODY focus residual remains."
+}

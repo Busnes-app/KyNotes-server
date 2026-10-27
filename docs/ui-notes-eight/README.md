@@ -1,12 +1,12 @@
 # KyNotes: scoped 8/10 progression
 
-The current stage is **12-after**, Council round9. The owner rejected the old
-adjacent columns at6/10. Notes now scores **Opus8.0 / Sol8.1**, both satisfied
-for that visual cohort. Appearance remains **Opus7.9 / Sol8.1**, reported
-separately; KyNotes stays active for a bounded phone Settings layout pass.
-Round9 matches both plus controls, aligns phone body text with its title and
-adds24px above the phone empty heading. Its599units/12full browsers and capture
-regressions passed. Gemini stays deferred until the current app pass clears.
+The current stage is **13-after**, Council round10. The owner rejected the old
+adjacent columns at6/10. Round9 Notes scores **Opus8.0 / Sol8.1**, both satisfied
+for that cohort. Appearance was **Opus7.9 / Sol8.1**, reported separately.
+Round10 changes only phone Settings links into an even responsive grid and
+balances the subtitle; native390 shows two rows of40px links and Appearance44px
+higher. All23 theme choices remain. Its599units/12full browsers and fresh capture
+regressions passed; independent round10 reviews are pending. Gemini stays deferred.
 Full9/10 and complete keyboard/focus acceptance remain unproven.
 
 Gemini’s raw **8.1/10, satisfied** is retained in `argon-round3.md/json`.
@@ -44,15 +44,15 @@ every supported, rejected and deferred item. No product changes followed the aud
 ## Capture provenance
 
 Original base: `34849c4d0766901fdf33556855373aa122666049`. Current captures
-are from head `edb5425bc19c0ef1571e11b6e36fd443484b7e38` plus the recorded source patch and
+are from head `ad52fda1ad5f06c0b4f71ef55deb50cfad9b5b10` plus the recorded source patch and
 explicit file hashes. Current served index SHA256:
-`a43a6013f184cae37029978da2501213e1a1c96bbdd427f52c32727499d52aba`.
+`764681485d4035a7b5b95e6253a418dcab1ff0315676588d8349fe0b166e4810`.
 
-`inventory-v12.json` contains240 PNGs /138 normalized unique across all stages. Current stage12
+`inventory-v13.json` contains262 PNGs /148 normalized unique across all stages. Current stage13
 has22captures/18unique:14Notes (including4empty and2desktop management views)
 and4Settings. Four workspace aliases are excluded from means. Stages05/06 were
 preliminary attempts whose reviews were interrupted before completion; earlier
-inputs and completed round4/5/6/7 reviews remain frozen. The comparison uses stage11 and stage12, including matched empty screens. Stage12 capture passed on its first attempt. Its9source-file pins now include CanvasPage.tsx. inventory-v9 added exact near-duplicate diff bounds and neutral rasterization labels; duplicate-metadata-audit.json records corrections to earlier caret wording without rewriting frozen inventories, images or scores.
+inputs and completed round4/5/6/7 reviews remain frozen. The comparison uses stage12 and stage13, including matched empty screens. Stage13 capture passed on its first attempt. Its9source-file pins now include CanvasPage.tsx. inventory-v9 added exact near-duplicate diff bounds and neutral rasterization labels; duplicate-metadata-audit.json records corrections to earlier caret wording without rewriting frozen inventories, images or scores.
 
 Chromium 156.0.8078.4, scale 1; desktop 1280×900 and phone 390×844; OS light/dark
 emulation, no saved theme choice, real disposable server, synthetic owner and
@@ -75,8 +75,8 @@ Sol round6 observed BODY focus on a first phone page opening from a no-open-note
 
 WebKit, the complete empty/loading/error matrix and every product theme/focus/role
 path are not certified by this pass. Shared palette probes do not certify all product
-overrides. Optional polish remains in phone Settings spacing, small metadata,
-light avatar separation and minor icon/divider consistency. These remain outside this bounded visual pass. Round9 verdicts are complete; phone Settings remains below8 for Opus.
+overrides. Optional polish remains in small metadata,
+light avatar separation and minor icon/divider consistency. These remain outside this bounded visual pass. Round10 phone Settings verdicts are pending.
 
 The design detector retains two narrow existing findings: the semantic 3px key/conflict
 warning rail and the legacy 4px user-colored section border overridden to 2px.
@@ -97,4 +97,6 @@ capture commands and isolation requirements. `checks.json` records the local che
 current-head CI and autonomous review are separate PR gates. No merge or deployment
 is authorized by this report.
 
-Historical inventory counts were corrected without changing any image or score; see [round9-evidence-audit.json](round9-evidence-audit.json). There are184 exact SHA groups and138 normalized representatives after exact and measured near links. Earlier inventories remain frozen.
+Historical inventory counts were corrected without changing any image or score; see [round9-evidence-audit.json](round9-evidence-audit.json). The corrected stage12 has184 exact SHA groups and138 normalized representatives; stage13 extends that record to262 images/148 representatives. Earlier inventories remain frozen.
+
+An extra native320px check reproduced15px horizontal overflow from the unchanged body min-width320px and classic scrollbar; the round9 fixture shows the same result. Scored390/1280 and the extra800px native check have zero overflow. This is not full small-device acceptance.

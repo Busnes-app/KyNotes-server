@@ -2,17 +2,17 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599 tests/47files on round9 source; /tmp/kynotes-alignment-r9-unit.log."
+    "detail": "599 tests/47files on round10 source; /tmp/kynotes-settings-r10-unit.log."
   },
   {
     "check": "Production build and TypeScript",
     "result": "pass",
-    "detail": "Round9 TS/build/exact embed pass; /tmp/kynotes-alignment-r9-build.log. Existing603kB BlockNote warning."
+    "detail": "Round10 TS/build/exact embed pass; /tmp/kynotes-settings-r10-build.log. Existing603kB BlockNote warning."
   },
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "12/12 fresh-server browsers, first attempt on round9 source; /tmp/kynotes-alignment-r9-browser.log."
+    "detail": "12/12 fresh-server browsers, first attempt on round10 source; /tmp/kynotes-settings-r10-browser.log."
   },
   {
     "check": "Stage07 single-pane capture and regressions",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Round9 staged tree40eecf04a440cf0b9f550e106f2c9a945e1a0344; two private clean archives, CGO_ENABLED=0, -trimpath, release0.0.0. Both SHA256c3018f48866b7a677905836056bb13d66af31afe8b73a8a91a6b286e1e63d3ca."
+    "detail": "Round10 staged tree155ee40d5d9ccedc0038983531b5baed9c0750da; two private clean archives, CGO_ENABLED=0, -trimpath, release0.0.0. Both SHA25671a7029b823f70e8e1e835c7f4feff5b3140435acef4ff5809af855753f6ff1c; /tmp/kynotes-settings-r10-repeatability.log."
   },
   {
     "check": "Required fuzz executions",
@@ -62,12 +62,12 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Current kynotes-alignment:r9 image,14-step probe/setup pass; /tmp/kynotes-alignment-r9-{docker,probe,setup}.log."
+    "detail": "Current kynotes-settings:r10 image,14-step probe/setup pass; /tmp/kynotes-settings-r10-{docker,probe,setup}.log."
   },
   {
     "check": "Design detector",
     "result": "2 existing documented exceptions",
-    "detail": "Round9 detector retains only existing semantic warning rail and overridden section-color border; alignment-round9-detector.json."
+    "detail": "Round10 detector retains only existing semantic warning rail and overridden section-color border; settings-round10-detector.json."
   },
   {
     "check": "Report page",
@@ -123,5 +123,15 @@
     "check": "Stage12 control matching/phone alignment capture and regressions",
     "result": "pass",
     "detail": "22captures/18unique, first attempt21.5s, fresh18112 fixture; /tmp/kynotes-alignment-r9-capture.log. Native390x844 body x17 versus title x16 (1px box border), padding16px0; desktop both plus controls40x40/radius8px with identical NavIcon paths and strong ink. No stored coordinates changed."
+  },
+  {
+    "check": "Stage13 phone Settings layout capture and regressions",
+    "result": "pass",
+    "detail": "22captures/18unique, first attempt26.3s, fresh18114 fixture; /tmp/kynotes-settings-r10-capture.log. Native390light/dark two40px link rows, all6anchors resolve,23radios,no savedchoice and Appearance44px higher.800/1280also overflow0;320baseline15pxoverflow retained and separately recorded in theme-checks/round10-native-settings.json."
+  },
+  {
+    "check": "Historical inventory correction",
+    "result": "pass",
+    "detail": "inventory-v12 unions10 missed exactSHA groups, removing24 excess representatives without changing any image or score. Corrected stage12:240PNGs/184SHA groups/138normalized groups. Stage13 inventory-v13:262PNGs/148normalized groups; no duplicate chains or false exact links. round9-evidence-audit.json corrects Opus exact-versus-normalized wording and parent repeatability tree typo."
   }
 ]

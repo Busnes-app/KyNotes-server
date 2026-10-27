@@ -198,5 +198,14 @@
     "owner": {
       "status": "Not scored"
     }
+  },
+  {
+    "round": 10,
+    "opus": {},
+    "sol": {},
+    "gemini": {},
+    "owner": {
+      "status": "Not scored"
+    }
   }
 ]

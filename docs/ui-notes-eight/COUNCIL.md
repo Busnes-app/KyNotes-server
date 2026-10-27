@@ -13,5 +13,6 @@ Raw reviewer verdicts; scores are not averaged across reviewers or cohorts. Owne
 | 7 | 7.8/10 | 8.2/10 | Deferred | Not scored |
 | 8 | 7.9/10 | 8.1/10 | Deferred | Not scored |
 | 9 | 8.0/10 | 8.1/10 | Pending advisory | Not scored |
+| 10 | Pending | Pending | Deferred | Not scored |
 
 *Gemini's raw 8.1 is retained. Its weights and several factual claims fail the audit; owner rejection supersedes the prior approvals. See gemini-audit.md and the workbook audit sheet.

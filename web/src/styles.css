@@ -529,6 +529,9 @@ body { color: var(--ink-strong); background: var(--bg); }
   .note-list .section-tabs { padding-inline: 0; }
   .preferences-layout { grid-template-areas: "heading" "nav" "content"; grid-template-rows: auto auto 1fr; }
   .preferences-layout > .settings-header { padding: 24px 16px 16px; }
+  .preferences-layout > .settings-header p { text-wrap: balance; }
   .preferences-layout > .settings-sidebar { padding-block: 16px; border-top: 1px solid var(--line); }
   .settings-nav { flex-wrap: wrap; overflow: visible; margin-top: 8px; }
+  .preferences-layout .settings-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+  .preferences-layout .settings-nav a { display: flex; align-items: center; justify-content: center; padding: 8px 4px; white-space: normal; text-align: center; }
 }
