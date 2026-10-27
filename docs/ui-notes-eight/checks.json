@@ -2,17 +2,17 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599tests/47files on final single-pane implementation, including explicit-selection wrapper; /tmp/kynotes-single-nav-unit-final.log"
+    "detail": "599 tests/47 files; /tmp/kynotes-first-notebook-unit.log."
   },
   {
     "check": "Production build and TypeScript",
     "result": "pass",
-    "detail": "npm run build --prefix web; exact regenerated embed; existing 603kB lazy BlockNote chunk size warning retained"
+    "detail": "npm run build --prefix web; rsync generated assets with deletion; diff -qr web/dist internal/web/dist clean. Existing 603kB lazy BlockNote warning."
   },
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "12/12 full fresh-server browser tests on final implementation; /tmp/kynotes-single-nav-browser-verified.log. Covers saved content, team keys, startup race, notebook management, keyboard disclosure and phone reachability."
+    "detail": "12/12 full fresh-server tests; /tmp/kynotes-first-notebook-browser.log. Final stage08 separately runs exact current capture driver with explicit creation-focus wait."
   },
   {
     "check": "Stage07 single-pane capture and regressions",
@@ -22,7 +22,7 @@
   {
     "check": "Go build / vet / format / embed",
     "result": "pass",
-    "detail": "go build ./...; go vet ./...; gofmt clean; go test ./internal/web; diff -qr web/dist internal/web/dist"
+    "detail": "go build; go vet ./...; go test ./internal/web; diff -qr web/dist internal/web/dist clean; no Go source changes."
   },
   {
     "check": "Go race suite",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Verified final-source treee9cd105a6896cd4fc35828ebae05e0612836353d; two clean private extractions, CGO_ENABLED=0 -trimpath release0.0.0; both binarySHA256 d15e35eceb80b338347561f3aad24f03578e71525e16cf832bdac4978afd8558. Product inputs unchanged afterward."
+    "detail": "Current stage08 product source in staged tree a5d5b228a05673c06ee59349b7ff50b259a713a8; two private clean git-archive builds, CGO_ENABLED=0 -trimpath release0.0.0. Identical SHA256 f899bddbf75e2dc615262ad1ee085b6657c6d14f7075989ebb77679e964a8be9. /tmp/kynotes-first-notebook-repeatability.log; later evidence-only metadata cannot affect binary."
   },
   {
     "check": "Required fuzz executions",
@@ -62,12 +62,12 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Final verified-source image build,14-step probe and setup passed; /tmp/kynotes-single-nav-{docker,probe,setup}-verified.log"
+    "detail": "Current-source kynotes-first-notebook:r5 built;14-step probe and apply-setup pass. /tmp/kynotes-first-notebook-{docker,probe,setup}.log. Initial probe invocation used unsupported docker:<name>; corrected to documented docker transport and fixed container name."
   },
   {
     "check": "Design detector",
-    "result": "2 documented exceptions",
-    "detail": "Semantic conflict/key-warning rail (3px) and user-colored section top border (legacy4px rule overridden to2px). No blanket suppression; raw detector.json retained"
+    "result": "pass on changed target; existing CSS exceptions retained",
+    "detail": "Current main.tsx detector returned []; /tmp/kynotes-first-notebook-detector.json. Existing CSS exceptions remain documented in detector.json."
   },
   {
     "check": "Report page",
@@ -82,7 +82,7 @@
   {
     "check": "Native T3 final Computer Use",
     "result": "pass, scoped",
-    "detail": "Final18104 fixture, signed-in owner. Native1280px: page listx0/editorx240 with management hidden; opening management gives sidebarx0/width240, hides page list and retains editorx240; zero horizontal overflow. Browser automation separately covers390x844 and keyboard/focus/save paths."
+    "detail": "Current served bundle on18105: desktop management x0,width240; pages hidden; editor x240; zero overflow. Work queue closes management and activeElement is Notebooks and account. Stage08 Chromium156 separately tests first-notebook creation and390px reachability. Native input tool required DOM input events for login; no source/security change."
   },
   {
     "check": "Existing browser runtime warnings",
@@ -93,5 +93,10 @@
     "check": "Gemini advisory audit",
     "result": "completed; raw rating nonconforming",
     "detail": "Raw8.1/satisfied preserved. Ten findings audited with source and native-browser evidence; false desktop-rail and inaccessible-footer claims rejected. Valid optional polish deferred. No product source changed; prior implementation checks remain applicable."
+  },
+  {
+    "check": "Stage08 first-notebook capture and regressions",
+    "result": "pass",
+    "detail": "22 captures/18 unique on fresh18106 fixture; /tmp/kynotes-first-notebook-capture-final.log. New notebook above phone fold in both themes, real creation, key/recovery guidance, one-pane geometry, immediate selection focus, held-save/reload and Work queue focus. Initial capture failed on a test focus race; explicit wait for completed navigation corrected it before any round5 delegation."
   }
 ]

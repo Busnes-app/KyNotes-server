@@ -11,6 +11,7 @@ test.use({ actionTimeout: 15_000 });
 test("notebook reading, phone page navigation and shared editor typography", async ({ browser }) => {
   const stage = process.env.KYNOTES_COUNCIL_STAGE;
   const round = process.env.KYNOTES_COUNCIL_ROUND ?? "02";
+  const councilRound = Number(process.env.KYNOTES_COUNCIL_REVIEW_ROUND ?? Number(round) - 1);
   const output = "../docs/ui-notes-eight/screenshots";
   const files: object[] = [];
   const admin = await person(browser, { viewport: { width: 1280, height: 900 } });
@@ -48,19 +49,24 @@ test("notebook reading, phone page navigation and shared editor typography", asy
         for (const [device, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
           await page.setViewportSize({ width, height });
           await page.emulateMedia({ colorScheme: theme });
+          if (stage !== "before") {
+            await expect(page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).toBeInViewport({ ratio: 1 });
+            await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
+            await expect(page.locator(".recovery-notice")).toBeVisible();
+          }
           await shot("empty", device, theme);
         }
       }
       await page.setViewportSize({ width: 1280, height: 900 });
     }
-    await openNotebooks(page);
-    await expect(page.getByRole("button", { name: "＋ New notebook" })).toBeEnabled();
     const existing = page.locator(".nav-item", { hasText: "Project Atlas" }).last();
     const reuse = await existing.count() > 0;
+    if (reuse || stage === "before") await openNotebooks(page);
     if (reuse) await existing.click();
-    else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
+    else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => (stage === "before" ? page.getByRole("button", { name: "＋ New notebook" }) : page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).click());
     await expect(page.locator(".workspace-title")).toHaveText("Project Atlas");
     await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
+    if (stage !== "before") await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
     if (stage !== "before") {
       const notice = page.locator(".recovery-notice");
       await notice.locator("summary").focus();
@@ -150,8 +156,8 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
       const diff = execFileSync("git", ["diff", "HEAD", "--", "src"]);
       const index = await (await page.request.get("/")).body();
-      const sourceFiles = Object.fromEntries(await Promise.all(["src/main.tsx", "src/styles.css", "src/NavIcon.tsx", "src/components/SectionTabs.tsx", "src/ky-ui/VERSION", "e2e/ui-council.e2e.ts", "package-lock.json"].map(async (file) => [file, createHash("sha256").update(await readFile(file)).digest("hex")])));
-      await writeFile(`${output}/${round}-${stage}-manifest.json`, JSON.stringify({ head, sourceDiffSha256: createHash("sha256").update(diff).digest("hex"), sourceFiles, servedIndexSha256: createHash("sha256").update(index).digest("hex"), stage, captured: new Date().toISOString(), browser: browser.version(), fixture: "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1", files }, null, 2) + "\n");
+      const sourceFiles = Object.fromEntries(await Promise.all(["src/main.tsx", "src/styles.css", "src/NavIcon.tsx", "src/components/SectionTabs.tsx", "src/ky-ui/VERSION", "e2e/ui-council.e2e.ts", "e2e/people.ts", "package-lock.json"].map(async (file) => [file, createHash("sha256").update(await readFile(file)).digest("hex")])));
+      await writeFile(`${output}/${round}-${stage}-manifest.json`, JSON.stringify({ head, councilRound, sourceDiffSha256: createHash("sha256").update(diff).digest("hex"), sourceFiles, servedIndexSha256: createHash("sha256").update(index).digest("hex"), stage, captured: new Date().toISOString(), browser: browser.version(), fixture: "real throwaway server; Project Atlas; four populated pages created through UI; synthetic owner; no saved theme choice; OS scheme emulated; scale 1", files }, null, 2) + "\n");
     }
     if (stage !== "before") {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -185,6 +191,11 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       await page.locator(".title-input").fill("Launch checklist");
       await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(page.locator(".sync-dot")).toHaveText("● Saved to server");
+      await openNotebooks(page);
+      await page.getByRole("button", { name: "Work queue", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
+      await expect(page.locator("#notebook-navigation")).toBeHidden();
     }
   } finally {
     await admin.page.context().close();

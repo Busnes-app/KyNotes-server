@@ -1490,14 +1490,14 @@ function Workspace({
     }
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
-  /** Null when the open page could not be flushed and stays open. */
-  /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
   async function chooseNotebook(container: Container) {
     if (await selectContainer(container)) {
       setShowNotebookNavigation(false);
       notebookNavigationRef.current?.focus();
     }
   }
+  /** Null when the open page could not be flushed and stays open. */
+  /** leaveQueue false: an automatic load (sign-in, reload) that must not close a work queue opened meanwhile. */
   async function selectContainer(container: Container, route?: Route, leaveQueue = true): Promise<Note[] | null> {
     // Every call supersedes the ones before it, a second load of the same notebook included.
     const load = loads.begin();
@@ -1587,6 +1587,7 @@ function Workspace({
   }
   async function openWorkQueue() {
     setShowNotebookNavigation(false);
+    notebookNavigationRef.current?.focus();
     setView("workspace");
     setQueueMode(true);
     setBusy(true);
@@ -3220,9 +3221,11 @@ function Workspace({
               <div className="empty-editor">
                 <h2>Your private desk.</h2>
                 <p>
-                  Select a note or create one. The server receives ciphertext
-                  only.
+                  {!selected && !queueMode ? "Start with a notebook to keep your notes together." : "Select a note or create one."} The server receives ciphertext only.
                 </p>
+                {!selected && !queueMode && (
+                  <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
+                )}
                 {selected && (
                   <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
                 )}
