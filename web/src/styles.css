@@ -459,7 +459,7 @@ body { color: var(--ink-strong); background: var(--bg); }
   .workspace { height: auto; min-height: calc(100dvh - 72px); align-content: start; grid-template-areas: "switcher" "nav" "pageswitcher" "pages" "page"; }
   .workspace > .editor { overflow: visible; min-height: 0; }
   .canvas-scroll { height: auto; min-height: 320px; }
-  .canvas-box .bn-editor { padding: 16px; }
+  .canvas-box .bn-editor { padding: 16px 0; }
   .workspace.has-open-page:not(.show-page-navigation) > .note-list { display: none; }
   .workspace.show-page-navigation > .note-list { max-height: none; overflow: visible; }
   .workspace.show-page-navigation > .editor { display: none; }
@@ -478,7 +478,7 @@ body { color: var(--ink-strong); background: var(--bg); }
 .secondary, .toast { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--line-strong); }
 .secondary { border-color: var(--ky-field-border); }
 ::placeholder { color: var(--ink); opacity: 1; }
-.section-tabs .section-add { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--ky-control-size); height: var(--ky-control-size); padding: 0; border-color: var(--ky-field-border); }
+.section-tabs .section-add { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--ky-control-size); height: var(--ky-control-size); padding: 0; border-color: var(--ky-field-border); border-radius: var(--ky-control-radius); }
 .secondary:hover:not(:disabled) { background: var(--panel-hover); }
 .toast { border-radius: var(--ky-control-radius); box-shadow: var(--ky-shadow-overlay); font-size: var(--ky-type-meta); }
 .section-label { text-transform: none; letter-spacing: normal; color: var(--ink); }
@@ -486,6 +486,7 @@ body { color: var(--ink-strong); background: var(--bg); }
 .workspace > .sidebar > .section-label:first-child, .workspace > .sidebar .sidebar-bottom > .section-label { margin-top: 0; }
 .note-list .list-header .section-label { color: var(--ink); }
 .nav-icon { color: var(--ink); flex: none; }
+.section-add .nav-icon, .list-actions .nav-icon { color: inherit; }
 .sync-dot { font: 500 var(--ky-type-meta) Space, system-ui, sans-serif; }
 .editor-meta .encrypted { color: var(--ink); }
 .section-tab-quick { border-top-color: transparent; }
@@ -509,13 +510,14 @@ body { color: var(--ink-strong); background: var(--bg); }
 .workspace > .sidebar .new-workspace:hover:not(:disabled) { background: var(--panel-hover); }
 .workspace > .sidebar .personal-create { margin-top: 16px; }
 .list-actions .note-search { min-height: var(--ky-control-size); }
-.list-actions .icon-button { width: var(--ky-control-size); height: var(--ky-control-size); flex: none; border-color: var(--ky-field-border); }
+.list-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--ky-control-size); height: var(--ky-control-size); padding: 0; flex: none; border-color: var(--ky-field-border); }
 .workspace > .note-list.no-notebook { padding-block: 16px; }
 .workspace .no-notebook .list-header h2.workspace-title { font-size: var(--ky-type-section); }
 .note-list.no-notebook .list-header { border-bottom: 0; padding-bottom: 0; }
 .conflict-banner { border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: var(--ky-control-radius); background: var(--panel); color: var(--ink-strong); line-height: 1.5; }
 .conflict-banner .secondary { display: inline-flex; align-items: center; min-height: var(--ky-control-size); margin-top: 8px; padding: 0 12px; }
 @media (max-width: 800px) {
+  .empty-editor { margin-top: 24px; }
   .notebook-navigation-toggle { min-height: var(--ky-control-size); padding: 0 16px; background: var(--panel); color: var(--ink-strong); border: 0; border-bottom: 1px solid var(--line); font-weight: 600; }
   .notebook-navigation-toggle, .page-navigation-toggle { min-height: 48px; padding: 8px 16px; background: var(--panel); color: var(--ink-strong); font-size: var(--ky-type-nav); font-weight: 600; }
   .notebook-navigation-toggle[aria-expanded="true"] > svg, .page-navigation-toggle[aria-expanded="true"] > svg { transform: rotate(180deg); }

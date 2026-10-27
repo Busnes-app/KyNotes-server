@@ -2952,7 +2952,7 @@ function Workspace({
                   aria-label="New page"
                   onClick={() => void newNote()}
                 >
-                  ＋
+                  <NavIcon name="plus" />
                 </button>
               </div>}
             </div>

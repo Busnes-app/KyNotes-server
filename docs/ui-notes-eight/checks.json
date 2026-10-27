@@ -2,17 +2,17 @@
   {
     "check": "Frontend units",
     "result": "pass",
-    "detail": "599 tests/47files on final round8 source; /tmp/kynotes-affordance-r8-unit-final.log."
+    "detail": "599 tests/47files on round9 source; /tmp/kynotes-alignment-r9-unit.log."
   },
   {
     "check": "Production build and TypeScript",
     "result": "pass",
-    "detail": "Final round8 TS/build/exact embed pass; /tmp/kynotes-affordance-r8-build-final.log. Existing603kBBlockNote warning."
+    "detail": "Round9 TS/build/exact embed pass; /tmp/kynotes-alignment-r9-build.log. Existing603kB BlockNote warning."
   },
   {
     "check": "Browser suite",
     "result": "pass",
-    "detail": "12/12 fresh-server browsers first attempt on final round8 source; /tmp/kynotes-affordance-r8-browser.log."
+    "detail": "12/12 fresh-server browsers, first attempt on round9 source; /tmp/kynotes-alignment-r9-browser.log."
   },
   {
     "check": "Stage07 single-pane capture and regressions",
@@ -32,7 +32,7 @@
   {
     "check": "Current-source release repeatability",
     "result": "pass",
-    "detail": "Round8 staged tree9327c94f64ffac83b5354708726364bd1b4df09b; two private clean archives,CGO_ENABLED=0,-trimpath,release0.0.0. BothSHA2564edf95b5bafa4b324967ff8d9ae1db3079deb9f1f1105c1d147c8510186db176; /tmp/kynotes-affordance-r8-repeatability.log. Later evidence/AGENTS metadata cannot affect binary."
+    "detail": "Round9 staged tree40eecf04a440cf0b9f550e106f2c9a5e1a0344; two private clean archives, CGO_ENABLED=0, -trimpath, release0.0.0. Both SHA256c3018f48866b7a677905836056bb13d66af31afe8b73a8a91a6b286e1e63d3ca."
   },
   {
     "check": "Required fuzz executions",
@@ -62,12 +62,12 @@
   {
     "check": "Docker final image / probe / apply-setup",
     "result": "pass",
-    "detail": "Current kynotes-affordance:r8 image,14step probe/setup pass; /tmp/kynotes-affordance-r8-{docker,probe,setup}.log."
+    "detail": "Current kynotes-alignment:r9 image,14-step probe/setup pass; /tmp/kynotes-alignment-r9-{docker,probe,setup}.log."
   },
   {
     "check": "Design detector",
     "result": "2 existing documented exceptions",
-    "detail": "Round8 changed-source detector only existing semantic warning rail and overridden section-color border; affordance-round8-detector.json."
+    "detail": "Round9 detector retains only existing semantic warning rail and overridden section-color border; alignment-round9-detector.json."
   },
   {
     "check": "Report page",
@@ -118,5 +118,10 @@
     "check": "Stage11 placeholder/affordance capture and regressions",
     "result": "pass",
     "detail": "22captures/18unique, first attempt22.5s on fresh18111; /tmp/kynotes-affordance-r8-capture.log. Source pins now include CanvasPage.tsx (9files) for the toolbar separator. Same fixtures,viewport/themes and save/focus/recovery checks."
+  },
+  {
+    "check": "Stage12 control matching/phone alignment capture and regressions",
+    "result": "pass",
+    "detail": "22captures/18unique, first attempt21.5s, fresh18112 fixture; /tmp/kynotes-alignment-r9-capture.log. Native390x844 body x17 versus title x16 (1px box border), padding16px0; desktop both plus controls40x40/radius8px with identical NavIcon paths and strong ink. No stored coordinates changed."
   }
 ]

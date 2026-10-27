@@ -1,0 +1,22 @@
+{
+  "round": 8,
+  "opus_final": 7.9,
+  "opus_blind": 8.0,
+  "sol_final": 8.1,
+  "decision": "Continue bounded round9; Gemini deferred.",
+  "findings": [
+    {
+      "id": "B8-1",
+      "disposition": "accepted",
+      "evidence": "Source and native button inspection confirm section radius12 vs page8 and different glyphs before correction.",
+      "response": "Same NavIcon plus, inherited strong ink, shared control radius and centered40x40 buttons."
+    },
+    {
+      "id": "B8-2",
+      "disposition": "accepted",
+      "evidence": "Round8 native title x16 vs inline body x33; screenshots show empty title/status proximity.",
+      "response": "Phone-only horizontal editor padding removed;24px margin above empty editor. Desktop freeform geometry and stored coordinates unchanged."
+    }
+  ],
+  "limits": "Keep prior first-open phone focus residual; no full keyboard/focus acceptance. No score projected from fixes."
+}
