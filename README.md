@@ -87,3 +87,21 @@ restore separately before relying on them.
 KyNotes Server is released under the [MIT License](LICENSE.txt).
 
 [![OctoCounts](https://api.octocounts.com/badge/Busnes-app/KyNotes-server/branch/master)](https://octocounts.com/github/Busnes-app/KyNotes-server/tree/master)
+
+## Documentation
+
+- [Standalone installation](INSTALL.md) — set up a new independent installation.
+- [Deployment](docs/DEPLOYMENT.md) — run the container behind an HTTPS reverse proxy.
+- [Suite installer](docs/INSTALLER.md) — what KyQuickStart's KyNotes manifest must declare.
+- [SSO](docs/SSO.md) — SSO sessions, logout and directory provisioning.
+- [Agent access (MCP)](docs/MCP.md) — give an AI agent access to one notebook.
+- [Notebook export](docs/EXPORT.md) — export a notebook as a zip.
+- [Restore](docs/RESTORE.md) — restore KyNotes from a recovery capsule.
+- [Logging](LOGGING.md) — the structured, privacy-safe log format.
+- [Key strength](docs/STRONG-CRYPTO.md) — key sizes KyNotes accepts and the Go TLS profile.
+- [Verifying releases](docs/VERIFYING-RELEASES.md) — check a release image's signature and source.
+- [Assurance case](docs/ASSURANCE-CASE.md) — threat model, trust boundaries, and why the security requirements are met.
+- [Design](DESIGN.md) — how the zero-knowledge note service is built.
+- [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
+- [Security policy](SECURITY.md) — how to report a vulnerability privately.
+- [Release notes](CHANGELOG.md) — what changed in each release, and its upgrade impact.
