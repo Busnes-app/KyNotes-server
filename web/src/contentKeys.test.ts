@@ -81,7 +81,7 @@ describe("content keys", () => {
   it("every read of the queue in a session keeps only this account's entries", () => {
     for (const [file, text] of Object.entries(all)) {
       for (const line of text.split("\n").filter((value) => /\bpendingSaves\(\)/.test(value) && !/export async function/.test(value)))
-        expect(line, file).toMatch(/\.filter\(\(item\) => item\.owner === (?:auth\.user\.id|userID)\)|unsentEdits\(.*, userID\);$/);
+        expect(line, file).toMatch(/^.*(?:\.filter\(\(item\) => item\.owner === (?:auth\.user\.id|userID)\).*|unsentEdits\(.*, userID\);)$/);
     }
   });
 });
