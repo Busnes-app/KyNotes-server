@@ -57,7 +57,7 @@ docker buildx imagetools inspect ghcr.io/busnes-app/kynotes-server@$d --format '
 
 The Dockerfile builds `kynotes-server` with `-trimpath` and `CGO_ENABLED=0`, and the build context
 has no `.git`, so the same commit, Go version and version string give the same binary on any
-machine and in any directory. CI checks this on every push (`release binary is repeatable`). This
+machine and in any directory. CI checks this on every push to `master` and pull request (`release binary is repeatable`). This
 was checked byte for byte against the 0.4.3 image; earlier releases were not checked.
 
 ```bash

@@ -122,7 +122,7 @@ deactivation until they expire. Each is in
   `TestCSRFTokenFromAnotherSessionIsRefused` and the route-level CSRF and step-up tests in
   `internal/httpapi`; SECURITY.md requires attack-path tests for security changes. CI runs the
   Go suite under the race detector, the web unit tests, and Playwright browser regressions on
-  every push and pull request.
+  every push to `master` and pull request.
   `TestSFTPTransportPolicy` uses real protocol peers: pinned RSA-1024/2047 and SHA-1-only
   key exchange are refused before password authentication, failed uploads stay pending,
   and RSA-2048/Ed25519 peers still mirror and recover the original ciphertext.
