@@ -2,6 +2,7 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15926/badge)](https://www.bestpractices.dev/projects/15926)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Busnes-app/KyNotes-server/badge)](https://scorecard.dev/viewer/?uri=github.com/Busnes-app/KyNotes-server)
+[![OctoCounts](https://api.octocounts.com/badge/Busnes-app/KyNotes-server/branch/master)](https://octocounts.com/github/Busnes-app/KyNotes-server/tree/master)
 
 KyNotes is a browser-based notebook for encrypted text, handwriting, attachments and tasks, with shared team notebooks. Content is decrypted in the browser; an administrator manages accounts and the service rather than reading people’s notes.
 
