@@ -593,7 +593,7 @@ function Login({
                 marginBottom: "20px",
               }}
             >
-              Sign In with KySignOn SSO
+              Continue with Single Sign On
             </a>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "16px 0", color: "var(--ink)" }}>
               <div style={{ flex: 1, height: "1px", background: "var(--line)" }} />
