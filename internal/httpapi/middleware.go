@@ -21,7 +21,8 @@ func MiddlewareWithProxies(log *logging.Logger, max int64, proxies []*net.IPNet)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id := ""
 			if ip := remoteIP(r); trusted(ip, proxies) {
-				id = r.Header.Get("X-Request-Id")
+				// Strip CR/LF: the ID is logged and echoed back.
+				id = strings.NewReplacer("\n", "", "\r", "").Replace(r.Header.Get("X-Request-Id"))
 			}
 			if id == "" {
 				id, _ = ids.Mint("req")
