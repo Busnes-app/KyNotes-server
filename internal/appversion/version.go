@@ -18,7 +18,8 @@ var line string
 // -ldflags "-X github.com/Busnes-app/kynotes-server/internal/appversion.release=X.Y.Z[.N]".
 var release string
 
-// String is the version reported by --version, backup manifests, setup handovers and the MCP server.
+// String is the version reported by --version, backup manifests, setup handovers, the MCP server
+// and the signed-in session (the web About window).
 func String() string {
 	if release != "" {
 		return release

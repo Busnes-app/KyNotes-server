@@ -73,6 +73,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Shared browser UI
 
+- The workspace sidebar, the admin sidebar and the sign-in card end with KyPost's copyright line (`web/src/components/LicenseFooter.tsx`). It opens the About window: name, "Developed by Busnes.app", MIT notice and `web/src/mit.txt`, a byte copy of `LICENSE.txt` (`LicenseFooter.test.tsx` fails when they differ). Signed in, the window shows the version from `GET /api/v1/auth/session` (`version`, `appversion.String()`); signed out it shows none, and the session route answers 401 (`TestAccountRoutesServeBothKinds`).
 - `web/src/ky-ui/` is generated from Busnes-app/ky-ui, pinned by `VERSION` file hashes. Change shared colors, navigation states and storage helpers upstream, then run its consumer sync with an explicit worktree map; do not hand-edit vendored files.
 - Products own layout, routes, saved choice keys and named palettes. Busnes aliases consume shared tokens; mark primary navigation with `ky-nav-item` while preserving current-page semantics.
 - Verify vendored files with `node web/src/ky-ui/check-vendor.mjs` from this document's directory. Builds/CI run that check. Rendered evidence and capture limitations are recorded in the repository-root `UI-VERIFICATION.md`.

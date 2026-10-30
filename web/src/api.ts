@@ -6,7 +6,7 @@ import type { LoginUpgrade } from "./loginUpgrade";
 import type { Legacy } from "./pages";
 export type AccountKind = "user" | "admin";
 export type User = { id: string; role: string; username?: string; accountKind: AccountKind };
-export type Session = { sso?: boolean; user: User; passwordChangeRequired?: boolean; expiresAt: string; hardExpiresAt: string };
+export type Session = { version?: string; sso?: boolean; user: User; passwordChangeRequired?: boolean; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
 export type Invitation = { id: string; token: string; expiresAt: string };

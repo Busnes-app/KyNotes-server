@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
@@ -185,10 +186,20 @@ func TestAccountRoutesServeBothKinds(t *testing.T) {
 	admin := p.addAdmin(t, "server-admin")
 	for _, c := range []*pairClient{p, admin.pairClient} {
 		code, body := status(t, c.do(t, http.MethodGet, "/api/v1/auth/session", nil, false, false))
-		if code != http.StatusOK {
+		var s struct {
+			Version string `json:"version"`
+		}
+		if code != http.StatusOK || json.Unmarshal([]byte(body), &s) != nil || s.Version != appversion.String() {
 			t.Fatalf("session=%d %s", code, body)
 		}
 		c.stepUp(t)
+	}
+	anon, err := http.Get(p.url + "/api/v1/auth/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := status(t, anon); code != http.StatusUnauthorized || strings.Contains(body, appversion.String()) {
+		t.Fatalf("anonymous session=%d %s", code, body)
 	}
 	if code, body := status(t, admin.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false)); code != http.StatusOK {
 		t.Fatalf("admin users=%d %s", code, body)

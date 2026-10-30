@@ -1,4 +1,5 @@
 import { AdminConsole } from "./components/AdminConsole";
+import { LicenseFooter } from "./components/LicenseFooter";
 import { setupProblem } from "./setup";
 import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
@@ -634,6 +635,7 @@ function Login({
           Your password stays in this browser. It derives your sign-in verifier and the key
           that protects your encryption key, and is never stored.
         </p>
+        <LicenseFooter signedIn={false} />
       </section>
     </main>
   );
@@ -2875,6 +2877,7 @@ function Workspace({
                 <span className="avatar" aria-hidden="true">{(auth.username || "Account").slice(0, 1).toUpperCase()}</span>
                 <span>{auth.username || auth.user.id.slice(0, 12)}</span>
               </div>
+              <LicenseFooter signedIn />
             </div>
           </aside>
           <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer}>

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
@@ -246,7 +247,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		auth.RefreshCSRFCookie(w, r, cfg.Server.DevInsecureCookies)
-		writeJSON(w, map[string]any{"sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
+		// The About window's version badge: signed-in callers only.
+		writeJSON(w, map[string]any{"version": appversion.String(), "sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	}))
 	mux.Handle("GET /api/v1/auth/session", handleSession)
 	mux.Handle("GET /api/auth/session", handleSession)
