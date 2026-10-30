@@ -20,6 +20,7 @@ import {
 import { deriveAuthSecret, randomLoginSalt } from "../crypto";
 import { AdminBackup } from "./AdminBackup";
 import { ConfirmPassword } from "./ConfirmPassword";
+import { LicenseFooter } from "./LicenseFooter";
 
 export const ADMIN_ACCOUNT_NOTE = "This is an administrator account. It manages KyNotes and cannot open notes. Sign in with your everyday account to write.";
 
@@ -53,6 +54,7 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
         <div className="section-label">ADMIN</div>
         <p className="config-muted">{username}</p>
         <button className="quiet" onClick={onLogout}>Sign out</button>
+        <LicenseFooter signedIn />
       </aside>
       <div className="settings-content">
         <div className="settings-header">
