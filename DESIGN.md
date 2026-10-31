@@ -62,6 +62,10 @@ clients are designed as later phases unless required by the client teams.
   section that holds legacy unordered pages renumbers every page in it: a one-time burst of
   writes, which other open devices may see as one conflict and from which the server can
   infer that those objects share a list.
+  The page list shows each page's title, the first lines of its decrypted text and the time its
+  current version was saved. Title and text come from the payloads the client already decrypted;
+  the time is the server's own `created_at` for that version, returned as `X-Kynotes-Saved-At` on
+  object reads. No snippet, title or plaintext is sent to or stored by the server.
 - A **Team** is a membership and key-management container. Teams contain
   shared projects and shared notes.
 Each container has its own encryption key and explicit device sync selection.

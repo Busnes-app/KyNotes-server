@@ -180,9 +180,9 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var cid, digest string
+		var cid, digest, savedAt string
 		var version, gen, containerSeq int64
-		if e := db.QueryRow(`SELECT o.container_id,v.blob_digest,v.version,v.key_generation,c.change_seq FROM objects o JOIN containers c ON c.id=o.container_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? JOIN object_versions v ON v.object_id=o.id AND v.version=CASE WHEN ?='' THEN o.current_version ELSE ? END WHERE o.id=? AND m.revoked_at=''`, uid, r.URL.Query().Get("version"), r.URL.Query().Get("version"), oid).Scan(&cid, &digest, &version, &gen, &containerSeq); e != nil {
+		if e := db.QueryRow(`SELECT o.container_id,v.blob_digest,v.version,v.key_generation,c.change_seq,v.created_at FROM objects o JOIN containers c ON c.id=o.container_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? JOIN object_versions v ON v.object_id=o.id AND v.version=CASE WHEN ?='' THEN o.current_version ELSE ? END WHERE o.id=? AND m.revoked_at=''`, uid, r.URL.Query().Get("version"), r.URL.Query().Get("version"), oid).Scan(&cid, &digest, &version, &gen, &containerSeq, &savedAt); e != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -205,6 +205,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		w.Header().Set("X-Kynotes-Key-Generation", strconv.FormatInt(gen, 10))
 		w.Header().Set("X-Kynotes-Digest", digest)
 		w.Header().Set("X-Kynotes-Change-Seq", strconv.FormatInt(containerSeq, 10))
+		// When this version was saved (server clock, RFC 3339): the page list's date.
+		w.Header().Set("X-Kynotes-Saved-At", savedAt)
 		_, _ = io.Copy(w, f)
 	})))
 	mux.Handle("PUT /api/v1/objects/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
