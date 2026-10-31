@@ -175,7 +175,7 @@ function CreateUser({ username: admin, onCreated }: { username: string; onCreate
               <option value="admin">Administrator</option>
             </select>
           </label>
-          <p className="dialog-hint">They choose their own password the first time they sign in.</p>
+          <p className="dialog-hint">They choose their own password at first sign-in.</p>
           <div className="dialog-actions">
             <button type="button" className="secondary" onClick={() => dialog.current?.close()}>Cancel</button>
             <button disabled={busy}>{busy ? "Creating…" : "Create user"}</button>

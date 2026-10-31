@@ -1,4 +1,5 @@
-@font-face { font-family: Space; src: url("/fonts/Space_Grotesk/SpaceGrotesk-VariableFont_wght.ttf"); }
+/* The variable face covers 300-700; without the range the browser renders every weight alike (synthesis is off). */
+@font-face { font-family: Space; src: url("/fonts/Space_Grotesk/SpaceGrotesk-VariableFont_wght.ttf"); font-weight: 300 700; }
 @font-face { font-family: Mono; src: url("/fonts/IBM_Plex_Mono/IBMPlexMono-Regular.ttf"); }
 
 /* Busnes.app fallback before the stored palette is applied; tokens.css and theme.ts own the live values. */
@@ -158,8 +159,8 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 .note-row-wrap:hover { background: var(--panel-hover); }
 .note-row { display: grid; gap: 1px; flex: 1; min-width: 0; padding: 6px 12px 6px 20px; background: transparent; color: var(--ink); text-align: left; border-radius: var(--ky-control-radius); }
 /* Pages sit under their section: indented, two lines, the open one bold. */
-.note-row strong { color: var(--ink-strong); font-size: var(--ky-type-meta); font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-row[aria-current] strong, .note-row-wrap.selected .note-row strong { font-weight: 700; }
+.note-row strong { color: var(--ink); font-size: var(--ky-type-meta); font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-row[aria-current] strong, .note-row-wrap.selected .note-row strong { color: var(--ink-strong); font-weight: 700; }
 .note-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.4; }
 .note-row[draggable="true"] { cursor: grab; }
 .page-section { font-style: normal; color: var(--accent); }
@@ -190,7 +191,8 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 .section-empty { padding: 6px 10px; color: var(--ink); font-size: var(--ky-type-meta); }
 
 /* ---------- The open page ---------- */
-.editor { display: flex; flex-direction: column; min-width: 0; min-height: 100%; padding: 24px clamp(20px, 3vw, 48px) 48px; background: var(--panel); }
+/* The open page sits on the content canvas; only its writing area is a panel, as the Appearance cards are. */
+.editor { display: flex; flex-direction: column; min-width: 0; min-height: 100%; padding: 24px clamp(20px, 3vw, 48px) 48px; }
 .workspace-notices { display: grid; gap: 8px; }
 .workspace-notices:not(:empty) { margin-bottom: 16px; }
 .workspace-notices .workspace-kind { margin: 0; }
@@ -209,7 +211,7 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 .page-section-control { position: relative; min-width: 0; margin: 2px 2px 6px; }
 .page-section-control select { appearance: none; width: 100%; min-height: 36px; padding: 6px 32px 6px 10px; border: 1px solid var(--ky-field-border); background: var(--panel); color: var(--ink-strong); font-size: var(--ky-type-nav); }
 .page-section-control > svg { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
-.page-canvas { display: flex; flex-direction: column; }
+.page-canvas { display: flex; flex-direction: column; margin-top: 16px; padding: 0 16px 16px; border: 1px solid var(--line); border-radius: var(--ky-radius, 10px); background: var(--panel); }
 .empty-editor { display: grid; place-items: start center; align-content: center; flex: 1; gap: 12px; text-align: center; color: var(--ink); }
 .empty-editor h2 { margin: 0; color: var(--ink-strong); font-size: var(--ky-type-title); }
 .empty-editor p { max-width: 34ch; margin: 0; line-height: 1.6; }
@@ -408,9 +410,10 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
   .nav-menu-toggle { display: inline-flex; color: var(--ink-strong); }
   .app-nav-brand { width: auto; margin: 0; }
   .app-nav-panel { display: none; }
-  .app-nav.nav-open .app-nav-panel { display: flex; position: fixed; top: var(--app-bar); left: 0; bottom: 0; z-index: 31; width: min(20rem, 88vw); overflow-y: auto; padding: 8px 12px 0; border-right: 1px solid var(--line); background: var(--sidebar-start); box-shadow: var(--ky-shadow-overlay); }
+  .app-nav.nav-open .app-nav-panel { display: flex; position: fixed; top: var(--app-bar); left: 0; bottom: 0; z-index: 31; width: min(20rem, 88vw); overflow-y: auto; padding: 8px 12px 24px; border-right: 1px solid var(--line); background: var(--sidebar-start); box-shadow: var(--ky-shadow-overlay); }
   /* ky-ui underlines the current item on narrow screens for horizontal bars; this drawer is vertical. */
   .app-nav-panel [class].ky-nav-item[aria-current="page"] { box-shadow: inset 3px 0 var(--accent); }
+  .app-nav-panel .app-nav-foot { position: static; margin-top: 16px; }
   .page-head-actions { flex-wrap: wrap; }
   .page-head-actions > .recovery-notice { order: -1; flex-basis: 100%; }
   .page-head-actions > .recovery-notice details { flex: 1; }

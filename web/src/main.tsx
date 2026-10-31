@@ -2682,7 +2682,7 @@ function Workspace({
   // The phone drawer opens on the open page, so its siblings are in reach.
   useEffect(() => {
     if (!showNotebookNavigation) return;
-    const frame = requestAnimationFrame(() => document.querySelector(".app-nav-panel .note-row[aria-current]")?.scrollIntoView({ block: "center" }));
+    const frame = requestAnimationFrame(() => document.querySelector(".app-nav-panel .note-row[aria-current]")?.scrollIntoView({ block: "nearest" }));
     return () => cancelAnimationFrame(frame);
   }, [showNotebookNavigation]);
   // Security-relevant, so always shown until dismissed for this session; the detail opens over the page.
