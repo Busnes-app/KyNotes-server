@@ -35,6 +35,13 @@ export function parseBackupStatus(value: unknown): BackupStatus {
     receipt, blobCount: number(value.blob_count), blobBytes: number(value.blob_bytes), allowPrivate: value.allow_private_recovery,
   };
 }
+// A schedule only runs with a pinned key and a destination; otherwise say what it waits for.
+export function scheduleNote(s: BackupStatus): string {
+  if (!s.intervalSeconds) return "Manual only";
+  if (!s.keyID) return "Waiting for recovery key";
+  if (!s.paired && !s.localDirectory) return "Waiting for a destination";
+  return s.nextRun ? `Next ${new Date(s.nextRun).toLocaleString()}` : "Next run not scheduled";
+}
 export async function backupStatus(): Promise<BackupStatus> { return parseBackupStatus(await request<unknown>("/api/v1/admin/backup/status")); }
 export function backupAction(action: "pin-key" | "pair-remote" | "unpair" | "schedule", body: unknown = {}): Promise<unknown> {
   return request<unknown>(`/api/v1/admin/backup/${action}`, { method: "POST", body: JSON.stringify(body) });

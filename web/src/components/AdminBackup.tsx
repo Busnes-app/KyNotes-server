@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { backupAction, backupStatus, downloadCapsule, runBackup, runDrill, runMirror, type BackupStatus } from "../backup";
+import { backupAction, backupStatus, downloadCapsule, runBackup, runDrill, runMirror, scheduleNote, type BackupStatus } from "../backup";
 import { withStepUp } from "../stepup";
 
 export function AdminBackup({ username }: { username: string }) {
@@ -28,7 +28,7 @@ export function AdminBackup({ username }: { username: string }) {
         <div><h3>KyRecovery</h3><p>{status.paired ? status.remoteURL : "Not paired"}</p>{status.receipt && <><p>Receipt: {status.receipt.id}</p><p>{status.receipt.at}</p><details><summary>Receipt digest</summary><p className="backup-key">{status.receipt.digest}</p></details></>}</div>
         <div><h3>Local copies</h3><p>{status.localDirectory || "No local directory configured"}</p><p>{status.localCopies} retained</p>{status.localError && <p role="alert">Local directory unavailable.</p>}</div>
         <div><h3>Ciphertext blobs</h3><p>{status.mirror.configured ? status.mirror.target : "No mirror configured"}</p><p>{status.mirror.configured ? `${status.mirror.pending} awaiting upload` : "Configure KYNOTES_BLOB_TARGET to protect note and attachment content."}</p>{status.mirror.last && <p>Last mirror: {status.mirror.last.uploaded} uploaded, {status.mirror.last.skipped} already recorded, {status.mirror.last.failed} failed ({status.mirror.last.missing} missing).</p>}</div>
-        <div><h3>Schedule</h3><p>{status.intervalSeconds ? `Every ${status.intervalSeconds / 60} minutes` : "Off"}</p><p>Next: {status.nextRun ? new Date(status.nextRun).toLocaleString() : "Not scheduled"}</p><p>Last attempt: {status.lastAttempt || "None"} {status.lastResult}</p></div>
+        <div><h3>Schedule</h3><p>{status.intervalSeconds ? `Every ${status.intervalSeconds / 60} minutes` : "Off"}</p><p>{scheduleNote(status)}</p><p>Last attempt: {status.lastAttempt || "None"} {status.lastResult}</p></div>
       </div>
       {!status.keyID && <p role="status">Pair with KyRecovery or pin the suite public key by hand to enable backups.</p>}
       {status.keyID && !status.paired && !status.localDirectory && <p role="status">The key is pinned, but there is no destination. Pair KyRecovery or configure KYNOTES_BACKUP_DIR.</p>}
