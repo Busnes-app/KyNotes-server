@@ -212,9 +212,6 @@ h2.pane-title { margin: 0; min-width: 0; overflow: hidden; color: var(--ink-stro
 .title-input:focus-visible { outline-offset: 4px; }
 .page-head-actions { display: flex; align-items: center; gap: 8px; margin-inline-start: auto; }
 .save-state { display: grid; justify-items: end; margin: 0 4px 0 0; line-height: 1.35; }
-.sync-dot { color: var(--success, #267442); font-size: var(--ky-type-meta); font-weight: 600; white-space: nowrap; }
-.sync-dot.sync-dirty, .sync-dot.sync-syncing { color: var(--ink-strong); }
-.sync-dot.sync-attention { color: var(--danger); }
 .save-detail { color: var(--ink); font-size: 12px; white-space: nowrap; }
 .save-button { min-height: var(--ky-control-size); padding: 0 14px; font-size: var(--ky-type-nav); }
 .page-menu { min-width: 240px; }
@@ -362,7 +359,7 @@ h2.pane-title { margin: 0; min-width: 0; overflow: hidden; color: var(--ink-stro
 .status-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--ky-space-3); margin: 0; }
 .status-list div { padding: var(--ky-space-3); border: 1px solid var(--line); border-radius: var(--ky-radius, 10px); }
 .status-list dt { color: var(--ink); font-size: var(--ky-type-meta); }
-.status-list dd { margin: 4px 0 0; font-size: var(--ky-type-section); font-weight: 600; }
+.status-list dd { margin: 6px 0 0; }
 .data-table { width: 100%; border-collapse: collapse; font-size: var(--ky-type-nav); font-variant-numeric: tabular-nums; }
 .data-table th, .data-table td { height: 48px; padding: 0 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
 .data-table thead th { height: 36px; color: var(--ink); font-size: var(--ky-type-meta); font-weight: 600; border-bottom-color: var(--line-strong); }
@@ -370,10 +367,6 @@ h2.pane-title { margin: 0; min-width: 0; overflow: hidden; color: var(--ink-stro
 .data-table tbody td { color: var(--ink); }
 .data-table tbody tr:hover { background: var(--panel-hover); }
 .data-table .row-actions { width: 48px; padding: 0 4px; text-align: right; }
-.status-badge { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-strong); }
-.status-badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
-.status-badge.status-off { color: var(--ink); }
-.status-badge.status-off::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
 .admin-panel { max-width: 48rem; }
 .admin-panel > p { max-width: 70ch; line-height: 1.5; }
 .admin-panel > button { display: block; min-height: var(--ky-control-size); margin-top: 12px; padding: 0 16px; font-size: var(--ky-type-nav); }

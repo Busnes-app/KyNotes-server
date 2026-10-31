@@ -101,7 +101,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
         await page.keyboard.press("Enter");
       }
       await page.getByRole("button", { name: "Save", exact: true }).click();
-      await expect(page.getByText("● Saved to server", { exact: true })).toBeVisible();
+      await expect(page.locator(".save-state .ky-status")).toHaveText("Saved to server");
     }
     if (reuse) await page.locator(".note-row", { hasText: "Launch checklist" }).click();
     await expect(page.locator(".title-input")).toHaveValue("Launch checklist");
@@ -207,10 +207,10 @@ test("notebook reading, phone page navigation and shared editor typography", asy
         await page.keyboard.press("Enter");
         await expect(page.getByRole("textbox", { name: "Page title" })).toBeFocused();
         await expect(page.getByRole("textbox", { name: "Page title" })).toBeInViewport({ ratio: 1 });
-        await expect(page.locator(".sync-dot")).toHaveText("● Unsaved changes");
+        await expect(page.locator(".save-state .ky-status")).toHaveText("Unsaved changes");
         await expect.poll(() => pending).toBe(true);
         release();
-        await expect(page.locator(".sync-dot")).toHaveText("● Saved to server");
+        await expect(page.locator(".save-state .ky-status")).toHaveText("Saved to server");
         await page.reload();
         await expect(page.locator(".title-input")).toHaveValue("Launch checklist edited");
       } finally {
@@ -219,7 +219,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       }
       await page.locator(".title-input").fill("Launch checklist");
       await page.getByRole("button", { name: "Save", exact: true }).click();
-      await expect(page.locator(".sync-dot")).toHaveText("● Saved to server");
+      await expect(page.locator(".save-state .ky-status")).toHaveText("Saved to server");
       await openNotebooks(page);
       await page.getByRole("button", { name: "Work queue", exact: true }).focus();
       await page.keyboard.press("Enter");
