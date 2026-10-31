@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
-import { OWNER, addToTeam, adminConsole, approve, confirmAdmin, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, vaultOf, withDialog, type Person, openNotebooks } from "./people";
+import { OWNER, addToTeam, adminConsole, adminSection, approve, backToNotes, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, userRow, vaultOf, withDialog, type Person, openNotebooks } from "./people";
 import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
@@ -41,10 +41,10 @@ const RESET_DONE = "Your encryption key was reset. Team owners share their noteb
 const ADMIN_RESET = "Password reset. All existing sessions and paired device credentials were revoked. The account keeps its encryption key: after changing the temporary password, the user gets it back from a browser that holds it or with their recovery code (an account linked to KySignOn gets no password copy back). With neither, they can reset it themselves, and their personal notebooks are lost. If a browser holding the key was lost or stolen, ask the user to reset their encryption key in Settings: this reset does not cut that browser off.";
 /** On the administrator console: resets username's password to temporary (needs the users step-up). */
 async function resetPassword(admin: Person, username: string, temporary: string) {
-  await confirmAdmin(admin.page, "users");
-  const row = admin.page.locator(".admin-user", { has: admin.page.locator("strong", { hasText: new RegExp(`^${username}$`) }) });
+  await adminSection(admin.page, "Users");
+  await userRow(admin.page, username).getByRole("button", { name: `Actions for ${username}` }).click();
   admin.expected.push({ type: "prompt", text: `New temporary password for ${username}`, answer: temporary });
-  await withDialog(admin, { type: "alert", text: ADMIN_RESET }, () => row.getByRole("button", { name: "Reset password" }).click());
+  await withDialog(admin, { type: "alert", text: ADMIN_RESET }, () => admin.page.getByRole("button", { name: "Reset password" }).click());
 }
 const CODE_FORMAT = /^([0-9A-HJKMNP-TV-Z]{4}-){6}[0-9A-HJKMNP-TV-Z]{4}$/;
 
@@ -125,7 +125,7 @@ async function resetOwnKey(who: Person, password: string) {
   expect(steps.slice(-2)).toEqual(["POST /api/v1/auth/step-up", "PUT /api/v1/me/identity"]);
   expect(steps.filter((step) => step.startsWith("PUT"))).toHaveLength(1);
   await expect(page.locator("#recovery")).toContainText("You saved a recovery code on");
-  await page.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(page);
   return code;
 }
 
@@ -173,7 +173,7 @@ const objectSave = (page: Page) => page.waitForResponse((response) => response.r
 
 async function showPages(page: Page) {
   const navigation = page.getByRole("button", { name: "Notebooks and account", exact: true });
-  if (await navigation.getAttribute("aria-expanded") === "true") await navigation.click();
+  if (await navigation.isVisible() && await navigation.getAttribute("aria-expanded") === "true") await navigation.click();
 }
 
 async function writePage(page: Page, title: string, comment: string) {
@@ -184,6 +184,9 @@ async function writePage(page: Page, title: string, comment: string) {
   const titled = objectSave(page);
   await page.locator(".title-input").fill(title);
   await titled;
+  // Comments fold away while a page has none.
+  const panel = page.locator("details.comments");
+  if (await panel.getAttribute("open") === null) await panel.locator("summary").click();
   await page.getByPlaceholder("Add a comment…").fill(comment);
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText(comment)).toBeVisible();
@@ -244,7 +247,7 @@ async function ownSettings(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click();
   const code = async (label: RegExp) => (await page.locator("p", { hasText: label }).locator("code").first().textContent())!.trim();
   const values = { userId: await code(/Your user ID/), fingerprint: await code(/Your encryption key fingerprint/) };
-  await page.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(page);
   return values;
 }
 
@@ -254,7 +257,7 @@ async function inviteFrom(owner: Person, userId: string, carries: RegExp) {
   const shown = { link: "", message: "" };
   owner.expected.push({ type: "prompt", text: /^User ID to invite/, answer: userId });
   await withDialog(owner, { type: "prompt", text: new RegExp(`${carries.source}.*Send this link to the person you invited`, "s"), seen: (value, message) => Object.assign(shown, { link: value, message }) }, () =>
-    owner.page.getByRole("button", { name: /Add person/ }).click());
+    owner.page.getByRole("button", { name: "Notebook options" }).click().then(() => owner.page.getByRole("button", { name: "Add person" }).click()));
   return shown;
 }
 
@@ -497,7 +500,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   const back = await inviteFrom(owner, newcomerOwn.userId, /The invitation carries no keys: you cannot see this person's encryption key yet/);
   await owner.page.goto("about:blank");
   // Pasted into the tab already running KyNotes: no reload, the token leaves the address bar, the banner offers it.
-  await expect(newcomer.page.locator(".workspace-title")).toBeVisible();
+  await expect(newcomer.page.locator(".app-nav")).toBeVisible();
   await newcomer.page.evaluate(() => { (window as unknown as { sameTab: boolean }).sameTab = true; });
   await newcomer.page.evaluate((link) => { location.href = link; }, back.link);
   await expect(newcomer.page).not.toHaveURL(/invite/);
@@ -548,7 +551,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   owner.expected.push({ type: "confirm", text: new RegExp(`^The encryption key of ${newcomerOwn.userId} · newcomer changed since this browser last saw it\\.[\\s\\S]*${renewed.fingerprint} \\(was ${newcomerOwn.fingerprint}\\)`), decline: true });
   await openNotebooks(owner.page);
   await withDialog(owner, { type: "prompt", text: /^The invitation carries no keys: you did not confirm this person's new encryption key\. Send this link/ }, () =>
-    owner.page.getByRole("button", { name: /Add person/ }).click());
+    owner.page.getByRole("button", { name: "Notebook options" }).click().then(() => owner.page.getByRole("button", { name: "Add person" }).click()));
 
   // 4. The owner re-trusts the new key in Settings, outside any wrap prompt (opened on the second team, where no wrap targets the newcomer).
   await openTeam(owner.page, SECOND, second);
@@ -602,7 +605,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   expect(JSON.parse(readFileSync(await (await download).path()).toString())).toEqual([expect.objectContaining({ notebook: lost, content: expect.objectContaining({ title: "Stranded edit" }) })]);
   await withDialog(newcomer, { type: "confirm", text: /^Delete 1 unsent edit/ }, () => card.getByRole("button", { name: "Discard unsent edits" }).click());
   await expect(card).toHaveCount(0);
-  await newcomer.page.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(newcomer.page);
 
   // 6. A click on the notebook the app is still opening on its own leaves it loaded (one load wins).
   // The automatic load's last request (members, after its page list is in) is held until the click has started a second load.
@@ -708,7 +711,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
 
   // 2. Leaving the newcomer's screen mid-attempt (unmount) cancels it too.
   id = await startLink(newcomer);
-  await newcomer.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(newcomer);
   await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
   expect(await openRequests(approver)).toEqual([]);
   await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
@@ -728,7 +731,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await approver.locator("#link-devices .pin-row", { hasText: linkCode(id) }).getByRole("button", { name: "Approve…" }).click();
   await expect(newcomer.locator(".check-code")).toBeVisible({ timeout: 30_000 });
   await expect(typedCode(approver)).toBeVisible({ timeout: 30_000 });
-  await approver.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(approver);
   await expect(newcomer.getByText(LINK_ENDED)).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
   await approver.getByRole("button", { name: "Settings" }).click();
@@ -782,7 +785,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   // Collect delivered the bundle once and deleted the request: a second collect is refused.
   expect(await collectStatus(newcomer, id)).toBe(404);
   expect(await openRequests(approver)).toEqual([]);
-  await approver.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(approver);
 
   // 7. The linked browser opens the team's keys: it reads what the owner wrote; both show one fingerprint.
   await openTeam(newcomer, TEAM, cid);
@@ -1026,7 +1029,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   expect(linkWrites).toEqual([]);
   expect(restored.page.url()).not.toContain(code);
   expect(await storageHolds(restored.page, code)).toBe(false);
-  await restored.page.getByRole("button", { name: "← Workspace" }).click();
+  await backToNotes(restored.page);
   await openTeam(restored.page, KEYED, nid);
   await readPage(restored.page, WAITED, ["keyed comment"]);
   await openTeam(restored.page, TEAM, cid);

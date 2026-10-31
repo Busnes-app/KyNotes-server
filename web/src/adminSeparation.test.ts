@@ -34,7 +34,7 @@ describe("administrator accounts (sub-project A)", () => {
 
   it("teams are created for an everyday owner picked from active everyday users", () => {
     expect(adminConsole).toContain('users.filter((entry) => entry.status === "active" && entry.accountKind === "user")');
-    expect(adminConsole).toContain("await createAdminTeam(owner)");
+    expect(adminConsole).toContain("withStepUp(username, () => createAdminTeam(owner))");
     expect(adminConsole).not.toMatch(/prompt\("Team name"/);
   });
 });

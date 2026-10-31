@@ -58,7 +58,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           await page.emulateMedia({ colorScheme: theme });
           if (stage !== "before") {
             await expect(page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).toBeInViewport({ ratio: 1 });
-            await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
+            await expect(page.locator(".notebook-navigation-toggle")).toHaveAttribute("aria-expanded", "false");
             await expect(page.locator(".recovery-notice")).toBeVisible();
           }
           await shot("empty", device, theme);
@@ -72,8 +72,8 @@ test("notebook reading, phone page navigation and shared editor typography", asy
     if (reuse) await existing.click();
     else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => (hasNotebooks || stage === "before" ? page.getByRole("button", { name: "＋ New notebook" }) : page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).click());
     await expect(page.locator(".workspace-title")).toHaveText("Project Atlas");
-    await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
-    if (stage !== "before") await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
+    await expect(page.locator(".notebook-navigation-toggle")).toHaveAttribute("aria-expanded", "false");
+    if (stage !== "before") await expect(page.getByRole("navigation", { name: "Notebooks" }).getByRole("button", { name: "Project Atlas" })).toHaveAttribute("aria-current", "page");
     if (stage !== "before") {
       const notice = page.locator(".recovery-notice");
       await notice.locator("summary").focus();
@@ -125,16 +125,20 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           expect(overflow).toBe(0);
         }
         if (device === "desktop" && stage !== "before") {
-          await expect(page.locator("#notebook-navigation")).toBeHidden();
+          // One left navigation region: notebooks, then the open notebook's sections and pages, beside the page.
+          await expect(page.locator(".notebook-navigation-toggle")).toBeHidden();
+          const nav = await page.locator(".app-nav").boundingBox();
+          const notebooks = await page.locator("#notebook-navigation").boundingBox();
           const list = await page.locator("#page-navigation").boundingBox();
           const editor = await page.locator(".editor").boundingBox();
-          expect(list!.x).toBe(0);
-          expect(list!.width).toBe(240);
-          expect(editor!.x).toBe(240);
-          await openNotebooks(page);
-          await expect(page.locator("#page-navigation")).toBeHidden();
+          expect(nav!.x).toBe(0);
+          expect(notebooks!.x).toBeGreaterThanOrEqual(0);
+          expect(list!.y).toBeGreaterThan(notebooks!.y);
+          expect(list!.x + list!.width).toBeLessThanOrEqual(nav!.width);
+          expect(editor!.x).toBeGreaterThanOrEqual(nav!.width);
+          await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeInViewport();
+          await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
           await shot("navigation", device, theme);
-          await page.getByRole("button", { name: "Notebooks and account" }).click();
         }
         if (device === "mobile") {
           if (stage !== "before") {
@@ -149,12 +153,12 @@ test("notebook reading, phone page navigation and shared editor typography", asy
             await expect(page.getByRole("textbox", { name: "Page title" })).toBeFocused();
             await expect(page.getByRole("textbox", { name: "Page title" })).toBeInViewport({ ratio: 1 });
           } else await shot("pages", device, theme);
-          await page.getByRole("button", { name: "Notebooks and account" }).click();
+          await page.locator(".notebook-navigation-toggle").click();
           await expect(page.locator("#notebook-navigation")).toBeVisible();
           await shot("navigation", device, theme);
         }
-        await page.getByRole("button", { name: "Settings", exact: true }).click();
-        await page.getByRole("heading", { name: "Appearance", exact: true }).scrollIntoViewIfNeeded();
+        await page.getByRole("button", { name: "Appearance", exact: true }).click();
+        await expect(page.getByRole("heading", { level: 1, name: "Appearance" })).toBeVisible();
         await shot("appearance", device, theme);
       }
     }
@@ -201,7 +205,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       await openNotebooks(page);
       await page.getByRole("button", { name: "Work queue", exact: true }).focus();
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
+      await expect(page.locator(".notebook-navigation-toggle")).toBeFocused();
       await expect(page.locator("#notebook-navigation")).toBeHidden();
     }
   } finally {

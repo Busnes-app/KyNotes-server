@@ -60,8 +60,8 @@ export function SectionTabs(props: Props) {
             />
           ))}
         </div>
-        <button className="quiet" disabled={busy || index === 0} onClick={() => { close(id); props.onMove(kind, entry.id, index - 1); }}>Move left</button>
-        <button className="quiet" disabled={busy || index === count - 1} onClick={() => { close(id); props.onMove(kind, entry.id, index + 1); }}>Move right</button>
+        <button className="quiet" disabled={busy || index === 0} onClick={() => { close(id); props.onMove(kind, entry.id, index - 1); }}>Move up</button>
+        <button className="quiet" disabled={busy || index === count - 1} onClick={() => { close(id); props.onMove(kind, entry.id, index + 1); }}>Move down</button>
         <select
           aria-label="Move into group"
           value=""

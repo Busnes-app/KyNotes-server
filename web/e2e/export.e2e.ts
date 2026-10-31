@@ -73,7 +73,7 @@ test("a notebook exports as Markdown and attachments, decrypted only in the brow
     page.on("request", record);
     const download = page.waitForEvent("download");
     await openNotebooks(page);
-    await withDialog(owner, { type: "confirm", text: `${EXPORT_WARNING}\n\nExport "${NOTEBOOK}"?` }, () => page.getByRole("button", { name: "Export notebook", exact: true }).click());
+    await withDialog(owner, { type: "confirm", text: `${EXPORT_WARNING}\n\nExport "${NOTEBOOK}"?` }, async () => { await page.getByRole("button", { name: "Notebook options" }).click(); await page.getByRole("button", { name: "Export notebook", exact: true }).click(); });
     const file = await download;
     await expect(page.getByText("Exported 1 pages.")).toBeVisible();
     page.off("request", record);

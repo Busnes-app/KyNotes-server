@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, CHOOSE_PASSWORD, OWNER, UNNAMED_TEAM, addToTeam, adminConsole, approve, createTeamFor, createUser, nameTeam, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks } from "./people";
+import { ADMIN, CHOOSE_PASSWORD, OWNER, UNNAMED_TEAM, addToTeam, adminConsole, adminSection, approve, createTeamFor, createUser, nameTeam, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks } from "./people";
 
 const TEMPORARY = "temporary sep battery staple";
 const ALICE_OWN = "alice own sep battery staple";
@@ -35,11 +35,12 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
   try {
     // 1. The administrator console: no workspace, no notes, nothing kept in the browser.
     await adminConsole(admin.page);
+    await adminSection(admin.page, "Server");
     await expect(admin.page.getByText(ADMIN_ACCOUNT_NOTE)).toBeVisible();
     await expect(admin.page.getByRole("button", { name: "Settings", exact: true })).toHaveCount(0);
     expect(await apiStatus(admin, "/api/v1/containers")).toEqual({ status: 403, code: "admin_account" });
     expect(await vaultRows(admin)).toBe(0);
-    await shoot("admin-separation", admin.page, "console", "admin", admin.page.getByRole("heading", { name: "Administration" }));
+    await shoot("admin-separation", admin.page, "console", "admin", admin.page.getByRole("heading", { level: 1, name: "Server" }));
 
     // 2. The everyday owner from setup reaches notes and no administration.
     await signIn(owner.page, OWNER.username, OWNER.password);
@@ -52,7 +53,7 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     await alice.page.goto("/");
     await alice.page.getByLabel("Username").fill("sep-alice");
     await alice.page.getByLabel("Password", { exact: true }).fill(TEMPORARY);
-    await alice.page.getByRole("button", { name: "Unlock KyNotes" }).click();
+    await alice.page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(alice.page.getByText(CHOOSE_PASSWORD)).toBeVisible();
     expect(await apiStatus(alice, "/api/v1/containers")).toEqual({ status: 409, code: "password_change_required" });
     await shoot("admin-separation", alice.page, "choose-password", "everyday", alice.page.getByText(CHOOSE_PASSWORD));
@@ -105,7 +106,7 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
 
     // 6. A second administrator account also changes its temporary password first, then gets the console.
     await signInAndChoose(ops.page, "sep-ops", TEMPORARY, OPS_OWN);
-    await expect(ops.page.getByRole("heading", { name: "Administration" })).toBeVisible();
+    await expect(ops.page.getByRole("navigation", { name: "Administration sections" })).toBeVisible();
     expect(await vaultRows(ops)).toBe(0);
     expect(ADMIN.username).not.toBe(OWNER.username);
   } finally {

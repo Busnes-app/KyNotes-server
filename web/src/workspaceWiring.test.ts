@@ -102,7 +102,8 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).toMatch(/const FORGET_DEVICE = "[^"]*enter your recovery code[^"]*KySignOn have no password copy/);
     const adminConsole = import.meta.glob<string>("./components/AdminConsole.tsx", { query: "?raw", import: "default", eager: true })["./components/AdminConsole.tsx"];
     expect(adminConsole).toContain("All existing sessions and paired device credentials were revoked.");
-    expect(adminConsole).toMatch(/alert\("Password reset\.[^"]*keeps its encryption key[^"]*recovery code[^"]*KySignOn gets no password copy back/);
+    expect(adminConsole).toMatch(/RESET_DONE = "Password reset\.[^"]*keeps its encryption key[^"]*recovery code[^"]*KySignOn gets no password copy back/);
+    expect(adminConsole).toContain("alert(RESET_DONE)");
     expect(main).not.toMatch(/encryption identity was deleted|an administrator reset removes it/);
   });
 
@@ -134,8 +135,8 @@ describe("recovery code wiring (P5 Task 8)", () => {
 
   it("shows member management and team notebooks only to stewards, from the server's member list (M1)", () => {
     expect(main).toContain("const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;");
-    expect(main).toContain("{selected?.id === container.id && teamSteward && (");
-    expect(main).toContain("{teamSteward && (\n                  <button className=\"new-workspace\" onClick={() => void invite()}>");
+    expect(main).toContain('{selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}');
+    expect(main).toContain('{selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}');
     expect(main).toContain("{teamSteward && member.userId !== auth.user.id && (");
   });
 

@@ -12,7 +12,7 @@ describe("license footer", () => {
   it("shows the copyright line that opens the About window", () => {
     const html = renderToStaticMarkup(<LicenseFooter signedIn={false} />);
     expect(html).toContain(`© ${new Date().getFullYear()} · MIT License`);
-    expect(html).toContain('class="license-link"');
+    expect(html).toContain('class="ky-license-link"');
     expect(html).toContain("<dialog");
   });
 
@@ -23,6 +23,6 @@ describe("license footer", () => {
     expect(withVersion).toContain("Developed by Busnes.app");
     expect(withVersion).toContain("Licensed under the MIT License");
     expect(withVersion).toContain("Permission is hereby granted");
-    expect(renderToStaticMarkup(<LicenseWindow version="" onClose={() => undefined} />)).not.toContain("license-version-badge");
+    expect(renderToStaticMarkup(<LicenseWindow version="" onClose={() => undefined} />)).not.toContain("ky-about-version");
   });
 });

@@ -1,5 +1,6 @@
 import { AdminConsole } from "./components/AdminConsole";
-import { LicenseFooter } from "./components/LicenseFooter";
+import { LicenseFooter, UserBlock } from "./components/LicenseFooter";
+import { Appearance, ThemeSwitcher } from "./components/Appearance";
 import { setupProblem } from "./setup";
 import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
@@ -102,7 +103,7 @@ import {
 import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type Legacy, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
 import { migrateNotebook, type LoadedObject } from "./migrate";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
-import { NavIcon } from "./NavIcon";
+import { AppMark, NavIcon } from "./NavIcon";
 import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload, unreadableNotice } from "./notes";
 import { loadGate } from "./loadGate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
@@ -157,13 +158,7 @@ async function settleIdentity(username: string, userID: string, keys: LoginKeys,
     await settlePasswordIdentity(identityAPI, store, userID, keys, fromLogin);
   } catch { /* the workspace shows what this browser can do instead */ }
 }
-import {
-  applyStoredTheme,
-  applyTheme,
-  getStoredTheme,
-  THEME_OPTIONS,
-  type Theme,
-} from "./theme";
+import { applyStoredTheme } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
@@ -173,6 +168,7 @@ import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "
 import "./styles.css";
 import "./ky-ui/tokens.css";
 import "./ky-ui/navigation.css";
+import "./ky-ui/shell.css";
 import "./ky-ui/appearance.css";
 import "./ky-ui/appearance-themes.css";
 
@@ -333,20 +329,19 @@ function SharedNote() {
   }, []);
   if (state.error)
     return (
-      <main className="center">
-        <section className="auth-card">
-          <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
+      <AuthScreen tagline="Private notes on your own server.">
+        <div className="ky-auth-card">
           <h2>Encrypted link unavailable</h2>
           <p className="error">{state.error}</p>
-        </section>
-      </main>
+        </div>
+      </AuthScreen>
     );
   if (!state.note)
     return <main className="center">Decrypting encrypted note…</main>;
   return (
-    <main className="auth-page">
+    <main className="shared-page">
       <article className="shared-note">
-        <div className="eyebrow">ENCRYPTED KYNOTES LINK</div>
+        <p className="shared-note-source">Shared from KyNotes · encrypted link</p>
         <h1>{state.note.title}</h1>
         <div className="shared-note-body">{documentText(state.note.body)}</div>
       </article>
@@ -448,195 +443,97 @@ function Login({
 
   if (setupRequired) {
     return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
-          <div className="eyebrow">INITIAL SETUP</div>
-          <h1>Set up KyNotes</h1>
-          <p className="lede">
-            Welcome to KyNotes. Create two accounts: one to run the server and one to write notes with.
-          </p>
-          <form onSubmit={submitSetup}>
-            <fieldset>
-              <legend>Administrator login</legend>
-              <p className="hint">Manages users, teams, sign-on and backups. It cannot open notes.</p>
-              <label>
-                Administrator username
-                <input
-                  autoComplete="username"
-                  value={adminName}
-                  onChange={(event) => setAdminName(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Administrator password
-                <input type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Confirm administrator password
-                <input type="password"
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  required
-                />
-              </label>
-            </fieldset>
-            <fieldset>
-              <legend>Everyday login</legend>
-              <p className="hint">The account you write notes with.</p>
-              <label>
-                Everyday username
-                <input
-                  autoComplete="off"
-                  value={everydayName}
-                  onChange={(event) => setEverydayName(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Everyday password
-                <input type="password"
-                  autoComplete="new-password"
-                  value={everydayPassword}
-                  onChange={(event) => setEverydayPassword(event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Confirm everyday password
-                <input type="password"
-                  autoComplete="new-password"
-                  value={everydayConfirm}
-                  onChange={(event) => setEverydayConfirm(event.target.value)}
-                  required
-                />
-              </label>
-            </fieldset>
-            {error && <p className="error">{error}</p>}
-            <button disabled={busy}>
-              {busy ? "Initializing…" : "Initialize KyNotes"}
-            </button>
-          </form>
-          <p className="hint">
-            Each password stays in this browser. It derives that account's sign-in verifier and is
-            never sent to or stored on the server.
-          </p>
-        </section>
-      </main>
+      <AuthScreen tagline="Private notes on your own server." help="Each password stays in this browser. It derives that account's sign-in verifier and is never sent to or stored on the server.">
+        <form className="ky-auth-card setup-form" onSubmit={submitSetup}>
+          <h2>Set up KyNotes</h2>
+          <p className="setup-lede">Create two accounts: one to run the server and one to write notes with.</p>
+          <fieldset>
+            <legend>Administrator login</legend>
+            <p className="setup-hint">Manages users, teams, sign-on and backups. It cannot open notes.</p>
+            <label>
+              Administrator username
+              <input autoComplete="username" value={adminName} onChange={(event) => setAdminName(event.target.value)} required />
+            </label>
+            <label>
+              Administrator password
+              <input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+            </label>
+            <label>
+              Confirm administrator password
+              <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Everyday login</legend>
+            <p className="setup-hint">The account you write notes with.</p>
+            <label>
+              Everyday username
+              <input autoComplete="off" value={everydayName} onChange={(event) => setEverydayName(event.target.value)} required />
+            </label>
+            <label>
+              Everyday password
+              <input type="password" autoComplete="new-password" value={everydayPassword} onChange={(event) => setEverydayPassword(event.target.value)} required />
+            </label>
+            <label>
+              Confirm everyday password
+              <input type="password" autoComplete="new-password" value={everydayConfirm} onChange={(event) => setEverydayConfirm(event.target.value)} required />
+            </label>
+          </fieldset>
+          {error && <p className="error" role="alert">{error}</p>}
+          <button className="ky-auth-submit" disabled={busy}>{busy ? "Initializing…" : "Initialize KyNotes"}</button>
+        </form>
+      </AuthScreen>
     );
   }
   return (
-    <main className="auth-page">
-      <section className="auth-card">
-          <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
-        <div className="eyebrow">PRIVATE NOTES</div>
-        <h1>Keep the thread.</h1>
-        <p className="lede">
-          Your notes are encrypted in this browser before they leave it.
-        </p>
-        {sessionUser ? (
-          <div
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--accent)",
-              borderRadius: "4px",
-              padding: "12px 14px",
-              marginBottom: "18px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <div>
-              <div style={{ fontSize: "11px", textTransform: "uppercase", color: "var(--accent)", letterSpacing: ".08em", fontWeight: 600 }}>
-                Signed in
-              </div>
-              <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--ink-strong)" }}>
-                {sessionUser.username || sessionUser.id}
-              </div>
-              <div style={{ fontSize: "12px", color: "var(--ink)", marginTop: "4px" }}>
-                Enter your password to keep using KyNotes in this browser.
-              </div>
-            </div>
-            {onClearSession && (
-              <button
-                type="button"
-                className="secondary small"
-                onClick={onClearSession}
-                style={{ fontSize: "11px", padding: "4px 8px", whiteSpace: "nowrap" }}
-              >
-                Sign out
-              </button>
-            )}
-          </div>
-        ) : sso?.enabled ? (
-          <div>
-            <a
-              href="/api/v1/auth/oidc/login"
-              style={{
-                display: "block",
-                textAlign: "center",
-                padding: "13px 18px",
-                background: "transparent",
-                color: "var(--ink-strong)",
-                border: "1px solid var(--accent)",
-                boxShadow: "0 0 12px var(--glow)",
-                borderRadius: "3px",
-                textDecoration: "none",
-                fontWeight: 600,
-                marginBottom: "20px",
-              }}
-            >
-              Continue with Single Sign On
-            </a>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "16px 0", color: "var(--ink)" }}>
-              <div style={{ flex: 1, height: "1px", background: "var(--line)" }} />
-              <span style={{ font: "11px Mono, monospace", textTransform: "uppercase", letterSpacing: ".1em" }}>or password</span>
-              <div style={{ flex: 1, height: "1px", background: "var(--line)" }} />
-            </div>
-          </div>
-        ) : null}
+    <AuthScreen tagline="Private notes on your own server." help="Your notes are encrypted in this browser before they leave it, and your password never leaves it.">
+      <div className="ky-auth-card">
+        {sessionUser && (
+          <p className="auth-session" role="status">
+            Signed in as <strong>{sessionUser.username || sessionUser.id}</strong>. Enter your password to keep using KyNotes in this browser.
+            {onClearSession && <button type="button" className="ky-auth-link" onClick={onClearSession}>Sign out</button>}
+          </p>
+        )}
         <form onSubmit={submit}>
           {!sessionUser && (
-            <label>
-              Username
-              <input
-                autoComplete="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                required
-              />
-            </label>
+            <div className="ky-auth-field">
+              <label htmlFor="login-username">Username</label>
+              <input id="login-username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(event) => setUsername(event.target.value)} required />
+            </div>
           )}
-          <label>
-            Password
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              autoFocus={!!sessionUser}
-            />
-          </label>
-          {error && <p className="error">{error}</p>}
-          <button disabled={busy}>
-            {busy ? "Unlocking…" : "Unlock KyNotes"}
-          </button>
+          <div className="ky-auth-field">
+            <label htmlFor="login-password">Password</label>
+            <input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required autoFocus={!!sessionUser} />
+          </div>
+          {error && <p className="error" role="alert">{error}</p>}
+          <button className="ky-auth-submit" disabled={busy}><NavIcon name="signin" />{busy ? "Signing in…" : "Sign in"}</button>
         </form>
-        <p className="hint">
-          Your password stays in this browser. It derives your sign-in verifier and the key
-          that protects your encryption key, and is never stored.
-        </p>
+        {!sessionUser && sso?.enabled && (
+          <>
+            <hr className="ky-auth-divider" />
+            <a className="ky-auth-sso" href="/api/v1/auth/oidc/login">Continue with single sign-on</a>
+          </>
+        )}
+      </div>
+    </AuthScreen>
+  );
+}
+
+/** The suite sign-in frame (ky-ui shell): theme picker, mark, name, one card, the help line and the licence line. */
+function AuthScreen({ tagline, help, children }: { tagline: string; help?: string; children: React.ReactNode }) {
+  return (
+    <main className="ky-auth">
+      <div className="ky-auth-theme"><ThemeSwitcher /></div>
+      <div className="ky-auth-body">
+        <div className="ky-auth-brand">
+          <AppMark size={56} />
+          <h1>KyNotes</h1>
+          <p>{tagline}</p>
+        </div>
+        {children}
+        {help && <p className="ky-auth-help">{help}</p>}
         <LicenseFooter signedIn={false} />
-      </section>
+      </div>
     </main>
   );
 }
@@ -708,6 +605,13 @@ function Workspace({
   }, [selectedNote?.id]);
   const [commentsForNote, setCommentsForNote] = useState<PlainComment[]>([]);
   const [attachmentsForNote, setAttachmentsForNote] = useState<PlainAttachment[]>([]);
+  // The page's comment and attachment panels open when they hold something and fold away when empty.
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const hasComments = commentsForNote.length > 0;
+  const hasAttachments = attachmentsForNote.length > 0;
+  useEffect(() => setCommentsOpen(hasComments), [selectedNote?.id, hasComments]);
+  useEffect(() => setAttachmentsOpen(hasAttachments), [selectedNote?.id, hasAttachments]);
   const [attachmentSources, setAttachmentSources] = useState<Record<string, string>>({});
   // Object URLs resolveFileUrl made for the open page's editor, revoked when the page closes.
   const resolvedURLs = useRef<string[]>([]);
@@ -1051,7 +955,7 @@ function Workspace({
   // The page a conflict recovery is rewriting; it stays read-only until the run ends.
   const [recovering, setRecovering] = useState<string | null>(null);
   const recoveringRef = useRef(false);
-  const [view, setView] = useState<"workspace" | "settings">("workspace");
+  const [view, setView] = useState<"workspace" | "settings" | "appearance">("workspace");
   const [queueMode, setQueueMode] = useState(false);
   const [loadingContainer, setLoadingContainer] = useState(false);
   const loadingContainerID = useRef<string | undefined>(undefined);
@@ -1493,6 +1397,13 @@ function Workspace({
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
   async function chooseNotebook(container: Container) {
+    // Back from Settings or Appearance to the open notebook: nothing to reload.
+    const back = view !== "workspace" && selected?.id === container.id && !queueMode;
+    setView("workspace");
+    if (back) {
+      setShowNotebookNavigation(false);
+      return;
+    }
     if (await selectContainer(container)) {
       setShowNotebookNavigation(false);
       notebookNavigationRef.current?.focus();
@@ -2735,186 +2646,99 @@ function Workspace({
     }
   }
   const personal = items.filter((item) => item.kind !== "team" && !item.teamId);
-  const personalWorkspaces = personal;
   const teams = items.filter((item) => item.kind === "team");
   const teamWorkspaces = (teamID: string) => items.filter((item) => item.teamId === teamID);
+  const inWorkspace = view === "workspace";
+  // A notebook is the current page only in the workspace; Settings and Appearance take aria-current there.
+  const notebookItem = (container: Container, icon: "notebook" | "team", nested = false) => {
+    const current = inWorkspace && !queueMode && selected?.id === container.id;
+    return (
+      <button
+        className={`ky-nav-item nav-item${nested ? " nested-nav-item" : ""}${current ? " selected" : ""}`}
+        aria-current={current ? "page" : undefined}
+        data-open={selected?.id === container.id ? "true" : undefined}
+        key={container.id}
+        onClick={() => void chooseNotebook(container)}
+      >
+        <NavIcon name={icon} />
+        <span>{nameOf(container)}</span>
+      </button>
+    );
+  };
+  const closeMenu = (id: string) => document.getElementById(id)?.hidePopover();
+  const saveStatus = dirty ? "Unsaved changes" : syncStatus === "syncing" ? "Syncing…" : syncStatus === "local" ? "Saved locally" : syncStatus === "attention" ? "Needs attention" : "Saved to server";
+  const saveDetail = selectedNote && [
+    autosaving ? "Autosaving…" : syncStatus === "local" ? "Encrypted, waiting to sync" : syncStatus !== "attention" && lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "",
+    selectedNote.version ? `Version ${selectedNote.version}` : "Draft",
+  ].filter(Boolean).join(" · ");
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <img src="/app-icon.png" width={29} height={29} alt="" />
+    <main className={`app-shell workspace${showNotebookNavigation ? " show-notebook-navigation" : ""}${showPageNavigation ? " show-page-navigation" : ""}${selectedNote && inWorkspace ? " has-open-page" : ""}${queueMode ? " queue-mode" : ""}${inWorkspace ? "" : " other-view"}`}>
+      <aside className="app-nav" aria-label="Navigation">
+        {/* The brand goes back to the notes from Settings or Appearance, reloading nothing. */}
+        <button type="button" className="app-nav-brand" onClick={() => setView("workspace")}>
+          <AppMark size={28} />
           <span>KyNotes</span>
-        </div>
-        <div className="top-actions">
-          {view === "workspace" && <span className={`sync-dot sync-${syncStatus}`}>
-            ● {dirty ? "Unsaved changes" : syncStatus === "syncing" ? "Syncing…" : syncStatus === "local" ? "Saved locally" : syncStatus === "attention" ? "Needs attention" : "Saved to server"}
-          </span>}
-          {selectedNote && view === "workspace" && (
-            <button
-              className="save-button secondary"
-              disabled={busy}
-              onClick={() => void save(selectedNote)}
-            >
-              {busy ? "Saving…" : "Save"}
-            </button>
+        </button>
+        <button ref={notebookNavigationRef} type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}><span>Notebooks and account</span><NavIcon name="chevron" /></button>
+        <nav id="notebook-navigation" className="sidebar" aria-label="Notebooks">
+          <button
+            className={`ky-nav-item nav-item${inWorkspace && queueMode ? " selected" : ""}`}
+            aria-current={inWorkspace && queueMode ? "page" : undefined}
+            disabled={busy}
+            onClick={() => void openWorkQueue()}
+          >
+            <NavIcon name="work" />
+            <span>Work queue</span>
+          </button>
+          <div className="section-label">Notebooks</div>
+          {personal.map((container) => notebookItem(container, "notebook"))}
+          {teams.length > 0 && <div className="section-label team-label">Team notebooks</div>}
+          {teams.map((container) => (
+            <React.Fragment key={container.id}>
+              {notebookItem(container, "team")}
+              {teamWorkspaces(container.id).map((workspace) => notebookItem(workspace, "notebook", true))}
+            </React.Fragment>
+          ))}
+          <button className="new-workspace personal-create" aria-label="＋ New notebook" disabled={busy} onClick={() => void newWorkspace()}>
+            <NavIcon name="plus" /> New notebook
+          </button>
+          {selected?.kind === "team" && membersForTeam.length > 0 && (
+            <div className="member-list">
+              <div className="section-label">People in {nameOf(selected)}</div>
+              {membersForTeam.map((member) => (
+                <div className="member-row" key={member.userId}>
+                  <span>
+                    {displayName(member.username, member.userId)} · {member.pendingRole ? `${member.pendingRole} once approved` : member.role}
+                    {keyMembers?.containerID === selected.id && keyMembers.status[member.userId] && ` · ${KEY_STATUS[keyMembers.status[member.userId]]}`}
+                    {member.keyResetAt && ` · reset their key ${resetWhen(member.keyResetAt)}`}
+                  </span>
+                  {teamSteward && member.userId !== auth.user.id && (
+                    <button className="quiet" onClick={() => void removeTeamMember(member.userId)}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-          <button className="quiet" onClick={() => setView("settings")}>
-            Settings
-          </button>
-          <button className="quiet" onClick={onLogout}>
-            Lock
-          </button>
-        </div>
-      </header>
-      <>
-        <div className={`workspace-view ${view !== "workspace" ? "workspace-view-hidden" : ""}`}>
-          <div className={`workspace${showNotebookNavigation ? " show-notebook-navigation" : ""}${showPageNavigation ? " show-page-navigation" : ""}${selectedNote ? " has-open-page" : ""}${queueMode ? " queue-mode" : ""}`}>
-          <button ref={notebookNavigationRef} type="button" className="notebook-navigation-toggle" aria-expanded={showNotebookNavigation} aria-controls="notebook-navigation" onClick={() => setShowNotebookNavigation((open) => !open)}><span>Notebooks and account</span><NavIcon name="chevron" /></button>
-          {selectedNote && <button type="button" className="page-navigation-toggle quiet" aria-expanded={showPageNavigation} aria-controls={queueMode ? "page-navigation" : "page-navigation section-navigation"} onClick={() => setShowPageNavigation((open) => !open)}><span>Pages in {queueMode ? "Work queue" : selected ? nameOf(selected) : "this notebook"}</span><NavIcon name="chevron" /></button>}
-          <aside id="notebook-navigation" className="sidebar">
-            <div className="section-label">Focus</div>
-            <button
-              className={`ky-nav-item nav-item ${queueMode ? "selected" : ""}`}
-              aria-current={queueMode ? "page" : undefined}
-              disabled={busy}
-              onClick={() => void openWorkQueue()}
-            >
-              <NavIcon name="work" />
-              <span>Work queue</span>
-            </button>
-            <div className="section-label">Notebooks</div>
-            {personalWorkspaces.map((container) => (
-              <button
-                className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
-                aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
-                key={container.id}
-                onClick={() => void chooseNotebook(container)}
-              >
-                <NavIcon name="notebook" />
-                <span>{nameOf(container)}</span>
-              </button>
-            ))}
-            {teams.length > 0 && <div className="section-label team-label">Team notebooks</div>}
-            {teams.map((container) => (
-              <React.Fragment key={container.id}>
-                <button
-                  className={`ky-nav-item nav-item ${!queueMode && selected?.id === container.id ? "selected" : ""}`}
-                  aria-current={!queueMode && selected?.id === container.id ? "page" : undefined}
-                  onClick={() => void chooseNotebook(container)}
-                >
-                  <NavIcon name="team" />
-                  <span>{nameOf(container)}</span>
-                </button>
-                {teamWorkspaces(container.id).map((workspace) => (
-                  <button
-                    className={`ky-nav-item nav-item nested-nav-item ${!queueMode && selected?.id === workspace.id ? "selected" : ""}`}
-                    aria-current={!queueMode && selected?.id === workspace.id ? "page" : undefined}
-                    key={workspace.id}
-                    onClick={() => void chooseNotebook(workspace)}
-                  >
-                    <NavIcon name="notebook" />
-                    <span>{nameOf(workspace)}</span>
-                  </button>
-                ))}
-                {selected?.id === container.id && teamSteward && (
-                  <button className="new-workspace" disabled={busy} onClick={() => void newTeamWorkspace(container)}>
-                    ＋ New team notebook
-                  </button>
-                )}
-              </React.Fragment>
-            ))}
-            <button
-              className="new-workspace personal-create"
-              aria-label="＋ New notebook"
-              disabled={busy}
-              onClick={() => void newWorkspace()}
-            >
-              <NavIcon name="plus" /> New notebook
-            </button>
-            {selected && (
-              <button
-                className="new-workspace"
-                disabled={busy}
-                onClick={() => void renameWorkspace()}
-              >
-                <NavIcon name="rename" /> Rename notebook
-              </button>
-            )}
-            {selected && (
-              <button className="new-workspace" disabled={busy} onClick={() => void exportWorkspace()}>
-                <NavIcon name="export" /> Export notebook
-              </button>
-            )}
-            {selected?.kind === "team" && (
+        </nav>
+        {selectedNote && inWorkspace && <button type="button" className="page-navigation-toggle quiet" aria-expanded={showPageNavigation} aria-controls={queueMode ? "page-navigation" : "page-navigation section-navigation"} onClick={() => setShowPageNavigation((open) => !open)}><span>Pages in {queueMode ? "Work queue" : selected ? nameOf(selected) : "this notebook"}</span><NavIcon name="chevron" /></button>}
+        <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer} aria-labelledby="page-navigation-title">
+          <div className="list-header">
+            <h2 id="page-navigation-title" className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : items.length ? "Select a notebook" : "No notebooks yet"}</h2>
+            {selected && !queueMode && (
               <>
-                {teamSteward && (
-                  <button className="new-workspace" onClick={() => void invite()}>
-                    ＋ Add person
-                  </button>
-                )}
-                {membersForTeam.map((member) => (
-                  <div className="member-row" key={member.userId}>
-                    <span>
-                      {displayName(member.username, member.userId)} · {member.pendingRole ? `${member.pendingRole} once approved` : member.role}
-                      {keyMembers?.containerID === selected.id && keyMembers.status[member.userId] && ` · ${KEY_STATUS[keyMembers.status[member.userId]]}`}
-                      {member.keyResetAt && ` · reset their key ${resetWhen(member.keyResetAt)}`}
-                    </span>
-                    {teamSteward && member.userId !== auth.user.id && (
-                      <button
-                        className="quiet"
-                        onClick={() => void removeTeamMember(member.userId)}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
+                <button className="icon-button quiet menu-button" popoverTarget="notebook-menu" aria-label="Notebook options" style={{ anchorName: "--notebook-menu" }}><NavIcon name="more" /></button>
+                <div className="section-menu anchored-menu" id="notebook-menu" popover="auto" style={{ positionAnchor: "--notebook-menu" } as React.CSSProperties}>
+                  <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void renameWorkspace(); }}>Rename notebook</button>
+                  <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void exportWorkspace(); }}>Export notebook</button>
+                  {selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}
+                  {selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}
+                </div>
               </>
             )}
-            <div className="sidebar-bottom">
-              <div className="section-label">Account</div>
-              <div className="account-chip">
-                <span className="avatar" aria-hidden="true">{(auth.username || "Account").slice(0, 1).toUpperCase()}</span>
-                <span>{auth.username || auth.user.id.slice(0, 12)}</span>
-              </div>
-              <LicenseFooter signedIn />
-            </div>
-          </aside>
-          <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer}>
-            <div className="list-header">
-              <div>
-                <h2 className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : items.length ? "Select a notebook" : "No notebooks yet"}</h2>
-                {queueMode ? <div className="workspace-kind">Open tasks across your personal notebooks</div> : selected && <div className="workspace-kind notebook-kind">{selected.kind === "team" ? "Team notebook" : "Notebook"}</div>}
-                {!queueMode && keyWait && selected && <div className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
-                  const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
-                  const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
-                  return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
-                })()}</div>}
-                {!queueMode && keyNotice && <div className="workspace-kind" role="status">{keyNotice}</div>}
-                {!queueMode && keyDeferred && <div className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></div>}
-                {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
-                {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
-                {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
-                {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
-                {identityState === "held" && live && !live.recoveryId && <details className="recovery-notice"><summary><span>Save a recovery code</span><NavIcon name="chevron" /></summary><div role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div></details>}
-                {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
-                  <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
-                )}
-                {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
-                  <div className="conflict-banner" role="status" key={member.userId}>
-                    {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
-                  </div>
-                ))}
-                <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
-                {invitation && (
-                  <div className="conflict-banner" role="status">
-                    You were invited to a team notebook.{" "}
-                    <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
-                    <button className="quiet" onClick={dropInvitation}>Not now</button>
-                  </div>
-                )}
-                {selected && <h3 className="notes-heading">{queueMode ? `${queueRows.length} open task${queueRows.length === 1 ? "" : "s"}` : sectionHidden ? groupTrail[groupTrail.length - 1]?.title : sectionTitle(sectionID)}</h3>}
-              </div>
+          </div>
+          {queueMode && <p className="workspace-kind">Open tasks across your personal notebooks · {queueRows.length} open task{queueRows.length === 1 ? "" : "s"}</p>}
           {selected && !queueMode && (
             <SectionTabs
               sections={groupSections}
@@ -2924,7 +2748,7 @@ function Workspace({
               busy={busy || keyWait}
               canCreateGroup={groupPath(groupID, parents).length < MAX_GROUP_DEPTH}
               moveTargets={moveTargets}
-              onSelect={(id) => void selectSection(id)}
+              onSelect={(id) => { setView("workspace"); void selectSection(id); }}
               onCreate={(kind) => void newStructure(kind)}
               onRename={renameStructure}
               onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
@@ -2940,178 +2764,200 @@ function Workspace({
               }}
             />
           )}
-              {(selected || queueMode) && <div className="list-actions">
-                <input
-                  aria-label="Search this notebook"
-                  className="note-search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search"
-                />
-                <button
-                  className="icon-button secondary"
-                  disabled={!selected || busy || sectionHidden || keyWait}
-                  title={sectionHidden ? "Add a section to this group first" : "New page"}
-                  aria-label="New page"
-                  onClick={() => void newNote()}
-                >
-                  <NavIcon name="plus" />
-                </button>
-              </div>}
-            </div>
-            {queueMode && TASK_GROUPS.map(([group, label]) => {
-              const rows = queueRows.filter((task) => task.group === group);
-              return rows.length > 0 && (
-                <div className="task-group" key={group} data-task-group={group}>
-                  <h3 className="notes-heading">{label}</h3>
-                  {rows.map((task, index) => (
-                    <div className={`note-row-wrap ${selectedNote?.id === task.entry.note.id ? "selected" : ""}`} key={`${task.key}\n${index}`}>
-                      <button className="note-row" onClick={() => void selectQueueNote(task.entry)}>
-                        <strong>{task.text || "Untitled task"}</strong>
-                        <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.push && "push", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-            {!queueMode && listRows.map(({ note, row }) => {
-              const title = note.title || "Untitled page";
-              return (
-              <div
-                className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
-                key={note.id}
-                style={row ? { paddingInlineStart: row.level * 16 } : undefined}
-                onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
-                onDrop={(event) => {
-                  const pageID = event.dataTransfer.getData(PAGE_DRAG);
-                  const from = sectionIndex(pageID);
-                  if (!reorderable || from < 0) return;
-                  const before = beforeAt(dropBefore(sectionLevels, from, sectionIndex(note.id)));
-                  if (before !== undefined) void movePage(pageID, sectionID, before);
-                }}
-              >
-                {row && !row.hasChildren && <span className="page-toggle-space" aria-hidden="true" />}
-                {row?.hasChildren && (
-                  <button
-                    className="page-toggle quiet"
-                    aria-expanded={!row.collapsed}
-                    aria-label={`${row.collapsed ? "Expand" : "Collapse"} ${title}`}
-                    onClick={() => toggleCollapsed(note.id)}
-                  >
-                    {row.collapsed ? "▸" : "▾"}
-                  </button>
-                )}
-                <button
-                  className="note-row"
-                  aria-current={selectedNote?.id === note.id ? "page" : undefined}
-                  data-page-id={note.id}
-                  draggable
-                  onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
-                  onKeyDown={(event) => {
-                    if (!reorderable) return;
-                    const index = sectionIndex(note.id);
-                    const bracket = event.ctrlKey && event.altKey
-                      ? (event.key === "]" || event.code === "BracketRight" ? 1 : event.key === "[" || event.code === "BracketLeft" ? -1 : 0)
-                      : 0;
-                    if (bracket) {
-                      const delta = bracket as 1 | -1;
-                      if (!canShift(note.id, delta)) return;
-                      event.preventDefault();
-                      void indentPage(note.id, delta);
-                      return;
-                    }
-                    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
-                    const before = beforeAt(siblingMove(sectionLevels, index, event.key === "ArrowUp" ? -1 : 1));
-                    if (before === undefined) return;
-                    event.preventDefault();
-                    void movePage(note.id, sectionID, before).then(() =>
-                      document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
-                  }}
-                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
-                  onClick={() => {
-                    if (selectedNote?.id === note.id) {
-                      setShowPageNavigation(false);
-                      if (window.matchMedia("(max-width: 800px)").matches) requestAnimationFrame(() => pageTitleRef.current?.focus());
-                      return;
-                    }
-                    void selectNote(note);
-                  }}
-                >
-                  <strong>{title}</strong>
-                  {row && (row.level > 0 || row.hasChildren) && (
-                    <span className="visually-hidden">
-                      {row.level > 0 ? `, subpage level ${row.level}` : ""}
-                      {row.hasChildren ? (row.collapsed ? `, collapsed, ${subpageCount(note.id)} subpages hidden` : ", expanded") : ""}
-                    </span>
-                  )}
-                  <span>
-                    {query.trim() && <em className="page-section">{sectionTitle(note.section)} · </em>}
-                    {indexNotes([note])[0].body.slice(0, 64) || "Empty page"}
-                  </span>
-                </button>
-              </div>
-              );
-            })}
-            {selected && (listEntries.length === 0 || groupEmpty) && (
-              <div className="empty-list">
-                {queueMode ? "No open tasks here." : groupEmpty ? "This group has no sections." : "No pages in this section."}
-                <br />
-                {queueMode ? "Tasks from note checklists appear here." : groupEmpty ? "Add a section to this group to add pages." : "Add a page with ＋."}
-              </div>
-            )}
-            {relatedNotes.length > 0 && (
-              <div className="context-panel">
-                <div className="section-label">Resurfacing</div>
-                {relatedNotes.map((note) => (
-                  <button
-                    className="context-link"
-                    key={note.id}
-                    onClick={() => void selectNote(note)}
-                  >
-                    {note.title || "Untitled page"}
-                  </button>
+          {(selected || queueMode) && <div className="list-actions">
+            <input
+              aria-label="Search this notebook"
+              className="note-search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search"
+            />
+            <button
+              className="icon-button secondary"
+              disabled={!selected || busy || sectionHidden || keyWait}
+              title={sectionHidden ? "Add a section to this group first" : "New page"}
+              aria-label="New page"
+              onClick={() => { setView("workspace"); void newNote(); }}
+            >
+              <NavIcon name="plus" />
+            </button>
+          </div>}
+          {queueMode && TASK_GROUPS.map(([group, label]) => {
+            const rows = queueRows.filter((task) => task.group === group);
+            return rows.length > 0 && (
+              <div className="task-group" key={group} data-task-group={group}>
+                <h3 className="notes-heading">{label}</h3>
+                {rows.map((task, index) => (
+                  <div className={`note-row-wrap ${selectedNote?.id === task.entry.note.id ? "selected" : ""}`} key={`${task.key}\n${index}`}>
+                    <button className="note-row" onClick={() => { setView("workspace"); void selectQueueNote(task.entry); }}>
+                      <strong>{task.text || "Untitled task"}</strong>
+                      <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.push && "push", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
+                    </button>
+                  </div>
                 ))}
               </div>
-            )}
-            {links.length > 0 && (
-              <div className="context-panel">
-                <div className="section-label">Knowledge graph</div>
-                <span className="config-muted">
-                  {links.length} local link{links.length === 1 ? "" : "s"}
+            );
+          })}
+          {!queueMode && listRows.map(({ note, row }) => {
+            const title = note.title || "Untitled page";
+            return (
+            <div
+              className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
+              key={note.id}
+              style={row ? { paddingInlineStart: row.level * 16 } : undefined}
+              onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
+              onDrop={(event) => {
+                const pageID = event.dataTransfer.getData(PAGE_DRAG);
+                const from = sectionIndex(pageID);
+                if (!reorderable || from < 0) return;
+                const before = beforeAt(dropBefore(sectionLevels, from, sectionIndex(note.id)));
+                if (before !== undefined) void movePage(pageID, sectionID, before);
+              }}
+            >
+              {row && !row.hasChildren && <span className="page-toggle-space" aria-hidden="true" />}
+              {row?.hasChildren && (
+                <button
+                  className="page-toggle quiet"
+                  aria-expanded={!row.collapsed}
+                  aria-label={`${row.collapsed ? "Expand" : "Collapse"} ${title}`}
+                  onClick={() => toggleCollapsed(note.id)}
+                >
+                  <NavIcon name="chevron" />
+                </button>
+              )}
+              <button
+                className="note-row"
+                aria-current={inWorkspace && selectedNote?.id === note.id ? "page" : undefined}
+                data-page-id={note.id}
+                draggable
+                onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
+                onKeyDown={(event) => {
+                  if (!reorderable) return;
+                  const index = sectionIndex(note.id);
+                  const bracket = event.ctrlKey && event.altKey
+                    ? (event.key === "]" || event.code === "BracketRight" ? 1 : event.key === "[" || event.code === "BracketLeft" ? -1 : 0)
+                    : 0;
+                  if (bracket) {
+                    const delta = bracket as 1 | -1;
+                    if (!canShift(note.id, delta)) return;
+                    event.preventDefault();
+                    void indentPage(note.id, delta);
+                    return;
+                  }
+                  if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                  const before = beforeAt(siblingMove(sectionLevels, index, event.key === "ArrowUp" ? -1 : 1));
+                  if (before === undefined) return;
+                  event.preventDefault();
+                  void movePage(note.id, sectionID, before).then(() =>
+                    document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
+                }}
+                aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
+                onClick={() => {
+                  setView("workspace");
+                  if (selectedNote?.id === note.id) {
+                    setShowPageNavigation(false);
+                    if (window.matchMedia("(max-width: 800px)").matches) requestAnimationFrame(() => pageTitleRef.current?.focus());
+                    return;
+                  }
+                  void selectNote(note);
+                }}
+              >
+                <strong>{title}</strong>
+                {row && (row.level > 0 || row.hasChildren) && (
+                  <span className="visually-hidden">
+                    {row.level > 0 ? `, subpage level ${row.level}` : ""}
+                    {row.hasChildren ? (row.collapsed ? `, collapsed, ${subpageCount(note.id)} subpages hidden` : ", expanded") : ""}
+                  </span>
+                )}
+                <span>
+                  {query.trim() && <em className="page-section">{sectionTitle(note.section)} · </em>}
+                  {indexNotes([note])[0].body.slice(0, 64) || "Empty page"}
                 </span>
-              </div>
-            )}
-          </section>
-          <section className="editor">
-            <div className="editor-meta">
-              <span>
-                {selectedNote
-                  ? `Version ${selectedNote.version || "draft"}`
-                  : "Ready"}
-              </span>
-              <span className="encrypted">
-                {autosaving
-                  ? "Autosaving…"
-                  : syncStatus === "local"
-                    ? "Encrypted locally · waiting to sync"
-                    : syncStatus === "attention"
-                      ? "Conflict needs attention"
-                      : lastSavedAt
-                        ? `Saved on server ${new Date(lastSavedAt).toLocaleTimeString()}`
-                        : "Encrypted locally"}
+              </button>
+            </div>
+            );
+          })}
+          {selected && (listEntries.length === 0 || groupEmpty) && (
+            <p className="empty-list">
+              {queueMode ? "No open tasks here. Tasks from note checklists appear here." : groupEmpty ? "This group has no sections. Add a section to this group to add pages." : "No pages in this section yet."}
+            </p>
+          )}
+          {relatedNotes.length > 0 && (
+            <div className="context-panel">
+              <div className="section-label">Resurfacing</div>
+              {relatedNotes.map((note) => (
+                <button className="context-link" key={note.id} onClick={() => { setView("workspace"); void selectNote(note); }}>
+                  {note.title || "Untitled page"}
+                </button>
+              ))}
+            </div>
+          )}
+          {links.length > 0 && (
+            <div className="context-panel">
+              <div className="section-label">Knowledge graph</div>
+              <span className="config-muted">
+                {links.length} local link{links.length === 1 ? "" : "s"}
               </span>
             </div>
-            {selectedNote ? (
-              <>
-                {conflicted.has(selectedNote.id) && (
-                  <div className="conflict-banner" role="alert">
-                    {recovering === selectedNote.id
-                      ? "Saving the other version as a copy…"
-                      : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
-                    <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
-                  </div>
-                )}
+          )}
+        </section>
+        <div className="app-nav-foot">
+          <button className={`ky-nav-item nav-item${view === "appearance" ? " selected" : ""}`} aria-current={view === "appearance" ? "page" : undefined} onClick={() => setView("appearance")}>
+            <NavIcon name="palette" />
+            <span>Appearance</span>
+          </button>
+          <button className={`ky-nav-item nav-item${view === "settings" ? " selected" : ""}`} aria-current={view === "settings" ? "page" : undefined} onClick={() => setView("settings")}>
+            <NavIcon name="settings" />
+            <span>Settings</span>
+          </button>
+          <UserBlock name={auth.username || auth.user.id.slice(0, 12)} role="Everyday account" onSignOut={onLogout} />
+          <LicenseFooter signedIn />
+        </div>
+      </aside>
+      <div className="app-main">
+        {/* The editor stays mounted behind Settings and Appearance, so an open page keeps its pending edits. */}
+        <section className="editor" hidden={!inWorkspace}>
+          <div className="workspace-notices">
+            {!queueMode && keyWait && selected && <p className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
+              const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
+              const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
+              return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
+            })()}</p>}
+            {!queueMode && keyNotice && <p className="workspace-kind" role="status">{keyNotice}</p>}
+            {!queueMode && keyDeferred && <p className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></p>}
+            {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
+            {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
+            {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+            {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+            {identityState === "held" && live && !live.recoveryId && <details className="recovery-notice"><summary><span>Save a recovery code</span><NavIcon name="chevron" /></summary><div role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div></details>}
+            {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
+              <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
+            )}
+            {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
+              <div className="conflict-banner" role="status" key={member.userId}>
+                {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
+              </div>
+            ))}
+            <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
+            {invitation && (
+              <div className="conflict-banner" role="status">
+                You were invited to a team notebook.{" "}
+                <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
+                <button className="quiet" onClick={dropInvitation}>Not now</button>
+              </div>
+            )}
+          </div>
+          {selectedNote ? (
+            <>
+              {conflicted.has(selectedNote.id) && (
+                <div className="conflict-banner" role="alert">
+                  {recovering === selectedNote.id
+                    ? "Saving the other version as a copy…"
+                    : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
+                  <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
+                </div>
+              )}
+              <div className="page-head">
                 <input
                   ref={pageTitleRef}
                   aria-label="Page title"
@@ -3120,133 +2966,113 @@ function Workspace({
                   value={selectedNote.title}
                   onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                 />
-                <div className="page-canvas">
-                  <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
-                    <CanvasPage
-                      key={`${selectedNote.id}:${editorRevision}`}
-                      pageID={selectedNote.id}
-                      body={selectedNote.body}
-                      editable={recovering !== selectedNote.id && !keyWait}
-                      onChange={(body) => editOpen(selectedNote.id, { body })}
-                      onError={setError}
-                      uploadFile={uploadInlineFile}
-                      resolveFileUrl={resolveFileUrl}
-                    />
-                  </Suspense>
-                </div>
-                <div className="editor-actions">
-                  <div className="page-section-control">
-                  <select
-                    aria-label="Move page to section"
-                    disabled={keyWait}
-                    value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
-                    onChange={(event) => void movePage(selectedNote.id, event.target.value, null)}
-                  >
-                    {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-                    <option value={QUICK_NOTES}>Quick Notes</option>
-                  </select>
-                  <NavIcon name="chevron" />
-                  </div>
-                  <button
-                    className="quiet"
-                    disabled={keyWait || !canShift(selectedNote.id, 1)}
-                    title="Indent page (Ctrl+Alt+])"
-                    onClick={() => void indentPage(selectedNote.id, 1)}
-                  >
-                    Indent page
+                <div className="page-head-actions">
+                  <p className="save-state" aria-live="polite">
+                    <span className={`sync-dot sync-${dirty ? "dirty" : syncStatus}`}>● {saveStatus}</span>
+                    {saveDetail && <span className="save-detail">{saveDetail}</span>}
+                  </p>
+                  <button className="save-button secondary" disabled={busy} onClick={() => void save(selectedNote)}>
+                    {busy ? "Saving…" : "Save"}
                   </button>
-                  <button
-                    className="quiet"
-                    disabled={keyWait || !canShift(selectedNote.id, -1)}
-                    title="Outdent page (Ctrl+Alt+[)"
-                    onClick={() => void indentPage(selectedNote.id, -1)}
-                  >
-                    Outdent page
-                  </button>
-                  <button
-                    className="danger quiet"
-                    disabled={keyWait}
-                    onClick={() => void remove(selectedNote)}
-                  >
-                    Delete
-                  </button>
-                </div>
-                <section className="comments">
-                  <h3>Comments</h3>
-                  {commentsForNote.map((comment) => (
-                    <div className="comment" key={comment.id}>
-                      <strong>
-                        {comment.username}
-                        {comment.section ? ` · § ${comment.section}` : ""}
-                      </strong>
-                      <span>{comment.body}</span>
+                  <button className="icon-button quiet menu-button" popoverTarget="page-menu" aria-label="Page options" style={{ anchorName: "--page-menu" }}><NavIcon name="more" /></button>
+                  <div className="section-menu anchored-menu page-menu" id="page-menu" popover="auto" style={{ positionAnchor: "--page-menu" } as React.CSSProperties}>
+                    <span className="menu-caption" aria-hidden="true">Section</span>
+                    <div className="page-section-control">
+                      <select
+                        aria-label="Move page to section"
+                        disabled={keyWait}
+                        value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
+                        onChange={(event) => { closeMenu("page-menu"); void movePage(selectedNote.id, event.target.value, null); }}
+                      >
+                        {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                        <option value={QUICK_NOTES}>Quick Notes</option>
+                      </select>
+                      <NavIcon name="chevron" />
                     </div>
-                  ))}
-                  <div className="comment-compose">
-                    <input
-                      value={commentSection}
-                      onChange={(event) =>
-                        setCommentSection(event.target.value)
-                      }
-                      placeholder="Section (optional)"
-                    />
-                    <input
-                      value={commentText}
-                      onChange={(event) => setCommentText(event.target.value)}
-                      placeholder="Add a comment…"
-                    />
-                    <button className="secondary" disabled={busy || keyWait} onClick={() => void addComment()}>
-                      Comment
-                    </button>
+                    <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
+                    <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
+                    <button className="quiet danger" disabled={keyWait} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
                   </div>
-                </section>
-                <section className="attachments">
-                  <h3>Attachments</h3>
-                  {Object.entries(uploadProgress).map(([uploadId, progress]) => (
-                    <div className="upload-row" key={uploadId}>
-                      <span>{progress.name} · {progress.failed ? "waiting to retry" : `${Math.round(progress.uploaded / Math.max(progress.total, 1) * 100)}%`}</span>
-                      <div className="upload-actions">
-                        {progress.failed && <button className="quiet" onClick={() => void retryAttachmentUpload(uploadId)}>Retry</button>}
-                        <button className="quiet" onClick={() => void cancelAttachmentUpload(uploadId)}>Cancel</button>
-                      </div>
-                    </div>
-                  ))}
-                  {attachmentsForNote.map((attachment) => (
-                    <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
-                      <strong>{attachment.name}</strong>
-                      <span>{Math.ceil(attachment.size / 1024)} KB</span>
-                    </button>
-                  ))}
-                  <label className="attachment-picker">
-                    <span>＋ Add encrypted file</span>
-                    <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
-                  </label>
-                </section>
-              </>
-            ) : (
-              <div className="empty-editor">
-                <h2>Your private desk.</h2>
-                <p>
-                  {!selected && !queueMode ? "Start with a notebook to keep your notes together." : "Select a note or create one."} The server receives ciphertext only.
-                </p>
-                {!selected && !queueMode && (
-                  <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
-                )}
-                {selected && (
-                  <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
-                )}
+                </div>
               </div>
-            )}
-          </section>
-          </div>
-        </div>
-        {view !== "workspace" && (
+              <div className="page-canvas">
+                <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
+                  <CanvasPage
+                    key={`${selectedNote.id}:${editorRevision}`}
+                    pageID={selectedNote.id}
+                    body={selectedNote.body}
+                    editable={recovering !== selectedNote.id && !keyWait}
+                    onChange={(body) => editOpen(selectedNote.id, { body })}
+                    onError={setError}
+                    uploadFile={uploadInlineFile}
+                    resolveFileUrl={resolveFileUrl}
+                  />
+                </Suspense>
+              </div>
+              <details className="page-panel comments" open={commentsOpen} onToggle={(event) => setCommentsOpen(event.currentTarget.open)}>
+                <summary><span>Comments</span>{commentsForNote.length > 0 && <span className="page-panel-count">{commentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
+                {commentsForNote.map((comment) => (
+                  <div className="comment" key={comment.id}>
+                    <strong>
+                      {comment.username}
+                      {comment.section ? ` · § ${comment.section}` : ""}
+                    </strong>
+                    <span>{comment.body}</span>
+                  </div>
+                ))}
+                <div className="comment-compose">
+                  <input aria-label="Comment section (optional)" value={commentSection} onChange={(event) => setCommentSection(event.target.value)} placeholder="Section (optional)" />
+                  <input aria-label="Comment" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Add a comment…" />
+                  <button className="secondary" disabled={busy || keyWait} onClick={() => void addComment()}>
+                    Comment
+                  </button>
+                </div>
+              </details>
+              <details className="page-panel attachments" open={attachmentsOpen} onToggle={(event) => setAttachmentsOpen(event.currentTarget.open)}>
+                <summary><span>Attachments</span>{attachmentsForNote.length > 0 && <span className="page-panel-count">{attachmentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
+                {Object.entries(uploadProgress).map(([uploadId, progress]) => (
+                  <div className="upload-row" key={uploadId}>
+                    <span>{progress.name} · {progress.failed ? "waiting to retry" : `${Math.round(progress.uploaded / Math.max(progress.total, 1) * 100)}%`}</span>
+                    <div className="upload-actions">
+                      {progress.failed && <button className="quiet" onClick={() => void retryAttachmentUpload(uploadId)}>Retry</button>}
+                      <button className="quiet" onClick={() => void cancelAttachmentUpload(uploadId)}>Cancel</button>
+                    </div>
+                  </div>
+                ))}
+                {attachmentsForNote.map((attachment) => (
+                  <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
+                    <strong>{attachment.name}</strong>
+                    <span>{Math.ceil(attachment.size / 1024)} KB</span>
+                  </button>
+                ))}
+                <label className="attachment-picker">
+                  <NavIcon name="plus" /><span>Add encrypted file</span>
+                  <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
+                </label>
+              </details>
+            </>
+          ) : (
+            <div className="empty-editor">
+              <h2>{!selected && !queueMode ? (items.length ? "Select a notebook" : "No notebooks yet") : "Your private desk"}</h2>
+              <p>
+                {!selected && !queueMode ? "Start with a notebook to keep your notes together." : "Select a page or create one."} The server receives ciphertext only.
+              </p>
+              {!selected && !queueMode && (
+                <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
+              )}
+              {selected && (
+                <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
+              )}
+            </div>
+          )}
+        </section>
+        {view === "appearance" && <Appearance />}
+        {view === "settings" && (
           <SettingsView
             username={auth.username}
             userID={auth.user.id}
             colleagueNames={colleagueNames.current}
             keysFor={(item) => ownCopyKeysFor(items.find((entry) => entry.id === item.containerID), item.keyGeneration)}
-            onBack={() => setView("workspace")}
             onForgetDevice={onForgetDevice}
             onAuthSecret={onAuthSecret}
             identityState={identityState}
@@ -3264,7 +3090,7 @@ function Workspace({
             onReminders={setReminderPrefs}
           />
         )}
-      </>
+      </div>
       {commitToastAt && commitToastVisible(commitToastAt) && (
         <button className="toast commit-toast" onClick={() => setCommitToastAt(null)}>
           {commitToastLabel(commitToastAt)} ×
@@ -3389,20 +3215,17 @@ const CHOOSE_PASSWORD = "An administrator set this account's password. Choose yo
 /** Shown before anything else while the server reports passwordChangeRequired; nothing runs before the change. */
 function ChoosePassword({ auth, onChanged, onLogout }: { auth: AuthState; onChanged: (authSecret: string) => void; onLogout: () => void }) {
   return (
-    <main className="auth-page">
-      <section className="auth-card">
-        <img src="/app-icon.png" width={56} height={56} alt="KyNotes" />
-        <h1>Choose your own password</h1>
+    <AuthScreen tagline="Choose your own password">
+      <div className="ky-auth-card choose-password">
         <p role="status">{CHOOSE_PASSWORD}</p>
         <PasswordSettings username={auth.username} userID={auth.user.id} everyday={auth.user.accountKind === "user"} onAuthSecret={() => {}} onIdentityCreated={() => {}} onChanged={onChanged} />
-        <button className="quiet" onClick={onLogout}>Sign out</button>
-      </section>
-    </main>
+        <button type="button" className="ky-auth-link" onClick={onLogout}>Sign out</button>
+      </div>
+    </AuthScreen>
   );
 }
 
 function SettingsView({
-  onBack,
   username,
   userID,
   onForgetDevice,
@@ -3423,7 +3246,6 @@ function SettingsView({
   reminders,
   onReminders,
 }: {
-  onBack: () => void;
   username: string;
   userID: string;
   /** Usernames seen in key passes this session, for the colleague keys card. */
@@ -3451,24 +3273,11 @@ function SettingsView({
   reminders: ReminderPrefs;
   onReminders: (prefs: ReminderPrefs) => void;
 }) {
-  const [theme, setTheme] = useState<Theme>(getStoredTheme);
   const sectionLinks = [
-    ["appearance", "Appearance"], ["reminders", "Reminders"], ["password", "Password"], ["device", "Trusted Device"],
+    ["reminders", "Reminders"], ["password", "Password"], ["device", "Trusted device"],
     ...(identityState === "link" ? [["link-this-browser", "Link this browser"]] : []),
     ...(identityState === "held" ? [["link-devices", "Link a browser"]] : []), ["colleague-keys", "Colleague keys"],
   ];
-  const [currentSection, setCurrentSection] = useState(() => sectionLinks.find(([id]) => location.hash === `#${id}`)?.[0] ?? "appearance");
-  useEffect(() => {
-    const update = () => setCurrentSection(location.hash.slice(1));
-    window.addEventListener("hashchange", update);
-    return () => window.removeEventListener("hashchange", update);
-  }, []);
-  // Another tab's choice: theme.ts applies it; keep the checked card in step.
-  useEffect(() => {
-    const sync = () => setTheme(getStoredTheme());
-    window.addEventListener("storage", sync);
-    return () => window.removeEventListener("storage", sync);
-  }, []);
   const [ownFingerprint, setOwnFingerprint] = useState("");
   const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
@@ -3486,37 +3295,17 @@ function SettingsView({
       .then(setOwnFingerprint, () => setOwnFingerprint(""));
   }, [username, userID, identityState]);
   return (
-    <section className="settings-layout preferences-layout">
-      <div className="settings-header">
-        <h1>Settings</h1>
-        <p>Your browser preferences and account security.</p>
-      </div>
-      <aside className="settings-sidebar">
-        <button className="quiet" onClick={onBack}>
-          ← Workspace
-        </button>
-        <nav className="settings-nav" aria-label="Settings sections">
-          {sectionLinks.map(([id, label]) => <a key={id} className="ky-nav-item" href={`#${id}`} data-selected={currentSection === id ? "true" : undefined} aria-current={currentSection === id ? "location" : undefined}>{label}</a>)}
-        </nav>
-      </aside>
+    <section className="page-view settings-view" aria-labelledby="settings-heading">
+      <header className="ky-page-head">
+        <div>
+          <h1 id="settings-heading" className="ky-page-title">Settings</h1>
+          <p className="ky-page-lede">Reminders, your password and the keys this browser holds.</p>
+        </div>
+      </header>
+      <nav className="settings-jump" aria-label="Settings sections">
+        {sectionLinks.map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+      </nav>
       <div className="settings-content">
-        <section id="appearance" className="settings-section" aria-labelledby="appearance-heading">
-          <h2 id="appearance-heading">Appearance</h2>
-          <p className="ky-appearance-description">Pick a theme. It applies straight away and is saved in this browser only. Match system follows your device’s light or dark setting.</p>
-          <fieldset className="ky-appearance">
-            <legend className="ky-appearance-legend">Theme</legend>
-            <div className="ky-appearance-grid">
-              {THEME_OPTIONS.map((option) => (
-                <label key={option.id} className="ky-appearance-option">
-                  <input className="ky-appearance-radio" type="radio" name="kynotes-theme" value={option.id} checked={option.id === theme.id} onChange={() => { setTheme(option); applyTheme(option); }} />
-                  <span className="ky-appearance-preview" aria-hidden="true" data-ky-preview={option.id} />
-                  <span className="ky-appearance-name">{option.name}</span>
-                  <small className="ky-appearance-mode">{option.scheme === "system" ? "Follows device" : option.scheme === "light" ? "Light" : "Dark"}</small>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </section>
         <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
         <div id="password">
           <PasswordSettings username={username} userID={userID} everyday onAuthSecret={onAuthSecret} onIdentityCreated={onIdentityChanged} />

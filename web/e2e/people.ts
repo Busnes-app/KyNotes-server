@@ -32,10 +32,15 @@ export async function withDialog(who: Person, dialog: Dialog, action: () => Prom
   await expect.poll(async () => { await expect(stepUpPrompt(who.page)).toBeHidden(); return who.expected.length; }, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
 }
 
-/** Open the notebook/account view of the single navigation pane. */
+/** Shows the notebooks: always in view on desktop; on phones, behind the "Notebooks and account" disclosure. */
 export async function openNotebooks(page: Page) {
   const toggle = page.getByRole("button", { name: "Notebooks and account", exact: true });
-  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  if (await toggle.isVisible() && await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+}
+
+/** Leaves Settings or Appearance for the notes: the brand in the navigation goes back without reloading anything. */
+export async function backToNotes(page: Page) {
+  await page.getByRole("button", { name: "KyNotes", exact: true }).click();
 }
 
 /** An everyday account on its own password: lands in the workspace. */
@@ -43,8 +48,9 @@ export async function signIn(page: Page, username: string, password: string) {
   await page.goto("/");
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Unlock KyNotes" }).click();
-  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  // Folded away on phones, so not in the accessibility tree there: wait for the element itself.
+  await expect(page.locator("#notebook-navigation")).toBeAttached();
   await answerStepUp(page, password);
 }
 
@@ -80,7 +86,7 @@ export async function signInAndChoose(page: Page, username: string, temporary: s
   await page.goto("/");
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(temporary);
-  await page.getByRole("button", { name: "Unlock KyNotes" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await choosePassword(page, temporary, own);
   await answerStepUp(page, own);
 }
@@ -128,35 +134,39 @@ export async function adminConsole(page: Page) {
   } else {
     await page.getByLabel("Username").fill(ADMIN.username);
     await page.getByLabel("Password", { exact: true }).fill(ADMIN.password);
-    await page.getByRole("button", { name: "Unlock KyNotes" }).click();
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
-  await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Administration sections" })).toBeVisible();
+  // Protected actions ask for the password in a dialog when the server wants it (stepup.ts withStepUp).
+  await answerStepUp(page, ADMIN.password);
 }
 
-/** On the console: the administrator's password step-up for one section's routes (user creation and resets, teams). */
-export async function confirmAdmin(page: Page, section: string) {
-  const card = page.locator(`#${section}`);
-  const field = card.getByLabel("Confirm your password");
-  await expect(field).toBeVisible();
-  await field.fill(ADMIN.password);
-  await card.getByRole("button", { name: /^Authorize / }).click();
-  await expect(card.getByText("Password confirmed for ten minutes.")).toBeVisible();
+/** Opens one section of the console from its navigation. */
+export async function adminSection(page: Page, name: string) {
+  await page.getByRole("navigation", { name: "Administration sections" }).getByRole("link", { name, exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name, exact: true })).toBeVisible();
 }
+
+/** The users table row for one account. */
+export const userRow = (page: Page, username: string) => page.getByRole("row").filter({ has: page.getByRole("rowheader", { name: username, exact: true }) });
 
 export async function createUser(admin: Person, username: string, password: string, kind: "Everyday" | "Administrator" = "Everyday") {
   const { page } = admin;
-  await confirmAdmin(page, "users");
-  await page.getByPlaceholder("Username").fill(username);
-  await page.getByPlaceholder("Temporary password").fill(password);
-  await page.getByLabel("Account type").selectOption({ label: kind });
+  await adminSection(page, "Users");
   await page.getByRole("button", { name: "Create user" }).click();
-  await expect(page.locator(".admin-user", { hasText: username })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "Create user" });
+  await dialog.getByLabel("Username").fill(username);
+  await dialog.getByLabel("Temporary password").fill(password);
+  await dialog.getByLabel("Account type").selectOption({ label: kind });
+  await dialog.getByRole("button", { name: "Create user" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(userRow(page, username)).toBeVisible();
 }
 
 /** Creates a team owned by ownerName and returns its ID (create() selects the new team). */
 export async function createTeamFor(admin: Person, ownerName: string): Promise<string> {
   const { page } = admin;
-  await confirmAdmin(page, "teams");
+  await adminSection(page, "Teams");
   const before = await page.locator(".admin-teams li").count();
   const owner = page.getByRole("combobox", { name: "Owner", exact: true });
   await owner.selectOption((await owner.locator("option", { hasText: new RegExp(`^${ownerName}$`) }).getAttribute("value"))!);
@@ -169,7 +179,7 @@ export async function createTeamFor(admin: Person, ownerName: string): Promise<s
 
 export async function addToTeam(admin: Person, username: string, teamID: string) {
   const { page } = admin;
-  await confirmAdmin(page, "teams");
+  await adminSection(page, "Teams");
   await page.getByRole("combobox", { name: "Team", exact: true }).selectOption(teamID);
   const who = page.getByRole("combobox", { name: "Person", exact: true });
   await who.selectOption((await who.locator("option", { hasText: new RegExp(`^${username}$`) }).getAttribute("value"))!);
