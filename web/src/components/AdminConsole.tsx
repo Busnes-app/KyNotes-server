@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   addAdminTeamMember,
   adminAudit,
@@ -20,27 +20,33 @@ import {
 import { deriveAuthSecret, randomLoginSalt } from "../crypto";
 import { AdminBackup } from "./AdminBackup";
 import { LicenseFooter, UserBlock } from "./LicenseFooter";
-import { AppMark, NavIcon } from "../NavIcon";
+import { NavIcon, type IconName } from "../NavIcon";
+import { AppNav, NavItem } from "./AppNav";
+import { Appearance } from "./Appearance";
 import { withStepUp } from "../stepup";
 
 export const ADMIN_ACCOUNT_NOTE = "This is an administrator account. It manages KyNotes and cannot open notes. Sign in with your everyday account to write.";
 
+// The administration group; Appearance and Settings (#account) sit in the navigation's lower group.
 const SECTIONS = [
-  ["users", "Users", "Everyone who can sign in to this server."],
-  ["teams", "Teams", "A team belongs to an everyday owner, who names it and shares its keys. Administrators never see its name or its notes."],
-  ["sso", "Single sign-on", "Connect KyNotes to KySignOn Server for one-click single sign-on and automated user directory replication."],
-  ["backups", "Backups", "Scheduled backups of this server, kept in a local directory or in KyRecovery."],
-  ["audit", "Audit log", "Metadata-only records of administrative actions."],
-  ["server", "Server", "Health and readiness of this KyNotes server."],
-  ["account", "Account", "Your administrator password."],
-] as const;
-type SectionID = (typeof SECTIONS)[number][0];
+  ["users", "Users", "users", "Everyone who can sign in to this server."],
+  ["teams", "Teams", "team", "A team belongs to an everyday owner, who names it and shares its keys. Administrators never see its name or its notes."],
+  ["sso", "Single sign-on", "sso", "Connect KyNotes to KySignOn Server for one-click single sign-on and automated user directory replication."],
+  ["backups", "Backups", "backups", "Scheduled backups of this server, kept in a local directory or in KyRecovery."],
+  ["audit", "Audit log", "audit", "Metadata-only records of administrative actions."],
+  ["server", "Server", "server", "Health and readiness of this KyNotes server."],
+  ["account", "Settings", "settings", "Your administrator password."],
+] as const satisfies ReadonlyArray<readonly [string, string, IconName, string]>;
+type SectionID = (typeof SECTIONS)[number][0] | "appearance";
 
 /** Everything an administrator account reaches: no key, vault, notebook or content crypto (adminSeparation.test.ts). */
 export function AdminConsole({ username, sso, onLogout, password }: { username: string; sso: boolean; onLogout: () => void; password: ReactNode }) {
   const sections = SECTIONS.filter(([id]) => id !== "account" || !sso);
-  const fromHash = (): SectionID => sections.find(([id]) => location.hash === `#${id}`)?.[0] ?? "users";
+  const fromHash = (): SectionID => location.hash === "#appearance" ? "appearance" : sections.find(([id]) => location.hash === `#${id}`)?.[0] ?? "users";
   const [section, setSection] = useState<SectionID>(fromHash);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const toggleMenu = useCallback(() => setMenuOpen((open) => !open), []);
+  const link = (id: SectionID, label: string, icon: IconName) => <NavItem key={id} icon={icon} label={label} href={`#${id}`} current={section === id} onClick={() => setMenuOpen(false)} />;
   const [status, setStatus] = useState<{ health: boolean; ready: boolean } | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
@@ -60,24 +66,27 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
   }, []);
   return (
     <main className="app-shell admin-shell">
-      <aside className="app-nav">
-        <div className="app-nav-brand">
-          <AppMark size={28} />
-          <span>KyNotes</span>
-        </div>
-        <nav className="sidebar" aria-label="Administration sections">
-          {sections.map(([id, label]) => (
-            <a key={id} href={`#${id}`} className={`ky-nav-item nav-item${section === id ? " selected" : ""}`} aria-current={section === id ? "page" : undefined}>{label}</a>
-          ))}
-        </nav>
-        <div className="app-nav-foot">
+      {/* The same navigation as the notes. An administrator account opens no notes, so it has no Notes item. */}
+      <AppNav
+        open={menuOpen}
+        onToggle={toggleMenu}
+        onHome={() => { setMenuOpen(false); location.hash = "#users"; }}
+        foot={<>
+          {link("appearance", "Appearance", "palette")}
+          {!sso && link("account", "Settings", "settings")}
           <UserBlock name={username} role="Administrator" onSignOut={onLogout} />
           <LicenseFooter signedIn />
-        </div>
-      </aside>
+        </>}
+      >
+        <div className="section-label">Administration</div>
+        <nav className="sidebar" aria-label="Administration sections">
+          {sections.filter(([id]) => id !== "account").map(([id, label, icon]) => link(id, label, icon))}
+        </nav>
+      </AppNav>
       <div className="app-main">
+        <div id="appearance" hidden={section !== "appearance"}><Appearance /></div>
         {/* Every section stays mounted, so switching keeps lists loaded and half-typed forms intact. */}
-        {sections.map(([id, title, lede]) => (
+        {sections.map(([id, title, , lede]) => (
           <section key={id} id={id} className="page-view admin-view" hidden={section !== id} aria-labelledby={`${id}-heading`}>
             <header className="ky-page-head">
               <div>

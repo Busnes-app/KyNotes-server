@@ -32,9 +32,9 @@ export async function withDialog(who: Person, dialog: Dialog, action: () => Prom
   await expect.poll(async () => { await expect(stepUpPrompt(who.page)).toBeHidden(); return who.expected.length; }, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
 }
 
-/** Shows the notebooks: always in view on desktop; on phones, behind the "Notebooks and account" disclosure. */
+/** Shows the navigation: always in view on desktop; on phones, in the drawer behind the Menu button. */
 export async function openNotebooks(page: Page) {
-  const toggle = page.getByRole("button", { name: "Notebooks and account", exact: true });
+  const toggle = page.getByRole("button", { name: "Menu", exact: true });
   if (await toggle.isVisible() && await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
 }
 

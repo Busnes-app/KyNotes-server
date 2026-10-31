@@ -172,8 +172,7 @@ async function openTeam(page: Page, name = TEAM, cid = teamID) {
 const objectSave = (page: Page) => page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok());
 
 async function showPages(page: Page) {
-  const navigation = page.getByRole("button", { name: "Notebooks and account", exact: true });
-  if (await navigation.isVisible() && await navigation.getAttribute("aria-expanded") === "true") await navigation.click();
+  await openNotebooks(page);
 }
 
 async function writePage(page: Page, title: string, comment: string) {
@@ -390,7 +389,9 @@ async function scenario(owner: Person, editor: Person, newcomer: Person, shared:
   await openTeam(newcomer.page, `Notebook ${cid.slice(4, 10)}`);
   await expect(newcomer.page.getByText(WAITING)).toBeVisible();
   await expect(newcomer.page.getByRole("button", { name: "New page" })).toBeDisabled();
-  await expect(newcomer.page.getByRole("button", { name: "New section or group" })).toBeDisabled();
+  await newcomer.page.getByRole("button", { name: "Notebook options" }).click();
+  await expect(newcomer.page.getByRole("button", { name: "New section", exact: true })).toBeDisabled();
+  await newcomer.page.keyboard.press("Escape");
   // An owner's open alone shares nothing with it; the approval wraps every held generation: history included.
   await openTeam(owner.page);
   await expect(owner.page.locator(".member-row", { hasText: "newcomer" })).toContainText("awaiting approval");

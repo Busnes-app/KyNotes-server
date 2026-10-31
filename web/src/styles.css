@@ -14,7 +14,7 @@
   --sidebar-start: #f2efe7;
   --sidebar-end: #f2efe7;
   --button-text: #ffffff;
-  --app-nav-size: 18rem;
+  --app-nav-size: var(--ky-sidebar-size);
   --section-orange: #d9822b; --section-blue: #3f7cc4; --section-green: #4f9a5a; --section-purple: #8a63c4; --section-red: #c4523f; --section-teal: #2f9a95; --section-yellow: #c9a227; --section-gray: #8a877d;
   color-scheme: light;
   font-family: Space, system-ui, sans-serif;
@@ -43,7 +43,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .status-line { color: var(--accent); font-size: var(--ky-type-meta); margin-bottom: 0; }
 
 /* Buttons: one primary per view fills with the accent; others are outlined or quiet. */
-button:not(.quiet):not(.nav-item):not(.app-nav-brand):not(.new-workspace):not(.note-row):not(.secondary):not(.toast):not(.notebook-navigation-toggle):not(.ky-license-link):not(.ky-user-signout):not(.ky-about-close):not(.ky-auth-link):not(.section-swatch):not(.attachment-row):not(.context-link) { background: var(--accent); color: var(--button-text); }
+button:not(.quiet):not(.nav-item):not(.app-nav-brand):not(.new-workspace):not(.note-row):not(.secondary):not(.toast):not(.ky-license-link):not(.ky-user-signout):not(.ky-about-close):not(.ky-auth-link):not(.section-swatch):not(.attachment-row):not(.context-link) { background: var(--accent); color: var(--button-text); }
 .quiet { background: transparent; color: var(--ink); padding: 8px; }
 .secondary, .toast { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--ky-field-border); }
 .secondary:hover:not(:disabled), .quiet:hover:not(:disabled) { background: var(--panel-hover); color: var(--ink-strong); }
@@ -112,28 +112,34 @@ form button { padding: 10px 16px; margin-top: 20px; font-size: var(--ky-type-nav
   .section-menu { inset: auto; top: anchor(bottom); left: anchor(left); margin: 4px 0 0; position-try-fallbacks: flip-block; }
   .section-menu:not(.anchored-menu) { position-anchor: --section-menu; }
   .anchored-menu { left: auto; right: anchor(right); }
-  .section-add-menu { position-anchor: --section-add; }
 }
 
 /* ---------- Workspace shell: one left navigation region, then the open page ---------- */
-.app-shell { display: grid; grid-template-columns: var(--app-nav-size) minmax(0, 1fr); height: 100dvh; background: var(--panel); }
+.app-shell { display: grid; grid-template-columns: var(--app-nav-size) minmax(0, 1fr); height: 100dvh; background: var(--bg); }
 .app-nav { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 12px 0; border-right: 1px solid var(--line); background: var(--sidebar-start); scrollbar-color: var(--line-strong) transparent; scrollbar-width: thin; }
-.app-nav-brand { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--ky-control-size); margin-bottom: 8px; padding: 0 8px; border-radius: var(--ky-control-radius); background: transparent; text-align: left; color: var(--ink-strong); font-size: var(--ky-type-section); font-weight: 600; letter-spacing: -.01em; }
+.app-nav-panel { display: flex; flex-direction: column; flex: 1 0 auto; }
+.app-nav .note-list { padding-bottom: 12px; }
+.nav-menu-toggle, .nav-scrim { display: none; }
+.app-nav-brand { display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--ky-control-size); margin-bottom: 4px; padding: 0 8px; border-radius: var(--ky-control-radius); background: transparent; text-align: left; color: var(--ink-strong); font-size: var(--ky-type-section); font-weight: 600; letter-spacing: -.01em; }
 .app-mark { flex: none; }
 button.app-nav-brand:hover { background: var(--panel-hover); }
 .app-mark-tile { fill: var(--ink-strong); }
 .app-mark-glyph { fill: var(--bg); }
 .app-nav .sidebar { display: flex; flex-direction: column; gap: 2px; }
-.app-nav-foot { position: sticky; bottom: 0; display: grid; gap: 2px; margin: auto -12px 0; padding: 12px; background: var(--sidebar-start); border-top: 1px solid var(--line); }
+/* Every divider in the region is inset 12px from its edges; the sticky foot paints its own. */
+.app-nav-foot { position: sticky; bottom: 0; display: grid; gap: 2px; margin: auto -12px 0; padding: 12px; background: linear-gradient(var(--line), var(--line)) 12px 0 / calc(100% - 24px) 1px no-repeat, var(--sidebar-start); }
 .app-nav-foot .ky-user { margin-top: 8px; }
 .app-nav-foot > .ky-user:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .app-nav-foot .app-footer { padding: 8px 0 2px; }
-.app-main { min-width: 0; overflow-y: auto; background: var(--panel); scrollbar-color: var(--line-strong) var(--panel); }
-.section-label { display: block; margin: 20px 12px 6px; color: var(--ink); font-size: var(--ky-type-meta); font-weight: 600; }
-.nav-item { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 36px; padding: 0 12px; color: var(--ink); background: transparent; text-align: left; text-decoration: none; font-size: var(--ky-type-nav); }
+/* Pages sit on the content canvas (cream in light, the darker charcoal in dark); the editor keeps the page surface. */
+.app-main { min-width: 0; overflow-y: auto; background: var(--bg); scrollbar-color: var(--line-strong) var(--bg); }
+.section-label { display: block; margin: 14px 12px 4px; color: var(--ink); font-size: var(--ky-type-meta); font-weight: 600; }
+.nav-item { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 36px; padding: 0 12px; border-radius: var(--ky-control-radius); color: var(--ink); background: transparent; text-align: left; text-decoration: none; font-size: var(--ky-type-nav); }
+/* The open notebook, section and page: bold, without the destination accent. */
+.nav-item[aria-current="true"], .section-tab[aria-current="true"] { color: var(--ink-strong); font-weight: 650; }
 .nav-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nested-nav-item { padding-inline-start: 30px; }
-.new-workspace { display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 2px 0 0; padding: 0 12px; color: var(--ink); background: transparent; font-size: var(--ky-type-nav); text-align: left; }
+.new-workspace { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; margin: 2px 0 0; padding: 0 12px; border-radius: var(--ky-control-radius); color: var(--ink); background: transparent; font-size: var(--ky-type-nav); text-align: left; }
 .new-workspace:hover:not(:disabled) { background: var(--panel-hover); color: var(--ink-strong); }
 .member-list { margin-top: 4px; }
 .member-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; color: var(--ink); font-size: var(--ky-type-meta); }
@@ -141,21 +147,20 @@ button.app-nav-brand:hover { background: var(--panel-hover); }
 .member-row .quiet { padding: 2px 6px; font-size: var(--ky-type-meta); }
 
 /* The open notebook: name, sections, search and pages. */
-.app-nav .note-list { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.app-nav .note-list { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .app-nav .note-list.no-notebook { display: none; }
 .list-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 0 12px; }
-h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-size: var(--ky-type-section); line-height: 1.3; overflow-wrap: anywhere; }
+h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-size: var(--ky-type-nav); font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
 .workspace-kind { margin: 4px 12px 0; color: var(--ink); font-size: var(--ky-type-meta); line-height: 1.5; }
 .notes-heading { margin: 16px 12px 4px; color: var(--ink-strong); font-size: var(--ky-type-meta); font-weight: 600; }
-.list-actions { display: flex; align-items: center; gap: 6px; margin: 12px 0 8px; }
-.note-search { flex: 1; min-width: 0; min-height: 36px; padding: 6px 10px; border: 1px solid var(--ky-field-border); color: var(--ink-strong); background: var(--panel); font-size: var(--ky-type-nav); }
-.list-actions .icon-button { width: 36px; height: 36px; }
+.note-search { display: block; width: calc(100% - 8px); margin: 8px 4px 4px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--ky-field-border); color: var(--ink-strong); background: var(--panel); font-size: var(--ky-type-nav); }
 .note-row-wrap { display: flex; align-items: stretch; margin-bottom: 2px; border-radius: var(--ky-control-radius); }
 .note-row-wrap:hover { background: var(--panel-hover); }
-.note-row-wrap.selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
-.note-row { display: grid; gap: 2px; flex: 1; min-width: 0; padding: 8px 12px; background: transparent; color: var(--ink); text-align: left; border-radius: var(--ky-control-radius); }
-.note-row strong { color: var(--ink-strong); font-size: var(--ky-type-nav); font-weight: 600; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.note-row { display: grid; gap: 1px; flex: 1; min-width: 0; padding: 6px 12px 6px 20px; background: transparent; color: var(--ink); text-align: left; border-radius: var(--ky-control-radius); }
+/* Pages sit under their section: indented, two lines, the open one bold. */
+.note-row strong { color: var(--ink-strong); font-size: var(--ky-type-meta); font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-row[aria-current] strong, .note-row-wrap.selected .note-row strong { font-weight: 700; }
+.note-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.4; }
 .note-row[draggable="true"] { cursor: grab; }
 .page-section { font-style: normal; color: var(--accent); }
 .page-toggle { align-self: center; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; margin-inline-start: 4px; border-radius: 6px; }
@@ -168,15 +173,13 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 .context-link:hover { color: var(--ink-strong); }
 
 /* Sections: a vertical list in the navigation, coloured by their marker. */
-.section-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px; margin-top: 12px; }
+.section-tabs { display: grid; gap: 4px; margin-top: 6px; }
 .section-tabs ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
 .section-tab-item { display: flex; align-items: center; min-width: 0; }
-.section-tab { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; min-height: 32px; padding: 0 10px; background: transparent; color: var(--ink); text-align: left; font-size: var(--ky-type-nav); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.section-tab { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; min-height: 30px; padding: 0 10px 0 12px; border-radius: var(--ky-control-radius); background: transparent; color: var(--ink); text-align: left; font-size: var(--ky-type-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .section-tab::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--tab-color); }
 .section-tab-quick::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--section-gray); }
-[class].section-tab.ky-nav-item[aria-current="page"] { font-weight: 600; }
 .section-tab-menu { anchor-name: --section-menu; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; }
-.section-add { anchor-name: --section-add; width: 32px; height: 32px; }
 .section-colors { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px; }
 .section-swatch { width: 20px; height: 20px; border-radius: 50%; padding: 0; }
 .section-swatch[aria-pressed="true"] { outline: 2px solid var(--ink-strong); outline-offset: 2px; }
@@ -187,7 +190,7 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 .section-empty { padding: 6px 10px; color: var(--ink); font-size: var(--ky-type-meta); }
 
 /* ---------- The open page ---------- */
-.editor { display: flex; flex-direction: column; min-width: 0; padding: 24px clamp(20px, 3vw, 48px) 48px; }
+.editor { display: flex; flex-direction: column; min-width: 0; min-height: 100%; padding: 24px clamp(20px, 3vw, 48px) 48px; background: var(--panel); }
 .workspace-notices { display: grid; gap: 8px; }
 .workspace-notices:not(:empty) { margin-bottom: 16px; }
 .workspace-notices .workspace-kind { margin: 0; }
@@ -218,13 +221,18 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 .editor > .conflict-banner[role="alert"] > .secondary,
 .editor:not(:has(> .conflict-banner[role="alert"])) .workspace-notices > .conflict-banner:first-of-type > .secondary:first-of-type { border-color: transparent; background: var(--accent); color: var(--button-text); font-weight: 600; }
 .editor:has(.workspace-notices > .conflict-banner) .empty-editor button { border: 1px solid var(--ky-field-border); background: var(--panel); color: var(--ink-strong); }
-.recovery-notice { padding: 0 12px; border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: var(--ky-control-radius); color: var(--ink-strong); font-size: var(--ky-type-meta); line-height: 1.5; }
-.recovery-notice[open] { padding-bottom: 12px; }
-.recovery-notice summary, .page-panel summary { display: flex; align-items: center; gap: 8px; min-height: var(--ky-control-size); cursor: pointer; list-style: none; }
-.recovery-notice summary { justify-content: space-between; }
+/* The missing recovery code: a compact chip beside the save status, never pushing the title down.
+   Its detail opens over the page; × hides it for this session only. */
+.recovery-notice { position: relative; display: inline-flex; align-items: center; justify-self: start; border: 1px solid var(--line); border-left: 3px solid var(--warning); border-radius: var(--ky-control-radius); background: var(--panel); color: var(--ink-strong); font-size: var(--ky-type-meta); }
+.recovery-notice summary { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 2px 0 10px; font-weight: 600; white-space: nowrap; cursor: pointer; list-style: none; }
+.recovery-notice summary > .nav-icon:first-child { color: var(--warning); }
+.recovery-notice .icon-button { width: 28px; height: 28px; margin-inline-end: 2px; }
+.recovery-notice-body { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; width: min(22rem, 85vw); padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--ky-control-radius); background: var(--panel); box-shadow: var(--ky-shadow-overlay); font-weight: 400; line-height: 1.5; }
+.workspace-notices .recovery-notice-body { right: auto; left: 0; }
+.recovery-notice-body button { display: block; min-height: 36px; margin-top: 8px; padding: 0 12px; }
+.page-panel summary { display: flex; align-items: center; gap: 8px; min-height: var(--ky-control-size); cursor: pointer; list-style: none; }
 :is(.recovery-notice, .page-panel) summary::-webkit-details-marker { display: none; }
-:is(.recovery-notice, .page-panel)[open] > summary > .nav-icon { transform: rotate(180deg); }
-.recovery-notice button { min-height: 36px; padding: 0 12px; margin-top: 8px; }
+.page-panel[open] > summary > .nav-icon, .recovery-notice details[open] > summary > .nav-icon:last-child { transform: rotate(180deg); }
 
 /* Comments and attachments fold under the page; each opens when it holds something. */
 .page-panel { border-top: 1px solid var(--line); }
@@ -306,6 +314,8 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
 
 /* ---------- Settings, Appearance and administration pages ---------- */
 .page-view { max-width: 72rem; padding: 32px clamp(20px, 4vw, 56px) 48px; }
+/* As in KyCalendar: the description sits about 35px above the Theme legend. */
+.page-view > .ky-page-head:has(+ .ky-appearance) { margin-bottom: 20px; }
 .settings-view { max-width: 56rem; }
 .settings-jump { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: calc(-1 * var(--ky-space-3)) 0 var(--ky-space-4); font-size: var(--ky-type-nav); }
 .settings-jump a { color: var(--ink); text-underline-offset: 3px; }
@@ -389,28 +399,24 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
   body.print-recovery .recovery-actions { display: none; }
 }
 
-/* ---------- Phones: the navigation stacks above the page behind two disclosures ---------- */
-.notebook-navigation-toggle, .page-navigation-toggle { display: none; }
+/* ---------- Phones: a Menu button opens the same navigation as a drawer ---------- */
 @media (max-width: 800px) {
+  :root { --app-bar: 53px; }
   .app-shell { display: block; height: auto; min-height: 100dvh; }
-  .app-nav { overflow: visible; padding: 0; border-right: 0; background: var(--panel); }
-  .app-nav-brand { margin: 0; padding: 12px 16px; border-radius: 0; border-bottom: 1px solid var(--line); }
-  .notebook-navigation-toggle, .page-navigation-toggle { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--line); border-radius: 0; background: var(--panel); color: var(--ink-strong); text-align: left; font-size: var(--ky-type-nav); font-weight: 600; }
-  .notebook-navigation-toggle[aria-expanded="true"] > svg, .page-navigation-toggle[aria-expanded="true"] > svg { transform: rotate(180deg); }
-  .page-navigation-toggle span:first-child { overflow-wrap: anywhere; }
-  .app-nav .sidebar { display: none; padding: 8px 4px 16px; border-bottom: 1px solid var(--line); }
-  .workspace.show-notebook-navigation .sidebar { display: flex; }
-  .app-nav-foot { display: none; position: static; margin: 0; padding: 12px 4px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  .workspace.show-notebook-navigation .app-nav-foot { display: grid; }
-  .app-nav .note-list { margin: 0; padding: 12px 4px; border-top: 0; border-bottom: 1px solid var(--line); max-height: 16rem; overflow-y: auto; }
-  .workspace.has-open-page:not(.show-page-navigation) .note-list, .workspace.other-view .note-list { display: none; }
-  .workspace.show-page-navigation .note-list { max-height: none; overflow: visible; }
-  .workspace.show-page-navigation .app-main { display: none; }
-  .workspace.show-page-navigation h2.workspace-title { display: none; }
-  .workspace.show-page-navigation .list-header { padding: 0; }
-  .app-nav .sidebar .nav-item[aria-current="page"] { box-shadow: inset 3px 0 0 var(--accent); }
+  .app-nav { position: sticky; top: 0; z-index: 30; overflow: visible; padding: 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .app-nav-bar { display: flex; align-items: center; gap: 4px; height: calc(var(--app-bar) - 1px); padding: 0 8px; }
+  .nav-menu-toggle { display: inline-flex; color: var(--ink-strong); }
+  .app-nav-brand { width: auto; margin: 0; }
+  .app-nav-panel { display: none; }
+  .app-nav.nav-open .app-nav-panel { display: flex; position: fixed; top: var(--app-bar); left: 0; bottom: 0; z-index: 31; width: min(20rem, 88vw); overflow-y: auto; padding: 8px 12px 0; border-right: 1px solid var(--line); background: var(--sidebar-start); box-shadow: var(--ky-shadow-overlay); }
+  /* ky-ui underlines the current item on narrow screens for horizontal bars; this drawer is vertical. */
+  .app-nav-panel [class].ky-nav-item[aria-current="page"] { box-shadow: inset 3px 0 var(--accent); }
+  .page-head-actions { flex-wrap: wrap; }
+  .page-head-actions > .recovery-notice { order: -1; flex-basis: 100%; }
+  .page-head-actions > .recovery-notice details { flex: 1; }
+  .app-nav.nav-open .nav-scrim { display: block; position: fixed; inset: var(--app-bar) 0 0 0; z-index: 30; background: rgb(12 12 18 / .4); }
   .app-main { overflow: visible; }
-  .editor { padding: 20px 16px 32px; }
+  .editor { min-height: calc(100dvh - var(--app-bar)); padding: 20px 16px 32px; }
   .page-head-actions { width: 100%; }
   .save-state { justify-items: start; margin-inline-end: auto; }
   .canvas-surface { display: flex; flex-direction: column; gap: 16px; width: auto !important; height: auto !important; }
@@ -422,8 +428,5 @@ h2.workspace-title { margin: 0; min-width: 0; color: var(--ink-strong); font-siz
   .empty-editor { margin-top: 24px; }
   .page-view { padding: 24px 16px 40px; }
   .toast { left: 16px; right: 16px; }
-  .admin-shell .app-nav .sidebar { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding: 8px 12px; }
-  .admin-shell .app-nav .sidebar .nav-item { width: auto; }
-  .admin-shell .app-nav-foot { display: grid; }
   .data-table th, .data-table td { padding: 0 8px; }
 }

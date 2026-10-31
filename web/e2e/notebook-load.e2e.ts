@@ -39,7 +39,7 @@ test("a notebook created while the notebook list loads stays open", async ({ bro
     await openNotebooks(page);
     await withDialog(owner, { type: "prompt", text: "Notebook name", answer: FRESH }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
     await expect(title).toHaveText(FRESH);
-    await expect(page.getByRole("navigation", { name: "Notebooks" }).getByRole("button", { name: FRESH })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("navigation", { name: "Notebooks" }).getByRole("button", { name: FRESH })).toHaveAttribute("aria-current", "true");
 
     // The list load finishes after the creation; it must not switch back to its own pick.
     const picked = page.waitForRequest((request) => request.url().includes(`/api/v1/containers/${earlier}/changes`), { timeout: 3_000 }).then(() => true, () => false);

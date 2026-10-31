@@ -22,8 +22,7 @@ export function Appearance() {
       <header className="ky-page-head">
         <div>
           <h1 id="appearance-heading" className="ky-page-title">Appearance</h1>
-          <p className="ky-page-lede">Pick a palette and how it handles light and dark: Match system follows your device’s setting, while Light or Dark keeps that mode.</p>
-          <p className="ky-appearance-description">Your choice applies straight away and is saved in this browser only.</p>
+          <p className="ky-page-lede">Pick a palette and how it handles light and dark. Match system follows your device’s setting; Light or Dark keeps that mode. Your choice applies straight away and is saved in this browser only.</p>
         </div>
       </header>
       <fieldset className="ky-appearance">
