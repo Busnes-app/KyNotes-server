@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { session } from "../api";
 import { NavIcon } from "../NavIcon";
 import mitLicenseText from "../mit.txt?raw";
@@ -22,7 +22,7 @@ export function LicenseWindow({ version, onClose }: { version: string; onClose: 
 }
 
 /** The licence line that opens the About dialog. The version comes from the session, so signed-out pages show none. */
-export function LicenseFooter({ signedIn, className = "app-footer" }: { signedIn: boolean; className?: string }) {
+export function LicenseFooter({ signedIn, className = "app-footer", children }: { signedIn: boolean; className?: string; children?: ReactNode }) {
   const [version, setVersion] = useState("");
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -34,6 +34,7 @@ export function LicenseFooter({ signedIn, className = "app-footer" }: { signedIn
   }, [open, signedIn]);
   return (
     <footer className={className}>
+      {children}
       <button type="button" className="ky-license-link" onClick={() => { dialogRef.current?.showModal(); setOpen(true); }}>
         &copy; {new Date().getFullYear()} &middot; MIT License
       </button>

@@ -1,5 +1,14 @@
 # Shared UI verification
 
+## App rail (2026-10-31)
+
+`docs/ui-app-rail-2026-10-31/screenshots/` holds `app-rail-{before,after}-{light,dark}-{desktop,phone}.png`
+at 1440x900 and 390x844, captured by `web/e2e/app-rail.e2e.ts` (`KYNOTES_E2E_SHOTS`, `KYNOTES_RAIL_STAGE`)
+against throwaway servers built from `master` and this branch. The suite list is served by the browser
+check in place of `/api/v1/suite/apps`: the throwaway server has no KyIdentity, so the shots show a
+password account with a mocked list, not a live SSO sign-in. The same check proves the data: marks paint
+under the app CSP and the rail is absent for an empty list.
+
 ## Current sequential council pass (2026-10-26)
 
 `docs/ui-notes-eight/` records the editor/phone-navigation changes, independent
