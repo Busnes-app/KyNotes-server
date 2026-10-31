@@ -112,6 +112,8 @@ export const saveAdminSSO = (settings: SSOSettings) => request<SSOSettings>("/ap
 export const pairAdminSSO = (issuerUrl: string, pairingToken: string, callbackUrl?: string) => request<{ success: boolean; systemId: string; settings: SSOSettings }>("/api/v1/admin/sso/pair", { method: "POST", body: JSON.stringify({ issuerUrl, pairingToken, callbackUrl }) });
 
 export const session = () => request<Session>("/api/v1/auth/session");
+export type SuiteApp = { id: string; name: string; url: string };
+export const suiteApps = () => request<{ apps: SuiteApp[] }>("/api/v1/suite/apps");
 export const serverTheme = () => request<{ defaultTheme: string }>("/api/v1/theme");
 export const logout = () => request<void>("/api/v1/auth/logout", { method: "POST" });
 export const containers = () => request<Container[]>("/api/v1/containers");
