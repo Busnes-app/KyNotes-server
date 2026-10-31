@@ -1,7 +1,7 @@
 import { AdminConsole } from "./components/AdminConsole";
 import { LicenseFooter, UserBlock } from "./components/LicenseFooter";
 import { Appearance, ThemeSwitcher } from "./components/Appearance";
-import { AppNav, NavItem } from "./components/AppNav";
+import { AppFrame, NavItem, usePhone } from "./components/AppNav";
 import { setupProblem } from "./setup";
 import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
@@ -362,7 +362,7 @@ function Login({
   onForgetDevice?: (username: string) => void;
 }) {
   const [setupRequired, setSetupRequired] = useState(false);
-  const [username, setUsername] = useState(() => sessionUser?.username ?? sessionStorage.getItem("kynotes-last-username") ?? "");
+  const [username, setUsername] = useState(() => sessionUser?.username ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [adminName, setAdminName] = useState("admin");
@@ -402,7 +402,6 @@ function Login({
         return { username: name.trim(), authSecret: (await deriveLoginKeys(secret, loginSalt, 600000)).authSecret, loginSalt, iterations: 600000 };
       };
       const result = await setupInit(await account(adminName, password), await account(everydayName, everydayPassword));
-      sessionStorage.setItem("kynotes-last-username", everydayName.trim());
       onLogin({ username: adminName.trim(), authSecret: "", user: result.user });
     } catch (error) {
       setError(error instanceof Error ? error.message : "Setup failed");
@@ -426,7 +425,6 @@ function Login({
       const { keys, identity } = params.iterations < LOGIN_ITERATIONS && !result.passwordChangeRequired
         ? await upgradeOlderLogin(activeName, result.user.id, password, derived, result.identity)
         : { keys: derived, identity: result.identity };
-      sessionStorage.setItem("kynotes-last-username", activeName);
       const everyday = result.user.accountKind === "user";
       // Only an everyday account on its own password keeps a vault record, after the server accepted the password.
       if (everyday && !result.passwordChangeRequired) {
@@ -499,7 +497,7 @@ function Login({
           {!sessionUser && (
             <div className="ky-auth-field">
               <label htmlFor="login-username">Username</label>
-              <input id="login-username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(event) => setUsername(event.target.value)} required />
+              <input id="login-username" autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus value={username} onChange={(event) => setUsername(event.target.value)} required />
             </div>
           )}
           <div className="ky-auth-field">
@@ -507,6 +505,8 @@ function Login({
             <input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required autoFocus={!!sessionUser} />
           </div>
           {error && <p className="error" role="alert">{error}</p>}
+          {/* No browser check runs here: the empty line keeps the card's rhythm. */}
+          <p className="ky-auth-check" />
           <button className="ky-auth-submit" disabled={busy}><NavIcon name="signin" />{busy ? "Signing in…" : "Sign in"}</button>
         </form>
         {!sessionUser && sso?.enabled && (
@@ -520,7 +520,7 @@ function Login({
   );
 }
 
-/** The suite sign-in frame (ky-ui shell): theme picker, mark, name, one card, the help line and the licence line. */
+/** The suite sign-in frame (ky-ui shell): theme picker, mark, name, one card and the help line. */
 function AuthScreen({ tagline, help, children }: { tagline: string; help?: string; children: React.ReactNode }) {
   return (
     <main className="ky-auth">
@@ -533,7 +533,6 @@ function AuthScreen({ tagline, help, children }: { tagline: string; help?: strin
         </div>
         {children}
         {help && <p className="ky-auth-help">{help}</p>}
-        <LicenseFooter signedIn={false} />
       </div>
     </main>
   );
@@ -554,7 +553,7 @@ function Workspace({
   const [items, setItems] = useState<Container[]>([]);
   const [showNotebookNavigation, setShowNotebookNavigation] = useState(false);
   const pageTitleRef = useRef<HTMLInputElement>(null);
-  const notebookNavigationRef = useRef<HTMLButtonElement>(null);
+  const phone = usePhone();
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Container | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -592,11 +591,11 @@ function Workspace({
   const [queueComplete, setQueueComplete] = useState(false);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   useEffect(() => {
-    if (selectedNote && window.matchMedia("(max-width: 800px)").matches) {
+    if (selectedNote && phone) {
       setShowNotebookNavigation(false);
       // Focus follows a phone page choice; opening a deep link leaves focus alone.
       if (showNotebookNavigation) {
-        // The menu drawer covers the editor; focus after the close has rendered.
+        // The open tree pushes the editor down; focus after the close has rendered.
         const frame = requestAnimationFrame(() => pageTitleRef.current?.focus());
         return () => cancelAnimationFrame(frame);
       }
@@ -1498,7 +1497,6 @@ function Workspace({
   }
   async function openWorkQueue() {
     setShowNotebookNavigation(false);
-    notebookNavigationRef.current?.focus();
     setView("workspace");
     setQueueMode(true);
     setBusy(true);
@@ -2679,10 +2677,10 @@ function Workspace({
     else setView("workspace");
   };
   const goTo = (next: "settings" | "appearance") => { setShowNotebookNavigation(false); setView(next); };
-  // The phone drawer opens on the open page, so its siblings are in reach.
+  // The phone tree opens on the open page, so its siblings are in reach.
   useEffect(() => {
     if (!showNotebookNavigation) return;
-    const frame = requestAnimationFrame(() => document.querySelector(".app-nav-panel .note-row[aria-current]")?.scrollIntoView({ block: "nearest" }));
+    const frame = requestAnimationFrame(() => document.querySelector(".notes-tree .note-row[aria-current]")?.scrollIntoView({ block: "nearest" }));
     return () => cancelAnimationFrame(frame);
   }, [showNotebookNavigation]);
   // Security-relevant, so always shown until dismissed for this session; the detail opens over the page.
@@ -2696,22 +2694,26 @@ function Workspace({
     </div>
   );
   return (
-    <main className={`app-shell workspace${queueMode ? " queue-mode" : ""}`}>
-      <AppNav
-        open={showNotebookNavigation}
-        onToggle={() => setShowNotebookNavigation((open) => !open)}
-        toggleRef={notebookNavigationRef}
-        onHome={() => { setShowNotebookNavigation(false); setView("workspace"); }}
-        foot={<>
-          <NavItem icon="palette" label="Appearance" current={view === "appearance"} onClick={() => goTo("appearance")} />
-          <NavItem icon="settings" label="Settings" current={view === "settings"} onClick={() => goTo("settings")} />
-          <UserBlock name={auth.username || auth.user.id.slice(0, 12)} role="Everyday account" onSignOut={onLogout} />
-          <LicenseFooter signedIn />
-        </>}
-      >
+    <AppFrame
+      className={`workspace${queueMode ? " queue-mode" : ""}`}
+      label="Primary"
+      onSignOut={onLogout}
+      nav={<>
+        {/* On phones the notebook tree folds under the tabs; Notes, once current, opens and closes it. */}
+        <NavItem icon="notes" label="Notes" current={inWorkspace && !queueMode} disabled={queueMode && !notesTarget}
+          expanded={phone && inWorkspace && !queueMode ? showNotebookNavigation : undefined} controls={phone ? "notebook-tree" : undefined}
+          onClick={() => phone && inWorkspace && !queueMode ? setShowNotebookNavigation((open) => !open) : goToNotes()} />
+        {/* Ignored while busy rather than disabled, so keyboard focus stays on the chosen tab. */}
+        <NavItem icon="work" label="Work queue" current={inWorkspace && queueMode} onClick={() => { if (!busy) void openWorkQueue(); }} />
+        <NavItem icon="palette" label="Appearance" current={view === "appearance"} onClick={() => goTo("appearance")} />
+        <NavItem icon="settings" label="Settings" current={view === "settings"} onClick={() => goTo("settings")} />
+      </>}
+      foot={<>
+        <UserBlock name={auth.username || auth.user.id.slice(0, 12)} role="Everyday account" onSignOut={onLogout} />
+        <LicenseFooter signedIn />
+      </>}
+      tree={<div id="notebook-tree" className="notes-tree" data-open={showNotebookNavigation || undefined}>
         <nav id="notebook-navigation" className="sidebar" aria-label="Notebooks">
-          <NavItem icon="notes" label="Notes" current={inWorkspace && !queueMode} disabled={queueMode && !notesTarget} onClick={goToNotes} />
-          <NavItem icon="work" label="Work queue" current={inWorkspace && queueMode} disabled={busy} onClick={() => void openWorkQueue()} />
           <div className="section-label">Notebooks</div>
           {personal.map((container) => notebookItem(container, "notebook"))}
           {teams.length > 0 && <div className="section-label team-label">Team notebooks</div>}
@@ -2866,7 +2868,7 @@ function Workspace({
                   setView("workspace");
                   if (selectedNote?.id === note.id) {
                     setShowNotebookNavigation(false);
-                    if (window.matchMedia("(max-width: 800px)").matches) requestAnimationFrame(() => pageTitleRef.current?.focus());
+                    if (phone) requestAnimationFrame(() => pageTitleRef.current?.focus());
                     return;
                   }
                   void selectNote(note);
@@ -2921,8 +2923,8 @@ function Workspace({
             </div>
           )}
         </section>
-      </AppNav>
-      <div className="app-main">
+      </div>}
+    >
         {/* The editor stays mounted behind Settings and Appearance, so an open page keeps its pending edits. */}
         <section className="editor" hidden={!inWorkspace}>
           <div className="workspace-notices">
@@ -3099,7 +3101,6 @@ function Workspace({
             onReminders={setReminderPrefs}
           />
         )}
-      </div>
       {commitToastAt && commitToastVisible(commitToastAt) && (
         <button className="toast commit-toast" onClick={() => setCommitToastAt(null)}>
           {commitToastLabel(commitToastAt)} ×
@@ -3110,7 +3111,7 @@ function Workspace({
           {error} ×
         </button>
       )}
-    </main>
+    </AppFrame>
   );
 }
 
@@ -3224,7 +3225,7 @@ const CHOOSE_PASSWORD = "An administrator set this account's password. Choose yo
 /** Shown before anything else while the server reports passwordChangeRequired; nothing runs before the change. */
 function ChoosePassword({ auth, onChanged, onLogout }: { auth: AuthState; onChanged: (authSecret: string) => void; onLogout: () => void }) {
   return (
-    <AuthScreen tagline="Choose your own password">
+    <AuthScreen tagline="Choose your own password.">
       <div className="ky-auth-card choose-password">
         <p role="status">{CHOOSE_PASSWORD}</p>
         <PasswordSettings username={auth.username} userID={auth.user.id} everyday={auth.user.accountKind === "user"} onAuthSecret={() => {}} onIdentityCreated={() => {}} onChanged={onChanged} />

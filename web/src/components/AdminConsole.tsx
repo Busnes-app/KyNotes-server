@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   addAdminTeamMember,
   adminAudit,
@@ -21,7 +21,7 @@ import { deriveAuthSecret, randomLoginSalt } from "../crypto";
 import { AdminBackup } from "./AdminBackup";
 import { LicenseFooter, UserBlock } from "./LicenseFooter";
 import { NavIcon, type IconName } from "../NavIcon";
-import { AppNav, NavItem } from "./AppNav";
+import { AppFrame, NavItem } from "./AppNav";
 import { Appearance } from "./Appearance";
 import { withStepUp } from "../stepup";
 
@@ -44,9 +44,7 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
   const sections = SECTIONS.filter(([id]) => id !== "account" || !sso);
   const fromHash = (): SectionID => location.hash === "#appearance" ? "appearance" : sections.find(([id]) => location.hash === `#${id}`)?.[0] ?? "users";
   const [section, setSection] = useState<SectionID>(fromHash);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const toggleMenu = useCallback(() => setMenuOpen((open) => !open), []);
-  const link = (id: SectionID, label: string, icon: IconName) => <NavItem key={id} icon={icon} label={label} href={`#${id}`} current={section === id} onClick={() => setMenuOpen(false)} />;
+  const link = (id: SectionID, label: string, icon: IconName) => <NavItem key={id} icon={icon} label={label} href={`#${id}`} current={section === id} />;
   const [status, setStatus] = useState<{ health: boolean; ready: boolean } | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [audit, setAudit] = useState<Array<Record<string, string>>>([]);
@@ -65,25 +63,21 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
     return () => window.removeEventListener("hashchange", follow);
   }, []);
   return (
-    <main className="app-shell admin-shell">
-      {/* The same navigation as the notes. An administrator account opens no notes, so it has no Notes item. */}
-      <AppNav
-        open={menuOpen}
-        onToggle={toggleMenu}
-        onHome={() => { setMenuOpen(false); location.hash = "#users"; }}
-        foot={<>
-          {link("appearance", "Appearance", "palette")}
-          {!sso && link("account", "Settings", "settings")}
-          <UserBlock name={username} role="Administrator" onSignOut={onLogout} />
-          <LicenseFooter signedIn />
-        </>}
-      >
-        <div className="section-label">Administration</div>
-        <nav className="sidebar" aria-label="Administration sections">
-          {sections.filter(([id]) => id !== "account").map(([id, label, icon]) => link(id, label, icon))}
-        </nav>
-      </AppNav>
-      <div className="app-main">
+    // The same frame as the notes. An administrator account opens no notes, so it has no Notes item.
+    <AppFrame
+      className="admin-shell"
+      label="Administration sections"
+      onSignOut={onLogout}
+      nav={<>
+        {sections.filter(([id]) => id !== "account").map(([id, label, icon]) => link(id, label, icon))}
+        {link("appearance", "Appearance", "palette")}
+        {!sso && link("account", "Settings", "settings")}
+      </>}
+      foot={<>
+        <UserBlock name={username} role="Administrator" onSignOut={onLogout} />
+        <LicenseFooter signedIn />
+      </>}
+    >
         <div id="appearance" hidden={section !== "appearance"}><Appearance /></div>
         {/* Every section stays mounted, so switching keeps lists loaded and half-typed forms intact. */}
         {sections.map(([id, title, , lede]) => (
@@ -126,8 +120,7 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
             {id === "account" && password}
           </section>
         ))}
-      </div>
-    </main>
+    </AppFrame>
   );
 }
 

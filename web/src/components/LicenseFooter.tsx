@@ -22,7 +22,7 @@ export function LicenseWindow({ version, onClose }: { version: string; onClose: 
 }
 
 /** The licence line that opens the About dialog. The version comes from the session, so signed-out pages show none. */
-export function LicenseFooter({ signedIn }: { signedIn: boolean }) {
+export function LicenseFooter({ signedIn, className = "app-footer" }: { signedIn: boolean; className?: string }) {
   const [version, setVersion] = useState("");
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -33,7 +33,7 @@ export function LicenseFooter({ signedIn }: { signedIn: boolean }) {
     return () => { cancelled = true; };
   }, [open, signedIn]);
   return (
-    <footer className="app-footer">
+    <footer className={className}>
       <button type="button" className="ky-license-link" onClick={() => { dialogRef.current?.showModal(); setOpen(true); }}>
         &copy; {new Date().getFullYear()} &middot; MIT License
       </button>

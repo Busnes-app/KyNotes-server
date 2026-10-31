@@ -22,7 +22,7 @@ export function Appearance() {
       <header className="ky-page-head">
         <div>
           <h1 id="appearance-heading" className="ky-page-title">Appearance</h1>
-          <p className="ky-page-lede">Pick a palette and how it handles light and dark. Match system follows your device’s setting; Light or Dark keeps that mode. Your choice applies straight away and is saved in this browser only.</p>
+          <p className="ky-page-lede">Pick a palette and how it handles light and dark. Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only.</p>
         </div>
       </header>
       <fieldset className="ky-appearance">
@@ -56,7 +56,7 @@ export function Appearance() {
 export function ThemeSwitcher() {
   const [theme, choose] = useStoredTheme();
   return (
-    <select className="theme-selector" aria-label="Color theme" value={theme} onChange={(event) => choose(event.target.value)}>
+    <select aria-label="Color theme" value={theme} onChange={(event) => choose(event.target.value)}>
       {THEME_CHOICES.map(({ pair, choices }) => (
         <optgroup key={pair.id} label={pair.name}>
           {choices.map(({ mode, label, value }) => <option key={mode} value={value}>{pair.name} · {label}</option>)}

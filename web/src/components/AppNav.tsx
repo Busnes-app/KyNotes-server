@@ -1,40 +1,47 @@
-import { useEffect, type ReactNode, type Ref } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { AppMark, NavIcon, type IconName } from "../NavIcon";
+import { LicenseFooter } from "./LicenseFooter";
+
+const PHONE = "(max-width: 720px)";
+const watchPhone = (change: () => void) => {
+  const query = matchMedia(PHONE);
+  query.addEventListener("change", change);
+  return () => query.removeEventListener("change", change);
+};
+/** Whether the ky-ui phone layout (720px and narrower) is showing. */
+export function usePhone() {
+  return useSyncExternalStore(watchPhone, () => matchMedia(PHONE).matches);
+}
 
 /** One destination row. Only the current destination carries the shared accent (aria-current="page"). */
-export function NavItem({ icon, label, current, href, disabled, onClick }: { icon: IconName; label: string; current?: boolean; href?: string; disabled?: boolean; onClick?: () => void }) {
+export function NavItem({ icon, label, current, href, disabled, expanded, controls, onClick }: { icon: IconName; label: string; current?: boolean; href?: string; disabled?: boolean; expanded?: boolean; controls?: string; onClick?: () => void }) {
   const body = <><NavIcon name={icon} /><span>{label}</span></>;
-  const className = "ky-nav-item nav-item";
   return href
-    ? <a className={className} href={href} aria-current={current ? "page" : undefined} onClick={onClick}>{body}</a>
-    : <button type="button" className={className} aria-current={current ? "page" : undefined} disabled={disabled} onClick={onClick}>{body}</button>;
+    ? <a className="ky-nav-item" href={href} aria-current={current ? "page" : undefined} onClick={onClick}>{body}</a>
+    : <button type="button" className="ky-nav-item" aria-current={current ? "page" : undefined} aria-expanded={expanded} aria-controls={controls} disabled={disabled} onClick={onClick}>{body}</button>;
 }
 
 /**
- * The suite's single left navigation region, shared by the workspace and the administration console.
- * Desktop shows it whole; phones show a Menu button that opens the same panel as a drawer.
+ * The ky-ui app frame shared by the workspace and the administration console: brand, one
+ * navigation, an optional notebook tree, the user block, then the page. Phones get the brand with
+ * an icon-only Sign out, the navigation as a row of tabs, and the licence line at the page end.
  */
-export function AppNav({ open, onToggle, toggleRef, onHome, children, foot }: { open: boolean; onToggle: () => void; toggleRef?: Ref<HTMLButtonElement>; onHome: () => void; children: ReactNode; foot: ReactNode }) {
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.querySelector("dialog[open]")) onToggle(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [open, onToggle]);
+export function AppFrame({ label, nav, tree, foot, onSignOut, className = "", children }: { label: string; nav: ReactNode; tree?: ReactNode; foot: ReactNode; onSignOut: () => void; className?: string; children: ReactNode }) {
   return (
-    <aside className={`app-nav${open ? " nav-open" : ""}`} aria-label="Navigation">
-      <div className="app-nav-bar">
-        <button ref={toggleRef} type="button" className="nav-menu-toggle icon-button quiet" aria-label="Menu" aria-expanded={open} aria-controls="app-navigation" onClick={onToggle}><NavIcon name="menu" /></button>
-        <button type="button" className="app-nav-brand" onClick={onHome}>
-          <AppMark size={28} />
-          <span>KyNotes</span>
-        </button>
-      </div>
-      <div id="app-navigation" className="app-nav-panel">
+    <div className={`ky-app ${className}`}>
+      <header className="ky-sidebar">
+        <div className="ky-mobile-head">
+          <div className="ky-brand"><AppMark size={28} /><span>KyNotes</span></div>
+          <button type="button" className="ky-mobile-signout" aria-label="Sign out" onClick={onSignOut}><NavIcon name="signout" /></button>
+        </div>
+        <nav className="ky-nav" aria-label={label}>{nav}</nav>
+        {tree}
+        <div className="ky-sidebar-foot">{foot}</div>
+      </header>
+      <main className="ky-content">
         {children}
-        <div className="app-nav-foot">{foot}</div>
-      </div>
-      {open && <div className="nav-scrim" aria-hidden="true" onClick={onToggle} />}
-    </aside>
+        <LicenseFooter signedIn className="ky-content-foot" />
+      </main>
+    </div>
   );
 }

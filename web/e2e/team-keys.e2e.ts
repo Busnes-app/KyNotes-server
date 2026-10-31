@@ -501,7 +501,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   const back = await inviteFrom(owner, newcomerOwn.userId, /The invitation carries no keys: you cannot see this person's encryption key yet/);
   await owner.page.goto("about:blank");
   // Pasted into the tab already running KyNotes: no reload, the token leaves the address bar, the banner offers it.
-  await expect(newcomer.page.locator(".app-nav")).toBeVisible();
+  await expect(newcomer.page.locator(".ky-sidebar")).toBeVisible();
   await newcomer.page.evaluate(() => { (window as unknown as { sameTab: boolean }).sameTab = true; });
   await newcomer.page.evaluate((link) => { location.href = link; }, back.link);
   await expect(newcomer.page).not.toHaveURL(/invite/);

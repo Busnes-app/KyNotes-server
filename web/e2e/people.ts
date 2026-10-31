@@ -32,16 +32,19 @@ export async function withDialog(who: Person, dialog: Dialog, action: () => Prom
   await expect.poll(async () => { await expect(stepUpPrompt(who.page)).toBeHidden(); return who.expected.length; }, { message: `dialog not shown: ${dialog.text}` }).toBe(0);
 }
 
-/** Shows the navigation: always in view on desktop; on phones, in the drawer behind the Menu button. */
+/** Shows the notebook tree: always in view on desktop; on phones, under the Notes tab once Notes is current. */
 export async function openNotebooks(page: Page) {
-  const toggle = page.getByRole("button", { name: "Menu", exact: true });
-  if (await toggle.isVisible() && await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  const tree = page.locator("#notebook-tree");
+  for (let tries = 0; tries < 2 && !(await tree.isVisible()); tries++) await notesTab(page).click();
+  await expect(tree).toBeVisible();
 }
 
-/** Leaves Settings or Appearance for the notes: the brand in the navigation goes back without reloading anything. */
+/** Leaves Settings or Appearance for the notes: the Notes tab goes back without reloading anything. */
 export async function backToNotes(page: Page) {
-  await page.getByRole("button", { name: "KyNotes", exact: true }).click();
+  await notesTab(page).click();
 }
+
+const notesTab = (page: Page) => page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true });
 
 /** An everyday account on its own password: lands in the workspace. */
 export async function signIn(page: Page, username: string, password: string) {

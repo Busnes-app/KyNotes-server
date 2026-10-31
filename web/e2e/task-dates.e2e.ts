@@ -223,7 +223,8 @@ test("push reminders send the server only an opaque id and a UTC minute", async 
     await expect.poll(() => sent.filter((request) => request.method === "PUT" && request.url === "/api/v1/push/web/subscriptions").map((request) => request.body)).toContainEqual('{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-stub"}');
     expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration("/"))?.active?.scriptURL)).toMatch(/\/sw\.js$/);
     await shoot("task-dates", page, "settings", "push", page.locator("#reminders"));
-    await backToNotes(page);
+    // Back to the work queue the task row lives in (the Notes tab would open a notebook).
+    await page.getByRole("button", { name: "Work queue" }).click();
 
     // The reconcile after the notebooks load puts exactly one reminder: id and UTC minute only.
     const at = await page.evaluate((value) => { const [d, t] = value.split("T"); const [y, m, day] = d.split("-").map(Number); const [h, min] = t.split(":").map(Number); return new Date(y, m - 1, day, h, min).toISOString().slice(0, 16) + ":00Z"; }, remind);
