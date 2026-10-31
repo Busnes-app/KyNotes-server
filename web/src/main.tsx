@@ -3004,7 +3004,7 @@ function Workspace({
                   <div className="page-head-actions">
                     {!(phone && phoneList) && recoveryNudge}
                     <p className="save-state" aria-live="polite">
-                      <span className={`sync-dot sync-${dirty ? "dirty" : syncStatus}`}>● {saveStatus}</span>
+                      <span className="ky-status" data-ky-status={dirty ? undefined : SYNC_TONE[syncStatus]}>{saveStatus}</span>
                       {saveDetail && <span className="save-detail">{saveDetail}</span>}
                     </p>
                     <button className="save-button secondary" disabled={busy} onClick={() => void save(selectedNote)}>
@@ -3245,6 +3245,9 @@ function PasswordSettings({ username, userID, everyday, onAuthSecret, onIdentity
     </section>
   );
 }
+
+// Only saved and failed are a state with a colour; unsaved, syncing and waiting to sync are neutral.
+const SYNC_TONE: Record<string, "success" | "danger" | undefined> = { saved: "success", attention: "danger" };
 
 const CHOOSE_PASSWORD = "An administrator set this account's password. Choose your own before you continue.";
 

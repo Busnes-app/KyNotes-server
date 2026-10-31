@@ -111,8 +111,8 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
               <>
                 <p role="note" className="admin-note">{ADMIN_ACCOUNT_NOTE}</p>
                 <dl className="status-list">
-                  <div><dt>Health</dt><dd>{status ? (status.health ? "OK" : "Failed") : "Checking…"}</dd></div>
-                  <div><dt>Readiness</dt><dd>{status ? (status.ready ? "OK" : "Failed") : "Checking…"}</dd></div>
+                  <div><dt>Health</dt><dd><Probe ok={status?.health} /></dd></div>
+                  <div><dt>Readiness</dt><dd><Probe ok={status?.ready} /></dd></div>
                 </dl>
               </>
             )}
@@ -123,6 +123,10 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
     </AppFrame>
   );
 }
+
+const Probe = ({ ok }: { ok?: boolean }) => (
+  <span className="ky-status" data-ky-status={ok === undefined ? undefined : ok ? "success" : "danger"}>{ok === undefined ? "Checking…" : ok ? "OK" : "Failed"}</span>
+);
 
 const failed = (fallback: string) => (error: unknown) => {
   // A cancelled password dialog is the administrator's own choice, not a failure to report.
@@ -217,7 +221,7 @@ function UserTable({ username: admin, users, onChange }: { username: string; use
             <tr key={user.id} className="admin-user">
               <th scope="row">{user.username}</th>
               <td>{user.accountKind === "admin" ? (user.role === "admin" ? "Administrator" : "Administrator, grant revoked") : "Everyday"}</td>
-              <td><span className={`status-badge${active ? "" : " status-off"}`}>{active ? "Active" : "Disabled"}</span></td>
+              <td><span className="ky-status" data-ky-status={active ? "success" : undefined}>{active ? "Active" : "Disabled"}</span></td>
               <td className="row-actions">
                 <button className="icon-button quiet menu-button" popoverTarget={menu} aria-label={`Actions for ${user.username}`} style={{ anchorName: `--${menu}` }}><NavIcon name="more" /></button>
                 <div className="section-menu anchored-menu row-menu" id={menu} popover="auto" style={{ positionAnchor: `--${menu}` } as React.CSSProperties}>

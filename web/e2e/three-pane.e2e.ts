@@ -59,7 +59,7 @@ test("formatting comes first, ink sits behind Draw, and sections open their firs
     await expect(ink).toHaveCount(0);
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByText("● Saved to server", { exact: true })).toBeVisible();
+    await expect(page.locator(".save-state .ky-status")).toHaveText("Saved to server");
     // The list row: title, the page's own text, a date, and the open page highlighted.
     const row = page.locator('#page-navigation .note-row[aria-current="page"]');
     await expect(row.locator("strong")).toHaveText("Formatting");

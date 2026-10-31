@@ -67,7 +67,7 @@ test("a repeating checklist item rolls forward when ticked, and the work queue g
 
     // After a reload the saved page holds the same two items: nothing is generated twice.
     // The tick's save can land before the rolled-forward edit's; reload only once both are on the server.
-    await expect(page.getByText("● Saved to server")).toBeVisible();
+    await expect(page.locator(".save-state .ky-status")).toHaveText("Saved to server");
     await page.reload();
     await openNotebooks(page);
     await page.getByRole("button", { name: "Work queue" }).click();
