@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { session } from "../api";
-import { NavIcon } from "../NavIcon";
 import mitLicenseText from "../mit.txt?raw";
 
 /** The About dialog's contents (ky-ui shell); the version pill shows only once the server has named it. */
@@ -45,15 +44,15 @@ export function LicenseFooter({ signedIn, className = "app-footer", children }: 
   );
 }
 
-/** The sidebar user block: name, role line and a labelled Sign out row. */
-export function UserBlock({ name, role, onSignOut }: { name: string; role: string; onSignOut: () => void }) {
+/** The sidebar user block, one row: name over role, then the account's icon buttons. */
+export function UserBlock({ name, role, actions }: { name: string; role: string; actions: ReactNode }) {
   return (
     <div className="ky-user">
       <div className="ky-user-copy">
         <p className="ky-user-name">{name}</p>
         <p className="ky-user-role">{role}</p>
       </div>
-      <button type="button" className="ky-user-signout" onClick={onSignOut}><NavIcon name="signout" />Sign out</button>
+      <div className="ky-user-actions">{actions}</div>
     </div>
   );
 }

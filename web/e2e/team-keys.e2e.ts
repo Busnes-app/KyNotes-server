@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
-import { OWNER, addToTeam, adminConsole, adminSection, approve, backToNotes, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, userRow, vaultOf, withDialog, type Person, openNotebooks } from "./people";
+import { OWNER, addToTeam, adminConsole, adminSection, approve, backToNotes, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, userRow, vaultOf, withDialog, type Person, openNotebooks, openSettings } from "./people";
 import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
@@ -81,7 +81,7 @@ async function saveShownCode(scope: Locator, shots?: { page: Page; phase: string
  */
 async function resetOwnKey(who: Person, password: string) {
   const { page } = who;
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(page);
   const card = page.locator("#identity-reset");
   await expect(card.getByText(RESET_HELD)).toBeVisible();
   const steps: string[] = [];
@@ -243,7 +243,7 @@ const listed = (page: Page) => page.evaluate(async () => ((await (await fetch("/
 
 /** This person's own user ID and fingerprint, as their Settings shows them. */
 async function ownSettings(page: Page) {
-  await page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(page);
   const code = async (label: RegExp) => (await page.locator("p", { hasText: label }).locator("code").first().textContent())!.trim();
   const values = { userId: await code(/Your user ID/), fingerprint: await code(/Your encryption key fingerprint/) };
   await backToNotes(page);
@@ -467,7 +467,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   expect(await stashed(shared.page)).toBeNull();
   expect(await listed(shared.page)).not.toContain(second);
   await shared.page.reload();
-  await expect(shared.page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await expect(shared.page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
   await expect(shared.page.getByRole("button", { name: "Join team" })).toHaveCount(0);
   await shared.page.context().close();
 
@@ -556,7 +556,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
 
   // 4. The owner re-trusts the new key in Settings, outside any wrap prompt (opened on the second team, where no wrap targets the newcomer).
   await openTeam(owner.page, SECOND, second);
-  await owner.page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(owner.page, "Colleague keys");
   const pin = owner.page.locator(".pin-row", { hasText: "newcomer" });
   await expect(pin).toContainText(newcomerOwn.fingerprint);
   await expect(pin).toContainText(renewed.fingerprint);
@@ -598,7 +598,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   const stranded = await encryptNote(waitingKey({ privateKey: Uint8Array.from(newIdentity.privateKey) }), lost, `obj_${"z".repeat(26)}`, { type: "page", title: "Stranded edit", body: "[]" });
   // Stamped with its account, as the app queues every edit: only those may be discarded.
   await queueEdit(newcomer.page, { id: `obj_${"z".repeat(26)}`, containerID: lost, version: 1, payload: [...stranded], keyGeneration: 0, owner: newcomerOwn.userId });
-  await newcomer.page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(newcomer.page, "Unsent edits");
   const card = newcomer.page.locator("#unsent-edits");
   await expect(card).toContainText("1 edit(s)");
   const download = newcomer.page.waitForEvent("download");
@@ -699,7 +699,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   });
   const sent: string[] = [];
   approver.on("request", (request) => { if (/\/api\/v1\/me\/link-requests\/lnk_[0-9a-z]+\/approve$/.test(request.url())) sent.push(request.url()); });
-  await approver.getByRole("button", { name: "Settings" }).click();
+  await openSettings(approver, "Phones & apps");
   await expect(approver.locator("#link-devices")).toContainText("No browser is asking to be linked.");
 
   // 1. Cancel on the newcomer: the request leaves the server and the approver's list.
@@ -723,8 +723,8 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await newcomer.reload();
   await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
   await expect(approver.locator("#link-devices .pin-row", { hasText: linkCode(id) })).toHaveCount(0);
-  await expect(newcomer.getByText(LINK_BANNER)).toBeVisible();
-  await newcomer.locator(".conflict-banner").getByRole("button", { name: "Link this browser" }).click();
+  // The reload keeps Settings › Phones & apps, its address, with no attempt running.
+  await expect(newcomer.locator("#link-this-browser").getByRole("button", { name: "Link this browser" })).toBeVisible();
   await expect(newcomer.locator("#link-this-browser .link-code")).toHaveCount(0);
 
   // 4. The approver leaving its screen after the claim (unmount) cancels the request; the newcomer sees it end.
@@ -735,7 +735,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await backToNotes(approver);
   await expect(newcomer.getByText(LINK_ENDED)).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => collectStatus(newcomer, id)).toBe(404);
-  await approver.getByRole("button", { name: "Settings" }).click();
+  await openSettings(approver, "Phones & apps");
 
   // 5. A relay that swaps the approver's one-time key on its way to the newcomer: the codes differ,
   // the approver's Approve stays disabled with the newcomer's code typed, and no key leaves.
@@ -808,7 +808,7 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
   await expect(titleOf((await heldKeys(newcomer, cid, senders)).get(uncached.generation)!, cid, uncached)).resolves.toBe("Linked page");
 
   // 9. Forget this device asks first, names what it removes and keeps, then deletes the sealed key and its device key together.
-  await newcomer.getByRole("button", { name: "Settings" }).click();
+  await openSettings(newcomer);
   await withDialog(second, { type: "confirm", text: FORGET }, () => newcomer.getByRole("button", { name: "Forget this device & sign out" }).click());
   await expect.poll(() => vaultOf(newcomer)).toBeNull();
 }
@@ -928,7 +928,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   const sentBodies: string[] = [];
   const recoveryWrites = (request: Request) => { if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/v1/me/identity/recovery") sentBodies.push(request.postData() ?? ""); };
   editor.page.on("request", recoveryWrites);
-  await editor.page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(editor.page);
   const recovery = editor.page.locator("#recovery");
   await recovery.getByRole("button", { name: "Create recovery code" }).click();
   const code = await saveShownCode(recovery, { page: editor.page, phase: "p5", state: "recovery" });
@@ -951,7 +951,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   await queueEdit(editor.page, { id: copy.id, containerID: nid, version: copy.version, payload: [...waited], keyGeneration: 0, owner: editorId });
   await editor.page.goto(`/#/${nid}`);
   await expect(editor.page.locator(".workspace-title")).toHaveText(`Notebook ${nid.slice(4, 10)}`);
-  await editor.page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(editor.page);
   await changeOwnPassword(editor.page, OWN, NEW_OWN);
   const queued = (await storeRows(editor.page, "pending"))!;
   expect(queued).toEqual([expect.objectContaining({ id: copy.id, keyGeneration: 0, owner: editorId })]);
@@ -980,7 +980,7 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
     if (path === "/api/v1/auth/step-up" || path.startsWith("/api/v1/me/identity/recovery")) asked.push(path);
   });
   await signInAndChoose(restored.page, "editor", RESET_TEMPORARY, OWN);
-  await restored.page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(restored.page, "Phones & apps");
   const restore = restored.page.locator("#recovery-restore");
   await expect(restore).toBeVisible({ timeout: 30_000 });
   await shoot(restored.page, "p5", "restore", restore);
@@ -1062,6 +1062,6 @@ async function p5(admin: Person, owner: Person, editor: Person, cid: string, ano
   expect((await vaultOf(upgraded.page))!.fields).not.toContain("authSecret");
   for (const store of ["notes", "pending", "uploads"]) expect(await storeRows(upgraded.page, store), store).toEqual([]);
   expect(await upgraded.page.evaluate(() => localStorage.getItem("kynotes-pending-saves"))).toBeNull();
-  await upgraded.page.getByRole("button", { name: "Settings" }).click();
+  await openSettings(upgraded.page);
   await expect(upgraded.page.locator("#unsent-edits")).toHaveCount(0);
 }

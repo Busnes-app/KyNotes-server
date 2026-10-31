@@ -19,7 +19,6 @@ import {
 } from "../api";
 import { deriveAuthSecret, randomLoginSalt } from "../crypto";
 import { AdminBackup } from "./AdminBackup";
-import { LicenseFooter, UserBlock } from "./LicenseFooter";
 import { NavIcon, type IconName } from "../NavIcon";
 import { AppFrame, NavItem } from "./AppNav";
 import { Appearance } from "./Appearance";
@@ -27,7 +26,7 @@ import { withStepUp } from "../stepup";
 
 export const ADMIN_ACCOUNT_NOTE = "This is an administrator account. It manages KyNotes and cannot open notes. Sign in with your everyday account to write.";
 
-// The administration group; Appearance and Settings (#account) sit in the navigation's lower group.
+// The navigation: administration only. The footer's gear opens Settings (#account, #appearance).
 const SECTIONS = [
   ["users", "Users", "users", "Everyone who can sign in to this server."],
   ["teams", "Teams", "team", "A team belongs to an everyday owner, who names it and shares its keys. Administrators never see its name or its notes."],
@@ -35,14 +34,14 @@ const SECTIONS = [
   ["backups", "Backups", "backups", "Scheduled backups of this server, kept in a local directory or in KyRecovery."],
   ["audit", "Audit log", "audit", "Metadata-only records of administrative actions."],
   ["server", "Server", "server", "Health and readiness of this KyNotes server."],
-  ["account", "Settings", "settings", "Your administrator password."],
 ] as const satisfies ReadonlyArray<readonly [string, string, IconName, string]>;
-type SectionID = (typeof SECTIONS)[number][0] | "appearance";
+type SectionID = (typeof SECTIONS)[number][0] | "account" | "appearance";
 
 /** Everything an administrator account reaches: no key, vault, notebook or content crypto (adminSeparation.test.ts). */
 export function AdminConsole({ username, sso, onLogout, password }: { username: string; sso: boolean; onLogout: () => void; password: ReactNode }) {
-  const sections = SECTIONS.filter(([id]) => id !== "account" || !sso);
-  const fromHash = (): SectionID => location.hash === "#appearance" ? "appearance" : sections.find(([id]) => location.hash === `#${id}`)?.[0] ?? "users";
+  // SSO administrators change no password here, so their Settings is Appearance alone.
+  const settingsTabs = [...(sso ? [] : [["account", "Account"] as const]), ["appearance", "Appearance"] as const];
+  const fromHash = (): SectionID => [...SECTIONS, ...settingsTabs].find(([id]) => location.hash === `#${id}`)?.[0] ?? "users";
   const [section, setSection] = useState<SectionID>(fromHash);
   const link = (id: SectionID, label: string, icon: IconName) => <NavItem key={id} icon={icon} label={label} href={`#${id}`} current={section === id} />;
   const [status, setStatus] = useState<{ health: boolean; ready: boolean } | null>(null);
@@ -68,19 +67,25 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
       className="admin-shell"
       label="Administration sections"
       onSignOut={onLogout}
-      nav={<>
-        {sections.filter(([id]) => id !== "account").map(([id, label, icon]) => link(id, label, icon))}
-        {link("appearance", "Appearance", "palette")}
-        {!sso && link("account", "Settings", "settings")}
-      </>}
-      foot={<>
-        <UserBlock name={username} role="Administrator" onSignOut={onLogout} />
-        <LicenseFooter signedIn />
-      </>}
+      user={{ name: username, role: "Administrator" }}
+      settings={{ href: `#${settingsTabs[0][0]}`, current: settingsTabs.some(([id]) => id === section) }}
+      nav={<>{SECTIONS.map(([id, label, icon]) => link(id, label, icon))}</>}
     >
-        <div id="appearance" hidden={section !== "appearance"}><Appearance /></div>
         {/* Every section stays mounted, so switching keeps lists loaded and half-typed forms intact. */}
-        {sections.map(([id, title, , lede]) => (
+        <section className="page-view admin-view" hidden={!settingsTabs.some(([id]) => id === section)} aria-labelledby="settings-heading">
+          <header className="ky-page-head">
+            <div>
+              <h1 id="settings-heading" className="ky-page-title">Settings</h1>
+              <p className="ky-page-lede">{sso ? "How KyNotes looks in this browser." : "Your administrator password, and how KyNotes looks in this browser."}</p>
+            </div>
+          </header>
+          <nav className="ky-settings-tabs" aria-label="Settings sections">
+            {settingsTabs.map(([id, label]) => <a key={id} className="ky-nav-item" href={`#${id}`} aria-current={section === id ? "page" : undefined}>{label}</a>)}
+          </nav>
+          {!sso && <div id="account" hidden={section !== "account"}>{password}</div>}
+          <div id="appearance" hidden={section !== "appearance"}><Appearance /></div>
+        </section>
+        {SECTIONS.map(([id, title, , lede]) => (
           <section key={id} id={id} className="page-view admin-view" hidden={section !== id} aria-labelledby={`${id}-heading`}>
             <header className="ky-page-head">
               <div>
@@ -116,8 +121,6 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
                 </dl>
               </>
             )}
-            {/* SSO administrators change no password here. */}
-            {id === "account" && password}
           </section>
         ))}
     </AppFrame>

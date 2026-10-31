@@ -1,5 +1,4 @@
 import { AdminConsole } from "./components/AdminConsole";
-import { LicenseFooter, UserBlock } from "./components/LicenseFooter";
 import { Appearance, ThemeSwitcher } from "./components/Appearance";
 import { AppFrame, NavItem, usePhone } from "./components/AppNav";
 import { setupProblem } from "./setup";
@@ -101,7 +100,7 @@ import {
   randomLoginSalt,
   type NotePayload,
 } from "./crypto";
-import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, sortedSections, type Group, type Legacy, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload } from "./pages";
+import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflicts, endOrder, formatRoute, pagesInSection, parseRoute, reorder, resolveSection, SETTINGS_TABS, settingsHash, settingsTabOf, sortedSections, type Group, type Legacy, type ObjectPayload, type PagePayload, type Route, type Section, type SectionPayload, type SettingsTab } from "./pages";
 import { migrateNotebook, type LoadedObject } from "./migrate";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { AppMark, NavIcon } from "./NavIcon";
@@ -206,7 +205,7 @@ const NO_KEY_HERE = "This browser does not hold your encryption key, so it canno
 const UNCACHED = "Saved to the server, but this browser could not keep its local copy (site storage may be full or blocked).";
 /** What Settings suggests without a key: only an action this browser can actually take from here. */
 function noKeyHint(state: IdentityStatus | "unknown", sso: boolean): string {
-  if (state === "link") return " Link it from a browser that does (below).";
+  if (state === "link") return " Link it from a browser that does, under Phones & apps.";
   if (state === "create") return sso ? " Set up your encryption key from the notebook list." : " Sign in with your password to create it.";
   return "";
 }
@@ -806,7 +805,7 @@ function Workspace({
     try {
       const settled = await settleSSOIdentity({ myIdentity, putDeviceOnlyIdentity }, identityStore, replace);
       // The first browser shows the recovery code right away (§8 item 1).
-      if (settled.kind === "held") { setRecoveryPrompt(true); setView("settings"); }
+      if (settled.kind === "held") { setRecoveryPrompt(true); openSettings("account"); }
       if (settled.kind === "unsaved") setIdentityRefusal({ message: "This browser cannot keep an encryption key (site storage is blocked or unavailable), so none was created." });
       await refreshIdentity();
     } catch (err) {
@@ -960,7 +959,10 @@ function Workspace({
   // The page a conflict recovery is rewriting; it stays read-only until the run ends.
   const [recovering, setRecovering] = useState<string | null>(null);
   const recoveringRef = useRef(false);
-  const [view, setView] = useState<"workspace" | "settings" | "appearance">("workspace");
+  // Settings is #/settings/<tab>, so its tabs are links and Back leaves it; notebooks keep their own routes.
+  const [settingsTab, setSettingsTab] = useState(() => settingsTabOf(location.hash));
+  const [view, setView] = useState<"workspace" | "settings">(settingsTab ? "settings" : "workspace");
+  function openSettings(tab: SettingsTab) { location.hash = settingsHash(tab); }
   const [queueMode, setQueueMode] = useState(false);
   const [loadingContainer, setLoadingContainer] = useState(false);
   const loadingContainerID = useRef<string | undefined>(undefined);
@@ -1153,7 +1155,28 @@ function Workspace({
     };
   }, []);
   useEffect(() => {
-    if (queueMode || loadingContainer || !selected) return;
+    const follow = () => {
+      const tab = settingsTabOf(location.hash);
+      // An old jump link (#password…) takes its tab's address without a history entry.
+      if (tab && location.hash !== settingsHash(tab)) history.replaceState(null, "", settingsHash(tab));
+      if (tab) { setShowNotebookNavigation(false); setSettingsTab(tab); }
+      setView(tab ? "settings" : "workspace");
+    };
+    follow();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
+  // Read, not a dependency: a hash change to another page also flips the view, and re-running then would write the old page back.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  useEffect(() => {
+    // Leaving Settings by a nav row adds an entry, so Back returns to the tab.
+    if (view !== "workspace" || !settingsTabOf(location.hash)) return;
+    if (queueMode || !selected) history.pushState(null, "", location.pathname + location.search);
+    else location.hash = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
+  }, [view]);
+  useEffect(() => {
+    if (viewRef.current !== "workspace" || queueMode || loadingContainer || !selected) return;
     const next = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
     if (location.hash === next) return;
     // Normalizing an empty or unparseable hash must not add a history entry.
@@ -1402,7 +1425,7 @@ function Workspace({
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
   async function chooseNotebook(container: Container) {
-    // Back from Settings or Appearance to the open notebook: nothing to reload.
+    // Back from Settings to the open notebook: nothing to reload.
     const back = view !== "workspace" && selected?.id === container.id && !queueMode;
     setView("workspace");
     if (back) {
@@ -2657,7 +2680,7 @@ function Workspace({
   const teamWorkspaces = (teamID: string) => items.filter((item) => item.teamId === teamID);
   const inWorkspace = view === "workspace";
   // The open notebook, section and page are marked bold (aria-current="true"); only the current
-  // destination (Notes, Work queue, Appearance or Settings) carries the accent (aria-current="page").
+  // destination (Notes or Work queue) carries the accent (aria-current="page"); on Settings, the footer's gear does.
   // As in OneNote, the open notebook's sections (and its ⋯ menu) sit right under it.
   const notebookItem = (container: Container, icon: "notebook" | "team", nested = false) => {
     const open = !queueMode && selected?.id === container.id;
@@ -2720,7 +2743,7 @@ function Workspace({
     autosaving ? "Autosaving…" : syncStatus === "local" ? "Encrypted, waiting to sync" : syncStatus !== "attention" && lastSavedAt ? new Date(lastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "",
     selectedNote.version ? `Version ${selectedNote.version}` : "Draft",
   ].filter(Boolean).join(" · ");
-  // Notes: back to the open notebook (from Settings, Appearance or the work queue), reloading nothing it need not.
+  // Notes: back to the open notebook (from Settings or the work queue), reloading nothing it need not.
   // Only a notebook load leaves the work queue, so from the queue Notes opens a notebook.
   const notesTarget = selected ?? items[0];
   const goToNotes = () => {
@@ -2728,13 +2751,12 @@ function Workspace({
     if (queueMode && notesTarget) void chooseNotebook(notesTarget);
     else setView("workspace");
   };
-  const goTo = (next: "settings" | "appearance") => { setShowNotebookNavigation(false); setView(next); };
   // Security-relevant, so always shown until dismissed for this session; the detail opens over the page.
   const recoveryNudge = identityState === "held" && live && !live.recoveryId && !recoveryDismissed && (
     <div className="recovery-notice">
       <details>
         <summary><NavIcon name="sso" /><span>Save a recovery code</span><NavIcon name="chevron" /></summary>
-        <div className="recovery-notice-body" role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => setView("settings")}>Create recovery code</button></div>
+        <div className="recovery-notice-body" role="status">{RECOVERY_MISSING} <button className="secondary" onClick={() => openSettings("account")}>Create recovery code</button></div>
       </details>
       <button type="button" className="icon-button quiet" aria-label="Dismiss the recovery code reminder for now" onClick={() => setRecoveryDismissed(true)}><NavIcon name="close" /></button>
     </div>
@@ -2744,6 +2766,8 @@ function Workspace({
       className={`workspace${queueMode ? " queue-mode" : ""}${inWorkspace ? " has-panes" : ""}`}
       label="Primary"
       onSignOut={onLogout}
+      user={{ name: auth.username || auth.user.id.slice(0, 12), role: "Everyday account" }}
+      settings={{ href: settingsHash("account"), current: view === "settings" }}
       nav={<>
         {/* On phones the notebook tree folds under the tabs; Notes, once current, opens and closes it. */}
         <NavItem icon="notes" label="Notes" current={inWorkspace && !queueMode} disabled={queueMode && !notesTarget}
@@ -2751,12 +2775,6 @@ function Workspace({
           onClick={() => phone && inWorkspace && !queueMode ? setShowNotebookNavigation((open) => !open) : goToNotes()} />
         {/* Ignored while busy rather than disabled, so keyboard focus stays on the chosen tab. */}
         <NavItem icon="work" label="Work queue" current={inWorkspace && queueMode} onClick={() => { if (!busy) { setPhoneList(true); void openWorkQueue(); } }} />
-        <NavItem icon="palette" label="Appearance" current={view === "appearance"} onClick={() => goTo("appearance")} />
-        <NavItem icon="settings" label="Settings" current={view === "settings"} onClick={() => goTo("settings")} />
-      </>}
-      foot={<>
-        <UserBlock name={auth.username || auth.user.id.slice(0, 12)} role="Everyday account" onSignOut={onLogout} />
-        <LicenseFooter signedIn />
       </>}
       tree={<div id="notebook-tree" className="notes-tree" data-open={showNotebookNavigation || undefined}>
         <nav id="notebook-navigation" className="sidebar" aria-label="Notebooks">
@@ -2794,7 +2812,7 @@ function Workspace({
         </nav>
       </div>}
     >
-        {/* The page list and the editor stay mounted behind Settings and Appearance, so an open page keeps its pending edits. */}
+        {/* The page list and the editor stay mounted behind Settings, so an open page keeps its pending edits. */}
         <div className="notes-panes" hidden={!inWorkspace} data-phone-view={!selected && !queueMode ? undefined : !selectedNote || phoneList ? "list" : "page"}>
           <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer} aria-labelledby="page-navigation-title">
             {selected && !queueMode && <p className="workspace-title">{nameOf(selected)}</p>}
@@ -2953,12 +2971,12 @@ function Workspace({
               {!queueMode && keyWait && selected && <p className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
                 const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
                 const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
-                return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
+                return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => openSettings(identityState === "held" ? "account" : "devices")}>Open Settings</button></>}</>;
               })()}</p>}
               {!queueMode && keyNotice && <p className="workspace-kind" role="status">{keyNotice}</p>}
               {!queueMode && keyDeferred && <p className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></p>}
               {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
-              {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
+              {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => openSettings("devices")}>Link this browser</button></div>}
               {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
               {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
               {(!selectedNote || (phone && phoneList)) && recoveryNudge}
@@ -3103,9 +3121,9 @@ function Workspace({
             )}
           </section>
         </div>
-        {view === "appearance" && <Appearance />}
         {view === "settings" && (
           <SettingsView
+            tab={settingsTab ?? "account"}
             username={auth.username}
             userID={auth.user.id}
             colleagueNames={colleagueNames.current}
@@ -3265,6 +3283,7 @@ function ChoosePassword({ auth, onChanged, onLogout }: { auth: AuthState; onChan
 }
 
 function SettingsView({
+  tab,
   username,
   userID,
   onForgetDevice,
@@ -3285,6 +3304,7 @@ function SettingsView({
   reminders,
   onReminders,
 }: {
+  tab: SettingsTab;
   username: string;
   userID: string;
   /** Usernames seen in key passes this session, for the colleague keys card. */
@@ -3312,11 +3332,6 @@ function SettingsView({
   reminders: ReminderPrefs;
   onReminders: (prefs: ReminderPrefs) => void;
 }) {
-  const sectionLinks = [
-    ["reminders", "Reminders"], ["password", "Password"], ["device", "Trusted device"],
-    ...(identityState === "link" ? [["link-this-browser", "Link this browser"]] : []),
-    ...(identityState === "held" ? [["link-devices", "Link a browser"]] : []), ["colleague-keys", "Colleague keys"],
-  ];
   const [ownFingerprint, setOwnFingerprint] = useState("");
   const [justLinked, setJustLinked] = useState<"" | "linked" | "restored">("");
   /** Before a reset: downloads every edit this account queued on this browser, opened here (M4). */
@@ -3338,14 +3353,15 @@ function SettingsView({
       <header className="ky-page-head">
         <div>
           <h1 id="settings-heading" className="ky-page-title">Settings</h1>
-          <p className="ky-page-lede">Reminders, your password and the keys this browser holds.</p>
+          <p className="ky-page-lede">Your account, the browsers linked to it, how KyNotes looks, and your reminders and keys.</p>
         </div>
       </header>
-      <nav className="settings-jump" aria-label="Settings sections">
-        {sectionLinks.map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+      <nav className="ky-settings-tabs" aria-label="Settings sections">
+        {SETTINGS_TABS.map(([id, label]) => <a key={id} className="ky-nav-item" href={settingsHash(id)} aria-current={tab === id ? "page" : undefined}>{label}</a>)}
       </nav>
-      <div className="settings-content">
-        <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
+      {/* Every tab stays mounted, so a recovery code or link code on screen survives a tab switch. */}
+      {justLinked && <p role="status">{justLinked === "restored" ? RECOVERY_RESTORED : "Linked. This browser now holds your encryption key."}</p>}
+      <div className="settings-content" hidden={tab !== "account"}>
         <div id="password">
           <PasswordSettings username={username} userID={userID} everyday onAuthSecret={onAuthSecret} onIdentityCreated={onIdentityChanged} />
         </div>
@@ -3365,7 +3381,6 @@ function SettingsView({
           {ownFingerprint && <p className="config-muted">{identityStorage() === "wrapped"
             ? "This browser keeps it wrapped under a browser key that pages cannot export. That is not protection at rest: anyone who can read this browser's profile on disk can still recover it. Use \"Forget this device\" on shared computers."
             : "This site is not served over HTTPS, so this browser stores your key unwrapped in its site storage. Anyone who can read this browser's profile can copy it. Use \"Forget this device\" on shared computers."}</p>}
-          {justLinked && <p role="status">{justLinked === "restored" ? RECOVERY_RESTORED : "Linked. This browser now holds your encryption key."}</p>}
           {onForgetDevice && (
             <button
               type="button"
@@ -3377,13 +3392,24 @@ function SettingsView({
           )}
         </section>
         {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
-        {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked("linked"); onIdentityChanged(); }} />}
         {resetUnfinished && <p role="status">{RESET_UNFINISHED}</p>}
+        {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onReset} password={sso ? undefined : passwordReset(username)} />}
+      </div>
+      <div className="settings-content" hidden={tab !== "devices"}>
+        {identityState === "link" && <LinkThisBrowser userID={userID} canKeep={() => vaultReady(username)} store={identityStore} onLinked={() => { setJustLinked("linked"); onIdentityChanged(); }} />}
         {identityState === "link" && <RecoveryRestore userID={userID} sso={sso} store={identityStore} stepUp={stepUp} onRestored={() => { setJustLinked("restored"); onIdentityChanged(); }} />}
         {identityState === "held" && <LinkRequests userID={userID} held={heldIdentity} stepUp={stepUp} />}
+        {identityState !== "link" && identityState !== "held" && <p className="config-muted">{`This browser holds no encryption key to link another browser with.${noKeyHint(identityState, sso)}`}</p>}
+      </div>
+      <div hidden={tab !== "appearance"}><Appearance /></div>
+      <div className="settings-content" hidden={tab !== "reminders"}>
+        <ReminderSettings userID={userID} prefs={reminders} onChange={onReminders} />
+      </div>
+      <div className="settings-content" hidden={tab !== "colleague-keys"}>
         <PinnedKeys username={username} userID={userID} names={colleagueNames} />
+      </div>
+      <div className="settings-content" hidden={tab !== "unsent"}>
         <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />
-        {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onReset} password={sso ? undefined : passwordReset(username)} />}
       </div>
     </section>
   );

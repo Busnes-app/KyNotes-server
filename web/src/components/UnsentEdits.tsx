@@ -30,7 +30,8 @@ export function UnsentEdits({ username, userID, keysFor, waitingHeld }: { userna
   }
   const load = async () => { const found = await find(); setLost(found.lost); setPrevious(found.previous); };
   useEffect(() => { void load(); }, [userID, waitingHeld]);
-  if (!unsent.length) return null;
+  // Its own Settings tab, so an empty one says so rather than showing nothing.
+  if (!unsent.length) return <p className="config-muted">No unsent edits on this browser.</p>;
   async function exportAll() {
     const file = await exportUnsent(unsent, open);
     if (file.unreadable === unsent.length) {

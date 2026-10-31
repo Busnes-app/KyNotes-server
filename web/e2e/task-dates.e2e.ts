@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks, backToNotes } from "./people";
+import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks, backToNotes, openSettings } from "./people";
 
 const NOTEBOOK = "Task dates E2E";
 const TASK = "Water plants";
@@ -137,7 +137,7 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
     const start = new Date();
     await page.clock.install({ time: start });
     await signIn(page, OWNER.username, OWNER.password);
-    await page.getByRole("button", { name: "Settings" }).click();
+    await openSettings(page, "Reminders");
     await page.getByLabel("Show reminders while KyNotes is open").check();
     await expect(page.getByLabel("Show reminders while KyNotes is open")).toBeChecked();
     await expect(page.getByLabel("Show task text in reminders")).not.toBeChecked();
@@ -165,12 +165,12 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
     await createUser(admin, "rem-bob", "temporary rem battery staple");
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await signInAndChoose(page, "rem-bob", "temporary rem battery staple", "bob own rem battery staple");
-    await page.getByRole("button", { name: "Settings" }).click();
+    await openSettings(page, "Reminders");
     await expect(page.getByLabel("Show reminders while KyNotes is open")).not.toBeChecked();
     await expect(page.getByLabel("Show task text in reminders")).not.toBeChecked();
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await signIn(page, OWNER.username, OWNER.password);
-    await page.getByRole("button", { name: "Settings" }).click();
+    await openSettings(page, "Reminders");
     await expect(page.getByLabel("Show reminders while KyNotes is open")).toBeChecked();
     expect(owner.unexpected).toEqual([]);
   } finally {
@@ -215,7 +215,7 @@ test("push reminders send the server only an opaque id and a UTC minute", async 
     // Nothing reaches the server until the setting is on.
     expect(sent.filter((request) => request.method !== "GET")).toEqual([]);
 
-    await page.getByRole("button", { name: "Settings" }).click();
+    await openSettings(page, "Reminders");
     const setting = page.getByLabel("Also remind me when KyNotes is closed (sends reminder times to the server)");
     await expect(setting).not.toBeChecked();
     await setting.click(); // checked once the subscription is registered, so not check()
@@ -244,7 +244,7 @@ test("push reminders send the server only an opaque id and a UTC minute", async 
     await expect.poll(() => sent.some((request) => request.method === "DELETE" && request.url === put.url)).toBe(true);
 
     // Turning push off removes this browser's endpoint.
-    await page.getByRole("button", { name: "Settings" }).click();
+    await openSettings(page, "Reminders");
     await setting.uncheck();
     await expect.poll(() => sent.filter((request) => request.method === "DELETE" && request.url === "/api/v1/push/web/subscriptions").map((request) => request.body)).toContainEqual('{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-stub"}');
 

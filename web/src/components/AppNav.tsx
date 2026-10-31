@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react
 import { suiteApps, type SuiteApp } from "../api";
 import { appMark } from "../ky-ui/appmarks";
 import { AppMark, NavIcon, type IconName } from "../NavIcon";
-import { LicenseFooter } from "./LicenseFooter";
+import { LicenseFooter, UserBlock } from "./LicenseFooter";
 
 const PHONE = "(max-width: 720px)";
 const watchPhone = (change: () => void) => {
@@ -42,10 +42,11 @@ export function AppRail({ apps }: { apps: SuiteApp[] }) {
 
 /**
  * The ky-ui app frame shared by the workspace and the administration console: brand, one
- * navigation, an optional notebook tree, the user block, then the page. Phones get the brand with
- * an icon-only Sign out, the navigation as a row of tabs, and the licence line at the page end.
+ * navigation, an optional notebook tree, the account footer, then the page. The footer's icon
+ * buttons, Settings then Sign out, move to the phone header on phones; the navigation becomes a
+ * row of tabs and the licence line closes the page.
  */
-export function AppFrame({ label, nav, tree, foot, onSignOut, className = "", children }: { label: string; nav: ReactNode; tree?: ReactNode; foot: ReactNode; onSignOut: () => void; className?: string; children: ReactNode }) {
+export function AppFrame({ label, nav, tree, user, settings, onSignOut, className = "", children }: { label: string; nav: ReactNode; tree?: ReactNode; user: { name: string; role: string }; settings: { href: string; current: boolean }; onSignOut: () => void; className?: string; children: ReactNode }) {
   const [apps, setApps] = useState<SuiteApp[]>([]);
   useEffect(() => {
     let live = true;
@@ -54,16 +55,20 @@ export function AppFrame({ label, nav, tree, foot, onSignOut, className = "", ch
   }, []);
   // ky-ui shows the sidebar copy on desktop and the page-end copy on phones.
   const rail = <AppRail apps={apps} />;
+  const actions = <>
+    <a className="ky-icon-button" href={settings.href} aria-label="Settings" title="Settings" aria-current={settings.current ? "page" : undefined}><NavIcon name="settings" /></a>
+    <button type="button" className="ky-icon-button" aria-label="Sign out" title="Sign out" onClick={onSignOut}><NavIcon name="signout" /></button>
+  </>;
   return (
     <div className={`ky-app ${className}`}>
       <header className="ky-sidebar">
         <div className="ky-mobile-head">
           <div className="ky-brand"><AppMark size={28} /><span>KyNotes</span></div>
-          <button type="button" className="ky-mobile-signout" aria-label="Sign out" onClick={onSignOut}><NavIcon name="signout" /></button>
+          <div className="ky-mobile-actions">{actions}</div>
         </div>
         <nav className="ky-nav" aria-label={label}>{nav}</nav>
         {tree}
-        <div className="ky-sidebar-foot">{rail}{foot}</div>
+        <div className="ky-sidebar-foot">{rail}<UserBlock name={user.name} role={user.role} actions={actions} /><LicenseFooter signedIn /></div>
       </header>
       <main className="ky-content">
         {children}

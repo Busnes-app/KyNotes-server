@@ -1,0 +1,456 @@
+{
+  "binary": "/home/yoshi/git/ky-redesign/captures/bin/kynotes-09-after",
+  "captured": "2026-10-31T23:18:24.420Z",
+  "facts": [
+    {
+      "file": "kynotes-09-after-admin-users-desktop-light.png",
+      "footer": [
+        "Settings",
+        "Sign out"
+      ],
+      "footerText": "admin Administrator",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server"
+      ],
+      "navCurrent": [
+        "Users"
+      ],
+      "tabs": [],
+      "h1": [
+        "Users"
+      ],
+      "hash": "#users",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-admin-users-desktop-dark.png",
+      "footer": [
+        "Settings",
+        "Sign out"
+      ],
+      "footerText": "admin Administrator",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server"
+      ],
+      "navCurrent": [
+        "Users"
+      ],
+      "tabs": [],
+      "h1": [
+        "Users"
+      ],
+      "hash": "#users",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-admin-settings-account-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "admin Administrator",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account*",
+        "Appearance"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#account",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-admin-settings-appearance-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "admin Administrator",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Appearance*"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#appearance",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-main-desktop-light.png",
+      "footer": [
+        "Settings",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_r6z3p9mc4ebt0mbna64hkzkq1w/quick/obj_f105dpas9mcendgmcnsdd2vbjc",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-appearance-desktop-dark.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Phones & apps",
+        "Appearance*",
+        "Reminders",
+        "Colleague keys",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/appearance",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-main-desktop-dark.png",
+      "footer": [
+        "Settings",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_r6z3p9mc4ebt0mbna64hkzkq1w/quick/obj_f105dpas9mcendgmcnsdd2vbjc",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-account-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account*",
+        "Phones & apps",
+        "Appearance",
+        "Reminders",
+        "Colleague keys",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/account",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-devices-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Phones & apps*",
+        "Appearance",
+        "Reminders",
+        "Colleague keys",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/devices",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-appearance-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Phones & apps",
+        "Appearance*",
+        "Reminders",
+        "Colleague keys",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/appearance",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-reminders-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Phones & apps",
+        "Appearance",
+        "Reminders*",
+        "Colleague keys",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/reminders",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-colleague-keys-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Phones & apps",
+        "Appearance",
+        "Reminders",
+        "Colleague keys*",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/colleague-keys",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-unsent-desktop-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account",
+        "Phones & apps",
+        "Appearance",
+        "Reminders",
+        "Colleague keys",
+        "Unsent edits*"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/unsent",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-main-mobile-light.png",
+      "footer": [
+        "Settings",
+        "Sign out"
+      ],
+      "footerText": "ownerEveryday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_r6z3p9mc4ebt0mbna64hkzkq1w/quick/obj_f105dpas9mcendgmcnsdd2vbjc",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-main-mobile-dark.png",
+      "footer": [
+        "Settings",
+        "Sign out"
+      ],
+      "footerText": "ownerEveryday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_r6z3p9mc4ebt0mbna64hkzkq1w/quick/obj_f105dpas9mcendgmcnsdd2vbjc",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-after-settings-account-mobile-light.png",
+      "footer": [
+        "Settings*",
+        "Sign out"
+      ],
+      "footerText": "ownerEveryday account",
+      "phone": [
+        "Settings",
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue"
+      ],
+      "navCurrent": [],
+      "tabs": [
+        "Account*",
+        "Phones & apps",
+        "Appearance",
+        "Reminders",
+        "Colleague keys",
+        "Unsent edits"
+      ],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/settings/account",
+      "overflow": 0
+    }
+  ]
+}

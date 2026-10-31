@@ -18,13 +18,10 @@ function useStoredTheme() {
 export function Appearance() {
   const [theme, choose] = useStoredTheme();
   return (
-    <section className="page-view" aria-labelledby="appearance-heading">
-      <header className="ky-page-head">
-        <div>
-          <h1 id="appearance-heading" className="ky-page-title">Appearance</h1>
-          <p className="ky-page-lede">Pick a palette and how it handles light and dark. Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only.</p>
-        </div>
-      </header>
+    // A Settings tab: the tab names it, so its heading is for screen readers.
+    <section className="appearance-section" aria-labelledby="appearance-heading">
+      <h2 id="appearance-heading" className="visually-hidden">Appearance</h2>
+      <p className="config-muted">Pick a palette and how it handles light and dark. Match system switches with your device’s setting; Light or Dark keeps one. Your choice applies straight away and is saved in this browser only.</p>
       <fieldset className="ky-appearance">
         <legend className="ky-appearance-legend">Theme</legend>
         <div className="ky-appearance-grid appearance-pairs">

@@ -39,7 +39,15 @@ export async function openNotebooks(page: Page) {
   await expect(tree).toBeVisible();
 }
 
-/** Leaves Settings or Appearance for the notes: the Notes tab goes back without reloading anything. */
+/** Opens Settings from the account footer's gear (the phone header's on phones), then one of its tabs. */
+export async function openSettings(page: Page, tab = "Account") {
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  const link = page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: tab, exact: true });
+  await link.click();
+  await expect(link).toHaveAttribute("aria-current", "page");
+}
+
+/** Leaves Settings for the notes: the Notes tab goes back without reloading anything. */
 export async function backToNotes(page: Page) {
   await notesTab(page).click();
 }
