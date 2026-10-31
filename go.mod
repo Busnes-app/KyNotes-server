@@ -9,7 +9,7 @@ require (
 	github.com/Busnes-app/ky-primitives/offsite v0.2.3-0.20261026050236-bae5c14dba4c
 	github.com/cloudflare/circl v1.6.5
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/pkg/sftp v1.13.11
+	github.com/pkg/sftp v1.13.12
 	golang.org/x/crypto v0.58.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.0
