@@ -1,0 +1,314 @@
+{
+  "binary": "/home/yoshi/git/ky-redesign/captures/bin/kynotes-09-before",
+  "captured": "2026-10-31T23:14:56.528Z",
+  "facts": [
+    {
+      "file": "kynotes-09-before-admin-users-desktop-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "admin Administrator Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Users"
+      ],
+      "tabs": [],
+      "h1": [
+        "Users"
+      ],
+      "hash": "#users",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-admin-users-desktop-dark.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "admin Administrator Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Users"
+      ],
+      "tabs": [],
+      "h1": [
+        "Users"
+      ],
+      "hash": "#users",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-admin-settings-account-desktop-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "admin Administrator Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Settings"
+      ],
+      "tabs": [],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#account",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-admin-settings-appearance-desktop-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "admin Administrator Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Users",
+        "Teams",
+        "Single sign-on",
+        "Backups",
+        "Audit log",
+        "Server",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Appearance"
+      ],
+      "tabs": [],
+      "h1": [
+        "Appearance"
+      ],
+      "hash": "#appearance",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-main-desktop-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-settings-appearance-desktop-dark.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Appearance"
+      ],
+      "tabs": [],
+      "h1": [
+        "Appearance"
+      ],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-main-desktop-dark.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-settings-desktop-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Settings"
+      ],
+      "tabs": [],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-settings-appearance-desktop-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "owner Everyday account Sign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Appearance"
+      ],
+      "tabs": [],
+      "h1": [
+        "Appearance"
+      ],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-main-mobile-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "ownerEveryday accountSign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-main-mobile-dark.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "ownerEveryday accountSign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Notes"
+      ],
+      "tabs": [],
+      "h1": [],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    },
+    {
+      "file": "kynotes-09-before-settings-mobile-light.png",
+      "footer": [
+        "Sign out"
+      ],
+      "footerText": "ownerEveryday accountSign out",
+      "phone": [
+        "Sign out"
+      ],
+      "nav": [
+        "Notes",
+        "Work queue",
+        "Appearance",
+        "Settings"
+      ],
+      "navCurrent": [
+        "Settings"
+      ],
+      "tabs": [],
+      "h1": [
+        "Settings"
+      ],
+      "hash": "#/cnt_v9gjy65cpdw9ttr4aa1pqfh9hm/quick/obj_tenr07zncnsepvh150kn3eded8",
+      "overflow": 0
+    }
+  ]
+}
