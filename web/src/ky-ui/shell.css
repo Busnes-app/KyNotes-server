@@ -270,7 +270,7 @@
   font-family: var(--ky-font-mono);
   font-size: 0.78rem;
   line-height: 1.4;
-  white-space: pre;
+  white-space: pre-wrap;
   resize: vertical;
 }
 
