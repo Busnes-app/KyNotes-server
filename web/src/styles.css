@@ -43,7 +43,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .status-line { color: var(--accent); font-size: var(--ky-type-meta); margin-bottom: 0; }
 
 /* Buttons: one primary per view fills with the accent; others are outlined or quiet. */
-button:not(.quiet):not(.nav-item):not(.ky-nav-item):not(.ky-mobile-signout):not(.new-workspace):not(.note-row):not(.secondary):not(.toast):not(.ky-license-link):not(.ky-user-signout):not(.ky-about-close):not(.ky-auth-link):not(.section-swatch):not(.attachment-row):not(.context-link) { background: var(--accent); color: var(--button-text); }
+button:not(.quiet):not(.nav-item):not(.ky-nav-item):not(.ky-icon-button):not(.new-workspace):not(.note-row):not(.secondary):not(.toast):not(.ky-license-link):not(.ky-about-close):not(.ky-auth-link):not(.section-swatch):not(.attachment-row):not(.context-link) { background: var(--accent); color: var(--button-text); }
 .quiet { background: transparent; color: var(--ink); padding: 8px; }
 .secondary, .toast { background: var(--panel); color: var(--ink-strong); border: 1px solid var(--ky-field-border); }
 .secondary:hover:not(:disabled), .quiet:hover:not(:disabled) { background: var(--panel-hover); color: var(--ink-strong); }
@@ -52,7 +52,7 @@ button:not(.quiet):not(.nav-item):not(.ky-nav-item):not(.ky-mobile-signout):not(
 .icon-button.secondary { border-color: var(--ky-field-border); }
 .icon-button.quiet { width: 32px; height: 32px; color: var(--ink); }
 .nav-icon { color: var(--ink); flex: none; }
-:is(.icon-button, .ky-page-action, .ky-auth-submit, .ky-user-signout, .attachment-picker) .nav-icon { color: inherit; }
+:is(.icon-button, .ky-icon-button, .ky-page-action, .ky-auth-submit, .attachment-picker) .nav-icon { color: inherit; }
 
 /* Forms on settings and admin pages. */
 form label { display: grid; gap: 8px; margin-top: 18px; font-size: var(--ky-type-meta); color: var(--ink-strong); }
@@ -326,11 +326,7 @@ h2.pane-title { margin: 0; min-width: 0; overflow: hidden; color: var(--ink-stro
 .canvas-ink-note { display: none; }
 
 /* ---------- Settings, Appearance and administration pages ---------- */
-.settings-view { max-width: 56rem; }
-.settings-jump { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: calc(-1 * var(--ky-space-3)) 0 var(--ky-space-4); font-size: var(--ky-type-nav); }
-.settings-jump a { color: var(--ink); text-underline-offset: 3px; }
-.settings-jump a:hover { color: var(--ink-strong); }
-.settings-content { display: grid; min-width: 0; }
+.settings-content { display: grid; min-width: 0; max-width: 56rem; }
 .settings-content > * { scroll-margin-top: 24px; }
 .ky-page-action { min-height: var(--ky-control-size); }
 /* Six pairs; one native radio group. A segment is a native radio over its label. */

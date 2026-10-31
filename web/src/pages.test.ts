@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_ORDER_KEY } from "./order";
 import {
   QUICK_NOTES, compareOrdered, endOrder, formatRoute, pagesInSection, parseObjectPayload,
-  conflictCopy, groupConflicts, parseRoute, reorder, resolveSection, sortedSections, type PagePayload, type Section,
+  conflictCopy, groupConflicts, parseRoute, reorder, resolveSection, settingsHash, settingsTabOf, sortedSections, type PagePayload, type Section,
 } from "./pages";
 
 const id = (n: number) => `obj_${String(n).padStart(26, "0")}`;
@@ -184,5 +184,23 @@ describe("structural payload fields", () => {
   });
   it("leaves legacy pages without a level", () => {
     expect(parseObjectPayload({ title: "Old", body: "x" })).toEqual({ type: "page", title: "Old", body: "x" });
+  });
+});
+
+describe("settingsTabOf", () => {
+  it("reads each tab's hash, and opens the first tab for #/settings", () => {
+    expect(settingsTabOf(settingsHash("devices"))).toBe("devices");
+    expect(settingsTabOf("#/settings")).toBe("account");
+    expect(settingsTabOf("#/settings/nope")).toBeUndefined();
+  });
+  it("sends the old jump links to the tab holding their card", () => {
+    expect(settingsTabOf("#password")).toBe("account");
+    expect(settingsTabOf("#link-devices")).toBe("devices");
+    expect(settingsTabOf("#colleague-keys")).toBe("colleague-keys");
+  });
+  it("leaves notebook routes alone, and no tab hash parses as one", () => {
+    expect(settingsTabOf(formatRoute({ container: `cnt_${"0".repeat(26)}` }))).toBeUndefined();
+    expect(settingsTabOf("")).toBeUndefined();
+    expect(parseRoute(settingsHash("account")).container).toBeUndefined();
   });
 });

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { adminConsole, OWNER, person, signIn, withDialog, openNotebooks } from "./people";
+import { adminConsole, OWNER, person, signIn, withDialog, openNotebooks, openSettings } from "./people";
 
 test.use({ actionTimeout: 15_000 });
 
@@ -152,7 +152,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
             return (el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)) / context.measureText("0").width;
           });
           expect(line).toBeLessThanOrEqual(72.5);
-          await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeInViewport();
+          await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeInViewport();
           await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
           await shot("navigation", device, theme);
         }
@@ -175,8 +175,8 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           await expect(page.locator("#notebook-navigation")).toBeVisible();
           await shot("navigation", device, theme);
         }
-        await page.getByRole("button", { name: "Appearance", exact: true }).click();
-        await expect(page.getByRole("heading", { level: 1, name: "Appearance" })).toBeVisible();
+        await openSettings(page, "Appearance");
+        await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
         await shot("appearance", device, theme);
       }
     }

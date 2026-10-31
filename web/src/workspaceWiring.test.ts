@@ -93,7 +93,7 @@ describe("recovery code wiring (P5 Task 8)", () => {
     expect(main).not.toContain("refreshIdentity().then(() => refreshKeys.current()");
     expect(main).not.toMatch(/onLinked\(identity\)/);
     // The first SSO browser is shown its code right away.
-    expect(main).toContain('if (settled.kind === "held") { setRecoveryPrompt(true); setView("settings"); }');
+    expect(main).toContain('if (settled.kind === "held") { setRecoveryPrompt(true); openSettings("account"); }');
     expect(main).toContain('const recoveryNudge = identityState === "held" && live && !live.recoveryId && !recoveryDismissed && (');
     expect(main).toContain('<div className="recovery-notice-body" role="status">{RECOVERY_MISSING}');
   });

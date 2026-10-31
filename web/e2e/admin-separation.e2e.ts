@@ -74,7 +74,7 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     await expect(alice.page.getByText(CHOOSE_PASSWORD)).toBeVisible();
     release();
     await expect(alice.page.getByText(CHOOSE_PASSWORD)).toHaveCount(0);
-    await expect(alice.page.getByRole("button", { name: "Settings" })).toBeVisible();
+    await expect(alice.page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
     expect((await apiStatus(alice, "/api/v1/containers")).status).toBe(200);
     expect((await apiStatus(alice, "/api/v1/me/identity")).status).toBe(200);
     // Without a reload, the workspace holds the identity it was handed: a new notebook is keyed.

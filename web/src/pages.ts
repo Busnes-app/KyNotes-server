@@ -154,3 +154,24 @@ export function formatRoute({ container, section, page }: Route): string {
   if (!container) return "";
   return `#/${[container, section, section ? page : undefined].filter(Boolean).join("/")}`;
 }
+
+/** Settings tabs, in order: the suite's personal sections, then KyNotes' own. Each is #/settings/<id>. */
+export const SETTINGS_TABS = [
+  ["account", "Account"], ["devices", "Phones & apps"], ["appearance", "Appearance"],
+  ["reminders", "Reminders"], ["colleague-keys", "Colleague keys"], ["unsent", "Unsent edits"],
+] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number][0];
+// The one-page Settings' jump links, kept working: each lands on the tab now holding its card.
+const OLD_SETTINGS_HASHES: Record<string, SettingsTab> = {
+  "#password": "account", "#device": "account", "#link-this-browser": "devices", "#link-devices": "devices",
+  "#reminders": "reminders", "#colleague-keys": "colleague-keys",
+};
+
+/** The Settings tab a hash opens (#/settings opens the first), or undefined when it is not a Settings hash. */
+export function settingsTabOf(hash: string): SettingsTab | undefined {
+  const match = /^#\/settings(?:\/([a-z-]+))?$/.exec(hash);
+  if (match) return SETTINGS_TABS.find(([id]) => id === (match[1] ?? "account"))?.[0];
+  return OLD_SETTINGS_HASHES[hash];
+}
+
+export const settingsHash = (tab: SettingsTab) => `#/settings/${tab}`;

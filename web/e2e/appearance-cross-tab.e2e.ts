@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { THEME_STORAGE_KEY } from "../src/theme";
-import { adminConsole, OWNER, person, signIn } from "./people";
+import { adminConsole, OWNER, openSettings, person, signIn } from "./people";
 
 test("Appearance follows a theme chosen in another tab", async ({ browser }) => {
   const admin = await person(browser);
@@ -8,7 +8,7 @@ test("Appearance follows a theme chosen in another tab", async ({ browser }) => 
   try {
     await adminConsole(admin.page);
     await signIn(owner.page, OWNER.username, OWNER.password);
-    await owner.page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await openSettings(owner.page, "Appearance");
     const choice = (value: string) => owner.page.locator(`input[name="kynotes-theme"][value="${value}"]`);
     await expect(choice("system")).toBeChecked();
     await expect(owner.page.getByRole("group", { name: "Busnes" }).locator("label", { has: choice("system") })).toContainText("Match system");

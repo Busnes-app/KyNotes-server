@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- Web: Settings moves out of the navigation to a gear button beside Sign out in the account
+  footer (and the phone header); Sign out is now an icon button. Settings is tabbed, each tab at
+  its own `#/settings/<tab>` address: Account, Phones & apps (linking browsers), Appearance,
+  Reminders, Colleague keys and Unsent edits. Appearance is no longer a navigation item; in the
+  administrator console it and the password are the Settings tabs behind the same gear. Links to
+  the old Settings sections (`#password`, `#link-devices`…) open their tab. Shared UI assets move
+  to ky-ui 0.10.0.
+
 ## 0.5.0 — 2026-10-28
 
 ### Security
