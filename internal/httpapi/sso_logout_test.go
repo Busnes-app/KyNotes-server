@@ -43,6 +43,7 @@ type logoutFixture struct {
 	jwksPath, keyID         string
 	discoveryRequests       int
 	discoveryHook, jwksHook func()
+	suite                   http.HandlerFunc // KyIdentity's /api/suite/apps, when a test sets it
 }
 
 func newLogoutFixture(t *testing.T) *logoutFixture {
@@ -95,6 +96,15 @@ func newLogoutFixtureWithSessionSupport(t *testing.T, sessionSupport bool) *logo
 				f.tokenHook()
 			}
 			_ = json.NewEncoder(w).Encode(sso.TokenResponse{IDToken: token})
+		case "/api/suite/apps":
+			f.mu.Lock()
+			suite := f.suite
+			f.mu.Unlock()
+			if suite == nil {
+				http.NotFound(w, r)
+				return
+			}
+			suite(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -118,6 +128,7 @@ func (f *logoutFixture) restartRouter() {
 	LinkRoutes(mux, f.db)
 	TeamKeyRoutes(mux, f.db)
 	CollabRoutes(mux, f.db)
+	SuiteRoutes(mux, f.db, f.settings)
 	mux.Handle("GET /protected", auth.RequireSession(f.db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
 	mux.Handle("GET /device-protected", auth.RequireDevice(f.db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })))
 	f.router = mux

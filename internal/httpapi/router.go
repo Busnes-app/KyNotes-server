@@ -73,6 +73,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		}
 		AuthRoutes(mux, db, cfg)
 		SSORoutes(mux, db, cfg, ssoStore)
+		SuiteRoutes(mux, db, ssoStore)
 		AdminRoutes(mux, db, ssoStore, cfg)
 		if backups != nil {
 			BackupRoutes(mux, db, backups)

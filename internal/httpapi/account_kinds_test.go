@@ -31,6 +31,7 @@ var accountRoutes = map[string]bool{
 	"GET /api/v1/auth/session": true, "GET /api/auth/session": true, "POST /api/v1/auth/logout": true, "POST /api/auth/logout": true,
 	"POST /api/v1/auth/logout-all": true, "POST /api/v1/auth/password": true, "POST /api/v1/auth/login-upgrade": true, "POST /api/v1/auth/step-up": true,
 	"POST /api/v1/auth/oidc/step-up": true, "GET /api/v1/auth/oidc/step-up/{id}": true, "DELETE /api/v1/auth/oidc/step-up/{id}": true,
+	"GET /api/v1/suite/apps": true,
 }
 var publicRoutes = map[string]bool{
 	"GET /healthz": true, "GET /livez": true, "GET /readyz": true,
