@@ -58,7 +58,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           await page.emulateMedia({ colorScheme: theme });
           if (stage !== "before") {
             await expect(page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).toBeInViewport({ ratio: 1 });
-            await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
+            if (device === "mobile") await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true })).toHaveAttribute("aria-expanded", "false");
             await expect(page.locator(".recovery-notice")).toBeVisible();
           }
           await shot("empty", device, theme);
@@ -72,8 +72,9 @@ test("notebook reading, phone page navigation and shared editor typography", asy
     if (reuse) await existing.click();
     else await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Project Atlas" }, () => (hasNotebooks || stage === "before" ? page.getByRole("button", { name: "＋ New notebook" }) : page.locator(".empty-editor").getByRole("button", { name: "New notebook", exact: true })).click());
     await expect(page.locator(".workspace-title")).toHaveText("Project Atlas");
-    await expect(page.getByRole("button", { name: "Notebooks and account" })).toHaveAttribute("aria-expanded", "false");
-    if (stage !== "before") await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
+    // Desktop always shows the tree: Notes is a plain destination there, not a disclosure.
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true })).not.toHaveAttribute("aria-expanded");
+    if (stage !== "before") await expect(page.getByRole("navigation", { name: "Notebooks" }).getByRole("button", { name: "Project Atlas" })).toHaveAttribute("aria-current", "true");
     if (stage !== "before") {
       const notice = page.locator(".recovery-notice");
       await notice.locator("summary").focus();
@@ -125,21 +126,25 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           expect(overflow).toBe(0);
         }
         if (device === "desktop" && stage !== "before") {
-          await expect(page.locator("#notebook-navigation")).toBeHidden();
+          // One left navigation region: notebooks, then the open notebook's sections and pages, beside the page.
+          await expect(page.getByRole("button", { name: "Menu", exact: true })).toHaveCount(0);
+          const nav = await page.locator(".ky-sidebar").boundingBox();
+          const notebooks = await page.locator("#notebook-navigation").boundingBox();
           const list = await page.locator("#page-navigation").boundingBox();
           const editor = await page.locator(".editor").boundingBox();
-          expect(list!.x).toBe(0);
-          expect(list!.width).toBe(240);
-          expect(editor!.x).toBe(240);
-          await openNotebooks(page);
-          await expect(page.locator("#page-navigation")).toBeHidden();
+          expect(nav!.x).toBe(0);
+          expect(notebooks!.x).toBeGreaterThanOrEqual(0);
+          expect(list!.y).toBeGreaterThan(notebooks!.y);
+          expect(list!.x + list!.width).toBeLessThanOrEqual(nav!.width);
+          expect(editor!.x).toBeGreaterThanOrEqual(nav!.width);
+          await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeInViewport();
+          await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
           await shot("navigation", device, theme);
-          await page.getByRole("button", { name: "Notebooks and account" }).click();
         }
         if (device === "mobile") {
           if (stage !== "before") {
             await expect(page.locator(".note-list")).toBeHidden();
-            await page.getByRole("button", { name: "Pages in Project Atlas", exact: true }).click();
+            await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true }).click();
             await expect(page.locator(".note-list")).toBeVisible();
             await expect(page.locator(".note-row").first()).toBeInViewport({ ratio: 0.9 });
             await shot("pages", device, theme);
@@ -149,12 +154,12 @@ test("notebook reading, phone page navigation and shared editor typography", asy
             await expect(page.getByRole("textbox", { name: "Page title" })).toBeFocused();
             await expect(page.getByRole("textbox", { name: "Page title" })).toBeInViewport({ ratio: 1 });
           } else await shot("pages", device, theme);
-          await page.getByRole("button", { name: "Notebooks and account" }).click();
+          await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true }).click();
           await expect(page.locator("#notebook-navigation")).toBeVisible();
           await shot("navigation", device, theme);
         }
-        await page.getByRole("button", { name: "Settings", exact: true }).click();
-        await page.getByRole("heading", { name: "Appearance", exact: true }).scrollIntoViewIfNeeded();
+        await page.getByRole("button", { name: "Appearance", exact: true }).click();
+        await expect(page.getByRole("heading", { level: 1, name: "Appearance" })).toBeVisible();
         await shot("appearance", device, theme);
       }
     }
@@ -180,7 +185,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       });
       try {
         await page.getByRole("textbox", { name: "Page title" }).fill("Launch checklist edited");
-        await page.getByRole("button", { name: "Pages in Project Atlas", exact: true }).click();
+        await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true }).click();
         await page.locator('.note-row[aria-current="page"]').focus();
         await page.keyboard.press("Enter");
         await expect(page.getByRole("textbox", { name: "Page title" })).toBeFocused();
@@ -201,7 +206,8 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       await openNotebooks(page);
       await page.getByRole("button", { name: "Work queue", exact: true }).focus();
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("button", { name: "Notebooks and account" })).toBeFocused();
+      // The tab row stays in place, so focus stays on the tab that was chosen.
+      await expect(page.getByRole("button", { name: "Work queue", exact: true })).toBeFocused();
       await expect(page.locator("#notebook-navigation")).toBeHidden();
     }
   } finally {

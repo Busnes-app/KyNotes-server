@@ -1,56 +1,58 @@
 import { useEffect, useRef, useState } from "react";
 import { session } from "../api";
+import { NavIcon } from "../NavIcon";
 import mitLicenseText from "../mit.txt?raw";
 
-/** The About window's contents; the version badge shows only once the server has named it. */
+/** The About dialog's contents (ky-ui shell); the version pill shows only once the server has named it. */
 export function LicenseWindow({ version, onClose }: { version: string; onClose: () => void }) {
   const year = new Date().getFullYear();
   return (
-    <div className="license-window">
-      <div className="license-window-header">
-        <div className="license-window-title">
-          <div className="license-title-main">
-            <span className="license-app-name">KyNotes</span>
-            {version ? <span className="license-version-badge">v{version}</span> : null}
-          </div>
-          <p className="license-title-sub">Developed by Busnes.app</p>
-          <p className="license-title-sub">&copy; {year} &middot; Licensed under the MIT License</p>
+    <>
+      <div className="ky-about-head">
+        <div>
+          <h2 className="ky-about-name">KyNotes {version ? <span className="ky-about-version">v{version}</span> : null}</h2>
+          <p className="ky-about-meta">Developed by Busnes.app</p>
+          <p className="ky-about-meta">&copy; {year} &middot; Licensed under the MIT License</p>
         </div>
-        <button type="button" className="secondary" onClick={onClose}>Close</button>
+        <button type="button" className="ky-about-close" onClick={onClose}>Close</button>
       </div>
-      <textarea className="license-text" readOnly value={mitLicenseText} aria-label="MIT License" />
-    </div>
+      <textarea className="ky-about-license" readOnly value={mitLicenseText} aria-label="MIT License" />
+    </>
   );
 }
 
-/** Copyright line that opens the About window. The version comes from the session, so signed-out pages show none. */
-export function LicenseFooter({ signedIn }: { signedIn: boolean }) {
-  const [open, setOpen] = useState(false);
+/** The licence line that opens the About dialog. The version comes from the session, so signed-out pages show none. */
+export function LicenseFooter({ signedIn, className = "app-footer" }: { signedIn: boolean; className?: string }) {
   const [version, setVersion] = useState("");
   const dialogRef = useRef<HTMLDialogElement | null>(null);
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    else if (!open && dialog.open) dialog.close();
-  }, [open]);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open || !signedIn) return;
     let cancelled = false;
     session().then((res) => { if (!cancelled) setVersion(res.version ?? ""); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [open, signedIn]);
-  const close = () => setOpen(false);
   return (
-    <div className="sidebar-footer">
-      <p>
-        <button type="button" className="license-link" onClick={() => setOpen(true)}>
-          &copy; {new Date().getFullYear()} &middot; MIT License
-        </button>
-      </p>
-      <dialog ref={dialogRef} className="license-backdrop" onClose={close} onClick={(event) => { if (event.target === dialogRef.current) close(); }}>
-        <LicenseWindow version={signedIn ? version : ""} onClose={close} />
+    <footer className={className}>
+      <button type="button" className="ky-license-link" onClick={() => { dialogRef.current?.showModal(); setOpen(true); }}>
+        &copy; {new Date().getFullYear()} &middot; MIT License
+      </button>
+      <dialog ref={dialogRef} className="ky-about" aria-label="About KyNotes" onClose={() => setOpen(false)} onClick={(event) => { if (event.target === dialogRef.current) dialogRef.current.close(); }}>
+        <LicenseWindow version={signedIn ? version : ""} onClose={() => dialogRef.current?.close()} />
       </dialog>
+    </footer>
+  );
+}
+
+/** The sidebar user block: name, role line and a labelled Sign out row. */
+export function UserBlock({ name, role, onSignOut }: { name: string; role: string; onSignOut: () => void }) {
+  return (
+    <div className="ky-user">
+      <div className="ky-user-copy">
+        <p className="ky-user-name">{name}</p>
+        <p className="ky-user-role">{role}</p>
+      </div>
+      <button type="button" className="ky-user-signout" onClick={onSignOut}><NavIcon name="signout" />Sign out</button>
     </div>
   );
 }

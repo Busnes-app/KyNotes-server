@@ -1,5 +1,4 @@
 import { QUICK_NOTES, SECTION_COLORS, type Group, type Section, type SectionColor } from "../pages";
-import { NavIcon } from "../NavIcon";
 
 export const PAGE_DRAG = "application/x-kynotes-page";
 const SECTION_DRAG = "application/x-kynotes-section";
@@ -12,10 +11,8 @@ type Props = {
   path: Array<{ id: string | undefined; title: string }>; // notebook first, current group last
   current: string;
   busy: boolean;
-  canCreateGroup: boolean;
   moveTargets: (kind: Kind, id: string) => Array<{ id: string; label: string }>;
   onSelect: (id: string) => void;
-  onCreate: (kind: Kind) => void;
   onRename: (kind: Kind, entry: Section | Group) => void;
   onColor: (kind: Kind, entry: Section | Group, color: SectionColor) => void;
   onDelete: (section: Section) => void;
@@ -60,8 +57,8 @@ export function SectionTabs(props: Props) {
             />
           ))}
         </div>
-        <button className="quiet" disabled={busy || index === 0} onClick={() => { close(id); props.onMove(kind, entry.id, index - 1); }}>Move left</button>
-        <button className="quiet" disabled={busy || index === count - 1} onClick={() => { close(id); props.onMove(kind, entry.id, index + 1); }}>Move right</button>
+        <button className="quiet" disabled={busy || index === 0} onClick={() => { close(id); props.onMove(kind, entry.id, index - 1); }}>Move up</button>
+        <button className="quiet" disabled={busy || index === count - 1} onClick={() => { close(id); props.onMove(kind, entry.id, index + 1); }}>Move down</button>
         <select
           aria-label="Move into group"
           value=""
@@ -79,8 +76,8 @@ export function SectionTabs(props: Props) {
   const tab = (id: string, title: string, color: SectionColor, index: number, section?: Section) => (
     <li key={id} className="section-tab-item">
       <button
-        className={`quiet ky-nav-item section-tab ${current === id ? "selected" : ""}${id === QUICK_NOTES ? " section-tab-quick" : ""}`}
-        aria-current={current === id ? "page" : undefined}
+        className={`quiet ky-nav-item section-tab${id === QUICK_NOTES ? " section-tab-quick" : ""}`}
+        aria-current={current === id ? "true" : undefined}
         style={{ "--tab-color": `var(--section-${color})` } as React.CSSProperties}
         draggable={Boolean(section) && !busy}
         onDragStart={(event) => event.dataTransfer.setData(SECTION_DRAG, id)}
@@ -134,13 +131,8 @@ export function SectionTabs(props: Props) {
         {sections.map((section, index) => tab(section.id, section.title, section.color, index, section))}
         {atRoot && tab(QUICK_NOTES, "Quick Notes", "gray", sections.length)}
         {groups.map(groupTab)}
-        {!atRoot && !sections.length && !groups.length && <li className="section-empty">This group is empty. Add a section with ＋.</li>}
+        {!atRoot && !sections.length && !groups.length && <li className="section-empty">This group is empty. Add a section from the notebook menu.</li>}
       </ul>
-      <button className="icon-button secondary section-add" disabled={busy} popoverTarget="section-add-menu" aria-label="New section or group"><NavIcon name="plus" /></button>
-      <div className="section-menu section-add-menu" id="section-add-menu" popover="auto">
-        <button className="quiet" disabled={busy} onClick={() => { close("section-add-menu"); props.onCreate("section"); }}>New section</button>
-        <button className="quiet" disabled={busy || !props.canCreateGroup} onClick={() => { close("section-add-menu"); props.onCreate("group"); }}>New section group</button>
-      </div>
     </nav>
   );
 }

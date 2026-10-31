@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks } from "./people";
+import { adminConsole, createUser, OWNER, person, shoot, signIn, signInAndChoose, withDialog, type Person, openNotebooks, backToNotes } from "./people";
 
 const NOTEBOOK = "Task dates E2E";
 const TASK = "Water plants";
@@ -142,7 +142,7 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
     await expect(page.getByLabel("Show reminders while KyNotes is open")).toBeChecked();
     await expect(page.getByLabel("Show task text in reminders")).not.toBeChecked();
     await shoot("task-dates", page, "settings", "reminders", page.locator("#reminders"));
-    await page.getByRole("button", { name: "← Workspace" }).click();
+    await backToNotes(page);
 
     await newTextPage(owner, "Reminder E2E");
     const at = new Date(start.getTime() + 5 * 60_000);
@@ -163,12 +163,12 @@ test("an enabled reminder fires once in the open tab, saying only that a task is
 
     // The opt-in belongs to the account: another account in this browser starts with both off.
     await createUser(admin, "rem-bob", "temporary rem battery staple");
-    await page.getByRole("button", { name: "Lock" }).click();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await signInAndChoose(page, "rem-bob", "temporary rem battery staple", "bob own rem battery staple");
     await page.getByRole("button", { name: "Settings" }).click();
     await expect(page.getByLabel("Show reminders while KyNotes is open")).not.toBeChecked();
     await expect(page.getByLabel("Show task text in reminders")).not.toBeChecked();
-    await page.getByRole("button", { name: "Lock" }).click();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await signIn(page, OWNER.username, OWNER.password);
     await page.getByRole("button", { name: "Settings" }).click();
     await expect(page.getByLabel("Show reminders while KyNotes is open")).toBeChecked();
@@ -223,7 +223,8 @@ test("push reminders send the server only an opaque id and a UTC minute", async 
     await expect.poll(() => sent.filter((request) => request.method === "PUT" && request.url === "/api/v1/push/web/subscriptions").map((request) => request.body)).toContainEqual('{"endpoint":"https://fcm.googleapis.com/fcm/send/e2e-stub"}');
     expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration("/"))?.active?.scriptURL)).toMatch(/\/sw\.js$/);
     await shoot("task-dates", page, "settings", "push", page.locator("#reminders"));
-    await page.getByRole("button", { name: "← Workspace" }).click();
+    // Back to the work queue the task row lives in (the Notes tab would open a notebook).
+    await page.getByRole("button", { name: "Work queue" }).click();
 
     // The reconcile after the notebooks load puts exactly one reminder: id and UTC minute only.
     const at = await page.evaluate((value) => { const [d, t] = value.split("T"); const [y, m, day] = d.split("-").map(Number); const [h, min] = t.split(":").map(Number); return new Date(y, m - 1, day, h, min).toISOString().slice(0, 16) + ":00Z"; }, remind);
