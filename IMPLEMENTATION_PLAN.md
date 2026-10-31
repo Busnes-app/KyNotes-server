@@ -1526,7 +1526,8 @@ deliberately every phase).
 | GET | `/api/v1/containers/{id}/changes` | — | `?since=&limit=`, §1.11 |
 
 Response headers on object GET: `X-Kynotes-Version`, `X-Kynotes-Key-Generation`,
-`X-Kynotes-Digest`, `X-Kynotes-Change-Seq`, `Content-Length`.
+`X-Kynotes-Digest`, `X-Kynotes-Change-Seq`, `X-Kynotes-Saved-At` (the served version's
+`created_at`, RFC 3339; metadata the server already holds), `Content-Length`.
 
 ### 6.2 The save path, in order (do not reorder)
 

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef } from "react";
 import "@blocknote/mantine/style.css";
 import { localDate, recurrenceEdits } from "./taskDates";
 import { emojiQueryReady, emojiTriggerStartsWord } from "./emoji";
+import type { TextEditor } from "./format";
 
 type Props = {
   noteID: string;
@@ -17,9 +18,11 @@ type Props = {
   editable?: boolean;
   autoFocus?: boolean;
   onHydrated?: (document: Block[]) => void;
+  /** Called with this editor while it holds focus, so the page toolbar formats the box being written in. */
+  onActive?: (editor: TextEditor) => void;
 };
 
-export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl, editable = true, autoFocus, onHydrated }: Props) {
+export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChange, uploadFile, resolveFileUrl, editable = true, autoFocus, onHydrated, onActive }: Props) {
   const hydratedRef = useRef(false);
   const onChangeRef = useRef(onChange);
   const uploadRef = useRef(uploadFile);
@@ -64,7 +67,7 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
   }, [editor, autoFocus]);
 
   return (
-    <div className="blocknote-editor">
+    <div className="blocknote-editor" onFocus={() => onActive?.(editor)}>
       <BlockNoteView
         editor={editor}
         editable={editable}

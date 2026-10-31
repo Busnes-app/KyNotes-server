@@ -231,7 +231,9 @@ export async function readObject(objectID: string, version?: number) {
   if (!response.ok) throw new Error(`Unable to read note (${response.status})`);
   // A missing or malformed generation stays undefined so readKeys finds no key.
   const keyGeneration = serverGeneration(response.headers.get("X-Kynotes-Key-Generation"));
-  return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration };
+  // When the server stored this version: the page list's date ("" from a server that does not say).
+  const savedAt = response.headers.get("X-Kynotes-Saved-At") ?? "";
+  return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration, savedAt };
 }
 
 export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration: number) {

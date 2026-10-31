@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoginContainerObjectLifecycle(t *testing.T) {
@@ -121,6 +122,14 @@ func TestLoginContainerObjectLifecycle(t *testing.T) {
 		t.Fatalf("conflict: %v status=%d", e, r.StatusCode)
 	}
 	r.Body.Close()
+	r, e = c.Get(srv.URL + "/api/v1/objects/" + object.ID)
+	if e != nil || r.StatusCode != 200 {
+		t.Fatalf("read: %v status=%d", e, r.StatusCode)
+	}
+	r.Body.Close()
+	if saved, e := time.Parse(time.RFC3339, r.Header.Get("X-Kynotes-Saved-At")); e != nil || time.Since(saved) > time.Minute || time.Since(saved) < -time.Minute {
+		t.Fatalf("saved-at %q: %v", r.Header.Get("X-Kynotes-Saved-At"), e)
+	}
 	data := []byte("attachment-ciphertext")
 	sum := sha256.Sum256(data)
 	r = post("/api/v1/containers/"+container.ID+"/uploads", `{"declaredBytes":`+strconv.Itoa(len(data))+`,"expectedDigest":"`+hex.EncodeToString(sum[:])+`","kind":"attachment"}`, true)

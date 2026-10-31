@@ -212,9 +212,13 @@ export function documentText(body: string): string {
   const visit = (node: PartialBlock) => {
     if (typeof node.content === "string") text.push(node.content);
     if (Array.isArray(node.content)) {
-      node.content.forEach((inline) => {
-        if (typeof inline === "object" && inline !== null && "text" in inline && typeof inline.text === "string") text.push(inline.text);
-      });
+      // Links hold their text one level down.
+      const inline = (item: unknown) => {
+        if (typeof item !== "object" || item === null) return;
+        if ("text" in item && typeof item.text === "string") text.push(item.text);
+        if ("content" in item && Array.isArray(item.content)) item.content.forEach(inline);
+      };
+      node.content.forEach(inline);
     }
     if (node.type === "image" && typeof node.props?.name === "string") text.push(`[${node.props.name}]`);
     node.children?.forEach(visit);

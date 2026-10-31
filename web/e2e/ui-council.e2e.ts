@@ -126,26 +126,43 @@ test("notebook reading, phone page navigation and shared editor typography", asy
           expect(overflow).toBe(0);
         }
         if (device === "desktop" && stage !== "before") {
-          // One left navigation region: notebooks, then the open notebook's sections and pages, beside the page.
+          // Three panes: the navigation (notebooks, then the open notebook's sections), the page list, the page.
           await expect(page.getByRole("button", { name: "Menu", exact: true })).toHaveCount(0);
           const nav = await page.locator(".ky-sidebar").boundingBox();
           const notebooks = await page.locator("#notebook-navigation").boundingBox();
           const list = await page.locator("#page-navigation").boundingBox();
           const editor = await page.locator(".editor").boundingBox();
           expect(nav!.x).toBe(0);
-          expect(notebooks!.x).toBeGreaterThanOrEqual(0);
-          expect(list!.y).toBeGreaterThan(notebooks!.y);
-          expect(list!.x + list!.width).toBeLessThanOrEqual(nav!.width);
-          expect(editor!.x).toBeGreaterThanOrEqual(nav!.width);
+          expect(notebooks!.x + notebooks!.width).toBeLessThanOrEqual(nav!.width);
+          await expect(page.locator(".ky-sidebar .section-tabs")).toBeVisible();
+          expect(list!.x).toBe(nav!.width);
+          expect(list!.width).toBeGreaterThanOrEqual(260);
+          expect(list!.width).toBeLessThanOrEqual(320);
+          expect(editor!.x).toBeGreaterThanOrEqual(list!.x + list!.width);
+          // The open page is highlighted; each row has a title, its own text and a date.
+          const current = page.locator('#page-navigation .note-row[aria-current="page"]');
+          await expect(current.locator("strong")).toHaveText("Launch checklist");
+          await expect(current.locator(".note-snippet")).toContainText("A clear start for everyone");
+          await expect(current.locator("time")).not.toBeEmpty();
+          // Writing stays at a readable width.
+          const line = await page.locator(".canvas-box .bn-editor").evaluate((el) => {
+            const context = document.createElement("canvas").getContext("2d")!;
+            context.font = getComputedStyle(el).font;
+            const style = getComputedStyle(el);
+            return (el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)) / context.measureText("0").width;
+          });
+          expect(line).toBeLessThanOrEqual(72.5);
           await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeInViewport();
           await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
           await shot("navigation", device, theme);
         }
         if (device === "mobile") {
           if (stage !== "before") {
+            // The page list is its own screen, reached back from the page.
             await expect(page.locator(".note-list")).toBeHidden();
-            await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true }).click();
+            await page.locator(".pane-back").click();
             await expect(page.locator(".note-list")).toBeVisible();
+            await expect(page.locator(".editor .page-head")).toBeHidden();
             await expect(page.locator(".note-row").first()).toBeInViewport({ ratio: 0.9 });
             await shot("pages", device, theme);
             await page.locator(".note-row", { hasText: "Research notes" }).click();
@@ -185,8 +202,8 @@ test("notebook reading, phone page navigation and shared editor typography", asy
       });
       try {
         await page.getByRole("textbox", { name: "Page title" }).fill("Launch checklist edited");
-        await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Notes", exact: true }).click();
-        await page.locator('.note-row[aria-current="page"]').focus();
+        await page.locator(".pane-back").click();
+        await expect(page.locator('.note-row[aria-current="page"]')).toBeFocused();
         await page.keyboard.press("Enter");
         await expect(page.getByRole("textbox", { name: "Page title" })).toBeFocused();
         await expect(page.getByRole("textbox", { name: "Page title" })).toBeInViewport({ ratio: 1 });

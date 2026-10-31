@@ -1,5 +1,5 @@
 // web/src/CanvasPage.tsx
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Block, PartialBlock } from "@blocknote/core";
 import { BlockNoteEditor } from "./BlockNoteEditor";
 import {
@@ -8,9 +8,13 @@ import {
 } from "./document";
 import { History, addBox, contentExtent, eraseAt, fitBox, freeSpot, isUndoKey, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
 import { strokePath } from "./ink";
+import { FORMATS, applyFormat, blockOf, type Format, type TextEditor } from "./format";
+import { NavIcon } from "./NavIcon";
 
 type Tool = "type" | "pen" | "highlighter" | "eraser";
-const TOOLS: Array<[Tool, string]> = [["type", "Type"], ["pen", "Pen"], ["highlighter", "Highlighter"], ["eraser", "Eraser"]];
+const INK_TOOLS: Array<[Tool, string]> = [["pen", "Pen"], ["highlighter", "Highlighter"], ["eraser", "Eraser"]];
+// Formatting groups end after these, each followed by a divider.
+const GROUP_ENDS = new Set<Format>(["h3", "italic", "checklist"]);
 const SIZES = { pen: [2, 4, 8], highlighter: [12, 20, 28] } as const;
 const ERASER_RADIUS = 10;
 const PAGE_FULL = "This page is full. Start a new page for more ink.";
@@ -28,6 +32,7 @@ type Actions = {
   observe: (element: HTMLElement) => () => void;
   uploadFile: (file: File) => Promise<string>;
   resolveFileUrl: (url: string) => Promise<string>;
+  active: (id: string, editor: TextEditor) => void;
 };
 
 type BoxProps = { pageID: string; box: CanvasBox; rank: number; autoFocus: boolean; editable: boolean; legacyMarkdown?: string; actions: React.RefObject<Actions | null> };
@@ -60,6 +65,7 @@ const Box = memo(function Box({ pageID, box, rank, autoFocus, editable, legacyMa
         onHydrated={(blocks) => act().hydrated(box.id, blocks)}
         uploadFile={(file) => act().uploadFile(file)}
         resolveFileUrl={(url) => act().resolveFileUrl(url)}
+        onActive={(editor) => act().active(box.id, editor)}
       />
       <div
         className="canvas-box-resize"
@@ -207,6 +213,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     observe,
     uploadFile,
     resolveFileUrl,
+    active: (id, editor) => { activeBox.current = { id, editor }; },
   };
 
   const undo = () => {
@@ -218,6 +225,24 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     if (!editable) return;
     const next = history.current.redo(pageRef.current.strokes);
     if (next) commit({ ...pageRef.current, strokes: next });
+  };
+  // The text box last written in; formatting falls back to the first box, or starts one on an empty page.
+  const activeBox = useRef<{ id: string; editor: TextEditor } | null>(null);
+  const format = (choice: Format) => {
+    if (!editable) return;
+    if (tool !== "type") setTool("type");
+    const live = (id?: string) => id && surfaceRef.current?.querySelector<HTMLElement>(`[data-box="${CSS.escape(id)}"] .bn-editor`);
+    if (!live(activeBox.current?.id)) {
+      activeBox.current = null;
+      const first = [...pageRef.current.boxes].sort((a, b) => a.y - b.y || a.x - b.x)[0];
+      const element = live(first?.id);
+      if (element) element.focus(); // reports the editor through onActive
+    }
+    if (activeBox.current) return applyFormat(activeBox.current.editor, choice, () => window.prompt("Link address"));
+    // An empty page: start a text box, already a heading or list when that was the choice.
+    const spot = freeSpot(pageRef.current, heights);
+    const block = blockOf(choice);
+    placeBox(spot.x, spot.y, block && [{ ...block, content: "" } as PartialBlock]);
   };
   const undoKeys = useRef<(event: KeyboardEvent) => void>(() => {});
   undoKeys.current = (event) => {
@@ -334,26 +359,40 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
   return (
     <div className={`canvas-page tool-${editable ? tool : "type"}`}>
       <div className="canvas-toolbar" role="toolbar" aria-label="Page tools">
-        {TOOLS.map(([value, label]) => (
-          <button key={value} className={value === "type" ? "quiet" : "quiet ink-tool"} aria-pressed={tool === value} disabled={!editable} onClick={() => setTool(value)}>{label}</button>
+        {FORMATS.map(([value, label]) => (
+          <Fragment key={value}>
+            {/* mousedown keeps the selection in the text box being formatted */}
+            <button className="quiet icon-tool" aria-label={label} title={label} disabled={!editable} onMouseDown={(event) => event.preventDefault()} onClick={() => format(value)}><NavIcon name={value} /></button>
+            {GROUP_ENDS.has(value) && <span className="canvas-tool-divider" aria-hidden="true" />}
+          </Fragment>
         ))}
-        {(tool === "pen" || tool === "highlighter") && (
-          <>
-            {INK_COLORS.map((choice) => (
-              <button key={choice} className={`quiet ink-tool ink-swatch ink-${choice}`} aria-label={`${choice} ink`} aria-pressed={color === choice} disabled={!editable} onClick={() => setColor(choice)} />
-            ))}
-            {SIZES[tool].map((value, index) => (
-              <button key={value} className="quiet ink-tool" aria-label={`Size ${value}`} aria-pressed={sizeIndex === index} disabled={!editable} onClick={() => setSizeIndex(index)}>
-                {["S", "M", "L"][index]}
-              </button>
-            ))}
-          </>
-        )}
         <span className="canvas-tool-divider" aria-hidden="true" />
-        <button className="quiet ink-tool" disabled={!editable} onClick={undo} aria-keyshortcuts="Control+Z">Undo ink</button>
-        <button className="quiet ink-tool" disabled={!editable} onClick={redo} aria-keyshortcuts="Control+Shift+Z">Redo ink</button>
         <button className="quiet" disabled={!editable} onClick={() => { const spot = freeSpot(pageRef.current, heights); placeBox(spot.x, spot.y); }}>Add text</button>
+        <button className="quiet ink-tool draw-toggle" aria-pressed={tool !== "type"} disabled={!editable} onClick={() => setTool(tool === "type" ? "pen" : "type")}><NavIcon name="draw" /><span>Draw</span></button>
       </div>
+      {tool !== "type" && (
+        <div className="canvas-toolbar ink-toolbar" role="toolbar" aria-label="Ink tools">
+          {INK_TOOLS.map(([value, label]) => (
+            <button key={value} className="quiet ink-tool" aria-pressed={tool === value} disabled={!editable} onClick={() => setTool(value)}>{label}</button>
+          ))}
+          {(tool === "pen" || tool === "highlighter") && (
+            <>
+              <span className="canvas-tool-divider" aria-hidden="true" />
+              {INK_COLORS.map((choice) => (
+                <button key={choice} className={`quiet ink-tool ink-swatch ink-${choice}`} aria-label={`${choice} ink`} aria-pressed={color === choice} disabled={!editable} onClick={() => setColor(choice)} />
+              ))}
+              {SIZES[tool].map((value, index) => (
+                <button key={value} className="quiet ink-tool" aria-label={`Size ${value}`} aria-pressed={sizeIndex === index} disabled={!editable} onClick={() => setSizeIndex(index)}>
+                  {["S", "M", "L"][index]}
+                </button>
+              ))}
+            </>
+          )}
+          <span className="canvas-tool-divider" aria-hidden="true" />
+          <button className="quiet ink-tool" disabled={!editable} onClick={undo} aria-keyshortcuts="Control+Z">Undo ink</button>
+          <button className="quiet ink-tool" disabled={!editable} onClick={redo} aria-keyshortcuts="Control+Shift+Z">Redo ink</button>
+        </div>
+      )}
       {page.strokes.length > 0 && <p className="canvas-ink-note">This page has ink. Open it on a wider screen to see it.</p>}
       <div className="canvas-scroll">
         <div
