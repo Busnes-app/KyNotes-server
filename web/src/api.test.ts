@@ -12,6 +12,13 @@ describe("readObject key generation", () => {
     expect((await readObject(obj)).keyGeneration).toBe(4);
   });
 
+  it("reads when the server saved the version, and none from a server that does not say", async () => {
+    serve({ "X-Kynotes-Saved-At": "2026-10-30T14:05:00Z" });
+    expect((await readObject(obj)).savedAt).toBe("2026-10-30T14:05:00Z");
+    serve({});
+    expect((await readObject(obj)).savedAt).toBe("");
+  });
+
   it("is undefined when the header is missing or malformed", async () => {
     for (const headers of [{} as Record<string, string>, { "X-Kynotes-Key-Generation": "" }, { "X-Kynotes-Key-Generation": "2x" }, { "X-Kynotes-Key-Generation": "-1" }, { "X-Kynotes-Key-Generation": "1.5" }, { "X-Kynotes-Key-Generation": "99999999999999999999" }]) {
       serve(headers);

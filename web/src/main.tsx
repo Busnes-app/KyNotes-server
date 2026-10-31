@@ -107,6 +107,7 @@ import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { AppMark, NavIcon } from "./NavIcon";
 import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload, unreadableNotice } from "./notes";
 import { loadGate } from "./loadGate";
+import { relativeDate } from "./relativeDate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
 import { stepUpAsking } from "./stepup";
@@ -552,6 +553,9 @@ function Workspace({
 }) {
   const [items, setItems] = useState<Container[]>([]);
   const [showNotebookNavigation, setShowNotebookNavigation] = useState(false);
+  // Phones show the page list or the open page; the list's back target is the page.
+  const [phoneList, setPhoneList] = useState(false);
+  const focusTitleNext = useRef(false);
   const pageTitleRef = useRef<HTMLInputElement>(null);
   const phone = usePhone();
   const [names, setNames] = useState<Record<string, string>>({});
@@ -594,8 +598,10 @@ function Workspace({
     if (selectedNote && phone) {
       setShowNotebookNavigation(false);
       // Focus follows a phone page choice; opening a deep link leaves focus alone.
-      if (showNotebookNavigation) {
-        // The open tree pushes the editor down; focus after the close has rendered.
+      if (focusTitleNext.current) {
+        focusTitleNext.current = false;
+        setPhoneList(false);
+        // The page replaces the list; focus after it has rendered.
         const frame = requestAnimationFrame(() => pageTitleRef.current?.focus());
         return () => cancelAnimationFrame(frame);
       }
@@ -1376,7 +1382,7 @@ function Workspace({
             : await server(v1).then((opened) => { if (opened.v1) legacy.add(change.id); return opened.payload; });
           // The server copy's format still decides migration.
           if (useCache && (await server(false).then(() => false, () => true))) legacy.add(change.id);
-          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : new Date().toISOString());
+          add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
         } catch {
           try {
             const cached = await getNote(auth.user.id, change.id);
@@ -2192,10 +2198,15 @@ function Workspace({
     if (kind === "section" && id === sectionID) setGroupID(target);
   }
   async function selectSection(id: string) {
+    if (id === sectionID) return showSection(id);
     // Leaving the open page: finish its save first, as selectNote does.
-    if (id !== sectionID && !(await flushOpenPage())) return;
-    if (id !== sectionID) setSelectedNote(null);
+    if (!(await flushOpenPage())) return;
+    selectedNoteRef.current = null;
+    setSelectedNote(null);
     showSection(id);
+    // As in OneNote, a section opens on its first page.
+    const first = pagesInSection(notesRef.current, sectionsRef.current, id)[0];
+    if (first) await selectNote(first);
   }
   /** Shows a group's tabs and its first section; a group without sections shows no pages. */
   async function openGroup(id: string | undefined) {
@@ -2647,19 +2658,60 @@ function Workspace({
   const inWorkspace = view === "workspace";
   // The open notebook, section and page are marked bold (aria-current="true"); only the current
   // destination (Notes, Work queue, Appearance or Settings) carries the accent (aria-current="page").
+  // As in OneNote, the open notebook's sections (and its ⋯ menu) sit right under it.
   const notebookItem = (container: Container, icon: "notebook" | "team", nested = false) => {
     const open = !queueMode && selected?.id === container.id;
-    return (
+    const row = (
       <button
         className={`ky-nav-item nav-item notebook-item${nested ? " nested-nav-item" : ""}`}
         aria-current={open ? "true" : undefined}
         data-open={selected?.id === container.id ? "true" : undefined}
         key={container.id}
-        onClick={() => void chooseNotebook(container)}
+        onClick={() => { setPhoneList(true); void chooseNotebook(container); }}
       >
         <NavIcon name={icon} />
         <span>{nameOf(container)}</span>
       </button>
+    );
+    if (!open || !selected) return row;
+    return (
+      <React.Fragment key={container.id}>
+        <div className="notebook-row">
+          {row}
+          <button className="icon-button quiet menu-button" popoverTarget="notebook-menu" aria-label="Notebook options" style={{ anchorName: "--notebook-menu" }}><NavIcon name="more" /></button>
+          <div className="section-menu anchored-menu" id="notebook-menu" popover="auto" style={{ positionAnchor: "--notebook-menu" } as React.CSSProperties}>
+            <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void renameWorkspace(); }}>Rename notebook</button>
+            <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void exportWorkspace(); }}>Export notebook</button>
+            <button className="quiet" disabled={busy || keyWait} onClick={() => { closeMenu("notebook-menu"); void newStructure("section"); }}>New section</button>
+            <button className="quiet" disabled={busy || keyWait || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
+            {selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}
+            {selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}
+          </div>
+        </div>
+        <div className="notebook-sections">
+          <SectionTabs
+            sections={groupSections}
+            groups={childGroups}
+            path={groupTrail}
+            current={sectionID}
+            busy={busy || keyWait}
+            moveTargets={moveTargets}
+            onSelect={(id) => { setView("workspace"); setShowNotebookNavigation(false); setPhoneList(true); void selectSection(id); }}
+            onRename={renameStructure}
+            onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
+            onDelete={(section) => void removeSection(section)}
+            onDeleteGroup={(group) => void removeGroup(group)}
+            onMove={(kind, id, index) => void moveStructure(kind, id, index)}
+            onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
+            onOpenGroup={(id) => void openGroup(id)}
+            onDropPage={(pageID, target) => {
+              // A drop on the page's own section tab is not a move.
+              const page = notesRef.current.find((note) => note.id === pageID);
+              if (page && pageSection(page) !== target) void movePage(pageID, target, null);
+            }}
+          />
+        </div>
+      </React.Fragment>
     );
   };
   const closeMenu = (id: string) => document.getElementById(id)?.hidePopover();
@@ -2677,12 +2729,6 @@ function Workspace({
     else setView("workspace");
   };
   const goTo = (next: "settings" | "appearance") => { setShowNotebookNavigation(false); setView(next); };
-  // The phone tree opens on the open page, so its siblings are in reach.
-  useEffect(() => {
-    if (!showNotebookNavigation) return;
-    const frame = requestAnimationFrame(() => document.querySelector(".notes-tree .note-row[aria-current]")?.scrollIntoView({ block: "nearest" }));
-    return () => cancelAnimationFrame(frame);
-  }, [showNotebookNavigation]);
   // Security-relevant, so always shown until dismissed for this session; the detail opens over the page.
   const recoveryNudge = identityState === "held" && live && !live.recoveryId && !recoveryDismissed && (
     <div className="recovery-notice">
@@ -2695,7 +2741,7 @@ function Workspace({
   );
   return (
     <AppFrame
-      className={`workspace${queueMode ? " queue-mode" : ""}`}
+      className={`workspace${queueMode ? " queue-mode" : ""}${inWorkspace ? " has-panes" : ""}`}
       label="Primary"
       onSignOut={onLogout}
       nav={<>
@@ -2704,7 +2750,7 @@ function Workspace({
           expanded={phone && inWorkspace && !queueMode ? showNotebookNavigation : undefined} controls={phone ? "notebook-tree" : undefined}
           onClick={() => phone && inWorkspace && !queueMode ? setShowNotebookNavigation((open) => !open) : goToNotes()} />
         {/* Ignored while busy rather than disabled, so keyboard focus stays on the chosen tab. */}
-        <NavItem icon="work" label="Work queue" current={inWorkspace && queueMode} onClick={() => { if (!busy) void openWorkQueue(); }} />
+        <NavItem icon="work" label="Work queue" current={inWorkspace && queueMode} onClick={() => { if (!busy) { setPhoneList(true); void openWorkQueue(); } }} />
         <NavItem icon="palette" label="Appearance" current={view === "appearance"} onClick={() => goTo("appearance")} />
         <NavItem icon="settings" label="Settings" current={view === "settings"} onClick={() => goTo("settings")} />
       </>}
@@ -2746,337 +2792,317 @@ function Workspace({
             </div>
           )}
         </nav>
-        <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer} aria-labelledby="page-navigation-title">
-          <div className="list-header">
-            <h2 id="page-navigation-title" className="workspace-title">{queueMode ? "Work queue" : selected ? nameOf(selected) : items.length ? "Select a notebook" : "No notebooks yet"}</h2>
-            {selected && !queueMode && (
-              <>
-                <button className="icon-button quiet menu-button" popoverTarget="notebook-menu" aria-label="Notebook options" style={{ anchorName: "--notebook-menu" }}><NavIcon name="more" /></button>
-                <div className="section-menu anchored-menu" id="notebook-menu" popover="auto" style={{ positionAnchor: "--notebook-menu" } as React.CSSProperties}>
-                  <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void renameWorkspace(); }}>Rename notebook</button>
-                  <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void exportWorkspace(); }}>Export notebook</button>
-                  <button className="quiet" disabled={busy || keyWait} onClick={() => { closeMenu("notebook-menu"); void newStructure("section"); }}>New section</button>
-                  <button className="quiet" disabled={busy || keyWait || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
-                  {selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}
-                  {selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}
-                </div>
-              </>
-            )}
-          </div>
-          {queueMode && <p className="workspace-kind">Open tasks across your personal notebooks · {queueRows.length} open task{queueRows.length === 1 ? "" : "s"}</p>}
-          {selected && !queueMode && (
-            <SectionTabs
-              sections={groupSections}
-              groups={childGroups}
-              path={groupTrail}
-              current={sectionID}
-              busy={busy || keyWait}
-              moveTargets={moveTargets}
-              onSelect={(id) => { setView("workspace"); void selectSection(id); }}
-              onRename={renameStructure}
-              onColor={(kind, entry, color) => void updateStructure(kind, entry.id, { color }).catch(reportSection)}
-              onDelete={(section) => void removeSection(section)}
-              onDeleteGroup={(group) => void removeGroup(group)}
-              onMove={(kind, id, index) => void moveStructure(kind, id, index)}
-              onMoveIntoGroup={(kind, id, target) => void moveIntoGroup(kind, id, target)}
-              onOpenGroup={(id) => void openGroup(id)}
-              onDropPage={(pageID, target) => {
-                // A drop on the page's own section tab is not a move.
-                const page = notesRef.current.find((note) => note.id === pageID);
-                if (page && pageSection(page) !== target) void movePage(pageID, target, null);
-              }}
-            />
-          )}
-          {(selected || queueMode) && <input
-            aria-label="Search this notebook"
-            className="note-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
-          />}
-          {queueMode && TASK_GROUPS.map(([group, label]) => {
-            const rows = queueRows.filter((task) => task.group === group);
-            return rows.length > 0 && (
-              <div className="task-group" key={group} data-task-group={group}>
-                <h3 className="notes-heading">{label}</h3>
-                {rows.map((task, index) => (
-                  <div className={`note-row-wrap ${selectedNote?.id === task.entry.note.id ? "selected" : ""}`} key={`${task.key}\n${index}`}>
-                    <button className="note-row" onClick={() => { setView("workspace"); void selectQueueNote(task.entry); }}>
-                      <strong>{task.text || "Untitled task"}</strong>
-                      <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.push && "push", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-          {!queueMode && listRows.map(({ note, row }) => {
-            const title = note.title || "Untitled page";
-            return (
-            <div
-              className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
-              key={note.id}
-              style={row ? { paddingInlineStart: row.level * 16 } : undefined}
-              onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
-              onDrop={(event) => {
-                const pageID = event.dataTransfer.getData(PAGE_DRAG);
-                const from = sectionIndex(pageID);
-                if (!reorderable || from < 0) return;
-                const before = beforeAt(dropBefore(sectionLevels, from, sectionIndex(note.id)));
-                if (before !== undefined) void movePage(pageID, sectionID, before);
-              }}
-            >
-              {row && !row.hasChildren && <span className="page-toggle-space" aria-hidden="true" />}
-              {row?.hasChildren && (
-                <button
-                  className="page-toggle quiet"
-                  aria-expanded={!row.collapsed}
-                  aria-label={`${row.collapsed ? "Expand" : "Collapse"} ${title}`}
-                  onClick={() => toggleCollapsed(note.id)}
-                >
-                  <NavIcon name="chevron" />
-                </button>
-              )}
-              <button
-                className="note-row"
-                aria-current={inWorkspace && selectedNote?.id === note.id ? "page" : undefined}
-                data-page-id={note.id}
-                draggable
-                onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
-                onKeyDown={(event) => {
-                  if (!reorderable) return;
-                  const index = sectionIndex(note.id);
-                  const bracket = event.ctrlKey && event.altKey
-                    ? (event.key === "]" || event.code === "BracketRight" ? 1 : event.key === "[" || event.code === "BracketLeft" ? -1 : 0)
-                    : 0;
-                  if (bracket) {
-                    const delta = bracket as 1 | -1;
-                    if (!canShift(note.id, delta)) return;
-                    event.preventDefault();
-                    void indentPage(note.id, delta);
-                    return;
-                  }
-                  if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
-                  const before = beforeAt(siblingMove(sectionLevels, index, event.key === "ArrowUp" ? -1 : 1));
-                  if (before === undefined) return;
-                  event.preventDefault();
-                  void movePage(note.id, sectionID, before).then(() =>
-                    document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
-                }}
-                aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
-                onClick={() => {
-                  setView("workspace");
-                  if (selectedNote?.id === note.id) {
-                    setShowNotebookNavigation(false);
-                    if (phone) requestAnimationFrame(() => pageTitleRef.current?.focus());
-                    return;
-                  }
-                  void selectNote(note);
-                }}
-              >
-                <strong>{title}</strong>
-                {row && (row.level > 0 || row.hasChildren) && (
-                  <span className="visually-hidden">
-                    {row.level > 0 ? `, subpage level ${row.level}` : ""}
-                    {row.hasChildren ? (row.collapsed ? `, collapsed, ${subpageCount(note.id)} subpages hidden` : ", expanded") : ""}
-                  </span>
-                )}
-                <span>
-                  {query.trim() && <em className="page-section">{sectionTitle(note.section)} · </em>}
-                  {indexNotes([note])[0].body.slice(0, 64) || "Empty page"}
-                </span>
-              </button>
-            </div>
-            );
-          })}
-          {selected && (listEntries.length === 0 || groupEmpty) && (
-            <p className="empty-list">
-              {queueMode ? "No open tasks here. Tasks from note checklists appear here." : groupEmpty ? "This group has no sections. Add one from the notebook menu to add pages." : "No pages in this section yet."}
-            </p>
-          )}
-          {selected && !queueMode && (
-            <button
-              className="new-workspace"
-              disabled={busy || sectionHidden || keyWait}
-              title={sectionHidden ? "Add a section to this group first" : undefined}
-              onClick={() => { setView("workspace"); setShowNotebookNavigation(false); void newNote(); }}
-            >
-              <NavIcon name="plus" /> New page
-            </button>
-          )}
-          {relatedNotes.length > 0 && (
-            <div className="context-panel">
-              <div className="section-label">Resurfacing</div>
-              {relatedNotes.map((note) => (
-                <button className="context-link" key={note.id} onClick={() => { setView("workspace"); void selectNote(note); }}>
-                  {note.title || "Untitled page"}
-                </button>
-              ))}
-            </div>
-          )}
-          {links.length > 0 && (
-            <div className="context-panel">
-              <div className="section-label">Knowledge graph</div>
-              <span className="config-muted">
-                {links.length} local link{links.length === 1 ? "" : "s"}
-              </span>
-            </div>
-          )}
-        </section>
       </div>}
     >
-        {/* The editor stays mounted behind Settings and Appearance, so an open page keeps its pending edits. */}
-        <section className="editor" hidden={!inWorkspace}>
-          <div className="workspace-notices">
-            {!queueMode && keyWait && selected && <p className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
-              const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
-              const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
-              return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
-            })()}</p>}
-            {!queueMode && keyNotice && <p className="workspace-kind" role="status">{keyNotice}</p>}
-            {!queueMode && keyDeferred && <p className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></p>}
-            {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
-            {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
-            {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
-            {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
-            {!selectedNote && recoveryNudge}
-            {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
-              <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
-            )}
-            {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
-              <div className="conflict-banner" role="status" key={member.userId}>
-                {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
-              </div>
-            ))}
-            <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
-            {invitation && (
-              <div className="conflict-banner" role="status">
-                You were invited to a team notebook.{" "}
-                <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
-                <button className="quiet" onClick={dropInvitation}>Not now</button>
-              </div>
-            )}
-          </div>
-          {selectedNote ? (
-            <>
-              {conflicted.has(selectedNote.id) && (
-                <div className="conflict-banner" role="alert">
-                  {recovering === selectedNote.id
-                    ? "Saving the other version as a copy…"
-                    : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
-                  <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
-                </div>
-              )}
-              <div className="page-head">
-                <input
-                  ref={pageTitleRef}
-                  aria-label="Page title"
-                  className="title-input"
-                  readOnly={recovering === selectedNote.id || keyWait}
-                  value={selectedNote.title}
-                  onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
-                />
-                <div className="page-head-actions">
-                  {recoveryNudge}
-                  <p className="save-state" aria-live="polite">
-                    <span className={`sync-dot sync-${dirty ? "dirty" : syncStatus}`}>● {saveStatus}</span>
-                    {saveDetail && <span className="save-detail">{saveDetail}</span>}
-                  </p>
-                  <button className="save-button secondary" disabled={busy} onClick={() => void save(selectedNote)}>
-                    {busy ? "Saving…" : "Save"}
-                  </button>
-                  <button className="icon-button quiet menu-button" popoverTarget="page-menu" aria-label="Page options" style={{ anchorName: "--page-menu" }}><NavIcon name="more" /></button>
-                  <div className="section-menu anchored-menu page-menu" id="page-menu" popover="auto" style={{ positionAnchor: "--page-menu" } as React.CSSProperties}>
-                    <span className="menu-caption" aria-hidden="true">Section</span>
-                    <div className="page-section-control">
-                      <select
-                        aria-label="Move page to section"
-                        disabled={keyWait}
-                        value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
-                        onChange={(event) => { closeMenu("page-menu"); void movePage(selectedNote.id, event.target.value, null); }}
-                      >
-                        {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-                        <option value={QUICK_NOTES}>Quick Notes</option>
-                      </select>
-                      <NavIcon name="chevron" />
-                    </div>
-                    <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
-                    <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
-                    <button className="quiet danger" disabled={keyWait} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
-                  </div>
-                </div>
-              </div>
-              <div className="page-canvas">
-                <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
-                  <CanvasPage
-                    key={`${selectedNote.id}:${editorRevision}`}
-                    pageID={selectedNote.id}
-                    body={selectedNote.body}
-                    editable={recovering !== selectedNote.id && !keyWait}
-                    onChange={(body) => editOpen(selectedNote.id, { body })}
-                    onError={setError}
-                    uploadFile={uploadInlineFile}
-                    resolveFileUrl={resolveFileUrl}
-                  />
-                </Suspense>
-              </div>
-              <details className="page-panel comments" open={commentsOpen} onToggle={(event) => setCommentsOpen(event.currentTarget.open)}>
-                <summary><span>Comments</span>{commentsForNote.length > 0 && <span className="page-panel-count">{commentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
-                {commentsForNote.map((comment) => (
-                  <div className="comment" key={comment.id}>
-                    <strong>
-                      {comment.username}
-                      {comment.section ? ` · § ${comment.section}` : ""}
-                    </strong>
-                    <span>{comment.body}</span>
-                  </div>
-                ))}
-                <div className="comment-compose">
-                  <input aria-label="Comment section (optional)" value={commentSection} onChange={(event) => setCommentSection(event.target.value)} placeholder="Section (optional)" />
-                  <input aria-label="Comment" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Add a comment…" />
-                  <button className="secondary" disabled={busy || keyWait} onClick={() => void addComment()}>
-                    Comment
-                  </button>
-                </div>
-              </details>
-              <details className="page-panel attachments" open={attachmentsOpen} onToggle={(event) => setAttachmentsOpen(event.currentTarget.open)}>
-                <summary><span>Attachments</span>{attachmentsForNote.length > 0 && <span className="page-panel-count">{attachmentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
-                {Object.entries(uploadProgress).map(([uploadId, progress]) => (
-                  <div className="upload-row" key={uploadId}>
-                    <span>{progress.name} · {progress.failed ? "waiting to retry" : `${Math.round(progress.uploaded / Math.max(progress.total, 1) * 100)}%`}</span>
-                    <div className="upload-actions">
-                      {progress.failed && <button className="quiet" onClick={() => void retryAttachmentUpload(uploadId)}>Retry</button>}
-                      <button className="quiet" onClick={() => void cancelAttachmentUpload(uploadId)}>Cancel</button>
-                    </div>
-                  </div>
-                ))}
-                {attachmentsForNote.map((attachment) => (
-                  <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
-                    <strong>{attachment.name}</strong>
-                    <span>{Math.ceil(attachment.size / 1024)} KB</span>
-                  </button>
-                ))}
-                <label className="attachment-picker">
-                  <NavIcon name="plus" /><span>Add encrypted file</span>
-                  <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
-                </label>
-              </details>
-            </>
-          ) : (
-            <div className="empty-editor">
-              <h2>{!selected && !queueMode ? (items.length ? "Select a notebook" : "No notebooks yet") : "Your private desk"}</h2>
-              <p>
-                {!selected && !queueMode ? "Start with a notebook to keep your notes together." : "Select a page or create one."} The server receives ciphertext only.
-              </p>
-              {!selected && !queueMode && (
-                <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
-              )}
-              {selected && (
-                <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
+        {/* The page list and the editor stay mounted behind Settings and Appearance, so an open page keeps its pending edits. */}
+        <div className="notes-panes" hidden={!inWorkspace} data-phone-view={!selected && !queueMode ? undefined : !selectedNote || phoneList ? "list" : "page"}>
+          <section id="page-navigation" className={`note-list${!selected && !queueMode ? " no-notebook" : ""}`} aria-busy={loadingContainer} aria-labelledby="page-navigation-title">
+            {selected && !queueMode && <p className="workspace-title">{nameOf(selected)}</p>}
+            <div className="pane-head">
+              <h2 id="page-navigation-title" className="pane-title">{queueMode ? "Work queue" : query.trim() ? "Search results" : sectionTitle(sectionID)}</h2>
+              {selected && !queueMode && (
+                <button
+                  className="icon-button quiet"
+                  aria-label="New page"
+                  title="New page"
+                  disabled={busy || sectionHidden || keyWait}
+                  onClick={() => { setView("workspace"); setShowNotebookNavigation(false); setPhoneList(false); void newNote(); }}
+                >
+                  <NavIcon name="plus" />
+                </button>
               )}
             </div>
-          )}
-        </section>
+            {queueMode && <p className="workspace-kind">Open tasks across your personal notebooks · {queueRows.length} open task{queueRows.length === 1 ? "" : "s"}</p>}
+            {(selected || queueMode) && <label className="note-search-field">
+              <NavIcon name="search" />
+              <input
+                aria-label={queueMode ? "Search the work queue" : "Search this notebook"}
+                className="note-search"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search"
+              />
+            </label>}
+            {queueMode && TASK_GROUPS.map(([group, label]) => {
+              const rows = queueRows.filter((task) => task.group === group);
+              return rows.length > 0 && (
+                <div className="task-group" key={group} data-task-group={group}>
+                  <h3 className="notes-heading">{label}</h3>
+                  {rows.map((task, index) => (
+                    <div className={`note-row-wrap ${selectedNote?.id === task.entry.note.id ? "selected" : ""}`} key={`${task.key}\n${index}`}>
+                      <button className="note-row" onClick={() => { setView("workspace"); focusTitleNext.current = phone; void selectQueueNote(task.entry); }}>
+                        <strong>{task.text || "Untitled task"}</strong>
+                        <span>{[task.due && `Due ${task.due}`, task.repeat && "repeats", task.push && "push", task.missed && "missed reminder", task.entry.note.title || "Untitled page"].filter(Boolean).join(" · ")}</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {!queueMode && listRows.map(({ note, row }) => {
+              const title = note.title || "Untitled page";
+              return (
+              <div
+                className={`note-row-wrap ${selectedNote?.id === note.id ? "selected" : ""}`}
+                key={note.id}
+                style={row ? { paddingInlineStart: row.level * 16 } : undefined}
+                onDragOver={(event) => { if (reorderable && event.dataTransfer.types.includes(PAGE_DRAG)) event.preventDefault(); }}
+                onDrop={(event) => {
+                  const pageID = event.dataTransfer.getData(PAGE_DRAG);
+                  const from = sectionIndex(pageID);
+                  if (!reorderable || from < 0) return;
+                  const before = beforeAt(dropBefore(sectionLevels, from, sectionIndex(note.id)));
+                  if (before !== undefined) void movePage(pageID, sectionID, before);
+                }}
+              >
+                {row && !row.hasChildren && <span className="page-toggle-space" aria-hidden="true" />}
+                {row?.hasChildren && (
+                  <button
+                    className="page-toggle quiet"
+                    aria-expanded={!row.collapsed}
+                    aria-label={`${row.collapsed ? "Expand" : "Collapse"} ${title}`}
+                    onClick={() => toggleCollapsed(note.id)}
+                  >
+                    <NavIcon name="chevron" />
+                  </button>
+                )}
+                <button
+                  className="note-row"
+                  aria-current={inWorkspace && selectedNote?.id === note.id ? "page" : undefined}
+                  data-page-id={note.id}
+                  draggable
+                  onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
+                  onKeyDown={(event) => {
+                    if (!reorderable) return;
+                    const index = sectionIndex(note.id);
+                    const bracket = event.ctrlKey && event.altKey
+                      ? (event.key === "]" || event.code === "BracketRight" ? 1 : event.key === "[" || event.code === "BracketLeft" ? -1 : 0)
+                      : 0;
+                    if (bracket) {
+                      const delta = bracket as 1 | -1;
+                      if (!canShift(note.id, delta)) return;
+                      event.preventDefault();
+                      void indentPage(note.id, delta);
+                      return;
+                    }
+                    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                    const before = beforeAt(siblingMove(sectionLevels, index, event.key === "ArrowUp" ? -1 : 1));
+                    if (before === undefined) return;
+                    event.preventDefault();
+                    void movePage(note.id, sectionID, before).then(() =>
+                      document.querySelector<HTMLElement>(`.note-row[data-page-id="${CSS.escape(note.id)}"]`)?.focus());
+                  }}
+                  aria-keyshortcuts={reorderable ? "Alt+ArrowUp Alt+ArrowDown Control+Alt+BracketRight Control+Alt+BracketLeft" : undefined}
+                  onClick={() => {
+                    setView("workspace");
+                    if (selectedNote?.id === note.id) {
+                      setShowNotebookNavigation(false);
+                      setPhoneList(false);
+                      if (phone) requestAnimationFrame(() => pageTitleRef.current?.focus());
+                      return;
+                    }
+                    focusTitleNext.current = phone;
+                    void selectNote(note);
+                  }}
+                >
+                  <span className="note-row-head">
+                    <strong>{title}</strong>
+                    <time dateTime={note.updatedAt} title={note.updatedAt ? new Date(note.updatedAt).toLocaleString() : undefined}>{relativeDate(note.updatedAt)}</time>
+                  </span>
+                  {row && (row.level > 0 || row.hasChildren) && (
+                    <span className="visually-hidden">
+                      {row.level > 0 ? `, subpage level ${row.level}` : ""}
+                      {row.hasChildren ? (row.collapsed ? `, collapsed, ${subpageCount(note.id)} subpages hidden` : ", expanded") : ""}
+                    </span>
+                  )}
+                  <span className="note-snippet">
+                    {query.trim() && <em className="page-section">{sectionTitle(note.section)} · </em>}
+                    {indexNotes([note])[0].body.slice(0, 160) || "Empty page"}
+                  </span>
+                </button>
+              </div>
+              );
+            })}
+            {selected && (listEntries.length === 0 || groupEmpty) && (
+              <p className="empty-list">
+                {queueMode ? "No open tasks here. Tasks from note checklists appear here." : groupEmpty ? "This group has no sections. Add one from the notebook menu to add pages." : "No pages in this section yet."}
+              </p>
+            )}
+            {relatedNotes.length > 0 && (
+              <div className="context-panel">
+                <div className="section-label">Resurfacing</div>
+                {relatedNotes.map((note) => (
+                  <button className="context-link" key={note.id} onClick={() => { setView("workspace"); void selectNote(note); }}>
+                    {note.title || "Untitled page"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {links.length > 0 && (
+              <div className="context-panel">
+                <div className="section-label">Knowledge graph</div>
+                <span className="config-muted">
+                  {links.length} local link{links.length === 1 ? "" : "s"}
+                </span>
+              </div>
+            )}
+          </section>
+          <section className="editor">
+            <div className="workspace-notices">
+              {!queueMode && keyWait && selected && <p className="workspace-kind" role="status">{rollback ? ROLLBACK : (() => {
+                const notice = waitingNotice({ steward: stewardHere(selected), held: identityState === "held", recoverable: recoverable(live), shared: Math.max(selected.sharedGeneration, floorFor(selected)?.shared ?? 0) > 0 });
+                const reset = keyMembers?.containerID === selected.id ? resetNotice(keyMembers.members) : undefined;
+                return <>{notice.text}{reset && <> {reset}</>}{notice.action === "ask" && <> <button className="quiet" onClick={() => void askForKeys()}>Ask an owner</button></>}{notice.action === "settings" && <> <button className="quiet" onClick={() => setView("settings")}>Open Settings</button></>}</>;
+              })()}</p>}
+              {!queueMode && keyNotice && <p className="workspace-kind" role="status">{keyNotice}</p>}
+              {!queueMode && keyDeferred && <p className="workspace-kind" role="status">This notebook's keys are not set up or shared yet. <button className="quiet" onClick={() => void shareKeysNow()}>Set up keys (confirm with {auth.sso ? "KySignOn" : "your password"})</button></p>}
+              {resetUnfinished && <div className="conflict-banner" role="status">{RESET_UNFINISHED} <button className="secondary" onClick={() => { if (confirm(FORGET_DEVICE)) onForgetDevice?.(); }}>Forget this device</button></div>}
+              {identityState === "link" && !resetUnfinished && <div className="conflict-banner" role="status">This browser does not hold your encryption key, so your notebooks are read-only here. <button className="secondary" onClick={() => setView("settings")}>Link this browser</button></div>}
+              {auth.sso && identityState === "create" && <div className="conflict-banner" role="status">Set up your encryption key so you can write in your notebooks and team owners can share theirs with you. <button className="secondary" onClick={() => void setUpSSOIdentity(false)}>Set up encryption key</button></div>}
+              {auth.sso && identityState === "orphaned" && <div className="conflict-banner" role="status">The server no longer lists the encryption key this browser holds (a reset from another browser replaced it). <button className="secondary" onClick={() => void setUpSSOIdentity(true)}>Replace encryption key</button></div>}
+              {(!selectedNote || (phone && phoneList)) && recoveryNudge}
+              {selected && teamSteward && selected.metaVersion === 0 && writeKeyFor(selected) && (
+                <div className="conflict-banner" role="status">{UNNAMED_TEAM} <button className="secondary" onClick={() => void renameWorkspace()}>Name notebook</button></div>
+              )}
+              {teamSteward && membersForTeam.filter((member) => member.approved === false).map((member) => (
+                <div className="conflict-banner" role="status" key={member.userId}>
+                  {approvalText(displayName(member.username, member.userId))} <button className="secondary" disabled={busy} onClick={() => void approve(member.userId)}>Approve and share keys</button>
+                </div>
+              ))}
+              <LinkStatus status={identityRefusal} set={setIdentityRefusal} />
+              {invitation && (
+                <div className="conflict-banner" role="status">
+                  You were invited to a team notebook.{" "}
+                  <button className="secondary" onClick={() => void joinTeam()}>Join team</button>{" "}
+                  <button className="quiet" onClick={dropInvitation}>Not now</button>
+                </div>
+              )}
+            </div>
+            {selectedNote ? (
+              <>
+                {conflicted.has(selectedNote.id) && (
+                  <div className="conflict-banner" role="alert">
+                    {recovering === selectedNote.id
+                      ? "Saving the other version as a copy…"
+                      : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
+                    <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
+                  </div>
+                )}
+                <button type="button" className="quiet pane-back" onClick={() => { setPhoneList(true); requestAnimationFrame(() => document.querySelector<HTMLElement>(".note-list .note-row[aria-current]")?.focus()); }}>
+                  <NavIcon name="back" /><span>{queueMode ? "Work queue" : sectionTitle(sectionID)}</span>
+                </button>
+                <div className="page-head">
+                  <input
+                    ref={pageTitleRef}
+                    aria-label="Page title"
+                    className="title-input"
+                    readOnly={recovering === selectedNote.id || keyWait}
+                    value={selectedNote.title}
+                    onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
+                  />
+                  <div className="page-head-actions">
+                    {!(phone && phoneList) && recoveryNudge}
+                    <p className="save-state" aria-live="polite">
+                      <span className={`sync-dot sync-${dirty ? "dirty" : syncStatus}`}>● {saveStatus}</span>
+                      {saveDetail && <span className="save-detail">{saveDetail}</span>}
+                    </p>
+                    <button className="save-button secondary" disabled={busy} onClick={() => void save(selectedNote)}>
+                      {busy ? "Saving…" : "Save"}
+                    </button>
+                    <button className="icon-button quiet menu-button" popoverTarget="page-menu" aria-label="Page options" style={{ anchorName: "--page-menu" }}><NavIcon name="more" /></button>
+                    <div className="section-menu anchored-menu page-menu" id="page-menu" popover="auto" style={{ positionAnchor: "--page-menu" } as React.CSSProperties}>
+                      <span className="menu-caption" aria-hidden="true">Section</span>
+                      <div className="page-section-control">
+                        <select
+                          aria-label="Move page to section"
+                          disabled={keyWait}
+                          value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
+                          onChange={(event) => { closeMenu("page-menu"); void movePage(selectedNote.id, event.target.value, null); }}
+                        >
+                          {sectionTargets(sections, groups, parents).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+                          <option value={QUICK_NOTES}>Quick Notes</option>
+                        </select>
+                        <NavIcon name="chevron" />
+                      </div>
+                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
+                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
+                      <button className="quiet danger" disabled={keyWait} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
+                    </div>
+                  </div>
+                </div>
+                <div className="page-canvas">
+                  <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
+                    <CanvasPage
+                      key={`${selectedNote.id}:${editorRevision}`}
+                      pageID={selectedNote.id}
+                      body={selectedNote.body}
+                      editable={recovering !== selectedNote.id && !keyWait}
+                      onChange={(body) => editOpen(selectedNote.id, { body })}
+                      onError={setError}
+                      uploadFile={uploadInlineFile}
+                      resolveFileUrl={resolveFileUrl}
+                    />
+                  </Suspense>
+                </div>
+                <details className="page-panel comments" open={commentsOpen} onToggle={(event) => setCommentsOpen(event.currentTarget.open)}>
+                  <summary><span>Comments</span>{commentsForNote.length > 0 && <span className="page-panel-count">{commentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
+                  {commentsForNote.map((comment) => (
+                    <div className="comment" key={comment.id}>
+                      <strong>
+                        {comment.username}
+                        {comment.section ? ` · § ${comment.section}` : ""}
+                      </strong>
+                      <span>{comment.body}</span>
+                    </div>
+                  ))}
+                  <div className="comment-compose">
+                    <input aria-label="Comment section (optional)" value={commentSection} onChange={(event) => setCommentSection(event.target.value)} placeholder="Section (optional)" />
+                    <input aria-label="Comment" value={commentText} onChange={(event) => setCommentText(event.target.value)} placeholder="Add a comment…" />
+                    <button className="secondary" disabled={busy || keyWait} onClick={() => void addComment()}>
+                      Comment
+                    </button>
+                  </div>
+                </details>
+                <details className="page-panel attachments" open={attachmentsOpen} onToggle={(event) => setAttachmentsOpen(event.currentTarget.open)}>
+                  <summary><span>Attachments</span>{attachmentsForNote.length > 0 && <span className="page-panel-count">{attachmentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
+                  {Object.entries(uploadProgress).map(([uploadId, progress]) => (
+                    <div className="upload-row" key={uploadId}>
+                      <span>{progress.name} · {progress.failed ? "waiting to retry" : `${Math.round(progress.uploaded / Math.max(progress.total, 1) * 100)}%`}</span>
+                      <div className="upload-actions">
+                        {progress.failed && <button className="quiet" onClick={() => void retryAttachmentUpload(uploadId)}>Retry</button>}
+                        <button className="quiet" onClick={() => void cancelAttachmentUpload(uploadId)}>Cancel</button>
+                      </div>
+                    </div>
+                  ))}
+                  {attachmentsForNote.map((attachment) => (
+                    <button className="attachment-row" key={attachment.id} onClick={() => void openAttachment(attachment)}>
+                      <strong>{attachment.name}</strong>
+                      <span>{Math.ceil(attachment.size / 1024)} KB</span>
+                    </button>
+                  ))}
+                  <label className="attachment-picker">
+                    <NavIcon name="plus" /><span>Add encrypted file</span>
+                    <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
+                  </label>
+                </details>
+              </>
+            ) : (
+              <div className="empty-editor">
+                <h2>{!selected && !queueMode ? (items.length ? "Select a notebook" : "No notebooks yet") : "Your private desk"}</h2>
+                <p>
+                  {!selected && !queueMode ? "Start with a notebook to keep your notes together." : "Select a page or create one."} The server receives ciphertext only.
+                </p>
+                {!selected && !queueMode && (
+                  <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
+                )}
+                {selected && (
+                  <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
         {view === "appearance" && <Appearance />}
         {view === "settings" && (
           <SettingsView

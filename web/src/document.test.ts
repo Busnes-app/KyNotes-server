@@ -13,6 +13,11 @@ describe("note document format", () => {
     expect(documentText(stringifyNoteDocument(document))).toBe("Launch Ship it.");
   });
 
+  it("reads the text inside links, so search and page snippets find it", () => {
+    const document = [{ type: "checkListItem", content: [{ type: "link", href: "https://example.com/", content: [{ type: "text", text: "Buy seeds", styles: {} }] }] }] as PartialBlock[];
+    expect(documentText(stringifyNoteDocument(document))).toBe("Buy seeds");
+  });
+
   it("keeps image-only documents addressable", () => {
     const document: PartialBlock[] = [{ type: "image", props: { url: "attachment://att_image", name: "diagram" } }];
     expect(parseNoteDocument(stringifyNoteDocument(document)).document).toEqual(document);
