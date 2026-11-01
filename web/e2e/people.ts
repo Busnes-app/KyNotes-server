@@ -39,11 +39,11 @@ export async function openNotebooks(page: Page) {
   await expect(tree).toBeVisible();
 }
 
-/** Opens Settings from the account footer's gear (the phone header's on phones), then one of its tabs. */
+/** Opens a Settings tab from the account footer's gear menu (the phone header's on phones). */
 export async function openSettings(page: Page, tab = "Account") {
-  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("menuitem", { name: tab, exact: true }).click();
   const link = page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: tab, exact: true });
-  await link.click();
   await expect(link).toHaveAttribute("aria-current", "page");
 }
 

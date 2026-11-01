@@ -68,7 +68,7 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
       label="Administration sections"
       onSignOut={onLogout}
       user={{ name: username, role: "Administrator" }}
-      settings={{ href: `#${settingsTabs[0][0]}`, current: settingsTabs.some(([id]) => id === section) }}
+      settings={{ items: settingsTabs.map(([id, label]) => ({ href: `#${id}`, label, current: section === id })), current: settingsTabs.some(([id]) => id === section) }}
       nav={<>{SECTIONS.map(([id, label, icon]) => link(id, label, icon))}</>}
     >
         {/* Every section stays mounted, so switching keeps lists loaded and half-typed forms intact. */}

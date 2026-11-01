@@ -467,7 +467,7 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
   expect(await stashed(shared.page)).toBeNull();
   expect(await listed(shared.page)).not.toContain(second);
   await shared.page.reload();
-  await expect(shared.page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await expect(shared.page.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
   await expect(shared.page.getByRole("button", { name: "Join team" })).toHaveCount(0);
   await shared.page.context().close();
 

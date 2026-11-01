@@ -4,6 +4,10 @@
 
 ### Changes
 
+- Web: the Settings gear opens a menu of the Settings sections (Account, Phones & apps,
+  Appearance, Reminders, Colleague keys, Unsent edits; Account and Appearance in the
+  administrator console) instead of going straight to Account. Shared UI assets move to ky-ui
+  0.11.0.
 - Web: Settings moves out of the navigation to a gear button beside Sign out in the account
   footer (and the phone header); Sign out is now an icon button. Settings is tabbed, each tab at
   its own `#/settings/<tab>` address: Account, Phones & apps (linking browsers), Appearance,

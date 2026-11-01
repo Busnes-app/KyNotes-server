@@ -370,3 +370,7 @@ permissions. They now use exclusive creation (`wx`) with owner-only mode `0600`
 inside the private `0700` fixture directory; the test asserts both file modes.
 All three regression checks still pass. No query suppression or scan exclusion
 was added, and the capture adapter itself is unchanged from `17ca804`.
+
+## Settings gear menu (ky-ui 0.11.0) — 2026-10-31
+
+Captured with `captures/drivers/kynotes-10-gear.mjs` (Playwright Chromium, 1440×900 and 390×844, Busnes Light and Dark) against a disposable server built from this branch (embedded bundle built on Node 26.12.1) after first-run setup through the real form; the before images come from `origin/master`. Images are `docs/ui-suite-2026-10-31/screenshots/kynotes-10-{before,after}-*`: the footer menu open on Settings → Phones & apps (light, dark), the administrator's menu on Users, the phone header's menu, and keyboard focus on Appearance. The after run asserts the items per role in tab order (workspace: Account, Phones & apps, Appearance, Reminders, Colleague keys, Unsent edits; administrator console: Account and Appearance), `aria-current` on the open tab and the gear, that Enter opens on Account without leaving the notes, End, wrapping ArrowDown, Escape back to the gear, Tab closing it, and no sideways scroll. `e2e/settings-menu.e2e.ts` covers the same contract in the browser suite. Choosing an administrator item returns focus to the gear, but because `#account` and `#appearance` are element ids, the browser's fragment navigation then moves focus to the page.

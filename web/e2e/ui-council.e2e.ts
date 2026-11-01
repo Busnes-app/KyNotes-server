@@ -152,7 +152,7 @@ test("notebook reading, phone page navigation and shared editor typography", asy
             return (el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)) / context.measureText("0").width;
           });
           expect(line).toBeLessThanOrEqual(72.5);
-          await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeInViewport();
+          await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeInViewport();
           await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeInViewport();
           await shot("navigation", device, theme);
         }
