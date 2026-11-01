@@ -46,7 +46,7 @@ test("one frame on desktop; on phones the shared header and tabs, with the noteb
     expect((await page.getByRole("heading", { level: 1, name: "Settings" }).boundingBox())!.x).toBe(272);
     await expect(notes).not.toHaveAttribute("aria-expanded");
     const foot = page.locator(".ky-sidebar-foot .ky-user-actions");
-    for (const name of ["Settings", "Sign out"]) await expect(foot.getByLabel(name, { exact: true })).toBeInViewport();
+    for (const name of ["Settings", "Sign out"]) await expect(foot.getByRole("button", { name, exact: true })).toBeInViewport();
     await expect(page.getByRole("button", { name: "Notes", exact: true })).toBeInViewport();
     // The footer shows no words "Sign out": its buttons are icons with labels.
     await expect(page.locator(".ky-sidebar-foot .ky-user")).not.toContainText("Sign out");
