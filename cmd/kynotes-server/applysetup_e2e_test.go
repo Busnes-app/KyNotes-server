@@ -86,14 +86,18 @@ func TestApplySetupTwiceEndToEnd(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- app.Serve(ctx, c, logging.New(io.Discard, "info", "json"), "e2e") }()
 	sock := app.AdminSocketPath(dir)
-	for deadline := time.Now().Add(5 * time.Second); ; {
-		if conn, err := net.Dial("unix", sock); err == nil {
+	// Serve binds the HTTP listener after the admin socket; wait for both.
+	up := func(network, addr string) bool {
+		conn, err := net.Dial(network, addr)
+		if err == nil {
 			conn.Close()
-			break
 		}
+		return err == nil
+	}
+	for deadline := time.Now().Add(5 * time.Second); !up("unix", sock) || !up("tcp", addr); {
 		if time.Now().After(deadline) {
 			cancel()
-			t.Fatal("admin socket never came up")
+			t.Fatal("server never came up")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
