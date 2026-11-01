@@ -2767,7 +2767,7 @@ function Workspace({
       label="Primary"
       onSignOut={onLogout}
       user={{ name: auth.username || auth.user.id.slice(0, 12), role: "Everyday account" }}
-      settings={{ href: settingsHash("account"), current: view === "settings" }}
+      settings={{ items: SETTINGS_TABS.map(([id, label]) => ({ href: settingsHash(id), label, current: view === "settings" && (settingsTab ?? "account") === id })), current: view === "settings" }}
       nav={<>
         {/* On phones the notebook tree folds under the tabs; Notes, once current, opens and closes it. */}
         <NavItem icon="notes" label="Notes" current={inWorkspace && !queueMode} disabled={queueMode && !notesTarget}

@@ -37,7 +37,10 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     await adminConsole(admin.page);
     await adminSection(admin.page, "Server");
     await expect(admin.page.getByText(ADMIN_ACCOUNT_NOTE)).toBeVisible();
-    await expect(admin.page.getByRole("button", { name: "Settings", exact: true })).toHaveCount(0);
+    // The administrator's gear offers its own two sections, none of the workspace's.
+    await admin.page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(admin.page.getByRole("menuitem")).toHaveText(["Account", "Appearance"]);
+    await admin.page.keyboard.press("Escape");
     expect(await apiStatus(admin, "/api/v1/containers")).toEqual({ status: 403, code: "admin_account" });
     expect(await vaultRows(admin)).toBe(0);
     await shoot("admin-separation", admin.page, "console", "admin", admin.page.getByRole("heading", { level: 1, name: "Server" }));
@@ -74,7 +77,7 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     await expect(alice.page.getByText(CHOOSE_PASSWORD)).toBeVisible();
     release();
     await expect(alice.page.getByText(CHOOSE_PASSWORD)).toHaveCount(0);
-    await expect(alice.page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+    await expect(alice.page.getByRole("button", { name: "Settings", exact: true })).toBeVisible();
     expect((await apiStatus(alice, "/api/v1/containers")).status).toBe(200);
     expect((await apiStatus(alice, "/api/v1/me/identity")).status).toBe(200);
     // Without a reload, the workspace holds the identity it was handed: a new notebook is keyed.

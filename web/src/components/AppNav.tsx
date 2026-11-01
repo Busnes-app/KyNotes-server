@@ -1,6 +1,7 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { suiteApps, type SuiteApp } from "../api";
 import { appMark } from "../ky-ui/appmarks";
+import { initMenuButton } from "../ky-ui/menu";
 import { AppMark, NavIcon, type IconName } from "../NavIcon";
 import { LicenseFooter, UserBlock } from "./LicenseFooter";
 
@@ -40,13 +41,34 @@ export function AppRail({ apps }: { apps: SuiteApp[] }) {
   );
 }
 
+/** One Settings section the gear's menu offers: its tab's link, and whether it is open. */
+export type SettingsItem = { href: string; label: string; current: boolean };
+
+/**
+ * ky-ui's Settings menu (README "Settings menu"): the gear opens a menu of the Settings tabs.
+ * ky-ui's menu.js owns open/close, focus and keys; React renders the markup and leaves
+ * `hidden` and `aria-expanded` to it.
+ */
+export function SettingsMenu({ id, items, current }: { id: string; items: ReadonlyArray<SettingsItem>; current: boolean }) {
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => initMenuButton(button.current!), []);
+  return (
+    <div className="ky-menu">
+      <button ref={button} type="button" className="ky-icon-button" aria-label="Settings" title="Settings" aria-haspopup="menu" aria-expanded="false" aria-controls={id} aria-current={current ? "page" : undefined}><NavIcon name="settings" /></button>
+      <div className="ky-menu-list" id={id} role="menu" aria-label="Settings" hidden>
+        {items.map((item) => <a key={item.href} role="menuitem" tabIndex={-1} href={item.href} aria-current={item.current ? "page" : undefined}>{item.label}</a>)}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The ky-ui app frame shared by the workspace and the administration console: brand, one
  * navigation, an optional notebook tree, the account footer, then the page. The footer's icon
- * buttons, Settings then Sign out, move to the phone header on phones; the navigation becomes a
- * row of tabs and the licence line closes the page.
+ * buttons, the Settings menu then Sign out, move to the phone header on phones; the navigation
+ * becomes a row of tabs and the licence line closes the page.
  */
-export function AppFrame({ label, nav, tree, user, settings, onSignOut, className = "", children }: { label: string; nav: ReactNode; tree?: ReactNode; user: { name: string; role: string }; settings: { href: string; current: boolean }; onSignOut: () => void; className?: string; children: ReactNode }) {
+export function AppFrame({ label, nav, tree, user, settings, onSignOut, className = "", children }: { label: string; nav: ReactNode; tree?: ReactNode; user: { name: string; role: string }; settings: { items: ReadonlyArray<SettingsItem>; current: boolean }; onSignOut: () => void; className?: string; children: ReactNode }) {
   const [apps, setApps] = useState<SuiteApp[]>([]);
   useEffect(() => {
     let live = true;
@@ -55,8 +77,9 @@ export function AppFrame({ label, nav, tree, user, settings, onSignOut, classNam
   }, []);
   // ky-ui shows the sidebar copy on desktop and the page-end copy on phones.
   const rail = <AppRail apps={apps} />;
-  const actions = <>
-    <a className="ky-icon-button" href={settings.href} aria-label="Settings" title="Settings" aria-current={settings.current ? "page" : undefined}><NavIcon name="settings" /></a>
+  // Each placement has its own menu id.
+  const actions = (menuId: string) => <>
+    <SettingsMenu id={menuId} items={settings.items} current={settings.current} />
     <button type="button" className="ky-icon-button" aria-label="Sign out" title="Sign out" onClick={onSignOut}><NavIcon name="signout" /></button>
   </>;
   return (
@@ -64,11 +87,11 @@ export function AppFrame({ label, nav, tree, user, settings, onSignOut, classNam
       <header className="ky-sidebar">
         <div className="ky-mobile-head">
           <div className="ky-brand"><AppMark size={28} /><span>KyNotes</span></div>
-          <div className="ky-mobile-actions">{actions}</div>
+          <div className="ky-mobile-actions">{actions("settings-menu-header")}</div>
         </div>
         <nav className="ky-nav" aria-label={label}>{nav}</nav>
         {tree}
-        <div className="ky-sidebar-foot">{rail}<UserBlock name={user.name} role={user.role} actions={actions} /><LicenseFooter signedIn /></div>
+        <div className="ky-sidebar-foot">{rail}<UserBlock name={user.name} role={user.role} actions={actions("settings-menu-footer")} /><LicenseFooter signedIn /></div>
       </header>
       <main className="ky-content">
         {children}

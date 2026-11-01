@@ -32,7 +32,7 @@ test("one frame on desktop; on phones the shared header and tabs, with the noteb
     await expect(tree).toBeHidden();
     await openSettings(page, "Appearance");
     await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
-    await expect(head.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(head.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(notes).not.toHaveAttribute("aria-expanded");
     // The licence line closes the page, never under the tabs.
     await expect(page.locator(".ky-content-foot").getByRole("button", { name: /MIT License/ })).toBeVisible();
@@ -52,7 +52,7 @@ test("one frame on desktop; on phones the shared header and tabs, with the noteb
     await expect(page.locator(".ky-sidebar-foot .ky-user")).not.toContainText("Sign out");
     await expect(page.locator(".ky-sidebar-foot").getByRole("button", { name: /MIT License/ })).toBeInViewport();
     // On Settings, the gear is the current page and no navigation row is.
-    await expect(foot.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(foot.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.locator('.ky-nav [aria-current="page"]')).toHaveCount(0);
   } finally {
     await admin.page.context().close();
