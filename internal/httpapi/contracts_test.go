@@ -138,3 +138,16 @@ func TestRemovedLegacyRoutesStayGone(t *testing.T) {
 		}
 	}
 }
+
+// The entry document names the current hashed bundles, so a browser must never reuse a stored
+// copy: the global no-store (stricter than no-cache) covers it, so a tab opened after an upgrade
+// loads the new build. Hashed assets keep the same header.
+func TestEntryDocumentIsNeverServedFromCache(t *testing.T) {
+	for _, path := range []string{"/", "/share/abc"} {
+		w := httptest.NewRecorder()
+		testRouter(1024).ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "<script") || w.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: status %d, Cache-Control %q, want an HTML entry document with no-store", path, w.Code, w.Header().Get("Cache-Control"))
+		}
+	}
+}
