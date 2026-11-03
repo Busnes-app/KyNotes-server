@@ -109,6 +109,12 @@ func Bind(path string) (string, error) {
 	return c.Server.Bind, err
 }
 
+// DataDir reads only the data directory: no secrets, no validation, no writes.
+func DataDir(path string) (string, error) {
+	c, err := parse(path)
+	return c.DataDir, err
+}
+
 func parse(path string) (Config, error) {
 	c := Defaults()
 	if path != "" {
@@ -207,11 +213,11 @@ func applyEnv(c *Config) error {
 		c.Server.BehindProxy, _ = strconv.ParseBool(v)
 	}
 	if v := os.Getenv("TRUSTED_PROXY_CIDRS"); v != "" {
-		c.Server.TrustedProxies = strings.Split(v, ",")
+		c.Server.TrustedProxies = splitList(v)
 		c.Server.BehindProxy = true
 	}
 	if v := os.Getenv("KYNOTES_SERVER_TRUSTED_PROXIES"); v != "" {
-		c.Server.TrustedProxies = strings.Split(v, ",")
+		c.Server.TrustedProxies = splitList(v)
 	}
 	if v := os.Getenv("KYNOTES_SERVER_DEV_INSECURE_COOKIES"); v != "" {
 		c.Server.DevInsecureCookies, _ = strconv.ParseBool(v)
@@ -380,6 +386,11 @@ func validate(c Config, probeWrite bool) error {
 	if c.Server.BehindProxy && len(c.Server.TrustedProxies) == 0 {
 		return errors.New("server.trusted_proxies: required when behind_proxy")
 	}
+	for _, p := range c.Server.TrustedProxies {
+		if _, err := ParseTrustedProxy(p); err != nil {
+			return fmt.Errorf("server.trusted_proxies: %q is not an IP address or CIDR", p)
+		}
+	}
 	if c.Limits.ChunkBytes < 65536 || c.Limits.ChunkBytes > c.Limits.AttachmentMaxBytes {
 		return errors.New("limits.chunk_bytes: outside allowed range")
 	}
@@ -424,4 +435,32 @@ func validate(c Config, probeWrite bool) error {
 		return errors.New("data_dir: must not be inside /tmp")
 	}
 	return nil
+}
+
+// ParseTrustedProxy reads one trusted proxy entry: a CIDR, or a bare IP as its single-address network.
+func ParseTrustedProxy(entry string) (*net.IPNet, error) {
+	entry = strings.TrimSpace(entry)
+	if strings.Contains(entry, "/") {
+		_, network, err := net.ParseCIDR(entry)
+		return network, err
+	}
+	ip := net.ParseIP(entry)
+	if ip == nil {
+		return nil, fmt.Errorf("invalid proxy address %q", entry)
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return &net.IPNet{IP: v4, Mask: net.CIDRMask(32, 32)}, nil
+	}
+	return &net.IPNet{IP: ip, Mask: net.CIDRMask(128, 128)}, nil
+}
+
+// splitList splits a comma-separated env value, trimming entries and dropping empty ones.
+func splitList(v string) []string {
+	var out []string
+	for _, item := range strings.Split(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }

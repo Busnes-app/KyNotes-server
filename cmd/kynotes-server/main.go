@@ -237,7 +237,8 @@ func backupCommand(args []string) error {
 	}
 	defer unlock()
 	// Opening checkpoints the WAL and checks integrity; closing leaves one database file to copy.
-	s, e := storage.Open(filepath.Join(c.DataDir, "kynotes.sqlite"))
+	// Unmigrated: a pre-upgrade copy made with the newer image must keep the old schema.
+	s, e := storage.OpenUnmigrated(filepath.Join(c.DataDir, "kynotes.sqlite"))
 	if e != nil {
 		return e
 	}
@@ -287,11 +288,15 @@ func restoreCommand(args []string) error {
 			force = true
 		}
 	}
-	c, e := config.Load(commandConfig(args))
+	// Only the data directory: loading the config would create secrets/ in an empty one.
+	dataDir, e := config.DataDir(commandConfig(args))
 	if e != nil {
 		return e
 	}
-	unlock, e := storage.LockDirectory(c.DataDir)
+	if e = os.MkdirAll(dataDir, 0700); e != nil {
+		return e
+	}
+	unlock, e := storage.LockDirectory(dataDir)
 	if e != nil {
 		return e
 	}
@@ -301,12 +306,12 @@ func restoreCommand(args []string) error {
 			return fmt.Errorf("restore-data-dir: --in has no %s; nothing was changed", name)
 		}
 	}
-	if inside, e := within(c.DataDir, in); e != nil {
+	if inside, e := within(dataDir, in); e != nil {
 		return e
 	} else if inside {
 		return errors.New("restore-data-dir: the data directory is inside --in")
 	}
-	entries, e := os.ReadDir(c.DataDir)
+	entries, e := os.ReadDir(dataDir)
 	if e != nil {
 		return e
 	}
@@ -319,7 +324,7 @@ func restoreCommand(args []string) error {
 	if len(current) > 0 && !force {
 		return fmt.Errorf("data directory is not empty; use --force")
 	}
-	staging, e := os.MkdirTemp(c.DataDir, ".restore-staging-")
+	staging, e := os.MkdirTemp(dataDir, ".restore-staging-")
 	if e != nil {
 		return e
 	}
@@ -327,12 +332,12 @@ func restoreCommand(args []string) error {
 		_ = os.RemoveAll(staging)
 		return fmt.Errorf("restore-data-dir: %w; nothing was changed", e)
 	}
-	previous, e := os.MkdirTemp(c.DataDir, ".restore-previous-")
+	previous, e := os.MkdirTemp(dataDir, ".restore-previous-")
 	if e != nil {
 		_ = os.RemoveAll(staging)
 		return e
 	}
-	if e = swapEntries(c.DataDir, staging, previous, current); e != nil {
+	if e = swapEntries(dataDir, staging, previous, current); e != nil {
 		_ = os.Remove(previous)
 		return fmt.Errorf("restore-data-dir: %w; entries moved back, staged copy kept in %s", e, staging)
 	}
@@ -518,6 +523,10 @@ func userCommand(args []string) error {
 			AuthSecret string `json:"authSecret"`
 			LoginSalt  string `json:"loginSalt"`
 			Iterations int    `json:"iterations"`
+		}
+		// A terminal never ends stdin: say what is needed instead of waiting with no prompt.
+		if st, statErr := os.Stdin.Stat(); statErr == nil && st.Mode()&os.ModeCharDevice != 0 {
+			return fmt.Errorf("pass --password <pass>, or pipe JSON {authSecret, loginSalt, iterations} on stdin")
 		}
 		b, e := io.ReadAll(os.Stdin)
 		if e != nil || len(b) == 0 {
