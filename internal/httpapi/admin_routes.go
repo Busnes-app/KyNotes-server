@@ -285,7 +285,25 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			WriteError(w, r, 400, "invalid_request", "cannot disable or demote the current administrator")
 			return
 		}
-		if _, err := db.Exec(`UPDATE users SET role=?,status=?,quota_bytes=?,updated_at=? WHERE id=?`, in.Role, in.Status, *in.QuotaBytes, time.Now().UTC().Format(time.RFC3339), id); err != nil {
+		if err := dbTx(db, func(tx *sql.Tx) error {
+			now := time.Now().UTC().Format(time.RFC3339)
+			if _, err := tx.Exec(`UPDATE users SET role=?,status=?,quota_bytes=?,updated_at=? WHERE id=?`, in.Role, in.Status, *in.QuotaBytes, now, id); err != nil {
+				return err
+			}
+			if in.Status != "disabled" {
+				return nil
+			}
+			// Disabling ends the account's sessions and paired device credentials, so re-enabling it
+			// revives none of them (the password reset below revokes the same way).
+			if _, err := tx.Exec(`UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at=''`, now, id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE devices SET revoked_at=? WHERE user_id=? AND platform<>'identity' AND revoked_at=''`, now, id); err != nil {
+				return err
+			}
+			_, err := tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, id)
+			return err
+		}); err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}

@@ -90,6 +90,6 @@ func WarnWithoutAdmin(db *sql.DB, log *logging.Logger) bool {
 		return false
 	}
 	// The remedy is in the message: the logger drops every attribute key outside its allowlist.
-	log.Warn("no_active_admin: no active administrator account; create one with kynotes-server user add --admin --username <name>", "event", "no_active_admin")
+	log.Warn("no_active_admin: no active administrator account; create one with kynotes-server user add --admin --username <name> --password <pass>", "event", "no_active_admin")
 	return true
 }

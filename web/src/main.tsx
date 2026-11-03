@@ -165,7 +165,7 @@ import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes,
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
 import { desiredReminders, planReconcile } from "./reminderPush";
-import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
+import { documentText, emptyCanvasPage, hasInk, inkOnly, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
 import "./ky-ui/tokens.css";
@@ -175,10 +175,31 @@ import "./ky-ui/appearance.css";
 import "./ky-ui/appearance-themes.css";
 
 const MAX_CHANGE_PAGES = 100;
+const PAGE_GONE = "A page you edited was deleted elsewhere, so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
-const CanvasPage = lazy(() => import("./CanvasPage"));
+// A tab older than the running server asks for a chunk the server no longer has: reload once
+// (no page has opened yet, so no edit is lost) instead of unmounting to a blank screen.
+const CHUNK_RELOAD = "kynotes-chunk-reload";
+/** sessionStorage can throw (storage blocked): then there is no marker, and no reload. */
+const chunkMarker = (write?: string | null): string | null => {
+  try {
+    if (write === null) sessionStorage.removeItem(CHUNK_RELOAD);
+    else if (write !== undefined) sessionStorage.setItem(CHUNK_RELOAD, write);
+    return sessionStorage.getItem(CHUNK_RELOAD);
+  } catch {
+    return null;
+  }
+};
+const CanvasPage = lazy(() => import("./CanvasPage").then((module) => {
+  chunkMarker(null);
+  return module;
+}, (error: unknown) => {
+  if (chunkMarker() === location.href || chunkMarker(location.href) !== location.href) throw error;
+  location.reload();
+  return new Promise<never>(() => {});
+}));
 
 type AuthState = {
   username: string;
@@ -624,6 +645,8 @@ function Workspace({
   const cancelledUploads = useRef(new Set<string>());
   const [commentText, setCommentText] = useState("");
   const [commentSection, setCommentSection] = useState("");
+  // A draft comment belongs to its page: opening another page must not carry it there.
+  useEffect(() => { setCommentText(""); setCommentSection(""); }, [selectedNote?.id]);
   const [conflicted, setConflicted] = useState<Set<string>>(new Set());
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
@@ -1798,12 +1821,17 @@ function Workspace({
           setSyncStatus("attention");
           setError(noteConflictMessage(uncached));
         } else {
-          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+          // A page deleted elsewhere: kept, never sent, and listed under Unsent edits.
+          const gone = error instanceof APIRequestError && error.code === "not_found" ? { gone: true as const } : {};
+          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, ...gone }).catch(notSaved);
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
           if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
-          else setError("Saved locally; encrypted change queued for the server.");
+          else if (error instanceof APIRequestError && error.code === "not_found") {
+            setSyncStatus("attention");
+            setError(PAGE_GONE);
+          } else setError("Saved locally; encrypted change queued for the server.");
         }
       }
       return note;
@@ -1872,6 +1900,8 @@ function Workspace({
       // One key pass per container per drain.
       const synced = new Map<string, Promise<Container>>();
       for (const queuedItem of queued) {
+        // gone: its page was deleted elsewhere; listed under Unsent edits, never sent.
+        if (queuedItem.gone) continue;
         let item = queuedItem;
         try {
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
@@ -1905,6 +1935,11 @@ function Workspace({
             await replaceQueuedSave(item);
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
+          } else if (error instanceof APIRequestError && error.code === "not_found") {
+            // Its page was deleted elsewhere: kept under Unsent edits, never sent again.
+            await replaceQueuedSave(item, { ...item, gone: true });
+            attention = true;
+            setError(PAGE_GONE);
           } else {
             // A retired generation (already_exists): the next drain reads the container again and re-seals it.
             remaining = true;
@@ -2653,6 +2688,11 @@ function Workspace({
   }
   async function shareNote() {
     if (!selectedNote) return;
+    // The shared view shows text only: a page that is only a drawing would arrive blank.
+    if (inkOnly(selectedNote.body)) {
+      setError("This page has only a drawing. Shared links show a page's text, so there is nothing to share yet; add text to share it.");
+      return;
+    }
     try {
       const sealed = await encryptSharePayload({
         title: selectedNote.title,
@@ -2665,8 +2705,11 @@ function Workspace({
       await navigator.clipboard.writeText(
         `${location.origin}/share/${link.token}#${sealed.key}`,
       );
+      // The shared view shows text only; say so when the page holds ink it will not show.
       setError(
-        "Encrypted share link copied. The key is only in the URL fragment.",
+        hasInk(selectedNote.body)
+          ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment."
+          : "Encrypted share link copied. The key is only in the URL fragment.",
       );
     } catch (error) {
       setError(

@@ -11,11 +11,15 @@ export function stuckSaves(queued: PendingSave[], live: ReadonlySet<string> | un
 }
 
 /**
- * The signed-in account's edits that will not be sent: its own, for notebooks no longer listed.
+ * The signed-in account's edits that will not be sent: its own, for notebooks no longer listed or pages deleted elsewhere (gone).
  * ponytail: queued saves only; pending uploads for lost notebooks are not listed. Upgrade: list them the same way.
  */
-export const unsentEdits = (queued: PendingSave[], live: ReadonlySet<string> | undefined, owner: string): PendingSave[] =>
-  stuckSaves(queued.filter((item) => item.owner === owner), live);
+export function unsentEdits(queued: PendingSave[], live: ReadonlySet<string> | undefined, owner: string): PendingSave[] {
+  const own = queued.filter((item) => item.owner === owner);
+  // An edit whose page was deleted elsewhere is known unsendable, whatever the list says.
+  const lost = new Set(stuckSaves(own, live));
+  return own.filter((item) => item.gone || lost.has(item));
+}
 
 /** A JSON export of the edits open() reads; the rest are counted, never guessed at. */
 export async function exportUnsent<T extends CachedNote>(items: T[], open: (item: T) => Promise<unknown>): Promise<{ json: string; unreadable: number }> {

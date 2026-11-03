@@ -74,6 +74,20 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Publishing a GitHub release `vX.Y.Z` or `vX.Y.Z.N` runs `release-image.yml` (a dispatch on a published release's tag runs it too). It refuses a malformed tag, a tag whose `X.Y.Z` disagrees with `internal/appversion/VERSION`, and any commit on which a ci.yml job in its `REQUIRED` list (`test`) did not pass. It then builds `:X.Y.Z[.N]` with provenance and SBOM, attests and verifies it (identity `release-image.yml@refs/tags/<tag>`), and moves `:stable` to that digest only for the highest non-prerelease. It never moves `:latest`; `master` CI owns that. A job added to ci.yml must be added to `REQUIRED` too.
 - `dependency-release.yml` runs daily at 22:37 UTC: if Dependabot commits landed on `master` since the newest release on the current line and the push CI run on `master`'s tip succeeded, it publishes the next `vX.Y.Z.N` (one per day however many PRs merged) and dispatches `release-image.yml` on it, since a `GITHUB_TOKEN` release raises no release event. Run by hand, it releases `master` without the Dependabot condition. It waits while the line in `VERSION` has no `vX.Y.Z` release: bump `VERSION` and publish `vX.Y.Z` by hand for a new line.
 
+- Write-path invariants (hostile-review pass 1). An object PUT checks quota and the page's tombstone before it
+  finalizes the body (outside the write lock), and a save its transaction refuses drops its file unless a blobs row
+  claims the digest (`dropUnclaimed`), so a refused save leaves no blob file (`TestRefusedSaveLeavesNoBlobFile`,
+  `TestDropUnclaimedKeepsOnlyClaimedFiles`); a deleted page takes no new version (404, re-checked in the
+  transaction; `TestSaveToADeletedPageIsRefused`). Quota counts each finalized preview's blob once, cancelled or
+  not, while it is kept (`TestFinalizedPreviewsCountTowardQuota`, `TestDuplicatePreviewsAreChargedOnce`). A chunk
+  retry truncates bytes past `received_bytes`, finalize checks the file size, and a retried finalize or link
+  answers as the first did (`TestChunkRetryAfterALostCounterIsWrittenOnce`,
+  `TestFinalizeAndLinkRetriesAreIdempotent`). SQLite runs `synchronous(FULL)`, and a binary refuses a database a
+  newer release migrated (`ErrSchemaNewer`, `TestOpenRefusesANewerSchema`). In the browser, a save refused because
+  its page is gone is kept as `gone`, never sent, and listed under Unsent edits (`PAGE_GONE`, `stuckEdits.test.ts`);
+  a comment draft is cleared on page change; a drawing-only page is not shared (`inkOnly`, `document.test.ts`); a
+  missing lazy chunk reloads the tab once per failure (`e2e/council-pass1.e2e.ts`).
+
 ## Shared browser UI
 
 - The workspace and admin navigation end with the ky-ui account footer (`UserBlock`: `.ky-user-copy` with name and role, then `.ky-user-actions` holding `AppFrame`'s two `.ky-icon-button`s, the Settings menu's gear (`aria-current="page"` while Settings is open) and Sign out, each with `aria-label` and `title`; the words "Sign out" never show) and licence line (`web/src/components/LicenseFooter.tsx`); signed-out screens show the licence line under the card. It opens the shell About dialog (`ky-about`): name, "Developed by Busnes.app", MIT notice and `web/src/mit.txt`, a byte copy of `LICENSE.txt` (`LicenseFooter.test.tsx` fails when they differ). Signed in, the window shows the version from `GET /api/v1/auth/session` (`version`, `appversion.String()`); signed out it shows none, and the session route answers 401 (`TestAccountRoutesServeBothKinds`).
@@ -276,7 +290,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `admin.team.create` (object = owner). It takes no name; the owner's browser seals one after the first
   key. `GET /admin/teams` carries no name ciphertext. The admin member add (step-up) takes an active everyday
   account as `editor`, `commenter` or `viewer` only. `POST /admin/users` takes `accountKind`; `PATCH` refuses
-  the grant on an everyday account (`409 account_kind_mismatch`). Verify `TestAdminUserRoutesKeepKindsApart`,
+  the grant on an everyday account (`409 account_kind_mismatch`); disabling an account revokes its sessions,
+  paired devices and their envelopes in the same transaction, so re-enabling revives none
+  (`TestDisablingAnAccountEndsItsSessions`). Verify `TestAdminUserRoutesKeepKindsApart`,
   `TestAdminTeamAccessNeedsStepUpAndListsNoNames`.
 - Steward approval: administrator-added members have `memberships.approved=0` and the `viewer` role, the requested
   role in `pending_role` (`0027_pending_viewer.sql` triggers keep the three consistent), so no write or delete reaches
@@ -378,7 +394,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   custodian-share/capsule-open entry point; in one transaction it revokes restored sessions,
   paired devices (identities stay), share links and sealed share links, and deletes pending
   invitations. Legacy local plaintext commands are `copy-data-dir` (`--out` absent or empty and
-  outside the data directory) and `restore-data-dir` (`--in` needs `kynotes.sqlite` and both
+  outside the data directory; opens the database unmigrated, so a pre-upgrade copy keeps its schema,
+  `TestCopyDataDirDoesNotMigrate`) and `restore-data-dir` (reads only `data_dir` from the config, so an
+  empty volume needs no `--force`, `TestRestoreDataDirIntoAnEmptyVolume`; `--in` needs `kynotes.sqlite` and both
   `secrets/*.key`; stages beside the data, integrity-checks, swaps entries by rename and keeps the
   old ones in `.restore-previous-*`; `TestRestoreDataDir*`). Every offline command that opens the
   database takes the lock (`openLocked`; `TestOfflineCommandsTakeTheDirectoryLock`) except
@@ -509,7 +527,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `openSetupParent` (descriptor walk, no symlinks, owner/mode checks). Verify
   `TestApplySetupCapabilities*`, `TestSetupInspection*`, `go test ./internal/applysetup`.
   `GET /api/v1/installer/network` is public in `account_kinds_test.go` and shares
-  `resolvedClientIP` with the rate limiter. Compose leaves `TRUSTED_PROXY_CIDRS` empty, which
+  `resolvedClientIP` with the rate limiter. Trusted proxy entries are CIDRs or bare IPs (one address),
+  trimmed; any other entry fails startup (`config.ParseTrustedProxy`, `TestTrustedProxyEntries`).
+  Compose leaves `TRUSTED_PROXY_CIDRS` empty, which
   keeps the loopback-only default (`TestEmptyTrustedProxyCIDRsTrustsNoProxy`,
   `TestDefaultTrustIgnoresForwardedForFromPrivatePeer`). Both handovers report
   `blobTargetConfigured` from `backup.blob_target.url` (`TestSetupHandoverReportsBlobTarget`).

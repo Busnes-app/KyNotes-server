@@ -136,7 +136,7 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 func parseTrustedProxies(cidrs []string) []*net.IPNet {
 	var networks []*net.IPNet
 	for _, cidr := range cidrs {
-		if _, network, err := net.ParseCIDR(cidr); err == nil {
+		if network, err := config.ParseTrustedProxy(cidr); err == nil {
 			networks = append(networks, network)
 		}
 	}

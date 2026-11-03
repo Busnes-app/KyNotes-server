@@ -10,8 +10,9 @@ export type CachedNote = { id: string; containerID: string; version: number; pay
 /**
  * owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never
  * reads or replaces another's. previousKey: waiting under the key a reset replaced; never sent (M5).
+ * gone: the server no longer has its page (deleted elsewhere); never sent, listed under Unsent edits.
  */
-export type PendingSave = CachedNote & { owner: string; previousKey?: true };
+export type PendingSave = CachedNote & { owner: string; previousKey?: true; gone?: true };
 /** owner: the user ID that started it; only that account lists, resumes, re-seals or clears it. */
 export type PendingUpload = { uploadId: string; owner: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 

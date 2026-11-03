@@ -149,7 +149,9 @@ then start it. Restore only while stopped, run `integrity-check` and
 
 Migrations run at startup. Make a backup before upgrades. To roll back, stop
 the server, restore the backup directory, run both integrity checks, and start
-again. The server holds a data-directory lock (`.kynotes.lock`, a kernel `flock`) while
+again. `copy-data-dir` copies the database without migrating it, so a copy made with the newer
+image is still the old schema. A release refuses to start on a database a newer release
+migrated; select the previous image before restoring and checking a pre-upgrade copy. The server holds a data-directory lock (`.kynotes.lock`, a kernel `flock`) while
 running, so `copy-data-dir`, `restore-data-dir`, `user add`, `quota set`, `bootstrap-admin`,
 `integrity-check` and `consistency-check` refuse to run beside it: stop the service first.
 The lock file stays after the server exits; it is the held lock that counts, so a crashed
@@ -268,7 +270,8 @@ only actual proxy networks, not all Internet addresses. IPv6 identities retain /
 The compose file leaves `TRUSTED_PROXY_CIDRS` empty, so KyNotes trusts no proxy (only the
 container's own loopback). `X-Forwarded-For` is then ignored, and IP-keyed rate limits count
 every request through the proxy as the proxy's address: one shared bucket for all users. Set
-`TRUSTED_PROXY_CIDRS` to the reverse proxy's own address (for example `172.20.0.5/32`). An
+`TRUSTED_PROXY_CIDRS` to the reverse proxy's own address (for example `172.20.0.5/32`; a bare
+address such as `172.20.0.5` means the same, and an entry that is neither stops startup). An
 installer must supply it. Releases up to 0.4.2 defaulted to loopback plus all RFC1918 ranges,
 which let any host on those networks choose its rate-limit address.
 

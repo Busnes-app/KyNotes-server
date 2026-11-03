@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -17,19 +18,32 @@ var migrationFS embed.FS
 
 type Store struct{ db *sql.DB }
 
+// ErrSchemaNewer: the database was migrated by a newer release than this binary.
+var ErrSchemaNewer = errors.New("database schema is newer than this release")
+
 var migrateMu sync.Mutex
 
 func (s *Store) DB() *sql.DB { return s.db }
 
-func Open(path string) (*Store, error) {
-	d, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)", path))
+func Open(path string) (*Store, error) { return open(path, true) }
+
+// OpenUnmigrated opens and checks a database without migrating it, so a copy keeps the schema
+// its data was written with (a pre-upgrade copy made with the newer image stays restorable).
+func OpenUnmigrated(path string) (*Store, error) { return open(path, false) }
+
+func open(path string, migrate bool) (*Store, error) {
+	// synchronous(FULL): a commit the server acknowledged survives power loss; clients drop their
+	// queued copy on that acknowledgement.
+	d, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(FULL)", path))
 	if err != nil {
 		return nil, err
 	}
 	s := &Store{db: d}
-	if err = s.migrate(); err != nil {
-		d.Close()
-		return nil, err
+	if migrate {
+		if err = s.migrate(); err != nil {
+			d.Close()
+			return nil, err
+		}
 	}
 	if err = s.IntegrityCheck(context.Background()); err != nil {
 		d.Close()
@@ -46,6 +60,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name() < rows[j].Name() })
+	// A database migrated by a newer release must not be run by this older one.
+	var applied int
+	_ = s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM schema_migrations").Scan(&applied)
+	if applied > len(rows) {
+		return fmt.Errorf("%w: database schema %d, this release knows %d; run the newer release or restore a copy made before the upgrade", ErrSchemaNewer, applied, len(rows))
+	}
 	for i, f := range rows {
 		var v int
 		if _, err = fmt.Sscanf(f.Name(), "%04d_", &v); err != nil {

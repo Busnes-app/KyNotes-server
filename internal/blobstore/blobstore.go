@@ -179,6 +179,24 @@ func (s *Store) Reopen(id string) (*Temp, error) {
 	_, _ = f.Seek(0, 2)
 	return t, nil
 }
+
+// Truncate drops everything past n bytes and re-hashes what stays.
+func (t *Temp) Truncate(n int64) error {
+	if err := t.f.Truncate(n); err != nil {
+		return err
+	}
+	if _, err := t.f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	t.h.Reset()
+	size, err := io.Copy(t.h, t.f)
+	if err != nil {
+		return err
+	}
+	t.size = size
+	_, err = t.f.Seek(0, io.SeekEnd)
+	return err
+}
 func (s *Store) ListDigests() ([]string, error) {
 	var out []string
 	root := filepath.Join(s.root, "blobs")
