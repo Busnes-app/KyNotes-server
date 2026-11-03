@@ -227,6 +227,12 @@ export function documentText(body: string): string {
   return text.join(" ");
 }
 
+/** Whether a page body holds ink strokes; the shared view does not draw them. */
+export const hasInk = (body: string): boolean => openPage(body).strokes.length > 0;
+
+/** A page that is only a drawing: shared, it would show no content. */
+export const inkOnly = (body: string): boolean => hasInk(body) && documentText(body).trim() === "";
+
 export function isStructuredNoteBody(body: string): boolean {
   try {
     const value = JSON.parse(body) as Partial<NoteDocument>;

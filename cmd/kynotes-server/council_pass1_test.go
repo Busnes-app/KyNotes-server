@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,8 +55,8 @@ func TestCopyDataDirDoesNotMigrate(t *testing.T) {
 	}
 }
 
-// On a terminal, user add without --password says what it needs instead of waiting forever.
-func TestUserAddWithoutPasswordOnATerminalFailsFast(t *testing.T) {
+// On a terminal, user add without --password says what it reads instead of waiting silently.
+func TestUserAddWithoutPasswordOnATerminalSaysWhatItReads(t *testing.T) {
 	tty, err := os.Open("/dev/null")
 	if err != nil {
 		t.Skip(err)
@@ -65,11 +66,17 @@ func TestUserAddWithoutPasswordOnATerminalFailsFast(t *testing.T) {
 		t.Skip("/dev/null is not a character device here")
 	}
 	cfgPath, _, _ := setupCLIFixture(t)
-	stdin := os.Stdin
-	os.Stdin = tty
-	defer func() { os.Stdin = stdin }()
-	err = userCommand([]string{"add", "--username", "op", "--admin", "--config", cfgPath})
-	if err == nil || !strings.Contains(err.Error(), "--password") {
-		t.Fatalf("err=%v, want a hint to pass --password", err)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, stderr := os.Stdin, os.Stderr
+	os.Stdin, os.Stderr = tty, w
+	_ = userCommand([]string{"add", "--username", "op", "--admin", "--config", cfgPath})
+	os.Stdin, os.Stderr = stdin, stderr
+	w.Close()
+	said, _ := io.ReadAll(r)
+	if !strings.Contains(string(said), "Ctrl-D") || !strings.Contains(string(said), "--password") {
+		t.Fatalf("stderr %q, want the stdin prompt", said)
 	}
 }

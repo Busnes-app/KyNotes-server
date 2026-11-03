@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PartialBlock } from "@blocknote/core";
-import { CANVAS_FORMAT, LEGACY_BOX, MAX_COORD, MAX_STROKE_POINTS, documentText, emptyCanvasPage, isStructuredNoteBody, openPage, pageBlocks, parseNoteDocument, stringifyCanvasPage, stringifyNoteDocument, type CanvasPage } from "./document";
+import { CANVAS_FORMAT, LEGACY_BOX, MAX_COORD, MAX_STROKE_POINTS, documentText, emptyCanvasPage, hasInk, inkOnly, isStructuredNoteBody, openPage, pageBlocks, parseNoteDocument, stringifyCanvasPage, stringifyNoteDocument, type CanvasPage } from "./document";
 
 describe("note document format", () => {
   it("round-trips structured content without Markdown", () => {
@@ -118,5 +118,22 @@ describe("canvas pages", () => {
     });
     expect(documentText(body)).toBe("first second");
     expect(pageBlocks(body)).toHaveLength(2);
+  });
+});
+
+describe("shareable content", () => {
+  const stroke = { id: "s1", tool: "pen" as const, color: "blue" as const, size: 4, points: [1, 2, 0.5, 3, 4, 0.6] };
+  const box = { id: "b1", x: 0, y: 0, width: 640, blocks: [{ type: "paragraph" as const, content: "Words" }] };
+  it("a drawing-only page has nothing a shared link shows", () => {
+    const drawing = stringifyCanvasPage({ ...emptyCanvasPage(), strokes: [stroke] });
+    expect(hasInk(drawing)).toBe(true);
+    expect(inkOnly(drawing)).toBe(true);
+  });
+  it("a page with text and ink still shares its text", () => {
+    const mixed = stringifyCanvasPage({ ...emptyCanvasPage(), boxes: [box], strokes: [stroke] });
+    expect(hasInk(mixed)).toBe(true);
+    expect(inkOnly(mixed)).toBe(false);
+    expect(inkOnly(stringifyCanvasPage({ ...emptyCanvasPage(), boxes: [box] }))).toBe(false);
+    expect(inkOnly("")).toBe(false);
   });
 });

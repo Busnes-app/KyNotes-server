@@ -74,16 +74,20 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Publishing a GitHub release `vX.Y.Z` or `vX.Y.Z.N` runs `release-image.yml` (a dispatch on a published release's tag runs it too). It refuses a malformed tag, a tag whose `X.Y.Z` disagrees with `internal/appversion/VERSION`, and any commit on which a ci.yml job in its `REQUIRED` list (`test`) did not pass. It then builds `:X.Y.Z[.N]` with provenance and SBOM, attests and verifies it (identity `release-image.yml@refs/tags/<tag>`), and moves `:stable` to that digest only for the highest non-prerelease. It never moves `:latest`; `master` CI owns that. A job added to ci.yml must be added to `REQUIRED` too.
 - `dependency-release.yml` runs daily at 22:37 UTC: if Dependabot commits landed on `master` since the newest release on the current line and the push CI run on `master`'s tip succeeded, it publishes the next `vX.Y.Z.N` (one per day however many PRs merged) and dispatches `release-image.yml` on it, since a `GITHUB_TOKEN` release raises no release event. Run by hand, it releases `master` without the Dependabot condition. It waits while the line in `VERSION` has no `vX.Y.Z` release: bump `VERSION` and publish `vX.Y.Z` by hand for a new line.
 
-- Write-path invariants (hostile-review pass 1). An object PUT checks role, write gate and quota before it
-  finalizes the body, so a refused save leaves no blob file (`TestRefusedSaveLeavesNoBlobFile`); a deleted page or
-  notebook takes no write (404; `TestSaveToADeletedPageIsRefused`, `TestDeletedNotebookRefusesWrites`). Quota counts
-  finalized previews while their blob is kept (`TestFinalizedPreviewsCountTowardQuota`). A chunk retry truncates
-  bytes past `received_bytes`, finalize checks the file size, and a retried finalize or link answers as the first
-  did (`TestChunkRetryAfterALostCounterIsWrittenOnce`, `TestFinalizeAndLinkRetriesAreIdempotent`). SQLite runs
-  `synchronous(FULL)`, and a binary refuses a database a newer release migrated (`ErrSchemaNewer`,
-  `TestOpenRefusesANewerSchema`). In the browser, a cached page at the server's version that differs from it is
-  queued on load; viewers and commenters get a read-only title and canvas; a comment draft is cleared on page
-  change; a missing lazy chunk reloads the tab once (`e2e/council-pass1.e2e.ts`).
+- Write-path invariants (hostile-review pass 1). An object PUT checks quota and the page's tombstone before it
+  finalizes the body (outside the write lock), so a refused save leaves no blob file
+  (`TestRefusedSaveLeavesNoBlobFile`); a deleted page or notebook takes no write or attachment link (404;
+  `TestSaveToADeletedPageIsRefused`, `TestDeletedNotebookRefusesWrites`). Quota counts each finalized preview's
+  blob once, cancelled or not, while it is kept (`TestFinalizedPreviewsCountTowardQuota`,
+  `TestDuplicatePreviewsAreChargedOnce`). A chunk retry truncates bytes past `received_bytes`, finalize checks the
+  file size, and a retried finalize or link answers as the first did (`TestChunkRetryAfterALostCounterIsWrittenOnce`,
+  `TestFinalizeAndLinkRetriesAreIdempotent`). SQLite runs `synchronous(FULL)`, and a binary refuses a database a
+  newer release migrated (`ErrSchemaNewer`, `TestOpenRefusesANewerSchema`). In the browser, the notebook load (not
+  export or the work queue) queues a cached page at the server's version that differs from it and is over
+  `UNSENT_AGE_MS` old (a tab still editing saves every 15 s); a save refused because the page is gone says so
+  (`PAGE_GONE`). Viewers and commenters, in a team or its child notebooks, get a read-only title and canvas; a
+  comment draft is cleared on page change; a drawing-only page is not shared (`inkOnly`, `document.test.ts`); a
+  missing lazy chunk reloads the tab once per failure (`e2e/council-pass1.e2e.ts`).
 
 ## Shared browser UI
 

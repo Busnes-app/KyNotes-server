@@ -23,7 +23,6 @@ type Temp struct {
 }
 
 func (t *Temp) Close() error { return t.f.Close() }
-func (t *Temp) Sync() error  { return t.f.Sync() }
 
 func New(root string) (*Store, error) {
 	for _, p := range []string{filepath.Join(root, "blobs"), filepath.Join(root, "tmp")} {

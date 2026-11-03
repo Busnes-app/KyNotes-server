@@ -524,9 +524,9 @@ func userCommand(args []string) error {
 			LoginSalt  string `json:"loginSalt"`
 			Iterations int    `json:"iterations"`
 		}
-		// A terminal never ends stdin: say what is needed instead of waiting with no prompt.
+		// On a terminal, say what the read waits for instead of hanging with no prompt.
 		if st, statErr := os.Stdin.Stat(); statErr == nil && st.Mode()&os.ModeCharDevice != 0 {
-			return fmt.Errorf("pass --password <pass>, or pipe JSON {authSecret, loginSalt, iterations} on stdin")
+			fmt.Fprintln(os.Stderr, "Reading JSON {authSecret, loginSalt, iterations} from stdin; end it with Ctrl-D. To set a password instead, rerun with --password <pass>.")
 		}
 		b, e := io.ReadAll(os.Stdin)
 		if e != nil || len(b) == 0 {

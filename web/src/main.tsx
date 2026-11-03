@@ -166,7 +166,7 @@ import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes,
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
 import { desiredReminders, planReconcile } from "./reminderPush";
-import { documentText, emptyCanvasPage, openPage, stringifyCanvasPage } from "./document";
+import { documentText, emptyCanvasPage, hasInk, inkOnly, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
 import "./ky-ui/tokens.css";
@@ -176,14 +176,21 @@ import "./ky-ui/appearance.css";
 import "./ky-ui/appearance-themes.css";
 
 const MAX_CHANGE_PAGES = 100;
+/** A cached edit older than this, still ahead of the server, has no tab left to send it (autosave runs every 15 s). */
+const UNSENT_AGE_MS = 20_000;
+const PAGE_GONE = "A page you edited was deleted elsewhere (or its notebook was), so the edit cannot be saved to it. Copy what you need from it while it is open here.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
 // A tab older than the running server asks for a chunk the server no longer has: reload once
 // (no page has opened yet, so no edit is lost) instead of unmounting to a blank screen.
-const CanvasPage = lazy(() => import("./CanvasPage").catch((error: unknown) => {
-  if (sessionStorage.getItem("kynotes-chunk-reload") === location.href) throw error;
-  sessionStorage.setItem("kynotes-chunk-reload", location.href);
+const CHUNK_RELOAD = "kynotes-chunk-reload";
+const CanvasPage = lazy(() => import("./CanvasPage").then((module) => {
+  sessionStorage.removeItem(CHUNK_RELOAD);
+  return module;
+}, (error: unknown) => {
+  if (sessionStorage.getItem(CHUNK_RELOAD) === location.href) throw error;
+  sessionStorage.setItem(CHUNK_RELOAD, location.href);
   location.reload();
   return new Promise<never>(() => {});
 }));
@@ -650,6 +657,8 @@ function Workspace({
   selectedNoteRef.current = selectedNote;
   const [notificationCount, setNotificationCount] = useState(0);
   const [membersForTeam, setMembersForTeam] = useState<Member[]>([]);
+  // This user's role in the open notebook, as its loaded member list says; undefined until known.
+  const [openRole, setOpenRole] = useState<string | undefined>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -723,8 +732,7 @@ function Workspace({
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
   // Viewers and commenters read pages; the server refuses their page writes.
-  const myRole = selected?.kind === "team" ? membersForTeam.find((member) => member.userId === auth.user.id)?.role : undefined;
-  const viewOnly = myRole === "viewer" || myRole === "commenter";
+  const viewOnly = openRole === "viewer" || openRole === "commenter";
   /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
   // Member management and team notebooks: the server's member list says whether this user is a steward of the open team (M1).
   const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;
@@ -1391,7 +1399,8 @@ function Workspace({
     }
   }
   /** legacy: objects whose server copy is v1, or not proven v2 (a newer local copy was shown). */
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string> }> {
+  /** queueUnsent: the notebook load only (never export or the work queue) queues edits that never reached the server. */
+  async function readContainerObjects(container: Container, queueUnsent = false): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string> }> {
     let unreadable = 0;
     const legacy = new Set<string>();
     // Server copies: v1 only before the notebook's migration marker. Local copies: this browser sealed them.
@@ -1422,7 +1431,7 @@ function Workspace({
           // The server copy's format still decides migration.
           const proven = useCache ? await server(false).then((opened) => opened.payload, () => undefined) : undefined;
           if (useCache && !proven) legacy.add(change.id);
-          if (useCache && proven && payload && JSON.stringify(proven) !== JSON.stringify(payload)) unsent.push(cached!);
+          if (queueUnsent && useCache && proven && payload && JSON.stringify(proven) !== JSON.stringify(payload)) unsent.push(cached!);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
         } catch {
           try {
@@ -1441,9 +1450,14 @@ function Workspace({
       since = next;
     }
     if (unsent.length) {
-      // Sent by the queue like any failed save; an entry already queued is newer or the same.
-      const queued = new Set((await pendingSaves().catch(() => [])).filter((item) => item.owner === auth.user.id).map((item) => item.id));
-      const fresh = unsent.filter((note) => !queued.has(note.id));
+      // Sent by the queue like any failed save. A tab still editing the page saves at least every 15
+      // seconds, so only a copy older than UNSENT_AGE_MS is left behind; a queued entry as new or newer
+      // (or one waiting under a replaced key) stays as it is.
+      const queued = new Map((await pendingSaves().catch(() => [])).filter((item) => item.owner === auth.user.id).map((item) => [item.id, item]));
+      const fresh = unsent.filter((note) => {
+        const entry = queued.get(note.id);
+        return Date.now() - Date.parse(note.updatedAt) > UNSENT_AGE_MS && (!entry || (!entry.previousKey && entry.updatedAt < note.updatedAt));
+      });
       try {
         for (const note of fresh) await queueOwn({ ...note, owner: auth.user.id }).catch(notSaved);
       } catch (error) {
@@ -1493,6 +1507,7 @@ function Workspace({
     if (superseded()) return [];
     // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
+    setOpenRole(undefined);
     if (leaveQueue) setQueueMode(false);
     selectedNoteRef.current = null;
     setSelectedNote(null);
@@ -1514,7 +1529,7 @@ function Workspace({
       if (superseded()) return [];
       setSelected(keyed);
       if ((await pinStore.loadKeyState(keyed.id)).objects === 2) migrated.current.add(keyed.id);
-      const objects = await readContainerObjects(keyed);
+      const objects = await readContainerObjects(keyed, true);
       if (superseded()) return [];
       if (objects.unreadable) setError(unreadableNotice(objects.unreadable));
       const loaded = carryAll(objects.notes, loadCarried.current);
@@ -1528,8 +1543,11 @@ function Workspace({
       if (routed) await selectNote(routed, keyed);
       const team = container.kind === "team" ? await members(container.id) : [];
       if (!superseded()) setMembersForTeam(team);
+      // A team's child notebook copies the team's memberships: its own member list holds this user's role.
+      const own = container.teamId ? await members(container.id).catch(() => []) : team;
       // Writers migrate in the background once this load has rendered (migrateOpen); viewers never do.
-      const role = container.kind === "team" ? team.find((member) => member.userId === auth.user.id)?.role : "owner";
+      const role = container.kind === "team" || container.teamId ? own.find((member) => member.userId === auth.user.id)?.role : "owner";
+      if (!superseded()) setOpenRole(role);
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
         migrationDue.current = { containerID: keyed.id, unreadable: objects.unreadable, objects: kinds.map((object) => ({ ...object, v1: objects.legacy.has(object.id) })) };
@@ -1834,7 +1852,10 @@ function Workspace({
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
           if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
-          else setError("Saved locally; encrypted change queued for the server.");
+          else if (error instanceof APIRequestError && error.code === "not_found") {
+            setSyncStatus("attention");
+            setError(PAGE_GONE);
+          } else setError("Saved locally; encrypted change queued for the server.");
         }
       }
       return note;
@@ -1939,6 +1960,10 @@ function Workspace({
           } else {
             // A retired generation (already_exists): the next drain reads the container again and re-seals it.
             remaining = true;
+            if (error instanceof APIRequestError && error.code === "not_found") {
+              attention = true;
+              setError(PAGE_GONE);
+            }
           }
         }
       }
@@ -2684,6 +2709,11 @@ function Workspace({
   }
   async function shareNote() {
     if (!selectedNote) return;
+    // The shared view shows text only: a page that is only a drawing would arrive blank.
+    if (inkOnly(selectedNote.body)) {
+      setError("This page has only a drawing. Shared links show a page's text, so there is nothing to share yet; add text to share it.");
+      return;
+    }
     try {
       const sealed = await encryptSharePayload({
         title: selectedNote.title,
@@ -2697,7 +2727,7 @@ function Workspace({
         `${location.origin}/share/${link.token}#${sealed.key}`,
       );
       // The shared view shows text only; say so when the page holds ink it will not show.
-      const ink = openPage(selectedNote.body).strokes.length;
+      const ink = hasInk(selectedNote.body);
       setError(
         ink
           ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment."

@@ -513,7 +513,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
+		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
  ON CONFLICT(attachment_id,object_id,object_version) DO UPDATE SET object_version=excluded.object_version`, in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.AttachmentID, cid)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
@@ -589,7 +589,7 @@ func uploadLive(status, created, expires string) bool {
 
 // quotaExceeded reports whether n more bytes in cid would exceed its owner's quota or, in a team,
 // the team's (IMPLEMENTATION_PLAN.md 1.14). Live pending uploads other than skip count at their
-// declared size, and finalized previews for as long as their blob is kept.
+// declared size, and each finalized preview's blob (cancelled or not) for as long as it is kept.
 func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64) (bool, error) {
 	var owner, kind, team string
 	var userQuota int64
@@ -613,7 +613,7 @@ func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM conflicts WHERE container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM attachments WHERE deleted_at='' AND container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(s.declared_bytes),0) FROM upload_sessions s JOIN blobs b ON b.digest=s.finalized_digest WHERE s.kind='preview' AND s.status='finalized' AND s.container_id IN (`+scope+`))`, key, now, skip).Scan(&used)
++(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.digest IN (SELECT s.finalized_digest FROM upload_sessions s WHERE s.kind='preview' AND s.finalized_digest<>'' AND s.container_id IN (`+scope+`)))`, key, now, skip).Scan(&used)
 		return used+n > quota, err
 	}
 	if exceeded, err := over(userQuota, `SELECT id FROM containers WHERE owner_user_id=?1`, owner); exceeded || err != nil {

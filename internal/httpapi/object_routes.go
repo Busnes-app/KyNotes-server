@@ -290,38 +290,19 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			WriteError(w, r, 413, "payload_too_large", "payload too large")
 			return
 		}
-		// Flushed before the write lock is taken, so Finalize inside it renames without a long sync.
-		if e = tmp.Sync(); e != nil {
+		// A body refused for quota, or for a page deleted while it streamed, never becomes a blob file:
+		// checked before Finalize, outside the write lock, and again inside the transaction below.
+		var stillLive int
+		if e = db.QueryRow(`SELECT COUNT(*) FROM objects WHERE id=? AND deleted_at=''`, oid).Scan(&stillLive); e != nil || stillLive == 0 {
 			_ = tmp.Abort()
-			WriteError(w, r, 500, "internal", "internal server error")
+			if e != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+			} else {
+				WriteError(w, r, 404, "not_found", "not found")
+			}
 			return
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
-		tx, e := db.Begin()
-		if e != nil {
-			_ = tmp.Abort()
-			WriteError(w, r, 500, "internal", "internal server error")
-			return
-		}
-		// A refused save never finalizes its body: the temp file goes, so no blob file is left
-		// outside quota and GC. A removal, demotion or rotation may have committed while the body streamed.
-		if e = checkWriteGate(tx, cid, s.UserID, generation, r.Header.Get(keySchemeHeader)); e != nil {
-			_ = tx.Rollback()
-			_ = tmp.Abort()
-			writeTeamKeyError(w, r, e)
-			return
-		}
-		if e = tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role); e == nil && role != "owner" && role != "admin" && role != "editor" {
-			e = errInsufficientRole
-		}
-		if e != nil {
-			_ = tx.Rollback()
-			_ = tmp.Abort()
-			writeTeamKeyError(w, r, e)
-			return
-		}
-		if over, err := quotaExceeded(tx, limits, cid, "", tmp.Size()); err != nil || over {
-			_ = tx.Rollback()
+		if over, err := quotaExceeded(db, limits, cid, "", tmp.Size()); err != nil || over {
 			_ = tmp.Abort()
 			if err != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
@@ -330,19 +311,48 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			}
 			return
 		}
-		// A page deleted while the body streamed takes no new version.
+		digest, size, e := tmp.Finalize("")
+		if e != nil {
+			_ = tmp.Abort()
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		now := time.Now().UTC().Format(time.RFC3339)
+		tx, e := db.Begin()
+		if e != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		// ponytail: a save refused here, by a change that committed between the check above and this
+		// transaction, leaves its finalized blob file behind; deleting it races a concurrent writer of the
+		// same digest. Upgrade path: an age-gated GC sweep of blob files with no blobs row.
+		// A removal, demotion or rotation may have committed while the body streamed.
+		if e = checkWriteGate(tx, cid, s.UserID, generation, r.Header.Get(keySchemeHeader)); e != nil {
+			_ = tx.Rollback()
+			writeTeamKeyError(w, r, e)
+			return
+		}
+		if e = tx.QueryRow(`SELECT role FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, cid, s.UserID).Scan(&role); e == nil && role != "owner" && role != "admin" && role != "editor" {
+			e = errInsufficientRole
+		}
+		if e != nil {
+			_ = tx.Rollback()
+			writeTeamKeyError(w, r, e)
+			return
+		}
+		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
+			_ = tx.Rollback()
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+			} else {
+				WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			}
+			return
+		}
 		var live int64
 		if e = tx.QueryRow(`SELECT current_version FROM objects WHERE id=? AND deleted_at=''`, oid).Scan(&live); e != nil {
 			_ = tx.Rollback()
-			_ = tmp.Abort()
 			WriteError(w, r, 404, "not_found", "not found")
-			return
-		}
-		digest, size, e := tmp.Finalize("")
-		if e != nil {
-			_ = tx.Rollback()
-			_ = tmp.Abort()
-			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		var changeSeq int64

@@ -53,10 +53,33 @@ test("client fixes: comment drafts, unsent drafts, read-only roles", async ({ br
     // The draft reaches IndexedDB on the keystroke; the held save never answers.
     await page.waitForRequest((request) => request.method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(request.url()));
     const sent = page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok(), { timeout: 30_000 });
+    // Reopened a minute later: no tab is left that would still send the edit itself.
+    await page.addInitScript(() => { const now = Date.now.bind(Date); Date.now = () => now() + 60_000; });
     await page.reload({ waitUntil: "commit" });
     hold = false;
     await sent;
     await expect(page.locator(".note-row", { hasText: "Second page, unsent edit" })).toBeVisible();
+
+    // A tab older than the server finds its page chunk gone: it reloads once and opens the page,
+    // and does so again on a later upgrade.
+    for (let round = 0; round < 3; round++) {
+      // The chunk is gone for the whole first document; the tab's own reload is the second.
+      let documents = 0;
+      let refused = 0;
+      const count = (request: { resourceType: () => string }) => { if (request.resourceType() === "document") documents += 1; };
+      page.on("request", count);
+      await page.route((url) => /\/assets\/CanvasPage-[^/]+\.js$/.test(url.pathname), (route) => {
+        if (documents > 1) return route.fallback();
+        refused += 1;
+        return route.fulfill({ status: 404, body: "404 page not found" });
+      });
+      await page.reload();
+      await expect(page.getByRole("toolbar", { name: "Page tools" })).toBeVisible({ timeout: 30_000 });
+      expect(refused).toBeGreaterThan(0);
+      expect(documents).toBe(2);
+      page.off("request", count);
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+    }
 
     // A viewer reads a team page but gets no editable title or canvas.
     await createUser(admin, READER, TEMPORARY);
@@ -76,6 +99,20 @@ test("client fixes: comment drafts, unsent drafts, read-only roles", async ({ br
     await openTeam(reader.page, teamID);
     await reader.page.locator(".note-row", { hasText: "Team page" }).click();
     await expect(reader.page.locator(".title-input")).toHaveValue("Team page");
+    await expect(reader.page.locator(".title-input")).toHaveAttribute("readonly", "");
+
+    // A team's child notebook copies the team's roles: the viewer reads it read-only too.
+    await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Council child" }, () =>
+      owner.page.getByRole("button", { name: "Notebook options" }).click().then(() => owner.page.getByRole("button", { name: "Create team notebook" }).click()));
+    await expect(owner.page.locator(".workspace-title")).toHaveText("Council child");
+    await newPage(owner.page, "Child page");
+    const child = /#\/(cnt_[0-9a-z]+)/.exec(owner.page.url())![1];
+    await reader.page.goto("about:blank");
+    await reader.page.goto(`/#/${child}`);
+    await expect(reader.page.locator(".workspace-title")).toHaveText("Council child");
+    await reader.page.locator(".note-row", { hasText: "Child page" }).click();
+    await expect(reader.page.locator(".title-input")).toHaveValue("Child page");
+    await expect(reader.page.getByText("This notebook is read-only until its keys reach this browser.")).toHaveCount(0);
     await expect(reader.page.locator(".title-input")).toHaveAttribute("readonly", "");
     for (const who of [admin, owner, reader]) expect(who.unexpected).toEqual([]);
   } finally {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -104,6 +105,17 @@ func TestDeletedNotebookRefusesWrites(t *testing.T) {
 	if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/objects", []byte(`{"kind":"note"}`), true, false)); code != http.StatusNotFound {
 		t.Fatalf("new page in deleted notebook=%d %s", code, out)
 	}
+	att := mint(t, "att")
+	digest := strings.Repeat("7", 64)
+	if _, err := tm.owner.db.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,1,'now')`, digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.owner.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,1,x'00',2,1,'now')`, att, tm.id, digest); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/objects/"+oid+"/attachments", []byte(`{"attachmentId":`+quote(att)+`,"objectVersion":1}`), true, false)); code != http.StatusNotFound {
+		t.Fatalf("link in deleted notebook=%d %s", code, out)
+	}
 }
 
 // Disabling an account ends its sessions, so re-enabling it revives none.
@@ -132,12 +144,12 @@ func TestDisablingAnAccountEndsItsSessions(t *testing.T) {
 // Finalized previews stay charged while their blob is kept.
 func TestFinalizedPreviewsCountTowardQuota(t *testing.T) {
 	u := newUploadClient(t, func(c *config.Config) { c.Limits.UserQuotaBytes = 10 })
-	preview := func(data string) int {
+	preview := func(data string) (string, int) {
 		t.Helper()
 		sum := sha256.Sum256([]byte(data))
 		code, out := status(t, u.do(t, http.MethodPost, "/api/v1/containers/"+u.container+"/uploads", []byte(`{"declaredBytes":`+strconv.Itoa(len(data))+`,"expectedDigest":"`+hex.EncodeToString(sum[:])+`","kind":"preview"}`), true))
 		if code != http.StatusOK {
-			return code
+			return "", code
 		}
 		var v struct {
 			ID string `json:"uploadId"`
@@ -145,13 +157,43 @@ func TestFinalizedPreviewsCountTowardQuota(t *testing.T) {
 		_ = json.Unmarshal([]byte(out), &v)
 		u.chunk(t, v.ID, 0, data[:4]).Body.Close()
 		u.chunk(t, v.ID, 1, data[4:]).Body.Close()
-		return u.finalize(t, v.ID)
+		return v.ID, u.finalize(t, v.ID)
 	}
-	if code := preview("abcdefgh"); code != http.StatusOK {
+	first, code := preview("abcdefgh")
+	if code != http.StatusOK {
 		t.Fatalf("first preview=%d", code)
 	}
-	if code := preview("ijklmnop"); code != http.StatusRequestEntityTooLarge {
+	// Cancelling a finalized preview keeps its blob, so it stays charged.
+	if code, out := status(t, u.do(t, http.MethodDelete, "/api/v1/uploads/"+first, nil, true)); code != http.StatusNoContent {
+		t.Fatalf("cancel=%d %s", code, out)
+	}
+	if _, code := preview("ijklmnop"); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("second preview past quota=%d, want 413", code)
+	}
+}
+
+// The same preview bytes stored once are charged once.
+func TestDuplicatePreviewsAreChargedOnce(t *testing.T) {
+	u := newUploadClient(t, func(c *config.Config) { c.Limits.UserQuotaBytes = 20 })
+	sum := sha256.Sum256([]byte("abcdefgh"))
+	for i := 0; i < 2; i++ {
+		code, out := status(t, u.do(t, http.MethodPost, "/api/v1/containers/"+u.container+"/uploads", []byte(`{"declaredBytes":8,"expectedDigest":"`+hex.EncodeToString(sum[:])+`","kind":"preview"}`), true))
+		if code != http.StatusOK {
+			t.Fatalf("preview %d start=%d %s", i, code, out)
+		}
+		var v struct {
+			ID string `json:"uploadId"`
+		}
+		_ = json.Unmarshal([]byte(out), &v)
+		u.chunk(t, v.ID, 0, "abcd").Body.Close()
+		u.chunk(t, v.ID, 1, "efgh").Body.Close()
+		if code := u.finalize(t, v.ID); code != http.StatusOK {
+			t.Fatalf("preview %d finalize=%d", i, code)
+		}
+	}
+	// 8 bytes stored: 12 more fit in a 20-byte quota.
+	if code, out := status(t, u.do(t, http.MethodPost, "/api/v1/containers/"+u.container+"/uploads", []byte(`{"declaredBytes":12,"kind":"attachment"}`), true)); code != http.StatusOK {
+		t.Fatalf("upload after duplicate previews=%d %s", code, out)
 	}
 }
 
