@@ -226,7 +226,7 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 			return
 		}
 		var role string
-		if db.QueryRow(`SELECT m.role FROM memberships m WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
+		if db.QueryRow(`SELECT m.role FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}

@@ -243,6 +243,16 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		// A chunk written before a counter update that never committed is still in the file: drop it,
+		// so the retry is written once.
+		if tmp.Size() > received {
+			e = tmp.Truncate(received)
+		}
+		if e != nil || tmp.Size() != received {
+			_ = tmp.Close()
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
 		n, e := io.Copy(tmp, bytes.NewReader(body))
 		_ = tmp.Close()
 		if e != nil || n > chunk || received+n > declared || (received+n < declared && n != chunk) {
@@ -272,14 +282,26 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
-		var uid, cid, kind, expected, status, created, expires string
+		var uid, cid, kind, expected, status, created, expires, finalized string
 		var received, declared int64
-		if e := db.QueryRow(`SELECT user_id,container_id,kind,expected_digest,received_bytes,declared_bytes,status,created_at,expires_at FROM upload_sessions WHERE id=?`, id).Scan(&uid, &cid, &kind, &expected, &received, &declared, &status, &created, &expires); e != nil || uid != s.UserID {
+		if e := db.QueryRow(`SELECT user_id,container_id,kind,expected_digest,received_bytes,declared_bytes,status,created_at,expires_at,finalized_digest FROM upload_sessions WHERE id=?`, id).Scan(&uid, &cid, &kind, &expected, &received, &declared, &status, &created, &expires, &finalized); e != nil || uid != s.UserID {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
 		if writeTeamKeyError(w, r, checkUploader(db, cid, s.UserID, r.Header.Get(keySchemeHeader))) {
 			return
+		}
+		// A retry after a lost response: a finalized session answers as its finalize did.
+		if status == "finalized" && finalized != "" {
+			if kind == "preview" {
+				writeJSON(w, map[string]any{"previewDigest": finalized, "bytes": received})
+				return
+			}
+			var att string
+			if db.QueryRow(`SELECT id FROM attachments WHERE container_id=? AND blob_digest=? AND deleted_at=''`, cid, finalized).Scan(&att) == nil {
+				writeJSON(w, map[string]any{"attachmentId": att, "digest": finalized, "bytes": received})
+				return
+			}
 		}
 		if !uploadLive(status, created, expires) {
 			WriteError(w, r, 410, "gone", "upload session expired")
@@ -331,6 +353,12 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		tmp, e := blobs.Reopen(id)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		if tmp.Size() != declared {
+			_ = tmp.Close()
+			_, _ = db.Exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
+			WriteError(w, r, 422, "digest_mismatch", "ciphertext size mismatch")
 			return
 		}
 		digest, size, e := tmp.Finalize(expected)
@@ -485,7 +513,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''`, in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.AttachmentID, cid)
+		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
+ ON CONFLICT(attachment_id,object_id,object_version) DO UPDATE SET object_version=excluded.object_version`, in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.AttachmentID, cid)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -560,7 +589,7 @@ func uploadLive(status, created, expires string) bool {
 
 // quotaExceeded reports whether n more bytes in cid would exceed its owner's quota or, in a team,
 // the team's (IMPLEMENTATION_PLAN.md 1.14). Live pending uploads other than skip count at their
-// declared size.
+// declared size, and finalized previews for as long as their blob is kept.
 func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64) (bool, error) {
 	var owner, kind, team string
 	var userQuota int64
@@ -583,7 +612,8 @@ func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64
  (SELECT COALESCE(SUM(v.ciphertext_bytes),0) FROM object_versions v JOIN objects o ON o.id=v.object_id WHERE o.container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM conflicts WHERE container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM attachments WHERE deleted_at='' AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))`, key, now, skip).Scan(&used)
++(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))
++(SELECT COALESCE(SUM(s.declared_bytes),0) FROM upload_sessions s JOIN blobs b ON b.digest=s.finalized_digest WHERE s.kind='preview' AND s.status='finalized' AND s.container_id IN (`+scope+`))`, key, now, skip).Scan(&used)
 		return used+n > quota, err
 	}
 	if exceeded, err := over(userQuota, `SELECT id FROM containers WHERE owner_user_id=?1`, owner); exceeded || err != nil {

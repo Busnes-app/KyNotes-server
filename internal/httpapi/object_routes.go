@@ -222,7 +222,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		}
 		var cid, role string
 		var current int64
-		if e := db.QueryRow(`SELECT o.container_id,o.current_version,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, oid).Scan(&cid, &current, &role); e != nil {
+		if e := db.QueryRow(`SELECT o.container_id,o.current_version,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND o.deleted_at='' AND m.revoked_at=''`, s.UserID, oid).Scan(&cid, &current, &role); e != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -290,8 +290,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			WriteError(w, r, 413, "payload_too_large", "payload too large")
 			return
 		}
-		digest, size, e := tmp.Finalize("")
-		if e != nil {
+		// Flushed before the write lock is taken, so Finalize inside it renames without a long sync.
+		if e = tmp.Sync(); e != nil {
 			_ = tmp.Abort()
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -299,15 +299,15 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		now := time.Now().UTC().Format(time.RFC3339)
 		tx, e := db.Begin()
 		if e != nil {
+			_ = tmp.Abort()
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		// ponytail: a refused save leaves its finalized blob file behind; deleting it here
-		// races a concurrent writer of the same digest. Upgrade path: an age-gated GC sweep
-		// of blob files with no blobs row.
-		// A removal, demotion or rotation may have committed while the body streamed.
+		// A refused save never finalizes its body: the temp file goes, so no blob file is left
+		// outside quota and GC. A removal, demotion or rotation may have committed while the body streamed.
 		if e = checkWriteGate(tx, cid, s.UserID, generation, r.Header.Get(keySchemeHeader)); e != nil {
 			_ = tx.Rollback()
+			_ = tmp.Abort()
 			writeTeamKeyError(w, r, e)
 			return
 		}
@@ -316,11 +316,13 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		}
 		if e != nil {
 			_ = tx.Rollback()
+			_ = tmp.Abort()
 			writeTeamKeyError(w, r, e)
 			return
 		}
-		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
+		if over, err := quotaExceeded(tx, limits, cid, "", tmp.Size()); err != nil || over {
 			_ = tx.Rollback()
+			_ = tmp.Abort()
 			if err != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 			} else {
@@ -328,8 +330,21 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			}
 			return
 		}
+		// A page deleted while the body streamed takes no new version.
 		var live int64
-		_ = tx.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&live)
+		if e = tx.QueryRow(`SELECT current_version FROM objects WHERE id=? AND deleted_at=''`, oid).Scan(&live); e != nil {
+			_ = tx.Rollback()
+			_ = tmp.Abort()
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		digest, size, e := tmp.Finalize("")
+		if e != nil {
+			_ = tx.Rollback()
+			_ = tmp.Abort()
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
 		var changeSeq int64
 		if e = tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1 WHERE id=? RETURNING change_seq`, cid).Scan(&changeSeq); e != nil {
 			_ = tx.Rollback()
