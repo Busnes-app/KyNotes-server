@@ -204,7 +204,7 @@ describe("content v2 refusal point", () => {
     expect(read).toContain(": await server(v1).then(");
     const load = block("  async function loadContainer(");
     expect(load.indexOf("if ((await pinStore.loadKeyState(keyed.id)).objects === 2) migrated.current.add(keyed.id);")).toBeGreaterThan(-1);
-    expect(load.indexOf("loadKeyState(keyed.id)")).toBeLessThan(load.indexOf("readContainerObjects(keyed, true)"));
+    expect(load.indexOf("loadKeyState(keyed.id)")).toBeLessThan(load.indexOf("readContainerObjects(keyed)"));
     // A pinned notebook's name without the marker is refused, as a rollback.
     expect(block("  async function loadContainers(")).toContain("if (migrated.current.has(item.id) && meta.objects !== 2) olderMeta = true;");
   });

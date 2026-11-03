@@ -128,21 +128,6 @@ export async function clearQueuedSave(owner: string, id: string, updatedAt: stri
  * Replaces (or, with next undefined, deletes) the queued save expected only while it is still the
  * entry the caller read: a save that replaced it meanwhile is never overwritten. next keeps its owner and id.
  */
-/** Queues note in one transaction unless the queue holds the same page's edit as new or newer, or one never sent. */
-export async function queueSaveIfNewer(note: PendingSave): Promise<boolean> {
-  let queued = false;
-  await write("pending", (store) => {
-    const read = store.get([note.owner, note.id]);
-    read.onsuccess = guarded(store.transaction, () => {
-      const current = read.result as PendingSave | undefined;
-      if (current && (current.previousKey || current.gone || current.updatedAt >= note.updatedAt)) return;
-      store.put(note);
-      queued = true;
-    });
-  });
-  return queued;
-}
-
 export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
   let same = false;
   await write("pending", (store) => {

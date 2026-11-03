@@ -513,7 +513,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
+		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
  ON CONFLICT(attachment_id,object_id,object_version) DO UPDATE SET object_version=excluded.object_version`, in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.AttachmentID, cid)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
