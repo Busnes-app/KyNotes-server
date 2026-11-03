@@ -26,6 +26,13 @@ describe("stuck edits", () => {
     expect(unsentEdits([mine], undefined, "usr_me")).toEqual([]);
   });
 
+  it("lists an edit whose page was deleted elsewhere, whatever the notebook list says", () => {
+    const gone = { id: "obj_g", containerID: LIVE, owner: "usr_me", gone: true } as PendingSave;
+    const live = { id: "obj_b", containerID: LIVE, owner: "usr_me" } as PendingSave;
+    expect(unsentEdits([gone, live], new Set([LIVE]), "usr_me")).toEqual([gone]);
+    expect(unsentEdits([gone, live], undefined, "usr_me")).toEqual([gone]);
+  });
+
   it("exports what the key opens and counts the rest", async () => {
     const items = [await save(`obj_${"c".repeat(26)}`, LOST, "gone", alice), await save(`obj_${"e".repeat(26)}`, LOST, "sealed elsewhere", alice, other)];
     const file = await exportUnsent(items, (item) => decryptObject(key, item.containerID, item.id, item.payload, false));

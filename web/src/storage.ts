@@ -10,8 +10,9 @@ export type CachedNote = { id: string; containerID: string; version: number; pay
 /**
  * owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never
  * reads or replaces another's. previousKey: waiting under the key a reset replaced; never sent (M5).
+ * gone: the server no longer has its page (deleted elsewhere); never sent, listed under Unsent edits.
  */
-export type PendingSave = CachedNote & { owner: string; previousKey?: true };
+export type PendingSave = CachedNote & { owner: string; previousKey?: true; gone?: true };
 /** owner: the user ID that started it; only that account lists, resumes, re-seals or clears it. */
 export type PendingUpload = { uploadId: string; owner: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
@@ -127,6 +128,21 @@ export async function clearQueuedSave(owner: string, id: string, updatedAt: stri
  * Replaces (or, with next undefined, deletes) the queued save expected only while it is still the
  * entry the caller read: a save that replaced it meanwhile is never overwritten. next keeps its owner and id.
  */
+/** Queues note in one transaction unless the queue holds the same page's edit as new or newer, or one never sent. */
+export async function queueSaveIfNewer(note: PendingSave): Promise<boolean> {
+  let queued = false;
+  await write("pending", (store) => {
+    const read = store.get([note.owner, note.id]);
+    read.onsuccess = guarded(store.transaction, () => {
+      const current = read.result as PendingSave | undefined;
+      if (current && (current.previousKey || current.gone || current.updatedAt >= note.updatedAt)) return;
+      store.put(note);
+      queued = true;
+    });
+  });
+  return queued;
+}
+
 export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
   let same = false;
   await write("pending", (store) => {

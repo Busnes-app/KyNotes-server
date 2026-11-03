@@ -129,6 +129,7 @@ import {
   putNote,
   putUpload,
   queueSave,
+  queueSaveIfNewer,
   rememberAfter,
   replaceQueuedSave,
   noteResetSent,
@@ -178,19 +179,28 @@ import "./ky-ui/appearance-themes.css";
 const MAX_CHANGE_PAGES = 100;
 /** A cached edit older than this, still ahead of the server, has no tab left to send it (autosave runs every 15 s). */
 const UNSENT_AGE_MS = 20_000;
-const PAGE_GONE = "A page you edited was deleted elsewhere (or its notebook was), so the edit cannot be saved to it. Copy what you need from it while it is open here.";
+const PAGE_GONE = "A page you edited was deleted elsewhere (or its notebook was), so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
 // A tab older than the running server asks for a chunk the server no longer has: reload once
 // (no page has opened yet, so no edit is lost) instead of unmounting to a blank screen.
 const CHUNK_RELOAD = "kynotes-chunk-reload";
+/** sessionStorage can throw (storage blocked): then there is no marker, and no reload. */
+const chunkMarker = (write?: string | null): string | null => {
+  try {
+    if (write === null) sessionStorage.removeItem(CHUNK_RELOAD);
+    else if (write !== undefined) sessionStorage.setItem(CHUNK_RELOAD, write);
+    return sessionStorage.getItem(CHUNK_RELOAD);
+  } catch {
+    return null;
+  }
+};
 const CanvasPage = lazy(() => import("./CanvasPage").then((module) => {
-  sessionStorage.removeItem(CHUNK_RELOAD);
+  chunkMarker(null);
   return module;
 }, (error: unknown) => {
-  if (sessionStorage.getItem(CHUNK_RELOAD) === location.href) throw error;
-  sessionStorage.setItem(CHUNK_RELOAD, location.href);
+  if (chunkMarker() === location.href || chunkMarker(location.href) !== location.href) throw error;
   location.reload();
   return new Promise<never>(() => {});
 }));
@@ -732,7 +742,7 @@ function Workspace({
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
   // Viewers and commenters read pages; the server refuses their page writes.
-  const viewOnly = openRole === "viewer" || openRole === "commenter";
+  const viewOnly = openRole === "viewer" || openRole === "commenter" || openRole === "unknown";
   /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
   // Member management and team notebooks: the server's member list says whether this user is a steward of the open team (M1).
   const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;
@@ -1449,25 +1459,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    if (unsent.length) {
-      // Sent by the queue like any failed save. A tab still editing the page saves at least every 15
-      // seconds, so only a copy older than UNSENT_AGE_MS is left behind; a queued entry as new or newer
-      // (or one waiting under a replaced key) stays as it is.
-      const queued = new Map((await pendingSaves().catch(() => [])).filter((item) => item.owner === auth.user.id).map((item) => [item.id, item]));
-      const fresh = unsent.filter((note) => {
-        const entry = queued.get(note.id);
-        return Date.now() - Date.parse(note.updatedAt) > UNSENT_AGE_MS && (!entry || (!entry.previousKey && entry.updatedAt < note.updatedAt));
-      });
-      try {
-        for (const note of fresh) await queueOwn({ ...note, owner: auth.user.id }).catch(notSaved);
-      } catch (error) {
-        setError(error instanceof Error ? error.message : String(error));
-      }
-      if (fresh.length) {
-        setSyncStatus("local");
-        drainQueue();
-      }
-    }
+    if (unsent.length) void sendLeftBehind(unsent);
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
   async function chooseNotebook(container: Container) {
@@ -1544,9 +1536,10 @@ function Workspace({
       const team = container.kind === "team" ? await members(container.id) : [];
       if (!superseded()) setMembersForTeam(team);
       // A team's child notebook copies the team's memberships: its own member list holds this user's role.
-      const own = container.teamId ? await members(container.id).catch(() => []) : team;
+      // An unreadable list leaves the role unknown, which is read-only (the server would refuse a viewer's writes).
+      const own = container.teamId ? await members(container.id).catch(() => undefined) : team;
       // Writers migrate in the background once this load has rendered (migrateOpen); viewers never do.
-      const role = container.kind === "team" || container.teamId ? own.find((member) => member.userId === auth.user.id)?.role : "owner";
+      const role = container.kind === "team" || container.teamId ? own?.find((member) => member.userId === auth.user.id)?.role ?? "unknown" : "owner";
       if (!superseded()) setOpenRole(role);
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
@@ -1847,7 +1840,9 @@ function Workspace({
           setSyncStatus("attention");
           setError(noteConflictMessage(uncached));
         } else {
-          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+          // A page deleted elsewhere: kept, never sent, and listed under Unsent edits.
+          const gone = error instanceof APIRequestError && error.code === "not_found" ? { gone: true as const } : {};
+          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, ...gone }).catch(notSaved);
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
@@ -1872,9 +1867,37 @@ function Workspace({
     saveChain.current = run.then(() => {}, () => {});
     return run;
   }
-  function queueOwn(item: PendingSave) {
+  /** ifNewer: only when the queue holds no as-new or never-sent entry for the page (one transaction). */
+  async function queueOwn(item: PendingSave, ifNewer = false) {
+    if (ifNewer && !(await queueSaveIfNewer(item))) return;
     ownQueued.current.set(item.id, item.updatedAt);
-    return queueSave(item);
+    if (!ifNewer) await queueSave(item);
+  }
+  /**
+   * Cached copies ahead of the server that no tab is still sending, queued like any failed save. A tab
+   * editing a page rewrites its cached copy, and autosaves at least every 15 s, so a copy unchanged for
+   * UNSENT_AGE_MS, still at the server's version, has been left behind (a reload or a closed tab).
+   */
+  async function sendLeftBehind(seen: CachedNote[]) {
+    const wait = Math.max(0, ...seen.map((note) => UNSENT_AGE_MS - (Date.now() - Date.parse(note.updatedAt))));
+    if (wait > 0) await new Promise((resolve) => window.setTimeout(resolve, wait));
+    let queued = false;
+    try {
+      for (const note of seen) {
+        const cached = await getNote(auth.user.id, note.id).catch(() => undefined);
+        if (!cached || cached.updatedAt !== note.updatedAt) continue;
+        const server = await readObject(note.id).catch(() => undefined);
+        if (!server || server.version !== cached.version) continue;
+        await queueOwn({ ...cached, owner: auth.user.id }, true).catch(notSaved);
+        queued = true;
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+    if (queued) {
+      setSyncStatus("local");
+      drainQueue();
+    }
   }
   /** A save of id landed: this tab's older queued copy is obsolete; another tab's newer one is not. */
   async function clearOwnQueued(id: string) {
@@ -1924,6 +1947,8 @@ function Workspace({
       // One key pass per container per drain.
       const synced = new Map<string, Promise<Container>>();
       for (const queuedItem of queued) {
+        // gone: its page was deleted elsewhere; listed under Unsent edits, never sent.
+        if (queuedItem.gone) continue;
         let item = queuedItem;
         try {
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
@@ -1958,11 +1983,14 @@ function Workspace({
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
           } else {
-            // A retired generation (already_exists): the next drain reads the container again and re-seals it.
-            remaining = true;
             if (error instanceof APIRequestError && error.code === "not_found") {
+              // Its page was deleted elsewhere: kept under Unsent edits, never sent again.
+              await replaceQueuedSave(item, { ...item, gone: true });
               attention = true;
               setError(PAGE_GONE);
+            } else {
+              // A retired generation (already_exists): the next drain reads the container again and re-seals it.
+              remaining = true;
             }
           }
         }
@@ -3100,7 +3128,7 @@ function Workspace({
                       <div className="page-section-control">
                         <select
                           aria-label="Move page to section"
-                          disabled={keyWait}
+                          disabled={keyWait || viewOnly}
                           value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
                           onChange={(event) => { closeMenu("page-menu"); void movePage(selectedNote.id, event.target.value, null); }}
                         >
@@ -3109,9 +3137,9 @@ function Workspace({
                         </select>
                         <NavIcon name="chevron" />
                       </div>
-                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
-                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
-                      <button className="quiet danger" disabled={keyWait} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
+                      <button className="quiet" disabled={keyWait || viewOnly || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
+                      <button className="quiet" disabled={keyWait || viewOnly || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
+                      <button className="quiet danger" disabled={keyWait || viewOnly} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
                     </div>
                   </div>
                 </div>

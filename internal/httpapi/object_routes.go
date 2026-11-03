@@ -323,12 +323,15 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		// ponytail: a save refused here, by a change that committed between the check above and this
-		// transaction, leaves its finalized blob file behind; deleting it races a concurrent writer of the
-		// same digest. Upgrade path: an age-gated GC sweep of blob files with no blobs row.
+		// A save refused here (a change committed between the check above and this transaction, or a
+		// parallel save took the last quota) drops its file unless a blobs row already claims the digest.
 		// A removal, demotion or rotation may have committed while the body streamed.
-		if e = checkWriteGate(tx, cid, s.UserID, generation, r.Header.Get(keySchemeHeader)); e != nil {
+		refuse := func() {
+			dropUnclaimed(tx, blobs, digest)
 			_ = tx.Rollback()
+		}
+		if e = checkWriteGate(tx, cid, s.UserID, generation, r.Header.Get(keySchemeHeader)); e != nil {
+			refuse()
 			writeTeamKeyError(w, r, e)
 			return
 		}
@@ -336,12 +339,12 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			e = errInsufficientRole
 		}
 		if e != nil {
-			_ = tx.Rollback()
+			refuse()
 			writeTeamKeyError(w, r, e)
 			return
 		}
 		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
-			_ = tx.Rollback()
+			refuse()
 			if err != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 			} else {
@@ -351,7 +354,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		}
 		var live int64
 		if e = tx.QueryRow(`SELECT current_version FROM objects WHERE id=? AND deleted_at=''`, oid).Scan(&live); e != nil {
-			_ = tx.Rollback()
+			refuse()
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -406,6 +409,16 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		}
 		writeJSON(w, map[string]any{"version": next, "digest": digest, "bytes": size, "commitReceipt": commitReceipt(oid, digest, next, size, generation, base, changeSeq)})
 	})))
+}
+
+// dropUnclaimed deletes digest's file when no blobs row claims it, inside tx (which holds the write
+// lock): a refused save's file then never outlives the refusal. A parallel save of the same bytes that
+// finalized but has not claimed yet finds the file gone in claimBlob and fails; its client retries.
+func dropUnclaimed(tx *sql.Tx, blobs *blobstore.Store, digest string) {
+	var claimed int
+	if tx.QueryRow(`SELECT COUNT(*) FROM blobs WHERE digest=?`, digest).Scan(&claimed) == nil && claimed == 0 {
+		_ = blobs.Delete(digest)
+	}
 }
 
 // claimBlob records a finalized blob for cid and clears its GC mark. GC deletes files only

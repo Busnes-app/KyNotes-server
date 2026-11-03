@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // blobFiles counts the content-addressed files beside the test database.
@@ -246,5 +248,62 @@ func TestFinalizeAndLinkRetriesAreIdempotent(t *testing.T) {
 		if code, out := status(t, u.do(t, http.MethodPost, "/api/v1/objects/"+obj.ID+"/attachments", []byte(`{"attachmentId":"`+first.ID+`","objectVersion":0}`), true)); code != http.StatusNoContent {
 			t.Fatalf("link %d=%d %s", i, code, out)
 		}
+	}
+}
+
+// A save refused inside its transaction drops its file unless a blobs row claims the digest.
+func TestDropUnclaimedKeepsOnlyClaimedFiles(t *testing.T) {
+	root := t.TempDir()
+	s, err := storage.Open(filepath.Join(root, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	b, _ := blobstore.New(root)
+	write := func(body string) string {
+		t.Helper()
+		tmp, err := b.NewTemp(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tmp.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+		d, _, err := tmp.Finalize("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	orphan, claimed := write("orphan"), write("claimed")
+	if _, err := s.DB().Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,7,'now')`, claimed); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DB().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropUnclaimed(tx, b, orphan)
+	dropUnclaimed(tx, b, claimed)
+	_ = tx.Rollback()
+	if _, ok, _ := b.Stat(orphan); ok {
+		t.Fatal("unclaimed file kept")
+	}
+	if _, ok, _ := b.Stat(claimed); !ok {
+		t.Fatal("claimed file dropped")
+	}
+}
+
+// A notebook deleted while a new-page request is read takes no page.
+func TestNewPageRacingANotebookDeleteIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	del := func() {
+		if _, err := tm.owner.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, tm.id); err != nil {
+			t.Error(err)
+		}
+	}
+	if code, out := tm.editor.sendRacing(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/objects", map[string]string{"Content-Type": "application/json", keySchemeHeader: keySchemeShared}, []byte(`{"kind":"note"}`), del); code != http.StatusNotFound {
+		t.Fatalf("new page racing a delete=%d %s", code, out)
 	}
 }

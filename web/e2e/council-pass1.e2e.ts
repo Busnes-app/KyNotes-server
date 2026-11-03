@@ -52,9 +52,8 @@ test("client fixes: comment drafts, unsent drafts, read-only roles", async ({ br
     await page.locator(".title-input").fill("Second page, unsent edit");
     // The draft reaches IndexedDB on the keystroke; the held save never answers.
     await page.waitForRequest((request) => request.method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(request.url()));
-    const sent = page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok(), { timeout: 30_000 });
-    // Reopened a minute later: no tab is left that would still send the edit itself.
-    await page.addInitScript(() => { const now = Date.now.bind(Date); Date.now = () => now() + 60_000; });
+    const sent = page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok(), { timeout: 60_000 });
+    // Reloaded at once: the copy is sent once it has stayed unchanged for 20 s (no tab still editing it).
     await page.reload({ waitUntil: "commit" });
     hold = false;
     await sent;
