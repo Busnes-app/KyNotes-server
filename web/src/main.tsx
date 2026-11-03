@@ -109,6 +109,7 @@ import { loadGate } from "./loadGate";
 import { relativeDate } from "./relativeDate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
 import { readChoice, saveChoice } from "./ky-ui/theme";
+import { watchForUpdate } from "./ky-ui/update";
 import { stepUpAsking } from "./stepup";
 import { loginFloor, pinLogin, upgradeLogin } from "./loginUpgrade";
 import {
@@ -3417,6 +3418,7 @@ function SettingsView({
 
 // An invitation link opens the app at #/invite/…: keep it in this tab for after sign-in, out of the address bar.
 takeInviteLink(location, history, sessionStore());
+watchForUpdate({ name: "KyNotes" });
 createRoot(document.getElementById("root")!).render(
   hasWebCrypto() ? <React.StrictMode><App /></React.StrictMode> : <p role="alert">{NEEDS_HTTPS}</p>,
 );

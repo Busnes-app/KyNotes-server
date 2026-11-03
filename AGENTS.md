@@ -81,6 +81,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - State badges are the ky-ui `.ky-status` pill (a word and a dot, never colour alone, never the accent): the Users table status (Active success, Disabled neutral), Server health and readiness (OK success, Failed danger, Checking… neutral) and the page save status (Saved to server success, Needs attention danger, Unsaved changes, Syncing… and Saved locally neutral; `e2e/ui-council.e2e.ts`). There is no local pill CSS.
 - `web/src/ky-ui/` is generated from Busnes-app/ky-ui, pinned by `VERSION` file hashes. Change shared colors, navigation states, the shell (`shell.css`) and storage helpers upstream, then run its consumer sync with an explicit worktree map; do not hand-edit vendored files.
 - Products own layout, routes, saved choice keys and named palettes. Busnes aliases consume shared tokens; mark primary navigation with `ky-nav-item` while preserving current-page semantics.
+- `web/src/main.tsx` starts ky-ui's `watchForUpdate` (the update notice). The entry document is never served from a cache: the global `no-store` covers it (`TestEntryDocumentIsNeverServedFromCache`).
 - Verify vendored files with `node web/src/ky-ui/check-vendor.mjs` from this document's directory. Builds/CI run that check. Rendered evidence and capture limitations are recorded in the repository-root `UI-VERIFICATION.md`.
 
 ## Child DOX Index
