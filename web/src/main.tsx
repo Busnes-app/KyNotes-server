@@ -138,6 +138,7 @@ import {
   storeConfirmedPin,
   storeKeyState,
   storePins,
+  type CachedNote,
   type PendingSave,
   type PendingUpload,
 } from "./storage";
@@ -165,7 +166,7 @@ import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes,
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
 import { desiredReminders, planReconcile } from "./reminderPush";
-import { documentText, emptyCanvasPage, stringifyCanvasPage } from "./document";
+import { documentText, emptyCanvasPage, openPage, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
 import "./ky-ui/tokens.css";
@@ -178,7 +179,14 @@ const MAX_CHANGE_PAGES = 100;
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
-const CanvasPage = lazy(() => import("./CanvasPage"));
+// A tab older than the running server asks for a chunk the server no longer has: reload once
+// (no page has opened yet, so no edit is lost) instead of unmounting to a blank screen.
+const CanvasPage = lazy(() => import("./CanvasPage").catch((error: unknown) => {
+  if (sessionStorage.getItem("kynotes-chunk-reload") === location.href) throw error;
+  sessionStorage.setItem("kynotes-chunk-reload", location.href);
+  location.reload();
+  return new Promise<never>(() => {});
+}));
 
 type AuthState = {
   username: string;
@@ -624,6 +632,8 @@ function Workspace({
   const cancelledUploads = useRef(new Set<string>());
   const [commentText, setCommentText] = useState("");
   const [commentSection, setCommentSection] = useState("");
+  // A draft comment belongs to its page: opening another page must not carry it there.
+  useEffect(() => { setCommentText(""); setCommentSection(""); }, [selectedNote?.id]);
   const [conflicted, setConflicted] = useState<Set<string>>(new Set());
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
@@ -712,6 +722,9 @@ function Workspace({
   // Read-only until this generation's key reaches this browser.
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
+  // Viewers and commenters read pages; the server refuses their page writes.
+  const myRole = selected?.kind === "team" ? membersForTeam.find((member) => member.userId === auth.user.id)?.role : undefined;
+  const viewOnly = myRole === "viewer" || myRole === "commenter";
   /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
   // Member management and team notebooks: the server's member list says whether this user is a steward of the open team (M1).
   const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;
@@ -1392,6 +1405,8 @@ function Workspace({
       else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, legacy: payload.legacy, version, updatedAt });
     };
+    // Local copies at the server's version that differ from it: edits that never reached the server.
+    const unsent: CachedNote[] = [];
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
       const result = await changes(container.id, since);
@@ -1405,7 +1420,9 @@ function Workspace({
             ? await openFirst(ownCopyKeysFor(container, cached!.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached!.payload, true))
             : await server(v1).then((opened) => { if (opened.v1) legacy.add(change.id); return opened.payload; });
           // The server copy's format still decides migration.
-          if (useCache && (await server(false).then(() => false, () => true))) legacy.add(change.id);
+          const proven = useCache ? await server(false).then((opened) => opened.payload, () => undefined) : undefined;
+          if (useCache && !proven) legacy.add(change.id);
+          if (useCache && proven && payload && JSON.stringify(proven) !== JSON.stringify(payload)) unsent.push(cached!);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
         } catch {
           try {
@@ -1422,6 +1439,20 @@ function Workspace({
       const next = Number(result.nextCursor);
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
+    }
+    if (unsent.length) {
+      // Sent by the queue like any failed save; an entry already queued is newer or the same.
+      const queued = new Set((await pendingSaves().catch(() => [])).filter((item) => item.owner === auth.user.id).map((item) => item.id));
+      const fresh = unsent.filter((note) => !queued.has(note.id));
+      try {
+        for (const note of fresh) await queueOwn({ ...note, owner: auth.user.id }).catch(notSaved);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : String(error));
+      }
+      if (fresh.length) {
+        setSyncStatus("local");
+        drainQueue();
+      }
     }
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
@@ -2665,8 +2696,12 @@ function Workspace({
       await navigator.clipboard.writeText(
         `${location.origin}/share/${link.token}#${sealed.key}`,
       );
+      // The shared view shows text only; say so when the page holds ink it will not show.
+      const ink = openPage(selectedNote.body).strokes.length;
       setError(
-        "Encrypted share link copied. The key is only in the URL fragment.",
+        ink
+          ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment."
+          : "Encrypted share link copied. The key is only in the URL fragment.",
       );
     } catch (error) {
       setError(
@@ -3016,7 +3051,7 @@ function Workspace({
                     ref={pageTitleRef}
                     aria-label="Page title"
                     className="title-input"
-                    readOnly={recovering === selectedNote.id || keyWait}
+                    readOnly={recovering === selectedNote.id || keyWait || viewOnly}
                     value={selectedNote.title}
                     onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                   />
@@ -3056,7 +3091,7 @@ function Workspace({
                       key={`${selectedNote.id}:${editorRevision}`}
                       pageID={selectedNote.id}
                       body={selectedNote.body}
-                      editable={recovering !== selectedNote.id && !keyWait}
+                      editable={recovering !== selectedNote.id && !keyWait && !viewOnly}
                       onChange={(body) => editOpen(selectedNote.id, { body })}
                       onError={setError}
                       uploadFile={uploadInlineFile}
