@@ -110,10 +110,12 @@ test("client fixes: comment drafts, unsent drafts, read-only roles", async ({ br
     expect(writes).toBe(0);
     reader.page.off("request", countWrite);
     await reader.page.route((url) => url.pathname === `/api/v1/containers/${teamID}/members`, (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":{"code":"internal","message":"internal server error"}}' }));
-    await openTeam(reader.page, teamID);
+    // The team name may stay unreadable without the list too, so this waits for the load, not the title.
+    await reader.page.goto("about:blank");
+    await reader.page.goto(`/#/${teamID}`);
+    await expect(reader.page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
     await expect(reader.page.getByText("Your role in this notebook could not be loaded, so it is read-only for now.", { exact: false })).toBeVisible();
-    await reader.page.locator(".note-row", { hasText: "Team page" }).click();
-    await expect(reader.page.locator(".title-input")).toHaveAttribute("readonly", "");
+    await expect(reader.page.getByRole("button", { name: "New page" })).toBeDisabled();
     await reader.page.unrouteAll({ behavior: "ignoreErrors" });
 
     // A team's child notebook copies the team's roles: the viewer reads it read-only too.

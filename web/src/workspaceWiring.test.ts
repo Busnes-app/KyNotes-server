@@ -237,6 +237,11 @@ describe("hostile-review pass 2 wiring", () => {
     expect(block("  async function sendLeftBehind(")).toContain("if (cached.conflicted) await clearConflictedMark(auth.user.id, cached.id, cached.updatedAt)");
   });
 
+  it("never queues or retries forever an edit this user may no longer make", () => {
+    expect(block("  async function sendLeftBehind(")).toContain("if (selectedRef.current?.id !== cached.containerID || !writer(openRoleRef.current)) continue;");
+    expect(main).toContain('(error.code === "not_found" || error.code === "forbidden")');
+  });
+
   it("never reports a drain with a gone edit as saved", () => {
     expect(main).toContain("if (queuedItem.gone) { attention = true; continue; }");
   });

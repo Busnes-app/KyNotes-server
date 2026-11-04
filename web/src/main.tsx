@@ -183,6 +183,7 @@ const MIGRATION_CONFLICTS = "This notebook's upgrade to the current encryption f
 /** A cached edit older than this, still ahead of the server, has no tab left to send it (autosave runs every 15 s). */
 const UNSENT_AGE_MS = 20_000;
 const VIEW_ONLY = "You can read this notebook but not change its pages: your role here is viewer or commenter.";
+const ROLE_LOST = "You can no longer edit the page an unsent edit belongs to, so it cannot be saved. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const ROLE_UNKNOWN = "Your role in this notebook could not be loaded, so it is read-only for now. Reopen the notebook to try again.";
 const PAGE_GONE = "A page you edited was deleted elsewhere (or its notebook was), so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
@@ -1955,6 +1956,9 @@ function Workspace({
       for (const note of seen) {
         const cached = await getNote(auth.user.id, note.id).catch(() => undefined);
         if (!cached || cached.updatedAt !== note.updatedAt) continue;
+        // Only for a notebook this user can still write: a viewer's PUT would be refused (the drain keeps
+        // such an entry under Unsent edits). Left for the next load if the user moved on meanwhile.
+        if (selectedRef.current?.id !== cached.containerID || !writer(openRoleRef.current)) continue;
         // Sent at its own base version even when another device saved meanwhile: the server then keeps
         // it as a conflict (the page offers "Keep the other version as a copy"), never drops it.
         await queueOwn({ ...cached, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }, true).catch(notSaved);
@@ -2054,11 +2058,12 @@ function Workspace({
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
           } else {
-            if (error instanceof APIRequestError && error.code === "not_found") {
-              // Its page was deleted elsewhere: kept under Unsent edits, never sent again.
+            if (error instanceof APIRequestError && (error.code === "not_found" || error.code === "forbidden")) {
+              // Its page was deleted elsewhere, or this user may no longer edit it (now a viewer or
+              // commenter): kept under Unsent edits, never sent again.
               await replaceQueuedSave(item, { ...item, gone: true });
               attention = true;
-              setError(PAGE_GONE);
+              setError(error.code === "forbidden" ? ROLE_LOST : PAGE_GONE);
             } else {
               // A retired generation (already_exists): the next drain reads the container again and re-seals it.
               remaining = true;
