@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"io"
 	"os"
@@ -466,8 +467,10 @@ func TestLargeSnapshotIsSplitAndReassembled(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(dir3, "kynotes.sqlite")); err != nil || !Checks(dir3, m)[0].Passed {
 		t.Fatal("a database that fits is no longer one member:", err)
 	}
-	if got := ErrorCode(ErrDatabaseTooLarge); got != "database_too_large" {
-		t.Fatal(got)
+	for _, e := range []error{ErrDatabaseTooLarge, fmt.Errorf("%w: payload expands past the limit", capsule.ErrCapsuleTooLarge)} {
+		if got := ErrorCode(e); got != "database_too_large" {
+			t.Fatal(e, got)
+		}
 	}
 	st, err := svc.Status()
 	if err != nil || st.DatabaseBytes <= 0 || st.CapsuleLimitBytes != capsule.MaxExpandedBytes {

@@ -6,10 +6,39 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Busnes-app/kynotes-server/internal/config"
 )
+
+// Q7: comment creation has its own bucket; reading comments and other routes are not in it.
+func TestCommentCreationIsRateLimited(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.RateLimit.UploadPerMinute = 1
+	h := rateLimitMiddleware(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	call := func(method, path string) int {
+		req := httptest.NewRequest(method, path, nil)
+		req.RemoteAddr = "203.0.113.7:44444"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if got := call("POST", "/api/v1/objects/obj_a/comments"); got != http.StatusOK {
+		t.Fatalf("first comment=%d", got)
+	}
+	if got := call("POST", "/api/objects/obj_b/comments"); got != http.StatusTooManyRequests {
+		t.Fatalf("second comment=%d, want 429", got)
+	}
+	if got := call("GET", "/api/v1/objects/obj_a/comments"); got != http.StatusOK {
+		t.Fatalf("reading comments=%d, want 200", got)
+	}
+	if got := call("POST", "/api/v1/containers/cnt_a/uploads"); got != http.StatusOK {
+		t.Fatalf("upload after comments=%d, want its own bucket", got)
+	}
+}
 
 // Q7: a comment is capped at 64 KiB, charged to the notebook owner's quota, and frees its bytes
 // once its page is gone.
@@ -50,6 +79,10 @@ func TestCommentsAreCappedAndCharged(t *testing.T) {
 	}
 	if gone, err := usedBytes(tm.owner.db, ownerScope, pairUser, ""); err != nil || gone != before {
 		t.Fatalf("deleted page's comments still charged: %d (before %d) %v", gone, before, err)
+	}
+	// ...and a deleted page takes no new ones, which would never be charged.
+	if code, out := comment(100); code != http.StatusNotFound {
+		t.Fatalf("comment on a deleted page=%d %s", code, out)
 	}
 }
 

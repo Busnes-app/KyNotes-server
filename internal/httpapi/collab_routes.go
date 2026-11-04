@@ -269,7 +269,8 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 			return
 		}
 		var cid, role string
-		if db.QueryRow(`SELECT o.container_id,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, oid).Scan(&cid, &role) != nil {
+		// A deleted page (or a deleted notebook's page) takes no comments: they would never be charged.
+		if db.QueryRow(`SELECT o.container_id,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND o.deleted_at='' AND m.revoked_at=''`, s.UserID, oid).Scan(&cid, &role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}

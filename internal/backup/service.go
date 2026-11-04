@@ -111,7 +111,8 @@ func ErrorCode(err error) string {
 		return "invalid_backup_setting"
 	case errors.Is(err, recoveryclient.ErrReceiptUnrecorded):
 		return "receipt_unrecorded"
-	case errors.Is(err, ErrDatabaseTooLarge):
+	case errors.Is(err, ErrDatabaseTooLarge), errors.Is(err, capsule.ErrCapsuleTooLarge):
+		// Past the container limit: everything but the database is kilobytes.
 		return "database_too_large"
 	case errors.Is(err, ErrClosed):
 		return "backup_stopping"

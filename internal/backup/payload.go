@@ -72,15 +72,18 @@ func partNames(n int) []string {
 
 // readSnapshot reads the snapshot as one member when it fits, else as ordered parts.
 func readSnapshot(path string) ([][]byte, error) {
+	// Sized before it is read: a database past the container limit is refused without loading it.
+	if info, err := os.Stat(path); err != nil {
+		return nil, err
+	} else if info.Size() > capsule.MaxExpandedBytes {
+		return nil, ErrDatabaseTooLarge
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	if len(data) == 0 {
 		return nil, errors.New("database snapshot empty")
-	}
-	if int64(len(data)) > capsule.MaxExpandedBytes {
-		return nil, ErrDatabaseTooLarge
 	}
 	var parts [][]byte
 	for len(data) > 0 {
@@ -205,14 +208,6 @@ func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 		recipe.RequiredFiles = append(recipe.RequiredFiles, vapidMember)
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return p, e
-	}
-	// Seal refuses a tar stream over the expanded limit; say why before it does.
-	var total int64
-	for _, f := range p.Files {
-		total += int64(len(f.Data)) + 1024 // header and padding
-	}
-	if total+64<<10 > capsule.MaxExpandedBytes {
-		return p, ErrDatabaseTooLarge
 	}
 	// Recipe lists only paths and counts. Effective configuration (including secrets)
 	// and the blob inventory are members inside the encrypted payload.

@@ -86,3 +86,13 @@ describe("projection cache", () => {
     }
   });
 });
+
+describe("malformed pages", () => {
+  // Another member's client may save null or non-block children: the task walk skips them instead of breaking render.
+  it("finds tasks around null blocks", () => {
+    const canvas = JSON.stringify({ format: "kynotes.canvas.v1", boxes: [{ id: "b1", x: 0, y: 0, width: 640, blocks: [{ type: "paragraph", children: [null, 5, { type: "checkListItem", content: "Still found" }] }] }], strokes: [] });
+    const doc = JSON.stringify({ format: "kynotes.blocknote.v1", document: [null, { type: "checkListItem", content: "Here too" }] });
+    expect(noteTasks({ id: "x", title: "", body: canvas, updatedAt: "" })).toEqual(["Still found"]);
+    expect(noteTasks({ id: "y", title: "", body: doc, updatedAt: "" })).toEqual(["Here too"]);
+  });
+});

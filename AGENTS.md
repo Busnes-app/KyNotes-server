@@ -98,7 +98,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   share links leave ink out (`withoutInk`); another tab signing in as a different account reloads this one
   (`kynotes-account` channel); `e2e/council-pass3.e2e.ts`. A comment's ciphertext is at most 64 KiB
   (`MaxCommentBytes`, 413 `payload_too_large`), is charged to quota while its page lives (413 `quota_exceeded`),
-  and creation shares `upload_per_minute` per account; a deleted notebook's finalized previews stop counting
+  and creation has its own per-account bucket at `upload_per_minute`'s rate; a deleted page takes no comments; a deleted notebook's finalized previews stop counting
   (`TestCommentsAreCappedAndCharged`, `TestDeletedNotebookPreviewsAreNotCharged`). `copy-data-dir` and
   `restore-data-dir` follow a symlinked root, refuse links inside it and skip `.restore-*`/`snapshot-*`; restore
   refuses unknown arguments; `gc --now` opens with `OpenCurrent` (`cmd/kynotes-server/council_pass3_test.go`).

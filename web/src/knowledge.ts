@@ -67,7 +67,8 @@ function parseTasks(source: string): string[] {
       ? content.map((item) => typeof item === "object" && item !== null && "text" in item && typeof item.text === "string" ? item.text : "").join("")
       : typeof content === "string" ? content : "";
     const visit = (block: { type?: string; props?: Record<string, unknown>; content?: unknown; children?: unknown[] }, depth = 0) => {
-      if (depth > MAX_TASK_DEPTH) return;
+      // Another member's client may have saved anything here: skip what is not a block.
+      if (depth > MAX_TASK_DEPTH || typeof block !== "object" || block === null) return;
       if (block.type === "checkListItem" && block.props?.checked !== true) {
         const value = text(block.content).trim();
         if (value) tasks.push(value);
