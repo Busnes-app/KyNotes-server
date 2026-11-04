@@ -1612,6 +1612,9 @@ function Workspace({
   /** False when the open page could not be flushed and stays open. */
   async function selectNote(selection: Note, container: Container | null = selected): Promise<boolean> {
     const containerID = container?.id ?? "";
+    // A late caller (a comment reply, a page creation) must not reopen a page under another notebook:
+    // its edits would be sealed with that notebook's key and become unreadable in their own.
+    if (container && (loadingContainerID.current ?? selectedRef.current?.id) !== containerID) return false;
     const previous = selectedNoteRef.current;
     if (previous && previous.id !== selection.id && !(await flushOpenPage())) return false;
     // Search and resurfacing rows hold deferred copies; open the live entry.
@@ -1791,6 +1794,11 @@ function Workspace({
       // Before createObject: an exhausted order key must not leave an empty object behind.
       const order = endOrder(pagesInSection(notesRef.current, sectionsRef.current, sectionID));
       const object = await createObject(selected.id);
+      if ((loadingContainerID.current ?? selectedRef.current?.id) !== selected.id) {
+        // The user left the notebook meanwhile: never open the new page under another one's key.
+        await deleteObject(object.id).catch(() => undefined);
+        return;
+      }
       const note: Note = {
         id: object.id,
         title: "Untitled page",
