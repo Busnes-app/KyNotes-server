@@ -3,6 +3,8 @@ package httpapi
 import (
 	"net/http"
 	"testing"
+
+	"github.com/Busnes-app/kynotes-server/internal/config"
 )
 
 // Deleting a page drops its open conflicts with its versions, so nothing the user cannot reach
@@ -59,5 +61,25 @@ func TestRemovedMembersTeamNotebooksPassToTheTeamOwner(t *testing.T) {
 	var owner string
 	if err := tm.owner.db.QueryRow(`SELECT owner_user_id FROM containers WHERE id=?`, tm.child).Scan(&owner); err != nil || owner != pairUser {
 		t.Fatalf("child notebook still charged to %q (%v), want the team owner", owner, err)
+	}
+}
+
+// An attachment finalized into a notebook deleted meanwhile is not charged to its owner forever.
+func TestDeletedNotebooksLeaveTheQuota(t *testing.T) {
+	u := newUploadClient(t, func(c *config.Config) { c.Limits.UserQuotaBytes = 10 })
+	if _, err := u.db.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',10,'now')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES('att_late00000000000000000000000',?,'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',10,x'',1,1,'now')`, u.container); err != nil {
+		t.Fatal(err)
+	}
+	if over, err := quotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, u.container, "", 1); err != nil || !over {
+		t.Fatalf("live attachment not charged: %v %v", over, err)
+	}
+	if _, err := u.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, u.container); err != nil {
+		t.Fatal(err)
+	}
+	if over, err := userQuotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, "usr_upload_test", 0, "", 1); err != nil || over {
+		t.Fatalf("deleted notebook's attachment still charged: %v %v", over, err)
 	}
 }
