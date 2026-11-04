@@ -377,6 +377,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			now := time.Now().UTC().Format(time.RFC3339)
 			e = dbTx(db, func(tx *sql.Tx) error {
 				if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
+					dropUnclaimed(tx, blobs, digest)
 					return e
 				}
 				if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
@@ -404,9 +405,11 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		}
 		e = dbTx(db, func(tx *sql.Tx) error {
 			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); e != nil {
+				dropUnclaimed(tx, blobs, digest)
 				return e
 			}
 			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
+				dropUnclaimed(tx, blobs, digest)
 				return e
 			}
 			if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {

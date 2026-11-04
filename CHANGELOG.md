@@ -4,7 +4,7 @@
 
 ### Security
 
-- Deleted notebooks refuse new attachment and preview uploads, including uploads that race their deletion. Historical live attachment rows remain charged to quota until garbage collection completes their notebook deletion and reclaims them.
+- Deleted notebooks refuse new attachment and preview uploads, including uploads that race their deletion. A finalization refused after moving its bytes removes the unclaimed file while preserving already-claimed blobs. Historical live attachment rows remain charged to quota until garbage collection completes their notebook deletion and reclaims them.
 
 ### Changes
 

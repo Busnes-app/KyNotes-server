@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -151,5 +153,84 @@ func TestGCTombstonesLegacyDeletedNotebookUploads(t *testing.T) {
 	}
 	if over, err := userQuotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, "usr_upload_test", 0, "", 1); err != nil || over {
 		t.Fatalf("reclaimed late attachment remains charged: %v %v", over, err)
+	}
+}
+
+// Hold the writer lock until Finalize has moved the file, then commit a notebook deletion.
+// Both transaction gates must refuse and remove the otherwise-untracked permanent file.
+func TestRefusedUploadFinalizeDropsUnclaimedFile(t *testing.T) {
+	for _, kind := range []string{"attachment", "preview"} {
+		t.Run(kind, func(t *testing.T) {
+			u := newUploadClient(t)
+			sum := sha256.Sum256([]byte("abcd"))
+			digest := hex.EncodeToString(sum[:])
+			var up struct {
+				ID string `json:"uploadId"`
+			}
+			body := []byte(`{"declaredBytes":4,"expectedDigest":"` + digest + `","kind":"` + kind + `"}`)
+			code, out := status(t, u.do(t, http.MethodPost, "/api/v1/containers/"+u.container+"/uploads", body, true))
+			if code != http.StatusOK || json.Unmarshal([]byte(out), &up) != nil {
+				t.Fatalf("create=%d %s", code, out)
+			}
+			if code, out := status(t, u.chunk(t, up.ID, 0, "abcd")); code != http.StatusOK {
+				t.Fatalf("chunk=%d %s", code, out)
+			}
+			tx, err := u.db.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			req, err := http.NewRequest(http.MethodPost, u.url+"/api/v1/uploads/"+up.ID+"/finalize", strings.NewReader(`{"metadataCiphertext":"","keyGeneration":1}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(keySchemeHeader, keySchemeShared)
+			for _, c := range u.hc.Jar.Cookies(req.URL) {
+				req.AddCookie(c)
+				if c.Name == "csrf_token" {
+					req.Header.Set("X-CSRF-Token", c.Value)
+				}
+			}
+			done := make(chan int, 1)
+			go func() {
+				client := &http.Client{Timeout: 10 * time.Second}
+				res, err := client.Do(req)
+				if err != nil {
+					done <- 0
+					return
+				}
+				res.Body.Close()
+				done <- res.StatusCode
+			}()
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				if _, present, err := u.blobs.Stat(digest); err != nil {
+					t.Fatal(err)
+				} else if present {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("finalization did not move its file before the transaction")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if _, err := tx.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, u.container); err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			if code := <-done; code != http.StatusNotFound {
+				t.Fatalf("finalize after delete=%d", code)
+			}
+			if _, present, err := u.blobs.Stat(digest); err != nil || present {
+				t.Fatalf("refusal left an unclaimed file: present=%v err=%v", present, err)
+			}
+			var rows int
+			if err := u.db.QueryRow(`SELECT COUNT(*) FROM blobs WHERE digest=?`, digest).Scan(&rows); err != nil || rows != 0 {
+				t.Fatalf("refusal claimed %d blob rows: %v", rows, err)
+			}
+		})
 	}
 }
