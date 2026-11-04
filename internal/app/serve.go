@@ -32,6 +32,8 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 		return err
 	}
 	defer unlock()
+	// A backup killed mid-collect (out of memory, SIGKILL) left a database copy behind.
+	backup.SweepSnapshots(c.DataDir)
 
 	store, err := storage.Open(filepath.Join(c.DataDir, "kynotes.sqlite"))
 	if err != nil {

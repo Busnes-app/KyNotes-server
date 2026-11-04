@@ -51,7 +51,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 512m
+    # A capsule backup holds the database several times over while it seals and drills: measured
+    # 1.55 GB at the 256 MiB capsule limit with GOMEMLIMIT below. A smaller cap OOM-kills the server.
+    mem_limit: 2g
     pids_limit: 256
 
     networks:
@@ -64,6 +66,8 @@ services:
     environment:
       PORT: 8080
       KYNOTES_DATA_DIR: /data
+      # Keeps the Go heap under mem_limit while a large backup seals (see mem_limit above).
+      GOMEMLIMIT: 1536MiB
       # Empty trusts no proxy; set your reverse proxy's own address, e.g. 172.20.0.5/32.
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-admin}

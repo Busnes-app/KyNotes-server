@@ -12,6 +12,8 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   (restore and drill alike). A capsule over `capsule.MaxExpandedBytes` fails as
   `database_too_large`; `Status` reports `database_bytes` and `capsule_limit_bytes`, and Backups
   warns at 80%. ky-primitives limits stay unchanged. Verify `TestLargeSnapshotIsSplitAndReassembled`.
+  Sealing and drilling hold the snapshot several times in memory (measured peak 1.55 GB for 250 MiB of
+  incompressible data with `GOMEMLIMIT=1536MiB`), so `docker-compose.yml` caps the container at 2g, not 512m.
 - Capsule restore turns scheduled deposits off (`DisableSchedule`) and says so; the administrator
   turns them back on (`TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions`). Note-version and attachment blob bytes are recovered separately.
 - Snapshot the live SQLite handle. Collect recipe counts and inventory from that snapshot.
