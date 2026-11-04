@@ -10,13 +10,19 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"time"
 )
 
-func CollabRoutes(mux RouteMux, db *sql.DB) {
+// MaxCommentBytes caps one comment's ciphertext (owner decision Q7).
+const MaxCommentBytes = 64 << 10
+
+var errCommentPageGone = errors.New("comment page deleted")
+
+func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 	mux.Handle("GET /api/v1/containers/{id}/members", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		cid := r.PathValue("id")
@@ -265,7 +271,8 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			return
 		}
 		var cid, role string
-		if db.QueryRow(`SELECT o.container_id,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND m.revoked_at=''`, s.UserID, oid).Scan(&cid, &role) != nil {
+		// A deleted page (or a deleted notebook's page) takes no comments: they would never be charged.
+		if db.QueryRow(`SELECT o.container_id,m.role FROM objects o JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? WHERE o.id=? AND o.deleted_at='' AND m.revoked_at=''`, s.UserID, oid).Scan(&cid, &role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -294,10 +301,29 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
+		if len(body) > MaxCommentBytes {
+			WriteError(w, r, 413, "payload_too_large", "This comment is too long. Shorten it, or put the text on the page.")
+			return
+		}
 		id, _ := ids.Mint("cmt")
 		now := time.Now().UTC().Format(time.RFC3339)
 		e = dbTx(db, func(tx *sql.Tx) error {
 			if e := checkWriteGate(tx, cid, s.UserID, int64(in.KeyGeneration), r.Header.Get(keySchemeHeader)); e != nil {
+				return e
+			}
+			// Again inside the write: a page deleted meanwhile has dropped its comments and takes no new one.
+			var live int
+			if e := tx.QueryRow(`SELECT COUNT(*) FROM objects WHERE id=? AND deleted_at=''`, oid).Scan(&live); e != nil || live == 0 {
+				if e == nil {
+					e = errCommentPageGone
+				}
+				return e
+			}
+			// Comments are stored writes like any other: charged to the notebook owner's and team's quota.
+			if over, e := quotaExceeded(tx, limits, cid, "", int64(len(body))); e != nil || over {
+				if e == nil {
+					e = errQuota
+				}
 				return e
 			}
 			var seq int64
@@ -319,6 +345,14 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			}
 			return nil
 		})
+		if errors.Is(e, errQuota) {
+			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			return
+		}
+		if errors.Is(e, errCommentPageGone) {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
 		if writeTeamKeyError(w, r, e) {
 			return
 		}

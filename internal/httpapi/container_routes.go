@@ -211,6 +211,7 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 				`DELETE FROM object_versions WHERE object_id IN (SELECT id FROM objects WHERE container_id IN ` + scope + `)`,
 				`DELETE FROM attachment_refs WHERE object_id IN (SELECT id FROM objects WHERE container_id IN ` + scope + `)`,
 				`DELETE FROM conflicts WHERE container_id IN ` + scope,
+				`DELETE FROM comments WHERE container_id IN ` + scope,
 				`UPDATE objects SET deleted_at=?2 WHERE deleted_at='' AND container_id IN ` + scope,
 				`UPDATE attachments SET deleted_at=?2 WHERE deleted_at='' AND container_id IN ` + scope,
 				`UPDATE upload_sessions SET status='failed',updated_at=?2 WHERE status='pending' AND container_id IN ` + scope,

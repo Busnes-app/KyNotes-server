@@ -91,7 +91,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   (`readOnly`, `saveNow`) refuses; a comment draft is cleared on page change; a drawing-only page is not shared (`inkOnly`, `document.test.ts`); a
   missing lazy chunk reloads the tab once per failure, never while offline, and `CanvasBoundary` keeps the app if
   the editor still cannot load (`e2e/council-pass1.e2e.ts`). A comment reply or page creation that finishes after
-  a notebook switch never reopens its page (`selectNote`/`newNote` check the open notebook).
+  a notebook switch never reopens its page (`selectNote`/`newNote` check the open notebook). Pass 3: a result that lands after an await (rename, a comment's re-key, the team key pass)
+  updates `selected` only while that notebook is still open; New page flushes the open page first; a page body
+  that cannot be projected (malformed or very deep blocks from another member's client) indexes as no text
+  (`documentText`, `document.test.ts`); a v1 conflict this browser has no key for keeps the migration partial;
+  share links leave ink out (`withoutInk`); another tab signing in as a different account reloads this one
+  (`kynotes-account` channel); `e2e/council-pass3.e2e.ts`. A comment's ciphertext is at most 64 KiB
+  (`MaxCommentBytes`, 413 `payload_too_large`), is charged to quota (413 `quota_exceeded`),
+  and creation has its own per-account bucket at `upload_per_minute`'s rate; page and notebook deletes drop their
+  comments and a deleted page takes no new ones; a deleted notebook's finalized previews stop counting
+  (`TestCommentsAreCappedAndCharged`, `TestDeletedNotebookPreviewsAreNotCharged`). `copy-data-dir` and
+  `restore-data-dir` follow a symlinked root, refuse links inside it and skip `.restore-*`/`snapshot-*`; restore
+  refuses unknown arguments; `gc --now` opens with `OpenCurrent` (`cmd/kynotes-server/council_pass3_test.go`).
 
 ## Shared browser UI
 

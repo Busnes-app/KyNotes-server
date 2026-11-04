@@ -111,6 +111,9 @@ func ErrorCode(err error) string {
 		return "invalid_backup_setting"
 	case errors.Is(err, recoveryclient.ErrReceiptUnrecorded):
 		return "receipt_unrecorded"
+	case errors.Is(err, ErrDatabaseTooLarge), errors.Is(err, capsule.ErrCapsuleTooLarge):
+		// Past the container limit: everything but the database is kilobytes.
+		return "database_too_large"
 	case errors.Is(err, ErrClosed):
 		return "backup_stopping"
 	default:
@@ -287,6 +290,9 @@ type Status struct {
 	BlobCount            int64                      `json:"blob_count"`
 	BlobBytes            int64                      `json:"blob_bytes"`
 	AllowPrivateRecovery bool                       `json:"allow_private_recovery"`
+	// DatabaseBytes estimates the snapshot (used pages); Backups warns at 80% of CapsuleLimitBytes.
+	DatabaseBytes     int64 `json:"database_bytes"`
+	CapsuleLimitBytes int64 `json:"capsule_limit_bytes"`
 }
 
 func (s *Service) Status() (Status, error) {
@@ -346,9 +352,19 @@ func (s *Service) Status() (Status, error) {
 	if err != nil {
 		return st, err
 	}
+	st.CapsuleLimitBytes = capsule.MaxExpandedBytes
+	if err = s.store.DB().QueryRow(`SELECT (page_count-freelist_count)*page_size FROM pragma_page_count(),pragma_freelist_count(),pragma_page_size()`).Scan(&st.DatabaseBytes); err != nil {
+		return st, err
+	}
 	_ = s.store.DB().QueryRow(`SELECT outcome FROM audit_events WHERE event='admin.backup_run' ORDER BY at DESC,rowid DESC LIMIT 1`).Scan(&st.LastResult)
 	st.Mirror, err = s.mirrorStatus()
 	return st, err
+}
+
+// DisableSchedule turns scheduled deposits off; a restored capsule must not deposit as the
+// original service until its administrator turns them back on.
+func DisableSchedule(store *storage.Store) error {
+	return recoveryclient.SetInterval(settings{store}, 0)
 }
 func (s *Service) defaultInterval() time.Duration {
 	d, _ := time.ParseDuration(s.cfg.Backup.DepositInterval)

@@ -165,6 +165,10 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			if _, e := tx.Exec(`DELETE FROM attachment_refs WHERE object_id=?`, oid); e != nil {
 				return e
 			}
+			// A gone page's comments go with its versions, so their bytes leave the quota and the disk.
+			if _, e := tx.Exec(`DELETE FROM comments WHERE object_id=?`, oid); e != nil {
+				return e
+			}
 			_, e := tx.Exec(`DELETE FROM object_versions WHERE object_id=?`, oid)
 			return e
 		}); e != nil {

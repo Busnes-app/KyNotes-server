@@ -80,7 +80,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		}
 		ContainerRoutes(mux, db)
 		SyncRoutes(mux, db)
-		CollabRoutes(mux, db)
+		CollabRoutes(mux, db, cfg.Limits)
 		PushRoutes(mux, db)
 		ReminderRoutes(mux, db, push)
 		DeviceRoutes(mux, db, cfg)

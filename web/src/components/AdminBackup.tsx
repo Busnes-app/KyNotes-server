@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { backupAction, backupStatus, downloadCapsule, runBackup, runDrill, runMirror, scheduleNote, type BackupStatus } from "../backup";
+import { backupAction, backupStatus, downloadCapsule, runBackup, runDrill, runMirror, scheduleNote, capsuleNearLimit, type BackupStatus } from "../backup";
 import { withStepUp } from "../stepup";
 
 export function AdminBackup({ username }: { username: string }) {
@@ -33,6 +33,7 @@ export function AdminBackup({ username }: { username: string }) {
       {!status.keyID && <p role="status">Pair with KyRecovery or pin the suite public key by hand to enable backups.</p>}
       {status.keyID && !status.paired && !status.localDirectory && <p role="status">The key is pinned, but there is no destination. Pair KyRecovery or configure KYNOTES_BACKUP_DIR.</p>}
       {!status.intervalSeconds && <p role="status">Automatic backups are off.</p>}
+      {capsuleNearLimit(status) && <p role="alert">The database ({status.databaseBytes.toLocaleString()} bytes) is past 80% of what one capsule can hold ({status.capsuleLimitBytes.toLocaleString()} bytes). Once it is full, backups stop: delete unneeded notebooks or old pages.</p>}
       <p>{status.blobCount} ciphertext blobs ({status.blobBytes.toLocaleString()} bytes) are excluded from capsules.</p>
     </>}
     <div className="backup-actions">

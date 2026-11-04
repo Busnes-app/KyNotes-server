@@ -7,6 +7,7 @@ export type BackupStatus = {
   receipt: { id: string; digest: string; at: string } | null;
   mirror: { configured: boolean; target: string; pending: number; last: MirrorStats | null };
   blobCount: number; blobBytes: number; allowPrivate: boolean;
+  databaseBytes: number; capsuleLimitBytes: number;
 };
 type MirrorStats = { uploaded: number; skipped: number; failed: number; missing: number };
 function mirrorStats(value: unknown): MirrorStats {
@@ -33,8 +34,11 @@ export function parseBackupStatus(value: unknown): BackupStatus {
     localError: text(value.local_error ?? ""), intervalSeconds: number(value.interval_seconds),
     nextRun: value.next_run === null ? null : text(value.next_run), lastAttempt: text(value.last_attempt), lastResult: text(value.last_result),
     receipt, blobCount: number(value.blob_count), blobBytes: number(value.blob_bytes), allowPrivate: value.allow_private_recovery,
+    databaseBytes: number(value.database_bytes ?? 0), capsuleLimitBytes: number(value.capsule_limit_bytes ?? 0),
   };
 }
+/** The database has reached 80% of what one capsule can hold. */
+export const capsuleNearLimit = (s: BackupStatus): boolean => s.capsuleLimitBytes > 0 && s.databaseBytes >= s.capsuleLimitBytes * 0.8;
 // A schedule only runs with a pinned key and a destination; otherwise say what it waits for.
 export function scheduleNote(s: BackupStatus): string {
   if (!s.intervalSeconds) return "Manual only";
@@ -47,7 +51,10 @@ export function backupAction(action: "pin-key" | "pair-remote" | "unpair" | "sch
   return request<unknown>(`/api/v1/admin/backup/${action}`, { method: "POST", body: JSON.stringify(body) });
 }
 export async function runBackup(): Promise<string> {
-  const value = await request<unknown>("/api/v1/admin/backup/deposit", { method: "POST" });
+  const value = await request<unknown>("/api/v1/admin/backup/deposit", { method: "POST" }).catch((error: unknown) => {
+    if (error instanceof APIRequestError && error.code === "database_too_large") throw new Error("The database is now larger than one capsule can hold, so no backup was made. Delete unneeded notebooks or old pages, then back up again.");
+    throw error;
+  });
   if (!record(value) || !record(value.result)) throw new Error("Invalid backup result");
   const local = typeof value.result.local_path === "string" && value.result.local_path !== "";
   const remote = record(value.result.receipt);

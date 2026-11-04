@@ -161,14 +161,16 @@ running, so `copy-data-dir`, `restore-data-dir`, `user add`, `quota set`, `boots
 `integrity-check` and `consistency-check` refuse to run beside it: stop the service first.
 The lock file stays after the server exits; it is the held lock that counts, so a crashed
 server never blocks the next start. Do not delete the file by hand. `gc --now` is the
-exception: it runs beside the live server and refuses an unparsable or negative `--retention`.
+exception: it runs beside the live server, refuses an unparsable or negative `--retention`, and
+refuses a database another release's schema wrote (so a newer image never migrates it under the live server).
 
 `copy-data-dir --out DIR` needs an absent or empty `DIR` outside the data directory.
-`restore-data-dir --in DIR [--force] [--revoke-credentials]` refuses an `--in` without `kynotes.sqlite`,
+`restore-data-dir --in DIR [--force] [--revoke-credentials]` refuses an unknown argument and an `--in` without `kynotes.sqlite`,
 `secrets/pairing.key` and `secrets/serversalt.key`. It copies `--in` into a staging
 directory inside the data directory, integrity-checks the staged database, then moves the
 current entries into `.restore-previous-<random>` and the staged ones into place by rename,
-so a failed copy or check leaves the data untouched. The data directory itself is never
+so a failed copy or check leaves the data untouched. Both commands follow a symlinked `--in` or data
+directory, refuse a link inside it instead of dropping it, and skip earlier `.restore-*` and `snapshot-*` leftovers. The data directory itself is never
 renamed because it is usually a mount point. Remove `.restore-previous-*` yourself once the
 restored server checks out.
 

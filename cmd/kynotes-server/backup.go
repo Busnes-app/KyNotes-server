@@ -227,7 +227,10 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 	if err = revokeRestoredCredentials(store); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s (%s). Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID), verified)
+	if err = backup.DisableSchedule(store); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s (%s). Verify its receipt and recover ciphertext blobs before starting KyNotes.\nScheduled deposits are off: turn them back on under Backups once this server is the one in service.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID), verified)
 	return err
 }
 

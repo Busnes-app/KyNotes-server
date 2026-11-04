@@ -122,6 +122,9 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 	if strings.Contains(output.String(), shares[0].String()) || strings.Contains(output.String(), cfg.Secrets.ServerSaltKey) {
 		t.Fatal("restore printed secrets")
 	}
+	if !strings.Contains(output.String(), "Scheduled deposits are off") {
+		t.Fatalf("restore did not say deposits are off: %s", output.String())
+	}
 	got, err := config.Load(filepath.Join(target, "kynotes.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +158,11 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 		if err != nil || string(raw) != want {
 			t.Fatal("restored ciphertext differs")
 		}
+	}
+	// Q9: a restored capsule never deposits as the original service on its own.
+	var interval string
+	if err = restored.DB().QueryRow(`SELECT value FROM server_settings WHERE key='backup_interval_sec'`).Scan(&interval); err != nil || interval != "0" {
+		t.Fatal("restore left scheduled deposits on:", interval, err)
 	}
 	var verifier, revoked string
 	if err = restored.DB().QueryRow(`SELECT auth_secret_hash FROM users WHERE id='usr_fixture'`).Scan(&verifier); err != nil {

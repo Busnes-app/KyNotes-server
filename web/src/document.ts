@@ -207,7 +207,6 @@ export function stringifyNoteDocument(document: PartialBlock[]): string {
 }
 
 export function documentText(body: string): string {
-  const value = pageBlocks(body);
   const text: string[] = [];
   const visit = (node: PartialBlock) => {
     if (typeof node.content === "string") text.push(node.content);
@@ -223,12 +222,21 @@ export function documentText(body: string): string {
     if (node.type === "image" && typeof node.props?.name === "string") text.push(`[${node.props.name}]`);
     node.children?.forEach(visit);
   };
-  value.forEach(visit);
+  // Another member's client may have saved a malformed or very deep page: it projects as no text
+  // instead of breaking the page list (and every load of the notebook) for everyone.
+  try {
+    pageBlocks(body).forEach(visit);
+  } catch {
+    return "";
+  }
   return text.join(" ");
 }
 
 /** Whether a page body holds ink strokes; the shared view does not draw them. */
 export const hasInk = (body: string): boolean => openPage(body).strokes.length > 0;
+
+/** The page as a share link carries it: the shared view shows text only, so ink is left out. */
+export const withoutInk = (body: string): string => (hasInk(body) ? stringifyCanvasPage({ ...openPage(body), strokes: [] }) : body);
 
 /** A page that is only a drawing: shared, it would show no content. */
 export const inkOnly = (body: string): boolean => hasInk(body) && documentText(body).trim() === "";

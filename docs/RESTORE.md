@@ -33,11 +33,17 @@ shared files. A duplicate share is not another custodian. Use synthetic shares f
 routine automation; testing real cards is a separate custodian-supervised operation.
 
 The command refuses a nonempty target, wrong service, insufficient/invalid shares and
-tampered ciphertext. It verifies the authenticated recipe, table counts, active admin,
-original secrets, key pin and blob inventory. It relocates `data_dir` in the restored
+tampered ciphertext. It verifies the authenticated recipe, table counts,
+original secrets, key pin and blob inventory, and reassembles a database that a large server
+split into ordered members (`kynotes.sqlite.000`, `.001`, ...) before checking its integrity.
+A capsule from a server with no active administrator still restores; the command says so and
+names `kynotes-server user add --admin` to create one. It relocates `data_dir` in the restored
 `kynotes.yaml`. In one transaction it revokes every restored web session, paired device,
 share link and sealed share link, and deletes pending invitations, so nothing revoked after
-the snapshot comes back; account encryption identities are kept. Failure after extraction leaves
+the snapshot comes back; account encryption identities are kept. It also turns scheduled
+deposits off and prints that it did, so a drill or a second host never deposits to KyRecovery as
+the original service: Backups shows the schedule off until the administrator turns it back on
+once this server is the one in service. Failure after extraction leaves
 the target for inspection; preserve it and use another empty target for another attempt.
 
 For Docker, use the image you run (see the note at the top) and a writable target owned by the
@@ -83,7 +89,8 @@ to a ciphertext-only mirror target. Preserve the source and remote history durin
 
 Start from the recovered volume and configuration. Log in again; old sessions are
 revoked. Pair devices again, re-create share links and re-send invitations. Verify account access, device envelopes, a decrypted note and an attachment
-in a trusted browser. Confirm the original recovery key ID and issuer before depositing.
+in a trusted browser. Confirm the original recovery key ID and issuer before depositing, then turn the
+schedule back on under Backups.
 A successful deposit is recorded with capsule ID, digest, receipt time and local result.
 Do not re-pair simply to hide a failed token-decryption or key-pin check.
 
