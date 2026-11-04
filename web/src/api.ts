@@ -72,10 +72,10 @@ export async function checkSetup() {
 
 export type SetupAccount = { username: string; authSecret: string; loginSalt: string; iterations: number };
 
-export function setupInit(admin: SetupAccount, everyday: SetupAccount) {
+export function setupInit(admin: SetupAccount, everyday: SetupAccount, setupToken: string) {
   return request<{ ok: boolean; user: User; expiresAt: string; hardExpiresAt: string }>("/api/v1/setup", {
     method: "POST",
-    body: JSON.stringify({ admin, everyday }),
+    body: JSON.stringify({ admin, everyday, setupToken: setupToken.trim() }),
   });
 }
 

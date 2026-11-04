@@ -393,6 +393,7 @@ function Login({
   const [everydayConfirm, setEverydayConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [setupToken, setSetupToken] = useState("");
   const [sso, setSSO] = useState<{ enabled: boolean; issuerUrl: string; clientId: string } | null>(null);
 
   useEffect(() => {
@@ -423,7 +424,7 @@ function Login({
         const loginSalt = randomLoginSalt();
         return { username: name.trim(), authSecret: (await deriveLoginKeys(secret, loginSalt, 600000)).authSecret, loginSalt, iterations: 600000 };
       };
-      const result = await setupInit(await account(adminName, password), await account(everydayName, everydayPassword));
+      const result = await setupInit(await account(adminName, password), await account(everydayName, everydayPassword), setupToken);
       onLogin({ username: adminName.trim(), authSecret: "", user: result.user });
     } catch (error) {
       setError(error instanceof Error ? error.message : "Setup failed");
@@ -468,6 +469,11 @@ function Login({
         <form className="ky-auth-card setup-form" onSubmit={submitSetup}>
           <h2>Set up KyNotes</h2>
           <p className="setup-lede">Create two accounts: one to run the server and one to write notes with.</p>
+          <label>
+            Setup token
+            <input autoComplete="off" spellCheck={false} value={setupToken} onChange={(event) => setSetupToken(event.target.value)} required />
+          </label>
+          <p className="setup-hint">Proves you run this server. Find it in the server's startup log (<code>docker compose logs kynotes-server</code>) or in <code>secrets/setup.token</code> in its data volume.</p>
           <fieldset>
             <legend>Administrator login</legend>
             <p className="setup-hint">Manages users, teams, sign-on and backups. It cannot open notes.</p>

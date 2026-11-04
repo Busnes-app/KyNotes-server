@@ -54,8 +54,9 @@ func TestSetupFlow(t *testing.T) {
 	}
 
 	setupPayload := map[string]any{
-		"admin":    map[string]any{"username": "admin", "authSecret": authSecret, "loginSalt": salt, "iterations": 600000},
-		"everyday": map[string]any{"username": "owner", "authSecret": strings.Repeat("b", 64), "loginSalt": salt, "iterations": 600000},
+		"admin":      map[string]any{"username": "admin", "authSecret": authSecret, "loginSalt": salt, "iterations": 600000},
+		"everyday":   map[string]any{"username": "owner", "authSecret": strings.Repeat("b", 64), "loginSalt": salt, "iterations": 600000},
+		"setupToken": testSetupToken,
 	}
 	setupBytes, _ := json.Marshal(setupPayload)
 	req2 := httptest.NewRequest("POST", "/api/v1/setup", bytes.NewReader(setupBytes))

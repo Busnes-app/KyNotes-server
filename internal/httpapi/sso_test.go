@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -36,9 +37,18 @@ func setupTestDB(t *testing.T) (*sql.DB, config.Config) {
 	cfg.DataDir = dir
 	cfg.Secrets.ServerSaltKey = "test-salt-key-32-bytes-long-1234"
 	cfg.Server.DevInsecureCookies = true
+	if err := os.MkdirAll(filepath.Join(dir, "secrets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SetupTokenPath(dir), []byte(testSetupToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	return store.DB(), cfg
 }
+
+// testSetupToken is the first-run setup token setupTestDB leaves in its data directory.
+const testSetupToken = "0123456789abcdef0123456789abcdef"
 
 func createAdminUser(t *testing.T, db *sql.DB) (string, string) {
 	userID, _ := ids.Mint("usr")

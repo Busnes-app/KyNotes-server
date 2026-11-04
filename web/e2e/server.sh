@@ -20,6 +20,9 @@ ratelimit:
   login_per_minute: 120
 YAML
 (cd "$root" && go build -o "$data/kynotes-server" ./cmd/kynotes-server)
+# The first-run setup token the checks type (people.ts SETUP_TOKEN); the server keeps an existing one.
+mkdir -m 700 "$data/secrets"
+(umask 077; echo "e2e0setup0token0000000000000000" > "$data/secrets/setup.token")
 # Background plus wait, so a SIGTERM to this script reaches the server instead of orphaning it.
 "$data/kynotes-server" --config "$data/kynotes.yaml" &
 server=$!

@@ -118,7 +118,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   blocks; `TestDirectoryLock*`) and first-run
   bootstrap: only when no users exist, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the administrator
   account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS` the everyday account (different
-  usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, or use
+  usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, given the one-time setup token
+  (`httpapi.EnsureSetupToken`: `secrets/setup.token`, 0600, minted at start while no account exists, kept
+  across restarts, logged as `setup_token`, deleted by setup and by any start that finds accounts;
+  `TestSetupNeedsTheOneTimeToken`; e2e `server.sh` seeds a known one), or use
   `user add [--admin | --everyday]` (default everyday, flagged). Start-up logs `no_active_admin` with the
   CLI remedy in the message when accounts exist but no active administrator account does (`WarnWithoutAdmin`,
   `TestServeWarnsWithoutAdmin`). The probe refuses an administrator account at login;

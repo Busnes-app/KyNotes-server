@@ -57,7 +57,10 @@ mounts.
 
 An account is an administrator account (manages KyNotes, cannot open notes) or an
 everyday account (writes notes), never both. The web first-run setup creates one of
-each. On an empty database, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` create the
+each. While no account exists the server keeps a one-time setup token in
+`secrets/setup.token` (0600) and logs it at every start (`setup_token`); the setup screen asks
+for it and setup deletes it, so a stranger who reaches a fresh install first cannot claim it.
+Delete the file and restart to mint a new one. On an empty database, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` create the
 administrator account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS`
 the everyday account (a different username); both must change their password at first
 sign-in. If the log shows `no_active_admin`, no administrator account is left: create one

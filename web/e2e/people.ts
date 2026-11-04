@@ -128,6 +128,8 @@ export async function shoot(prefix: string, page: Page, phase: string, state: st
 
 export const ADMIN = { username: "admin", password: "admin horse battery staple" };
 export const OWNER = { username: "owner", password: "my own horse battery staple" };
+/** The first-run setup token e2e/server.sh leaves in the throwaway data directory. */
+export const SETUP_TOKEN = "e2e0setup0token0000000000000000";
 
 /** The administrator console in page: first-run setup once per server (every e2e file shares it), else a sign-in. */
 export async function adminConsole(page: Page) {
@@ -135,6 +137,7 @@ export async function adminConsole(page: Page) {
   const required = await page.evaluate(async () => ((await (await fetch("/api/v1/setup")).json()) as { setupRequired: boolean }).setupRequired);
   if (required) {
     await shoot("admin-separation", page, "setup", "first-run", page.getByRole("button", { name: "Initialize KyNotes" }));
+    await page.getByLabel("Setup token").fill(SETUP_TOKEN);
     await page.getByLabel("Administrator username").fill(ADMIN.username);
     await page.getByLabel("Administrator password", { exact: true }).fill(ADMIN.password);
     await page.getByLabel("Confirm administrator password").fill(ADMIN.password);
