@@ -21,6 +21,11 @@ import (
 )
 
 var members = []string{"kynotes.sqlite", "secrets/pairing.key", "secrets/serversalt.key", "recovery.pub", "kynotes.yaml", "blob-inventory.json"}
+
+// vapidMember is in every capsule made since it was added, so restored push subscriptions keep
+// their key; a capsule without it (older, or a server that never started) still restores.
+const vapidMember = "secrets/vapid.key"
+
 var tables = []string{"users", "devices", "key_envelopes", "containers", "objects", "object_versions", "attachments", "blobs", "server_settings"}
 
 type Blob struct {
@@ -117,6 +122,12 @@ func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 		}
 		p.Files = append(p.Files, recoveryclient.File{Path: members[i+1], Data: data, Mode: 0600})
 	}
+	if data, e := readMember(filepath.Join(s.cfg.DataDir, vapidMember)); e == nil {
+		p.Files = append(p.Files, recoveryclient.File{Path: vapidMember, Data: data, Mode: 0600})
+		recipe.RequiredFiles = append(recipe.RequiredFiles, vapidMember)
+	} else if !errors.Is(e, os.ErrNotExist) {
+		return p, e
+	}
 	// Recipe lists only paths and counts. Effective configuration (including secrets)
 	// and the blob inventory are members inside the encrypted payload.
 	raw, _ := json.Marshal(recipe)
@@ -140,7 +151,7 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var recipe Recipe
-	if err = decoder.Decode(&recipe); err != nil || recipe.Version != 1 || !slices.Equal(recipe.RequiredFiles, members) || !slices.Equal(recipe.SQLitePaths, []string{members[0]}) || len(recipe.Counts) != len(tables) {
+	if err = decoder.Decode(&recipe); err != nil || recipe.Version != 1 || !(slices.Equal(recipe.RequiredFiles, members) || slices.Equal(recipe.RequiredFiles, append(slices.Clone(members), vapidMember))) || !slices.Equal(recipe.SQLitePaths, []string{members[0]}) || len(recipe.Counts) != len(tables) {
 		return fail("missing or malformed required recipe")
 	}
 	root, err := os.OpenRoot(dir)
