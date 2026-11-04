@@ -20,6 +20,8 @@ import (
 // MaxCommentBytes caps one comment's ciphertext (owner decision Q7).
 const MaxCommentBytes = 64 << 10
 
+var errCommentPageGone = errors.New("comment page deleted")
+
 func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 	mux.Handle("GET /api/v1/containers/{id}/members", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
@@ -309,6 +311,14 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 			if e := checkWriteGate(tx, cid, s.UserID, int64(in.KeyGeneration), r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
+			// Again inside the write: a page deleted meanwhile has dropped its comments and takes no new one.
+			var live int
+			if e := tx.QueryRow(`SELECT COUNT(*) FROM objects WHERE id=? AND deleted_at=''`, oid).Scan(&live); e != nil || live == 0 {
+				if e == nil {
+					e = errCommentPageGone
+				}
+				return e
+			}
 			// Comments are stored writes like any other: charged to the notebook owner's and team's quota.
 			if over, e := quotaExceeded(tx, limits, cid, "", int64(len(body))); e != nil || over {
 				if e == nil {
@@ -337,6 +347,10 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 		})
 		if errors.Is(e, errQuota) {
 			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			return
+		}
+		if errors.Is(e, errCommentPageGone) {
+			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
 		if writeTeamKeyError(w, r, e) {

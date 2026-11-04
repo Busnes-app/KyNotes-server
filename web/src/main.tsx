@@ -1812,10 +1812,10 @@ function Workspace({
   }
   async function newNote() {
     if (!selected || keyWait || readOnly()) return;
-    // The open page's pending edit goes first, as on any other page switch.
-    if (!(await flushOpenPage())) return;
     setBusy(true);
     try {
+      // The open page's pending edit goes first, as on any other page switch.
+      if (!(await flushOpenPage())) return;
       // Before createObject: an exhausted order key must not leave an empty object behind.
       const order = endOrder(pagesInSection(notesRef.current, sectionsRef.current, sectionID));
       const object = await createObject(selected.id);

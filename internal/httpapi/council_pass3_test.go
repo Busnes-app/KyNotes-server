@@ -74,9 +74,15 @@ func TestCommentsAreCappedAndCharged(t *testing.T) {
 	if code, out := comment(100); code != http.StatusRequestEntityTooLarge || !strings.Contains(out, "quota_exceeded") {
 		t.Fatalf("comment past quota=%d %s", code, out)
 	}
-	if _, err = tm.owner.db.Exec(`UPDATE objects SET deleted_at='now' WHERE id=?`, oid); err != nil {
-		t.Fatal(err)
+	var stored int
+	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/objects/"+oid, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("page delete=%d %s", code, out)
 	}
+	if err = tm.owner.db.QueryRow(`SELECT COUNT(*) FROM comments WHERE object_id=?`, oid).Scan(&stored); err != nil || stored != 0 {
+		t.Fatalf("a deleted page kept %d comments %v", stored, err)
+	}
+	// The page's own version bytes went too.
+	before = 0
 	if gone, err := usedBytes(tm.owner.db, ownerScope, pairUser, ""); err != nil || gone != before {
 		t.Fatalf("deleted page's comments still charged: %d (before %d) %v", gone, before, err)
 	}

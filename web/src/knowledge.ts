@@ -60,6 +60,15 @@ export function noteDatedTasks(note: NoteProjection): Array<TaskDates & { raw: s
 }
 
 function parseTasks(source: string): string[] {
+  // A body no format can read (a malformed or very deep page from another member's client) has no tasks.
+  try {
+    return readTasks(source);
+  } catch {
+    return [];
+  }
+}
+
+function readTasks(source: string): string[] {
   const tasks: string[] = [];
   const blocks = structuredBlocks(source);
   if (blocks) {

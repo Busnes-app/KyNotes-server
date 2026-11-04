@@ -94,5 +94,9 @@ describe("malformed pages", () => {
     const doc = JSON.stringify({ format: "kynotes.blocknote.v1", document: [null, { type: "checkListItem", content: "Here too" }] });
     expect(noteTasks({ id: "x", title: "", body: canvas, updatedAt: "" })).toEqual(["Still found"]);
     expect(noteTasks({ id: "y", title: "", body: doc, updatedAt: "" })).toEqual(["Here too"]);
+    // Legacy rich-text bodies a client could not have written: no tasks, no throw.
+    for (const body of ['{"type":"doc","content":[null]}', '{"type":"doc","content":{}}', `{"type":"doc","content":[${'{"type":"blockquote","content":['.repeat(100000)}${"]}".repeat(100000)}]}`]) {
+      expect(() => noteTasks({ id: "z", title: "", body, updatedAt: "" })).not.toThrow();
+    }
   });
 });
