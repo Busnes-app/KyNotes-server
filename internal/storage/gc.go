@@ -32,6 +32,8 @@ func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Dur
 	_, _ = db.Exec(`DELETE FROM invitation_envelopes WHERE invitation_id IN (SELECT id FROM invitations WHERE status='pending' AND expires_at<=?)`, now.UTC().Format(time.RFC3339))
 	// An expired link request can never complete.
 	_, _ = db.Exec(`DELETE FROM link_requests WHERE expires_at<=?`, now.UTC().Format(time.RFC3339))
+	// An expired or revoked sealed share link is never served again; its ciphertext is dead weight.
+	_, _ = db.Exec(`DELETE FROM sealed_share_links WHERE expires_at<=? OR revoked_at<>''`, now.UTC().Format(time.RFC3339))
 	if !blobsEnabled {
 		return st, nil
 	}

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { adminConsole, OWNER, person, signIn } from "./people";
 
-const TABS = ["Account", "Phones & apps", "Appearance", "Reminders", "Colleague keys", "Unsent edits"];
+const TABS = ["Account", "Phones & apps", "Appearance", "Reminders", "Colleague keys", "Share links", "Unsent edits"];
 
 // ky-ui's Settings menu: the gear opens a menu of the Settings tabs (README "Settings menu").
 test("the Settings gear opens a menu of the Settings tabs, by mouse and by keyboard", async ({ browser }) => {

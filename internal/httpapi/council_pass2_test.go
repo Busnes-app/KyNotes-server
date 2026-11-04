@@ -1,13 +1,18 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // Q4: deleting a notebook purges its stored data and its child notebooks', so GC can reclaim
@@ -98,5 +103,58 @@ func TestSetupNeedsTheOneTimeToken(t *testing.T) {
 	}
 	if _, err := os.Stat(SetupTokenPath(cfg.DataDir)); !os.IsNotExist(err) {
 		t.Fatal("a leftover token stayed once accounts exist")
+	}
+}
+
+// Q2: a sealed share link has an owner, counts toward the owner's quota, lasts at most 30 days,
+// is audited, can be listed and revoked by its owner only, and GC deletes it once revoked.
+func TestSealedShareLinksAreOwnedCappedChargedAndRevocable(t *testing.T) {
+	tm := newTeam(t)
+	body := func(expires time.Time, size int) []byte {
+		return []byte(`{"ciphertext":"` + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, size)) + `","expiresAt":"` + expires.UTC().Format(time.RFC3339) + `"}`)
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/share-links", body(time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), 32), true, false)); code != http.StatusBadRequest {
+		t.Fatalf("expiry in 9999=%d %s", code, out)
+	}
+	code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/share-links", body(time.Now().Add(7*24*time.Hour), 32), true, false))
+	var link struct{ ID, Token string }
+	if code != http.StatusOK || json.Unmarshal([]byte(out), &link) != nil {
+		t.Fatalf("create=%d %s", code, out)
+	}
+	code, out = status(t, tm.owner.do(t, http.MethodGet, "/api/v1/share-links", nil, false, false))
+	if code != http.StatusOK || !strings.Contains(out, link.ID) || strings.Contains(out, link.Token) {
+		t.Fatalf("list=%d %s", code, out)
+	}
+	if code, out := status(t, tm.editor.do(t, http.MethodGet, "/api/v1/share-links", nil, false, false)); code != http.StatusOK || strings.Contains(out, link.ID) {
+		t.Fatalf("another user's list=%d %s", code, out)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE users SET quota_bytes=40 WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/share-links", body(time.Now().Add(time.Hour), 16), true, false)); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("link over quota=%d %s", code, out)
+	}
+	if over, err := quotaExceeded(tm.owner.db, config.Limits{}, tm.id, "", 9); err != nil || !over {
+		t.Fatalf("link bytes not charged to the owner's notebooks: %v %v", over, err)
+	}
+	if code, out := status(t, tm.editor.do(t, http.MethodDelete, "/api/v1/share-links/"+link.ID, nil, true, false)); code != http.StatusNotFound {
+		t.Fatalf("revoke by another user=%d %s", code, out)
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/share-links/"+link.ID, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("revoke=%d %s", code, out)
+	}
+	if code, _ := status(t, tm.owner.do(t, http.MethodGet, "/api/v1/share-links/"+link.Token, nil, false, false)); code != http.StatusNotFound {
+		t.Fatalf("revoked link still served: %d", code)
+	}
+	var audited int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event IN ('share_link.create','share_link.revoke') AND object_id=?`, link.ID).Scan(&audited); err != nil || audited != 2 {
+		t.Fatalf("audit rows=%d %v", audited, err)
+	}
+	if _, err := storage.RunGC(tm.owner.db, nil, time.Now(), time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM sealed_share_links`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("GC kept %d revoked links %v", left, err)
 	}
 }

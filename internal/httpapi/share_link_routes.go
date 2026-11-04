@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,15 +16,23 @@ import (
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
-func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store) {
+var errQuota = errors.New("quota exceeded")
+
+// MaxShareLinkLifetime caps a sealed share link's expiry; GC deletes a link once it expires.
+const MaxShareLinkLifetime = 30 * 24 * time.Hour
+
+func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits config.Limits) {
 	mux.Handle("POST /api/v1/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
 		}
+		s, _ := auth.SessionFromContext(r)
 		var in struct {
 			Ciphertext string `json:"ciphertext"`
 			ExpiresAt  string `json:"expiresAt"`
@@ -33,8 +42,8 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store) {
 			return
 		}
 		expires, err := time.Parse(time.RFC3339, in.ExpiresAt)
-		if err != nil || !expires.After(time.Now().UTC()) {
-			WriteError(w, r, 400, "invalid_request", "invalid expiry")
+		if err != nil || !expires.After(time.Now().UTC()) || expires.After(time.Now().UTC().Add(MaxShareLinkLifetime)) {
+			WriteError(w, r, 400, "invalid_request", "invalid expiry: a share link lasts at most 30 days")
 			return
 		}
 		sealed, err := base64.RawURLEncoding.DecodeString(in.Ciphertext)
@@ -51,11 +60,92 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store) {
 		token := base64.RawURLEncoding.EncodeToString(tokenBytes[:])
 		sum := sha256.Sum256([]byte(token))
 		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err = db.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at) VALUES(?,?,?,?,?)`, id, hex.EncodeToString(sum[:]), sealed, expires.UTC().Format(time.RFC3339), now); err != nil {
+		err = dbTx(db, func(tx *sql.Tx) error {
+			var quota int64
+			if e := tx.QueryRow(`SELECT quota_bytes FROM users WHERE id=?`, s.UserID).Scan(&quota); e != nil {
+				return e
+			}
+			if over, e := userQuotaExceeded(tx, limits, s.UserID, quota, "", int64(len(sealed))); e != nil || over {
+				if e == nil {
+					e = errQuota
+				}
+				return e
+			}
+			if _, e := tx.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id) VALUES(?,?,?,?,?,?)`, id, hex.EncodeToString(sum[:]), sealed, expires.UTC().Format(time.RFC3339), now, s.UserID); e != nil {
+				return e
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "share_link.create", "", id, "success", "", RequestID(r))
+		})
+		if errors.Is(err, errQuota) {
+			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
 		writeJSON(w, map[string]any{"id": id, "token": token, "expiresAt": expires.UTC().Format(time.RFC3339)})
+	})))
+
+	// The caller's own live sealed links, newest first, so they can revoke one they regret.
+	mux.Handle("GET /api/v1/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, _ := auth.SessionFromContext(r)
+		rows, err := db.Query(`SELECT id,created_at,expires_at,length(ciphertext) FROM sealed_share_links WHERE owner_user_id=? AND revoked_at='' AND expires_at>? ORDER BY created_at DESC,id`, s.UserID, time.Now().UTC().Format(time.RFC3339))
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		defer rows.Close()
+		type link struct {
+			ID        string `json:"id"`
+			CreatedAt string `json:"createdAt"`
+			ExpiresAt string `json:"expiresAt"`
+			Bytes     int64  `json:"bytes"`
+		}
+		out := []link{}
+		for rows.Next() {
+			var l link
+			if rows.Scan(&l.ID, &l.CreatedAt, &l.ExpiresAt, &l.Bytes) == nil {
+				out = append(out, l)
+			}
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		writeJSON(w, out)
+	})))
+
+	mux.Handle("DELETE /api/v1/share-links/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		id := r.PathValue("id")
+		if ids.Validate("shl", id) != nil {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		err := dbTx(db, func(tx *sql.Tx) error {
+			res, e := tx.Exec(`UPDATE sealed_share_links SET revoked_at=? WHERE id=? AND owner_user_id=? AND revoked_at=''`, time.Now().UTC().Format(time.RFC3339), id, s.UserID)
+			if e != nil {
+				return e
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				return sql.ErrNoRows
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "share_link.revoke", "", id, "success", "", RequestID(r))
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})))
 
 	mux.Handle("POST /api/v1/objects/{id}/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

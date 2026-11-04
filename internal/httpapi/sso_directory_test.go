@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
@@ -116,7 +117,7 @@ func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *test
 		t.Fatal(err)
 	}
 	cookies := f.login("alice", "sid-a")
-	ShareLinkRoutes(f.router.(*http.ServeMux), f.db, nil)
+	ShareLinkRoutes(f.router.(*http.ServeMux), f.db, nil, config.Defaults().Limits)
 	sealed := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	shareBody, _ := json.Marshal(map[string]string{"ciphertext": sealed, "expiresAt": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)})
 	shared := f.send(withCookies(httptest.NewRequest("POST", "/api/v1/share-links", bytes.NewReader(shareBody)), cookies))

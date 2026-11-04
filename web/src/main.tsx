@@ -69,6 +69,7 @@ import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploa
 import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, sessionStore, takeInviteLink } from "./invitations";
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
+import { ShareLinks } from "./components/ShareLinks";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { createKeyed, listContainers, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -2714,8 +2715,8 @@ function Workspace({
       // The shared view shows text only; say so when the page holds ink it will not show.
       setError(
         hasInk(selectedNote.body)
-          ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment."
-          : "Encrypted share link copied. The key is only in the URL fragment.",
+          ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment. Revoke it under Settings → Share links."
+          : "Encrypted share link copied. The key is only in the URL fragment. Revoke it under Settings → Share links.",
       );
     } catch (error) {
       setError(
@@ -3457,6 +3458,9 @@ function SettingsView({
       </div>
       <div className="settings-content" hidden={tab !== "colleague-keys"}>
         <PinnedKeys username={username} userID={userID} names={colleagueNames} />
+      </div>
+      <div className="settings-content" hidden={tab !== "share-links"}>
+        {tab === "share-links" && <ShareLinks />}
       </div>
       <div className="settings-content" hidden={tab !== "unsent"}>
         <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />
