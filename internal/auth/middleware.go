@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -8,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -74,7 +76,7 @@ func refuseSession(w http.ResponseWriter, s Session, kind string) bool {
 }
 
 func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
-	return RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	checked := RequireAccount(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := SessionFromContext(r)
 		if refuseSession(w, s, KindAdmin) {
 			return
@@ -85,7 +87,23 @@ func RequireAdmin(db *sql.DB, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	}))
+	// The body is read before the session is checked, so a request is authorized as of its last
+	// byte: an administrator disabled while their request body was still arriving is refused,
+	// instead of finishing it (re-enabling themselves). Admin bodies are small JSON, already capped.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			body, err := io.ReadAll(io.LimitReader(r.Body, maxAdminBody+1))
+			if err != nil || len(body) > maxAdminBody {
+				WriteAuthError(w, "payload_too_large", "payload too large")
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		checked.ServeHTTP(w, r)
+	})
 }
+
+const maxAdminBody = 1 << 20
 
 // SessionRole applies the verified OIDC role ceiling to every SSO admin request.
 // A local role edit or another login cannot turn a user-scoped SSO token into admin.
