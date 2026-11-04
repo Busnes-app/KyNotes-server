@@ -6,7 +6,14 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
 # Local Contracts
 
 - Capsules carry `kynotes.sqlite`, effective secrets, `recovery.pub`, configuration,
-  and blob inventory. Note-version and attachment blob bytes are recovered separately.
+  and blob inventory. A snapshot over `capsule.MaxFileBytes` is split into ordered members
+  `kynotes.sqlite.000`, `.001`, ... (`partBytes`); `Checks` accepts both recipe shapes, refuses
+  any other order and reassembles the parts into `kynotes.sqlite` before its integrity check
+  (restore and drill alike). A capsule over `capsule.MaxExpandedBytes` fails as
+  `database_too_large`; `Status` reports `database_bytes` and `capsule_limit_bytes`, and Backups
+  warns at 80%. ky-primitives limits stay unchanged. Verify `TestLargeSnapshotIsSplitAndReassembled`.
+- Capsule restore turns scheduled deposits off (`DisableSchedule`) and says so; the administrator
+  turns them back on (`TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions`). Note-version and attachment blob bytes are recovered separately.
 - Snapshot the live SQLite handle. Collect recipe counts and inventory from that snapshot.
   Capsule-triggered mirroring receives that exact inventory even if live GC removed rows.
   Capsule and mirror results are independent; a receipt never proves blob coverage.
@@ -22,7 +29,8 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   Failure-schedule tests cover remote/local failures, missing key/destination and restart.
 - Audit uses stable codes and safe metadata; an unaudited export returns no bytes.
 - `Checks` validates the opened manifest and requires all fixed files, tables, counts,
-  usable secrets, an active admin, recovery pin, and matching blob inventory.
+  usable secrets, recovery pin, and matching blob inventory. A missing active admin passes
+  with a note naming `user add --admin`.
 - Only `cmd/kynotes-server/backup.go:restoreCapsule` may open suite capsules or combine
   shares. Drills use library-generated throwaway keys and protected scratch.
 - `ApplySetup` claims a pairing code only when the instance is not paired (a hand-pinned

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBackupStatus, scheduleNote } from "./backup";
+import { capsuleNearLimit, parseBackupStatus, scheduleNote } from "./backup";
 const status = {mirror:{configured:false,target:"",pending:0,last:null},key_id:"",paired:false,remote_url:"",local_directory:"",local_copies:[],interval_seconds:0,next_run:null,last_attempt:"",last_result:"",receipt:null,blob_count:2,blob_bytes:100,allow_private_recovery:false};
 describe("backup status boundary", () => {
   it("represents an unconfigured instance without inventing coverage", () => { const result = parseBackupStatus(status); expect(result.keyID).toBe(""); expect(result.paired).toBe(false); expect(result.blobCount).toBe(2); expect(result.receipt).toBeNull(); });
@@ -11,4 +11,9 @@ describe("backup schedule note", () => {
   it("waits for a recovery key instead of promising a next run", () => expect(scheduleNote({...ready,keyID:""})).toBe("Waiting for recovery key"));
   it("waits for a destination when a key is pinned but nothing is paired or local", () => expect(scheduleNote({...ready,paired:false})).toBe("Waiting for a destination"));
   it("shows the next run only when a backup can actually run", () => { expect(scheduleNote(ready)).toMatch(/^Next /); expect(scheduleNote({...ready,paired:false,localDirectory:"/backups"})).toMatch(/^Next /); expect(scheduleNote({...ready,intervalSeconds:0})).toBe("Manual only"); });
+  it("warns at 80% of the capsule limit", () => {
+    expect(capsuleNearLimit(parseBackupStatus({...status,database_bytes:79,capsule_limit_bytes:100}))).toBe(false);
+    expect(capsuleNearLimit(parseBackupStatus({...status,database_bytes:80,capsule_limit_bytes:100}))).toBe(true);
+    expect(capsuleNearLimit(parseBackupStatus(status))).toBe(false);
+  });
 });

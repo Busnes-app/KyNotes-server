@@ -54,6 +54,78 @@ func readMember(path string) ([]byte, error) {
 	}
 	return data, nil
 }
+
+// ErrDatabaseTooLarge: the snapshot no longer fits in one capsule (capsule.MaxExpandedBytes).
+var ErrDatabaseTooLarge = errors.New("database exceeds the capsule container limit")
+
+// partBytes is the largest SQLite member; a snapshot over it is split into ordered members
+// kynotes.sqlite.000, .001, ... A test lowers it.
+var partBytes = capsule.MaxFileBytes
+
+func partNames(n int) []string {
+	names := make([]string, n)
+	for i := range names {
+		names[i] = fmt.Sprintf("%s.%03d", members[0], i)
+	}
+	return names
+}
+
+// readSnapshot reads the snapshot as one member when it fits, else as ordered parts.
+func readSnapshot(path string) ([][]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, errors.New("database snapshot empty")
+	}
+	if int64(len(data)) > capsule.MaxExpandedBytes {
+		return nil, ErrDatabaseTooLarge
+	}
+	var parts [][]byte
+	for len(data) > 0 {
+		n := min(int64(len(data)), partBytes)
+		parts = append(parts, data[:n])
+		data = data[n:]
+	}
+	return parts, nil
+}
+
+// sqlitePathsValid accepts the single member and the ordered parts .000 to .NNN (two or more).
+func sqlitePathsValid(paths []string) bool {
+	return slices.Equal(paths, []string{members[0]}) || (len(paths) > 1 && len(paths) <= 1000 && slices.Equal(paths, partNames(len(paths))))
+}
+
+// joinParts reassembles split SQLite members into dir/kynotes.sqlite, in order, and removes
+// the parts, so the restored directory holds the database the server opens.
+func joinParts(root *os.Root, parts []string) error {
+	out, err := root.OpenFile(members[0], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	for _, part := range parts {
+		var data []byte
+		if data, err = root.ReadFile(part); err == nil {
+			_, err = out.Write(data)
+		}
+		if err != nil {
+			break
+		}
+	}
+	if err == nil {
+		err = out.Sync()
+	}
+	if e := out.Close(); err == nil {
+		err = e
+	}
+	for _, part := range parts {
+		if err == nil {
+			err = root.Remove(part)
+		}
+	}
+	return err
+}
+
 func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 	p := recoveryclient.Payload{ServiceName: config.AppName, AppVersion: s.version}
 	if len(s.cfg.Secrets.PairingSecret) < 32 || len(s.cfg.Secrets.ServerSaltKey) < 32 {
@@ -72,17 +144,23 @@ func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 	if err = recoveryclient.SQLiteSnapshot(ctx, s.store.DB(), path); err != nil {
 		return p, err
 	}
-	data, err := readMember(path)
+	parts, err := readSnapshot(path)
 	if err != nil {
 		return p, err
 	}
-	p.Files = append(p.Files, recoveryclient.File{Path: members[0], Data: data, Mode: 0600})
+	sqlitePaths := []string{members[0]}
+	if len(parts) > 1 {
+		sqlitePaths = partNames(len(parts))
+	}
+	for i, data := range parts {
+		p.Files = append(p.Files, recoveryclient.File{Path: sqlitePaths[i], Data: data, Mode: 0600})
+	}
 	snap, err := sql.Open("sqlite", path+"?mode=ro")
 	if err != nil {
 		return p, err
 	}
 	defer snap.Close()
-	recipe := Recipe{Version: 1, RequiredFiles: slices.Clone(members), SQLitePaths: []string{members[0]}, Counts: map[string]int64{}}
+	recipe := Recipe{Version: 1, RequiredFiles: append(slices.Clone(sqlitePaths), members[1:]...), SQLitePaths: sqlitePaths, Counts: map[string]int64{}}
 	for _, table := range tables {
 		var count int64
 		if err = snap.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&count); err != nil {
@@ -128,6 +206,14 @@ func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return p, e
 	}
+	// Seal refuses a tar stream over the expanded limit; say why before it does.
+	var total int64
+	for _, f := range p.Files {
+		total += int64(len(f.Data)) + 1024 // header and padding
+	}
+	if total+64<<10 > capsule.MaxExpandedBytes {
+		return p, ErrDatabaseTooLarge
+	}
 	// Recipe lists only paths and counts. Effective configuration (including secrets)
 	// and the blob inventory are members inside the encrypted payload.
 	raw, _ := json.Marshal(recipe)
@@ -151,7 +237,11 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var recipe Recipe
-	if err = decoder.Decode(&recipe); err != nil || recipe.Version != 1 || !(slices.Equal(recipe.RequiredFiles, members) || slices.Equal(recipe.RequiredFiles, append(slices.Clone(members), vapidMember))) || !slices.Equal(recipe.SQLitePaths, []string{members[0]}) || len(recipe.Counts) != len(tables) {
+	if err = decoder.Decode(&recipe); err != nil || recipe.Version != 1 || !sqlitePathsValid(recipe.SQLitePaths) || len(recipe.Counts) != len(tables) {
+		return fail("missing or malformed required recipe")
+	}
+	want := append(slices.Clone(recipe.SQLitePaths), members[1:]...)
+	if !slices.Equal(recipe.RequiredFiles, want) && !slices.Equal(recipe.RequiredFiles, append(want, vapidMember)) {
 		return fail("missing or malformed required recipe")
 	}
 	root, err := os.OpenRoot(dir)
@@ -166,6 +256,11 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 		info, err := root.Stat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0077 != 0 {
 			return fail("required private member missing or unsafe")
+		}
+	}
+	if len(recipe.SQLitePaths) > 1 {
+		if err = joinParts(root, recipe.SQLitePaths); err != nil {
+			return fail("database members could not be reassembled")
 		}
 	}
 	cfgBytes, err := root.ReadFile("kynotes.yaml")

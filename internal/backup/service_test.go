@@ -403,3 +403,74 @@ func TestCapsuleWithoutAnActiveAdministratorStillRestores(t *testing.T) {
 		t.Fatalf("%+v", check)
 	}
 }
+
+// Q8: a snapshot over the member limit is split into ordered members and reassembled on restore
+// and in the drill; one that fits stays the single member older releases read.
+func TestLargeSnapshotIsSplitAndReassembled(t *testing.T) {
+	svc, key := fixture(t)
+	saved := partBytes
+	partBytes = 8 << 10
+	t.Cleanup(func() { partBytes = saved })
+	raw, _, err := svc.Export(context.Background(), "system", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "opened")
+	m, _, err := capsule.Open(raw, key, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, "kynotes.sqlite.001")); err != nil {
+		t.Fatal("snapshot was not split:", err)
+	}
+	if _, err = os.Stat(filepath.Join(dir, "kynotes.sqlite")); !os.IsNotExist(err) {
+		t.Fatal("split capsule also carries the whole database")
+	}
+	if check := Checks(dir, m)[0]; !check.Passed {
+		t.Fatalf("%+v", check)
+	}
+	if _, err = os.Stat(filepath.Join(dir, "kynotes.sqlite.000")); !os.IsNotExist(err) {
+		t.Fatal("parts left beside the reassembled database")
+	}
+	db, err := storage.Open(filepath.Join(dir, "kynotes.sqlite"))
+	if err != nil {
+		t.Fatal("reassembled database does not open:", err)
+	}
+	var users int
+	if err = db.DB().QueryRow(`SELECT count(*) FROM users`).Scan(&users); err != nil || users != 1 {
+		t.Fatal(users, err)
+	}
+	db.Close()
+	if result, err := svc.Drill(context.Background(), "system", "test"); err != nil || !result.Passed {
+		t.Fatal("drill of a split capsule:", result, err)
+	}
+	// A recipe whose parts are out of order is refused.
+	dir2 := filepath.Join(t.TempDir(), "opened")
+	if _, _, err = capsule.Open(raw, key, dir2); err != nil {
+		t.Fatal(err)
+	}
+	paths := m.VerificationRecipe.(map[string]any)["sqlite_paths"].([]any)
+	paths[0], paths[1] = paths[1], paths[0]
+	if Checks(dir2, m)[0].Passed {
+		t.Fatal("out-of-order parts accepted")
+	}
+	partBytes = saved
+	raw, _, err = svc.Export(context.Background(), "system", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir3 := filepath.Join(t.TempDir(), "opened")
+	if m, _, err = capsule.Open(raw, key, dir3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(dir3, "kynotes.sqlite")); err != nil || !Checks(dir3, m)[0].Passed {
+		t.Fatal("a database that fits is no longer one member:", err)
+	}
+	if got := ErrorCode(ErrDatabaseTooLarge); got != "database_too_large" {
+		t.Fatal(got)
+	}
+	st, err := svc.Status()
+	if err != nil || st.DatabaseBytes <= 0 || st.CapsuleLimitBytes != capsule.MaxExpandedBytes {
+		t.Fatalf("status sizes: %d %d %v", st.DatabaseBytes, st.CapsuleLimitBytes, err)
+	}
+}
