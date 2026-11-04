@@ -398,7 +398,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestCopyDataDirDoesNotMigrate`) and `restore-data-dir` (reads only `data_dir` from the config, so an
   empty volume needs no `--force`, `TestRestoreDataDirIntoAnEmptyVolume`; `--in` needs `kynotes.sqlite` and both
   `secrets/*.key`; stages beside the data, integrity-checks, swaps entries by rename and keeps the
-  old ones in `.restore-previous-*`; `TestRestoreDataDir*`). Every offline command that opens the
+  old ones in `.restore-previous-*`; `--revoke-credentials` applies the capsule-restore revocation
+  (`revokeRestoredCredentials`) to the staged copy, off by default; `TestRestoreDataDir*`). Capsules
+  carry `secrets/vapid.key` when the server has one, and `Checks` still accepts the older member list
+  (`TestCapsuleCarriesTheVAPIDKeyAndOldCapsulesStillRestore`). Every offline command that opens the
   database takes the lock (`openLocked`; `TestOfflineCommandsTakeTheDirectoryLock`) except
   `gc --now`, which the probe runs beside the live server (`ponytail:` in `gcCommand`); it refuses
   an unparsable or negative `--retention`. Capsules exclude all

@@ -279,13 +279,16 @@ var restoreRequired = []string{"kynotes.sqlite", filepath.Join("secrets", "pairi
 // renamed itself; its previous entries are kept in .restore-previous-* for the operator.
 func restoreCommand(args []string) error {
 	if len(args) < 2 || args[0] != "--in" {
-		return fmt.Errorf("usage: restore-data-dir --in <dir> [--force]")
+		return fmt.Errorf("usage: restore-data-dir --in <dir> [--force] [--revoke-credentials]")
 	}
 	in := args[1]
-	force := false
+	force, revoke := false, false
 	for _, arg := range args[2:] {
-		if arg == "--force" {
+		switch arg {
+		case "--force":
 			force = true
+		case "--revoke-credentials":
+			revoke = true
 		}
 	}
 	// Only the data directory: loading the config would create secrets/ in an empty one.
@@ -328,7 +331,7 @@ func restoreCommand(args []string) error {
 	if e != nil {
 		return e
 	}
-	if e = stageRestore(in, staging); e != nil {
+	if e = stageRestore(in, staging, revoke); e != nil {
 		_ = os.RemoveAll(staging)
 		return fmt.Errorf("restore-data-dir: %w; nothing was changed", e)
 	}
@@ -348,7 +351,7 @@ func restoreCommand(args []string) error {
 	fmt.Printf("Previous data kept in %s; remove it once the restored server checks out.\n", previous)
 	return nil
 }
-func stageRestore(in, staging string) error {
+func stageRestore(in, staging string, revoke bool) error {
 	if e := copyTree(in, staging); e != nil {
 		return e
 	}
@@ -357,7 +360,10 @@ func stageRestore(in, staging string) error {
 		return e
 	}
 	defer s.Close()
-	return s.IntegrityCheck(context.Background())
+	if e = s.IntegrityCheck(context.Background()); e != nil || !revoke {
+		return e
+	}
+	return revokeRestoredCredentials(s)
 }
 
 // swapEntries moves current entries of dir into previous and staged ones into dir,

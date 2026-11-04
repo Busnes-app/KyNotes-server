@@ -220,10 +220,19 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 		return err
 	}
 	defer store.Close()
-	// A snapshot must not resurrect credentials, links or invitations revoked after it was
-	// taken: sessions and paired devices end (identities stay), links and invitations go.
+	if err = revokeRestoredCredentials(store); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s. Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID))
+	return err
+}
+
+// revokeRestoredCredentials keeps a snapshot from resurrecting credentials, links or invitations
+// revoked after it was taken: sessions and paired devices end (identities stay), links and
+// invitations go. Capsule restore always runs it; restore-data-dir with --revoke-credentials.
+func revokeRestoredCredentials(store *storage.Store) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+	return store.WithTx(context.Background(), func(tx *sql.Tx) error {
 		for _, table := range []string{"sessions", "share_links", "sealed_share_links"} {
 			if _, e := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE revoked_at=''`, now); e != nil {
 				return e
@@ -235,9 +244,4 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 		_, e := tx.Exec(`DELETE FROM invitations WHERE status='pending'`)
 		return e
 	})
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s. Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID))
-	return err
 }

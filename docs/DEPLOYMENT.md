@@ -159,7 +159,7 @@ server never blocks the next start. Do not delete the file by hand. `gc --now` i
 exception: it runs beside the live server and refuses an unparsable or negative `--retention`.
 
 `copy-data-dir --out DIR` needs an absent or empty `DIR` outside the data directory.
-`restore-data-dir --in DIR [--force]` refuses an `--in` without `kynotes.sqlite`,
+`restore-data-dir --in DIR [--force] [--revoke-credentials]` refuses an `--in` without `kynotes.sqlite`,
 `secrets/pairing.key` and `secrets/serversalt.key`. It copies `--in` into a staging
 directory inside the data directory, integrity-checks the staged database, then moves the
 current entries into `.restore-previous-<random>` and the staged ones into place by rename,
@@ -167,7 +167,15 @@ so a failed copy or check leaves the data untouched. The data directory itself i
 renamed because it is usually a mount point. Remove `.restore-previous-*` yourself once the
 restored server checks out.
 
-`secrets/vapid.key` (Web Push, created on first start) is optional in a restore: a server without it
+By default the restored sessions and paired devices keep working, which is what an upgrade
+rollback wants. Add `--revoke-credentials` when the copy is older than a revocation you need to
+keep: a stolen phone you unpaired, a session you ended, a share link you revoked. It applies what
+a capsule restore does to the staged copy: every session and paired device ends (users sign in and
+re-pair), share links and sealed share links are revoked, and pending invitations are deleted.
+
+Sealed capsules carry `secrets/vapid.key` (Web Push, created on first start), so a capsule
+restore keeps push reminders working; an older capsule without it still restores. It is optional in a
+plaintext restore too: a server without it
 mints a new one, and each browser with push reminders on re-subscribes the next time it opens KyNotes.
 
 ## Ciphertext blob mirror
