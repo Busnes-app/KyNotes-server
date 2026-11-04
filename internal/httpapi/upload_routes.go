@@ -377,12 +377,29 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		if kind == "preview" {
 			now := time.Now().UTC().Format(time.RFC3339)
 			e = dbTx(db, func(tx *sql.Tx) error {
+				// Re-checked here: a notebook deleted (or a session failed) since the checks above takes no
+				// preview, and its finalized file goes unless another row claims the digest.
+				var status string
+				e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader))
+				if e == nil {
+					e = tx.QueryRow(`SELECT status FROM upload_sessions WHERE id=?`, id).Scan(&status)
+				}
+				if e == nil && status != "pending" {
+					e = sql.ErrNoRows
+				}
+				if e != nil {
+					dropUnclaimed(tx, blobs, digest)
+					return e
+				}
 				if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
 					return e
 				}
-				_, e := tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
+				_, e = tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
 				return e
 			})
+			if writeTeamKeyError(w, r, e) {
+				return
+			}
 			if e != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return

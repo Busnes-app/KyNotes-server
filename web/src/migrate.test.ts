@@ -68,6 +68,15 @@ describe("migration pass", () => {
     expect(nb.marked()).toBe(true);
   });
 
+  it("counts a v1 conflict recorded while the pass was re-saving pages", async () => {
+    const nb = notebook(objects);
+    const save = nb.io.savePage;
+    // The conflict arrives on the first page after the pass has moved on from it.
+    nb.io.savePage = async (id, legacy) => { const saved = await save(id, legacy); if (id === "obj_p2") nb.conflicts.add("obj_p1"); return saved; };
+    expect(await migrateNotebook(nb.load(), 0, false, nb.io)).toBe("conflicts");
+    expect(nb.marked()).toBe(false);
+  });
+
   it("writes no marker while an object was unreadable, or a save was skipped", async () => {
     const nb = notebook(objects.filter((object) => object.legacy));
     expect(await migrateNotebook(nb.load(), 1, false, nb.io)).toBe("partial");

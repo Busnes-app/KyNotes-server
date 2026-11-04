@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, queueSaveIfNewer, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
+import { clearAllDeviceKeys, clearConflictedMark, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, queueSaveIfNewer, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
@@ -229,6 +229,15 @@ describe("queued saves", () => {
     await queueSave({ ...newer, gone: true });
     expect(await queueSaveIfNewer({ ...item, updatedAt: "2026-10-07T00:09:00Z" })).toBe(false);
     expect((await pendingSaves())[0].gone).toBe(true);
+  });
+
+  it("drops the conflicted mark only from the cached copy it was told about", async () => {
+    const copy = { id: "obj_conflicted", containerID: "cnt_a", version: 2, payload: new Uint8Array([1]), updatedAt: "2026-10-07T00:00:00Z", conflicted: true as const };
+    await putNote("usr_a", copy);
+    await clearConflictedMark("usr_a", copy.id, "2026-10-07T09:09:09Z");
+    expect((await getNote("usr_a", copy.id))?.conflicted).toBe(true);
+    await clearConflictedMark("usr_a", copy.id, copy.updatedAt);
+    expect(await getNote("usr_a", copy.id)).toEqual({ id: copy.id, containerID: "cnt_a", version: 2, payload: new Uint8Array([1]), updatedAt: copy.updatedAt });
   });
 
   it("clears only the save it was told about: a newer one queued meanwhile stays", async () => {

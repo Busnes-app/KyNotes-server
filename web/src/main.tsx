@@ -115,6 +115,7 @@ import { stepUpAsking } from "./stepup";
 import { loginFloor, pinLogin, upgradeLogin } from "./loginUpgrade";
 import {
   clearDeviceKey,
+  clearConflictedMark,
   clearQueuedSave,
   deleteNote as deleteCachedNote,
   getIdentityKey,
@@ -677,6 +678,8 @@ function Workspace({
   // A draft comment belongs to its page: opening another page must not carry it there.
   useEffect(() => { setCommentText(""); setCommentSection(""); }, [selectedNote?.id]);
   const [conflicted, setConflicted] = useState<Set<string>>(new Set());
+  const conflictedRef = useRef(conflicted);
+  conflictedRef.current = conflicted;
   const [lastSavedAt, setLastSavedAt] = useState("");
   const [syncStatus, setSyncStatus] = useState<"saved" | "local" | "syncing" | "attention">("saved");
   const draining = useRef(false);
@@ -1371,9 +1374,8 @@ function Workspace({
     }, 15000);
     return () => window.clearInterval(timer);
   }, [selectedNote?.id, autosaving]);
-  // A page in conflict keeps its edits only in this tab (its cached copy is older than the server's, so a
-  // reload shows the server's): ask before the tab goes. ponytail: browsers that skip beforeunload (iOS
-  // Safari) still lose them; upgrade path is keeping conflicted drafts as unsendable Unsent edits entries.
+  // A page in conflict is not autosaved: ask before the tab goes. Where the browser skips beforeunload (iOS
+  // Safari), its cached copy is marked conflicted and the next notebook load sends it (readContainerObjects).
   const conflictedEdits = dirty && selectedNote !== null && conflicted.has(selectedNote.id);
   useEffect(() => {
     if (!conflictedEdits) return;
@@ -1492,6 +1494,9 @@ function Workspace({
           const proven = useCache ? await server(false).then((opened) => opened.payload, () => undefined) : undefined;
           if (useCache && !proven) legacy.add(change.id);
           if (queueUnsent && useCache && proven && payload && JSON.stringify(proven) !== JSON.stringify(payload)) unsent.push(cached!);
+          // Edits typed while the page was in conflict: older than the server's copy, so not shown, but sent
+          // (they become one more conflict version to keep as a copy), never dropped.
+          else if (queueUnsent && cached?.conflicted && cached.version < object.version) unsent.push(cached);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
         } catch {
           try {
@@ -1646,6 +1651,8 @@ function Workspace({
     if (container && (loadingContainerID.current ?? selectedRef.current?.id) !== containerID) return false;
     const previous = selectedNoteRef.current;
     if (previous && previous.id !== selection.id && !(await flushOpenPage())) return false;
+    // Again after the flush: the user may have switched notebook while it ran.
+    if (container && (loadingContainerID.current ?? selectedRef.current?.id) !== containerID) return false;
     // Search and resurfacing rows hold deferred copies; open the live entry.
     const note = previous?.id === selection.id ? previous : notesRef.current.find((entry) => entry.id === selection.id) ?? selection;
     selectedNoteRef.current = note;
@@ -1862,7 +1869,7 @@ function Workspace({
       const encrypted = await encryptNote(write.key, selected.id, note.id, notePayload(note));
       const savedAt = new Date().toISOString();
       const containerID = selected.id;
-      const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
+      const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, ...(conflictedRef.current.has(note.id) && { conflicted: true as const }) }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
         await queueOwn({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }).catch(notSaved);
@@ -1951,6 +1958,8 @@ function Workspace({
         // Sent at its own base version even when another device saved meanwhile: the server then keeps
         // it as a conflict (the page offers "Keep the other version as a copy"), never drops it.
         await queueOwn({ ...cached, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }, true).catch(notSaved);
+        // Sent once: the cached copy stops counting as left behind.
+        if (cached.conflicted) await clearConflictedMark(auth.user.id, cached.id, cached.updatedAt).catch(() => {});
         queued = true;
       }
     } catch (error) {
@@ -2107,6 +2116,7 @@ function Workspace({
       payload: await encryptNote(write.key, containerID, note.id, notePayload(note)),
       updatedAt: new Date().toISOString(),
       keyGeneration: write.generation,
+      ...(conflictedRef.current.has(note.id) && { conflicted: true as const }),
     })).catch(() => {});
   }
   /** Encrypted write for an object that is not the open page (sections, moved pages). */
@@ -2118,13 +2128,15 @@ function Workspace({
     const containerID = selected.id;
     const uncached = await cacheMiss(() => putNote(auth.user.id, { id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation }));
     if (write.generation === WAITING_GENERATION) {
-      await queueOwn({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+      await queueOwn({ id, containerID, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }).catch(notSaved);
       setSyncStatus("local");
       setError(queuedNotice(stewardHere(selected)));
       return null;
     }
+    // One key for this write, kept on its queue entry: a resend after a lost response replays it.
+    const idempotencyKey = crypto.randomUUID();
     try {
-      const result = await sendObject({ container: selected, generation: write.generation }, id, encrypted, version);
+      const result = await sendObject({ container: selected, generation: write.generation }, id, encrypted, version, idempotencyKey);
       await clearOwnQueued(id);
       carryDuringLoad(id, { version: result.version, updatedAt });
       if (uncached) setError(UNCACHED);
@@ -2135,7 +2147,7 @@ function Workspace({
         setSyncStatus("attention");
         setError("This item changed on another device. Reopen the notebook before changing it again.");
       } else {
-        await queueOwn({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+        await queueOwn({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id, idempotencyKey }).catch(notSaved);
         syncChannel.current?.postMessage({ type: "queued", id });
         setSyncStatus("local");
         if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();

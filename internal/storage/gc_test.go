@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -203,5 +204,41 @@ func TestGCKeepsBlobsWithLiveReferencesAndClearsTheirMark(t *testing.T) {
 		if _, file := blobState(t, db, b, d); !file {
 			t.Fatal("referenced blob file deleted")
 		}
+	}
+}
+
+// A failed upload session (a refused finalize, a deleted notebook) never resumes: GC removes its
+// partial file instead of keeping it forever.
+func TestGCRemovesFailedUploadsPartialFiles(t *testing.T) {
+	root := t.TempDir()
+	s, err := Open(filepath.Join(root, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	blobs, err := blobstore.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := s.DB()
+	for _, q := range []string{
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('usr_a','a','h','s',100000,'now','now')`,
+		`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('cnt_a','workbook','usr_a','now','now')`,
+		`INSERT INTO upload_sessions(id,user_id,container_id,declared_bytes,chunk_bytes,status,created_at,updated_at,expires_at) VALUES('ups_failed','usr_a','cnt_a',4,4,'failed','now','now','9999')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tmp, err := blobs.NewTemp("ups_failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = tmp.Close()
+	if _, err := RunGC(db, blobs, time.Now(), time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "tmp", "ups_failed.part")); !os.IsNotExist(err) {
+		t.Fatalf("partial file kept: %v", err)
 	}
 }

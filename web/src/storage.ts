@@ -6,7 +6,8 @@ import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
-export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
+/** conflicted: written while its page was in conflict, so it is older than the server's copy yet holds unsent edits. */
+export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number; conflicted?: true };
 /**
  * owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never
  * reads or replaces another's. previousKey: waiting under the key a reset replaced; never sent (M5).
@@ -116,6 +117,17 @@ export async function pendingSaves(): Promise<PendingSave[]> {
 }
 
 /** Deletes owner's queued save of id only while it is the one saved at updatedAt: a newer save (another tab's) stays. */
+/** Drops the conflicted mark from a cached copy once it was queued, only while it is the copy the caller read. */
+export async function clearConflictedMark(owner: string, id: string, updatedAt: string): Promise<void> {
+  await write(storeName, (store) => {
+    const read = store.get([owner, id]);
+    read.onsuccess = guarded(store.transaction, () => {
+      const row = read.result as (CachedNote & { owner: string }) | undefined;
+      if (row?.conflicted && row.updatedAt === updatedAt) { const { conflicted: _conflicted, ...rest } = row; store.put(rest); }
+    });
+  });
+}
+
 export async function clearQueuedSave(owner: string, id: string, updatedAt: string): Promise<void> {
   await write("pending", (store) => {
     const read = store.get([owner, id]);

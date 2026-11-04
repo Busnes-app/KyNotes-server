@@ -231,6 +231,10 @@ describe("hostile-review pass 2 wiring", () => {
   it("asks before leaving a conflicted page with edits only this tab holds", () => {
     expect(main).toContain("const conflictedEdits = dirty && selectedNote !== null && conflicted.has(selectedNote.id);");
     expect(main).toContain('window.addEventListener("beforeunload", ask);');
+    // And without beforeunload: the conflicted cached copy is sent by the next load, once.
+    expect(block("  function persistDraft(")).toContain("conflictedRef.current.has(note.id) && { conflicted: true as const }");
+    expect(main).toContain("else if (queueUnsent && cached?.conflicted && cached.version < object.version) unsent.push(cached);");
+    expect(block("  async function sendLeftBehind(")).toContain("if (cached.conflicted) await clearConflictedMark(auth.user.id, cached.id, cached.updatedAt)");
   });
 
   it("never reports a drain with a gone edit as saved", () => {

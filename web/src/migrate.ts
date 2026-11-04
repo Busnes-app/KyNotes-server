@@ -27,15 +27,7 @@ export type MigrationIO = {
 export async function migrateNotebook(objects: LoadedObject[], unreadable: number, migrated: boolean, io: MigrationIO): Promise<"migrated" | "partial" | "conflicts"> {
   if (migrated) return "migrated";
   let complete = unreadable === 0;
-  let conflicts = false;
   for (const object of objects) {
-    if (object.type === "page") {
-      try {
-        conflicts = (await io.legacyConflict(object.id)) || conflicts;
-      } catch {
-        complete = false;
-      }
-    }
     if (object.type !== "page" ? !object.v1 : !object.v1 && object.legacy) continue;
     try {
       const saved = object.type === "page" ? await io.savePage(object.id, await io.pins(object.id)) : await io.saveStructure(object.type, object.id);
@@ -45,6 +37,19 @@ export async function migrateNotebook(objects: LoadedObject[], unreadable: numbe
       complete = false;
     }
   }
+  if (!complete) return "partial";
+  // Checked after every re-save, right before the marker, so a conflict recorded during the pass counts.
+  // ponytail: one written between this check and the marker (only a tab older than 0.5.0 still writes
+  // v1, ledger F28) is stranded; upgrade path is a server-side refusal of v1 writes after the marker.
+  let conflicts = false;
+  for (const object of objects) {
+    if (object.type !== "page") continue;
+    try {
+      conflicts = (await io.legacyConflict(object.id)) || conflicts;
+    } catch {
+      return "partial";
+    }
+  }
   if (conflicts) return "conflicts";
-  return complete && (await io.mark()) ? "migrated" : "partial";
+  return (await io.mark()) ? "migrated" : "partial";
 }

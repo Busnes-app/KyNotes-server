@@ -10,7 +10,8 @@ type GCStats struct{ ExpiredUploads, DeletedBlobs int }
 
 func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Duration, blobsEnabled bool) (GCStats, error) {
 	var st GCStats
-	rows, e := db.Query(`SELECT id FROM upload_sessions WHERE status='pending' AND expires_at<?`, now.UTC().Format(time.RFC3339))
+	// Failed sessions too (a refused finalize, a deleted notebook): their partial file is never resumed.
+	rows, e := db.Query(`SELECT id FROM upload_sessions WHERE (status='pending' AND expires_at<?) OR status='failed'`, now.UTC().Format(time.RFC3339))
 	if e != nil {
 		return st, e
 	}
