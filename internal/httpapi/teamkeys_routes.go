@@ -313,7 +313,7 @@ type rowQuerier interface {
 // has a key (shared_generation > 0). It returns the current generation.
 func checkContainerKeyed(q rowQuerier, cid, userID, scheme string) (int64, error) {
 	var generation, shared int64
-	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, userID, cid).Scan(&generation, &shared)
+	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, errNotMember
 	}

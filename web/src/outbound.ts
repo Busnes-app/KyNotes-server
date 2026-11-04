@@ -34,9 +34,9 @@ export function sendCiphertext(sealed: Sealed): void {
 }
 
 // main.tsx reaches these API calls only through the wrappers below (outbound.test.ts).
-export const sendObject = (sealed: Sealed, objectID: string, bytes: Uint8Array, baseVersion: number, idempotencyKey?: string) => {
+export const sendObject = (sealed: Sealed, objectID: string, bytes: Uint8Array, baseVersion: number) => {
   sendCiphertext(sealed);
-  return saveObject(objectID, bytes, baseVersion, sealed.generation, idempotencyKey);
+  return saveObject(objectID, bytes, baseVersion, sealed.generation);
 };
 export const sendContainerName = (sealed: Sealed, metaCiphertext: string, baseVersion: number) => {
   sendCiphertext(sealed);

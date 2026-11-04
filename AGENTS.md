@@ -77,24 +77,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Write-path invariants (hostile-review pass 1). An object PUT checks quota and the page's tombstone before it
   finalizes the body (outside the write lock), and a save its transaction refuses drops its file unless a blobs row
   claims the digest (`dropUnclaimed`), so a refused save leaves no blob file (`TestRefusedSaveLeavesNoBlobFile`,
-  `TestDropUnclaimedKeepsOnlyClaimedFiles`); a deleted page or notebook takes no write, new page, upload or
-  attachment link (404, re-checked in the transaction or the insert; `TestSaveToADeletedPageIsRefused`,
-  `TestDeletedNotebookRefusesWrites`, `TestNewPageRacingANotebookDeleteIsRefused`,
-  `TestUploadRacingANotebookDeleteIsRefused`). Quota counts each finalized preview's blob once, cancelled or
+  `TestDropUnclaimedKeepsOnlyClaimedFiles`); a deleted page takes no new version (404, re-checked in the
+  transaction; `TestSaveToADeletedPageIsRefused`). Quota counts each finalized preview's blob once, cancelled or
   not, while it is kept (`TestFinalizedPreviewsCountTowardQuota`, `TestDuplicatePreviewsAreChargedOnce`). A chunk
   retry truncates bytes past `received_bytes`, finalize checks the file size, and a retried finalize or link
   answers as the first did (`TestChunkRetryAfterALostCounterIsWrittenOnce`,
   `TestFinalizeAndLinkRetriesAreIdempotent`). SQLite runs `synchronous(FULL)`, and a binary refuses a database a
-  newer release migrated (`ErrSchemaNewer`, `TestOpenRefusesANewerSchema`). In the browser, the notebook load (not
-  export or the work queue) finds cached pages at the server's version that differ from it; once one has stayed
-  unchanged for `UNSENT_AGE_MS` (a tab still editing rewrites it and saves every 15 s), `sendLeftBehind` queues it
-  at its own base version (`queueSaveIfNewer`, one transaction), so a save from elsewhere meanwhile turns it into a
-  conflict, never a loss. A save refused because its page is gone is kept as `gone`, never sent, and listed under
-  Unsent edits (`PAGE_GONE`, `stuckEdits.test.ts`). The role in the open notebook is `unknown` (read-only) until
+  newer release migrated (`ErrSchemaNewer`, `TestOpenRefusesANewerSchema`). In the browser, a save refused because
+  its page is gone, or as forbidden (a role lost), is kept as `gone`, never sent, and listed under Unsent edits
+  (`PAGE_GONE`, `stuckEdits.test.ts`); a drain that skips one reports attention, never "saved". The role in the open notebook is `unknown` (read-only) until
   its load reads it; viewers, commenters and an unreadable member list, in a team or its child notebooks, get a
   read-only title, canvas and page menu, no page-row drag or shortcuts, and every page or section write
   (`readOnly`, `saveNow`) refuses; a comment draft is cleared on page change; a drawing-only page is not shared (`inkOnly`, `document.test.ts`); a
-  missing lazy chunk reloads the tab once per failure (`e2e/council-pass1.e2e.ts`).
+  missing lazy chunk reloads the tab once per failure, never while offline, and `CanvasBoundary` keeps the app if
+  the editor still cannot load (`e2e/council-pass1.e2e.ts`). A comment reply or page creation that finishes after
+  a notebook switch never reopens its page (`selectNote`/`newNote` check the open notebook).
 
 ## Shared browser UI
 

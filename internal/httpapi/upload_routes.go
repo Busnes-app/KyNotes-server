@@ -144,15 +144,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		id, _ := ids.Mint("ups")
 		now := time.Now().UTC()
 		ttl := uploadTTL(cfg)
-		// One statement with the tombstone check: a notebook deleted while the body was read takes no
-		// session, and a delete committing after it fails the session (container delete).
-		res, e := db.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM containers WHERE id=? AND deleted_at='')`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339), cid)
-		if e != nil {
+		if _, e := db.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339)); e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
-			return
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
 		tmp, e := blobs.NewTemp(id)
@@ -377,29 +370,12 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		if kind == "preview" {
 			now := time.Now().UTC().Format(time.RFC3339)
 			e = dbTx(db, func(tx *sql.Tx) error {
-				// Re-checked here: a notebook deleted (or a session failed) since the checks above takes no
-				// preview, and its finalized file goes unless another row claims the digest.
-				var status string
-				e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader))
-				if e == nil {
-					e = tx.QueryRow(`SELECT status FROM upload_sessions WHERE id=?`, id).Scan(&status)
-				}
-				if e == nil && status != "pending" {
-					e = sql.ErrNoRows
-				}
-				if e != nil {
-					dropUnclaimed(tx, blobs, digest)
-					return e
-				}
 				if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
 					return e
 				}
-				_, e = tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
+				_, e := tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
 				return e
 			})
-			if writeTeamKeyError(w, r, e) {
-				return
-			}
 			if e != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
 				return
@@ -537,7 +513,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 403, "forbidden", "insufficient role")
 			return
 		}
-		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' JOIN containers c ON c.id=a.container_id AND c.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
+		result, e := db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) SELECT a.id,o.id,?,? FROM attachments a JOIN objects o ON o.id=? AND o.container_id=a.container_id AND o.deleted_at='' WHERE a.id=? AND a.container_id=? AND a.deleted_at=''
  ON CONFLICT(attachment_id,object_id,object_version) DO UPDATE SET object_version=excluded.object_version`, in.ObjectVersion, time.Now().UTC().Format(time.RFC3339), r.PathValue("id"), in.AttachmentID, cid)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")

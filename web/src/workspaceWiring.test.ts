@@ -204,7 +204,7 @@ describe("content v2 refusal point", () => {
     expect(read).toContain(": await server(v1).then(");
     const load = block("  async function loadContainer(");
     expect(load.indexOf("if ((await pinStore.loadKeyState(keyed.id)).objects === 2) migrated.current.add(keyed.id);")).toBeGreaterThan(-1);
-    expect(load.indexOf("loadKeyState(keyed.id)")).toBeLessThan(load.indexOf("readContainerObjects(keyed, true)"));
+    expect(load.indexOf("loadKeyState(keyed.id)")).toBeLessThan(load.indexOf("readContainerObjects(keyed)"));
     // A pinned notebook's name without the marker is refused, as a rollback.
     expect(block("  async function loadContainers(")).toContain("if (migrated.current.has(item.id) && meta.objects !== 2) olderMeta = true;");
   });
@@ -228,22 +228,7 @@ describe("hostile-review pass 2 wiring", () => {
     expect(create.indexOf("(loadingContainerID.current ?? selectedRef.current?.id) !== selected.id")).toBeLessThan(create.indexOf("patchNotes("));
   });
 
-  it("asks before leaving a conflicted page with edits only this tab holds", () => {
-    expect(main).toContain("const conflictedEdits = dirty && selectedNote !== null && conflicted.has(selectedNote.id);");
-    expect(main).toContain('window.addEventListener("beforeunload", ask);');
-    // And without beforeunload: the conflicted cached copy is sent by the next load, once.
-    expect(block("  function persistDraft(")).toContain("conflictedRef.current.has(note.id) && { conflicted: true as const }");
-    expect(main).toContain("else if (queueUnsent && cached?.conflicted && cached.version < object.version) unsent.push(cached);");
-    expect(block("  async function sendLeftBehind(")).toContain("if (cached.conflicted) await clearConflictedMark(auth.user.id, cached.id, cached.updatedAt)");
-    // Resolved in this tab: the mark goes too, so the next load does not send the copied-out text again.
-    expect(block("  async function keepConflictCopies(")).toContain("void clearConflictedMark(auth.user.id, open.id)");
-  });
-
-  it("never queues or retries forever an edit this user may no longer make", () => {
-    // Called by the load after it has read the role, never before (an unknown role would skip every draft).
-    expect(main).toContain("if (!superseded() && writer(role) && objects.unsent.length) void sendLeftBehind(objects.unsent);");
-    expect(main.indexOf("void sendLeftBehind(objects.unsent)")).toBeGreaterThan(main.indexOf("if (!superseded()) setOpenRole(role);"));
-    expect(main.match(/sendLeftBehind\(/g)).toHaveLength(2);
+  it("never retries forever an edit this user may no longer make", () => {
     expect(main).toContain('(error.code === "not_found" || error.code === "forbidden")');
   });
 
