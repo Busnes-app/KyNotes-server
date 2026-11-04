@@ -242,6 +242,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 		}
 		writeJSON(w, out)
 	})))
+	// errActorRevoked: the acting administrator lost access after the request was authorized.
+	errActorRevoked := errors.New("acting administrator revoked")
 	mux.Handle("PATCH /api/v1/admin/users/{id}", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
@@ -286,6 +288,11 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			return
 		}
 		if err := dbTx(db, func(tx *sql.Tx) error {
+			// Rechecked where it writes: another administrator may have disabled this one since the
+			// request was authorized, and a self-update must not undo that.
+			if role, err := auth.SessionRole(tx, s); err != nil || role != "admin" {
+				return errActorRevoked
+			}
 			now := time.Now().UTC().Format(time.RFC3339)
 			if _, err := tx.Exec(`UPDATE users SET role=?,status=?,quota_bytes=?,updated_at=? WHERE id=?`, in.Role, in.Status, *in.QuotaBytes, now, id); err != nil {
 				return err
@@ -303,7 +310,10 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			}
 			_, err := tx.Exec(`DELETE FROM key_envelopes WHERE device_id IN (SELECT id FROM devices WHERE user_id=? AND platform<>'identity')`, id)
 			return err
-		}); err != nil {
+		}); errors.Is(err, errActorRevoked) {
+			WriteError(w, r, 403, "forbidden", "administrator access required")
+			return
+		} else if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}

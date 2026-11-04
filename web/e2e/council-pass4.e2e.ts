@@ -30,6 +30,18 @@ test("Share links name their page, and an owner deletes a notebook by typing its
     await page.keyboard.type("Words to share");
     await texted;
 
+    // A save the server refuses for quota says so, instead of "queued for the server".
+    await page.route("**/api/v1/objects/obj_*", (route) => route.request().method() === "PUT"
+      ? route.fulfill({ status: 413, contentType: "application/json", body: JSON.stringify({ error: { code: "quota_exceeded", message: "quota exceeded" } }) })
+      : route.fallback());
+    await page.keyboard.type(" more");
+    await expect(page.getByText("Your storage is full", { exact: false })).toBeVisible({ timeout: 15_000 });
+    await page.unroute("**/api/v1/objects/obj_*");
+    // Unblocked, the queued edit goes out with the next save.
+    const resent = objectSave(page);
+    await page.keyboard.type(".");
+    await resent;
+
     // Q11: the link this browser made names its page.
     await page.locator(".title-input").focus();
     await page.keyboard.press("Control+Shift+L");

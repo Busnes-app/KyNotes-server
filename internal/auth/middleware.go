@@ -107,7 +107,10 @@ const maxAdminBody = 1 << 20
 
 // SessionRole applies the verified OIDC role ceiling to every SSO admin request.
 // A local role edit or another login cannot turn a user-scoped SSO token into admin.
-func SessionRole(db *sql.DB, s Session) (string, error) {
+// db may be a transaction, so a mutation can recheck its caller where it writes.
+func SessionRole(db interface {
+	QueryRow(string, ...any) *sql.Row
+}, s Session) (string, error) {
 	var role string
 	err := db.QueryRow(`SELECT CASE WHEN u.role='admin' AND u.account_kind='admin' AND (s.sso_issuer='' OR s.sso_app_admin=1) THEN 'admin' ELSE 'user' END
  FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.id=? AND u.id=? AND s.revoked_at='' AND u.status='active'`, s.ID, s.UserID).Scan(&role)

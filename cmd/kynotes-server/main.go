@@ -267,6 +267,11 @@ func backupCommand(args []string) error {
 		if e = os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString([]byte(secret))), 0600); e != nil {
 			return e
 		}
+		// A key file holds exactly 32 bytes; a longer configured secret is kept for the record, but
+		// only the configuration or environment that supplied it can start a server from this copy.
+		if len(secret) != 32 {
+			fmt.Fprintf(os.Stderr, "copy-data-dir: secrets/%s holds a %d-byte secret from the configuration or environment; keep supplying it there when you start from this copy\n", name, len(secret))
+		}
 	}
 	return nil
 }

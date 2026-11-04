@@ -1806,15 +1806,23 @@ function Workspace({
     }
     // Its pages are gone for every member: nothing of it may be saved or shown any more.
     const gone = (entry: Container) => entry.id === container.id || entry.teamId === container.id;
+    const goneIDs = new Set(items.filter(gone).map((entry) => entry.id).concat(container.id));
+    // Unsent edits to its pages have nowhere to go: dropped, so the queue does not wait on them forever.
+    for (const item of await pendingSaves().catch(() => [])) {
+      if (item.owner === auth.user.id && goneIDs.has(item.containerID)) await clearQueuedSave(item.owner, item.id, item.updatedAt).catch(() => undefined);
+    }
+    setItems((value) => value.filter((entry) => !gone(entry)));
+    // The user may have opened another notebook while the delete ran: that one, and its edits, stay.
+    const open = loadingContainerID.current ?? selectedRef.current?.id;
+    if (!open || !goneIDs.has(open)) return;
     markDirty(false);
     selectedNoteRef.current = null;
     setSelectedNote(null);
     for (const note of notesRef.current) await deleteCachedNote(auth.user.id, note.id).catch(() => undefined);
-    const rest = items.filter((entry) => !gone(entry));
-    setItems(rest);
     history.replaceState(null, "", location.pathname + location.search);
-    if (rest[0]) {
-      await selectContainer(rest[0]);
+    const next = items.find((entry) => !gone(entry));
+    if (next) {
+      await selectContainer(next);
       return;
     }
     setSelected(null);
@@ -2035,7 +2043,12 @@ function Workspace({
           // first or stays queued (waiting for keys). An edit for a notebook this user lost waits here
           // until Settings → Unsent edits exports or discards it. Waiting edits are sealed with the identity's
           // waiting key.
-          const ready = await sendable(item, synced).catch(() => undefined);
+          // Its first call reads the notebook: an ended session or a forced password change is refused here.
+          const ready = await sendable(item, synced).catch((error: unknown) => {
+            const refused = saveRefusal(error instanceof APIRequestError ? error.code : undefined);
+            if (refused) { attention = true; setError(refused); }
+            return undefined;
+          });
           if (!ready) {
             remaining = true;
             continue;
