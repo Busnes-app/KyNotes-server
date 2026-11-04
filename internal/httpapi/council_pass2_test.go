@@ -158,3 +158,21 @@ func TestSealedShareLinksAreOwnedCappedChargedAndRevocable(t *testing.T) {
 		t.Fatalf("GC kept %d revoked links %v", left, err)
 	}
 }
+
+// F9: an upload started while its notebook is deleted takes no session.
+func TestUploadRacingANotebookDeleteIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	del := func() {
+		if _, err := tm.owner.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, tm.id); err != nil {
+			t.Error(err)
+		}
+	}
+	if code, out := tm.editor.sendRacing(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/uploads", map[string]string{"Content-Type": "application/json", keySchemeHeader: keySchemeShared}, []byte(`{"declaredBytes":4,"kind":"attachment"}`), del); code != http.StatusNotFound {
+		t.Fatalf("upload racing a delete=%d %s", code, out)
+	}
+	var sessions int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM upload_sessions WHERE container_id=?`, tm.id).Scan(&sessions); err != nil || sessions != 0 {
+		t.Fatalf("sessions=%d %v", sessions, err)
+	}
+}

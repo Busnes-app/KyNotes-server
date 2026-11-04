@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
@@ -86,6 +87,36 @@ func TestSaveToADeletedPageIsRefused(t *testing.T) {
 	var versions int
 	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id IN (?,?)`, oid, other).Scan(&versions); err != nil || versions != 1 {
 		t.Fatalf("versions=%d %v, want only other's first save", versions, err)
+	}
+}
+
+// A deleted notebook takes no new pages or versions.
+func TestDeletedNotebookRefusesWrites(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	oid, code := tm.editor.save(t, tm.id, "", 2)
+	if code != http.StatusOK {
+		t.Fatalf("save=%d", code)
+	}
+	if _, err := tm.owner.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, tm.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := tm.editor.save(t, tm.id, oid, 2); code != http.StatusNotFound {
+		t.Fatalf("save into deleted notebook=%d, want 404", code)
+	}
+	if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/objects", []byte(`{"kind":"note"}`), true, false)); code != http.StatusNotFound {
+		t.Fatalf("new page in deleted notebook=%d %s", code, out)
+	}
+	att := mint(t, "att")
+	digest := strings.Repeat("7", 64)
+	if _, err := tm.owner.db.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,1,'now')`, digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tm.owner.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,1,x'00',2,1,'now')`, att, tm.id, digest); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/objects/"+oid+"/attachments", []byte(`{"attachmentId":`+quote(att)+`,"objectVersion":1}`), true, false)); code != http.StatusNotFound {
+		t.Fatalf("link in deleted notebook=%d %s", code, out)
 	}
 }
 
@@ -260,5 +291,19 @@ func TestDropUnclaimedKeepsOnlyClaimedFiles(t *testing.T) {
 	}
 	if _, ok, _ := b.Stat(claimed); !ok {
 		t.Fatal("claimed file dropped")
+	}
+}
+
+// A notebook deleted while a new-page request is read takes no page.
+func TestNewPageRacingANotebookDeleteIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	del := func() {
+		if _, err := tm.owner.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, tm.id); err != nil {
+			t.Error(err)
+		}
+	}
+	if code, out := tm.editor.sendRacing(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/objects", map[string]string{"Content-Type": "application/json", keySchemeHeader: keySchemeShared}, []byte(`{"kind":"note"}`), del); code != http.StatusNotFound {
+		t.Fatalf("new page racing a delete=%d %s", code, out)
 	}
 }

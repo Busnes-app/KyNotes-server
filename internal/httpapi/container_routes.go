@@ -242,7 +242,7 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 			return
 		}
 		var role string
-		if db.QueryRow(`SELECT m.role FROM memberships m WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
+		if db.QueryRow(`SELECT m.role FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, s.UserID).Scan(&role) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -261,12 +261,16 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		var seq int64
 		if e := dbTx(db, func(tx *sql.Tx) error {
-			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); e != nil {
+			// A notebook deleted while the request was read takes no new page.
+			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? AND deleted_at='' RETURNING change_seq`, now, cid).Scan(&seq); e != nil {
 				return e
 			}
 			_, e := tx.Exec(`INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES(?,?,?,?,?,?)`, id, cid, in.Kind, seq, now, now)
 			return e
-		}); e != nil {
+		}); errors.Is(e, sql.ErrNoRows) {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		} else if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}

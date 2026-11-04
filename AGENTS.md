@@ -77,8 +77,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Write-path invariants (hostile-review pass 1). An object PUT checks quota and the page's tombstone before it
   finalizes the body (outside the write lock), and a save its transaction refuses drops its file unless a blobs row
   claims the digest (`dropUnclaimed`), so a refused save leaves no blob file (`TestRefusedSaveLeavesNoBlobFile`,
-  `TestDropUnclaimedKeepsOnlyClaimedFiles`); a deleted page takes no new version (404, re-checked in the
-  transaction; `TestSaveToADeletedPageIsRefused`). Quota counts each finalized preview's blob once, cancelled or
+  `TestDropUnclaimedKeepsOnlyClaimedFiles`); a deleted page or notebook takes no write, new page, upload or
+  attachment link (404, re-checked in the transaction or the insert; `TestSaveToADeletedPageIsRefused`,
+  `TestDeletedNotebookRefusesWrites`, `TestNewPageRacingANotebookDeleteIsRefused`,
+  `TestUploadRacingANotebookDeleteIsRefused`). Quota counts each finalized preview's blob once, cancelled or
   not, while it is kept (`TestFinalizedPreviewsCountTowardQuota`, `TestDuplicatePreviewsAreChargedOnce`). A chunk
   retry truncates bytes past `received_bytes`, finalize checks the file size, and a retried finalize or link
   answers as the first did (`TestChunkRetryAfterALostCounterIsWrittenOnce`,
