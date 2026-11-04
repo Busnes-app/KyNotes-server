@@ -197,7 +197,12 @@ func gcCommand(args []string) error {
 	// ponytail: runs beside a live server without the lock, because the acceptance probe
 	// (IMPLEMENTATION_PLAN.md step 12) does exactly that with --retention 0s. Upgrade
 	// path: an admin.sock route like deposit, then the lock and the 1h floor here.
-	s, e := storage.Open(filepath.Join(c.DataDir, "kynotes.sqlite"))
+	dbPath := filepath.Join(c.DataDir, "kynotes.sqlite")
+	if _, e = os.Stat(dbPath); errors.Is(e, os.ErrNotExist) {
+		return nil // no database yet: nothing references or holds a blob
+	}
+	// Current only: beside a live server, a newer image must not migrate the database under it.
+	s, e := storage.OpenCurrent(dbPath)
 	if e != nil {
 		return e
 	}
@@ -283,12 +288,16 @@ func restoreCommand(args []string) error {
 	}
 	in := args[1]
 	force, revoke := false, false
-	for _, arg := range args[2:] {
-		switch arg {
+	for i := 2; i < len(args); i++ {
+		switch args[i] {
 		case "--force":
 			force = true
 		case "--revoke-credentials":
 			revoke = true
+		case "--config":
+			i++
+		default:
+			return fmt.Errorf("restore-data-dir: unknown argument %q; usage: restore-data-dir --in <dir> [--force] [--revoke-credentials]", args[i])
 		}
 	}
 	// Only the data directory: loading the config would create secrets/ in an empty one.
@@ -355,6 +364,12 @@ func stageRestore(in, staging string, revoke bool) error {
 	if e := copyTree(in, staging); e != nil {
 		return e
 	}
+	// Opening would create an empty database where the copy brought none.
+	for _, name := range restoreRequired {
+		if info, e := os.Lstat(filepath.Join(staging, name)); e != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("the copy holds no %s", name)
+		}
+	}
 	s, e := storage.Open(filepath.Join(staging, "kynotes.sqlite"))
 	if e != nil {
 		return e
@@ -417,6 +432,11 @@ func quotaCommand(args []string) error {
 	return e
 }
 func copyTree(src, dst string) error {
+	// Walk does not follow a symlinked root: resolve it, or nothing would be copied.
+	src, e := filepath.EvalSymlinks(src)
+	if e != nil {
+		return e
+	}
 	return filepath.Walk(src, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
 			return e
@@ -429,14 +449,22 @@ func copyTree(src, dst string) error {
 		// Owner-only, whatever the source or an existing --out allowed: the database holds the SSO
 		// client and directory secrets in plaintext.
 		if info.IsDir() {
+			// Earlier restores' leftovers are not data; copying them nests every previous copy.
+			if filepath.Dir(rel) == "." && (strings.HasPrefix(rel, ".restore-") || strings.HasPrefix(rel, "snapshot-")) {
+				return filepath.SkipDir
+			}
 			if e = os.MkdirAll(target, 0700); e != nil {
 				return e
 			}
 			return os.Chmod(target, info.Mode().Perm()&0700)
 		}
-		// The lock belongs to its own directory; sockets and links are not data.
-		if rel == storage.LockFileName || !info.Mode().IsRegular() {
+		// The lock belongs to its own directory and sockets are not data. A link would be dropped
+		// silently (a linked secrets/ or blobs/ lost from the copy), so it is refused.
+		if rel == storage.LockFileName || info.Mode()&os.ModeSocket != 0 {
 			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file or directory (a link?); copy what it points to into place first", path)
 		}
 		in, e := os.Open(path)
 		if e != nil {
