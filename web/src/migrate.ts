@@ -9,6 +9,8 @@ export type MigrationIO = {
   /** Re-saves an object v2 (a page carrying legacy); false when it was not saved now (conflict, offline, open page). */
   savePage: (id: string, legacy: Legacy) => Promise<boolean>;
   saveStructure: (kind: "section" | "group", id: string) => Promise<boolean>;
+  /** Whether a page has an unresolved conflict that opens only as v1. Throws when they cannot be listed. */
+  legacyConflict: (pageID: string) => Promise<boolean>;
   /** Writes the container meta v2 with the marker; false when it was not written. */
   mark: () => Promise<boolean>;
 };
@@ -18,9 +20,11 @@ export type MigrationIO = {
  * v2, and every page without legacy (v1, or saved v2 before its children were pinned) gets its v1 children
  * pinned. Only a pass that finds or leaves every object v2 with legacy on every page, and nothing
  * unreadable, writes the marker: the commit point. A pass stopped anywhere leaves a readable mix that the
- * next load continues; a migrated notebook writes nothing.
+ * next load continues; a migrated notebook writes nothing. An unresolved conflict that opens only as v1
+ * could never be recovered after the marker, so while one exists the pass writes no marker and answers
+ * "conflicts": the user resolves those pages first.
  */
-export async function migrateNotebook(objects: LoadedObject[], unreadable: number, migrated: boolean, io: MigrationIO): Promise<"migrated" | "partial"> {
+export async function migrateNotebook(objects: LoadedObject[], unreadable: number, migrated: boolean, io: MigrationIO): Promise<"migrated" | "partial" | "conflicts"> {
   if (migrated) return "migrated";
   let complete = unreadable === 0;
   for (const object of objects) {
@@ -33,5 +37,19 @@ export async function migrateNotebook(objects: LoadedObject[], unreadable: numbe
       complete = false;
     }
   }
-  return complete && (await io.mark()) ? "migrated" : "partial";
+  if (!complete) return "partial";
+  // Checked after every re-save, right before the marker, so a conflict recorded during the pass counts.
+  // ponytail: one written between this check and the marker (only a tab older than 0.5.0 still writes
+  // v1, ledger F28) is stranded; upgrade path is a server-side refusal of v1 writes after the marker.
+  let conflicts = false;
+  for (const object of objects) {
+    if (object.type !== "page") continue;
+    try {
+      conflicts = (await io.legacyConflict(object.id)) || conflicts;
+    } catch {
+      return "partial";
+    }
+  }
+  if (conflicts) return "conflicts";
+  return (await io.mark()) ? "migrated" : "partial";
 }

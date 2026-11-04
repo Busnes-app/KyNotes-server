@@ -38,14 +38,17 @@ export function desiredReminders(key: Uint8Array, tasks: PushTask[], now: number
 
 /**
  * What to send so the server holds exactly `desired`. Nothing at all unless every personal notebook
- * loaded (`complete`): a partial load must never delete a reminder it could not see.
+ * loaded (`complete`): a partial load must never delete a reminder it could not see. `previous` is what
+ * this tab last reconciled: after that first full pass it sends only its own changes since, so a tab
+ * whose pages are stale never deletes a reminder another browser added, nor puts back one it removed.
  */
-export function planReconcile(desired: ServerReminder[], server: ServerReminder[], complete: boolean): { puts: ServerReminder[]; deletes: string[] } {
+export function planReconcile(desired: ServerReminder[], server: ServerReminder[], complete: boolean, previous?: ServerReminder[]): { puts: ServerReminder[]; deletes: string[] } {
   if (!complete) return { puts: [], deletes: [] };
   const held = new Map(server.map((row) => [row.id, row.at]));
   const wanted = new Set(desired.map((row) => row.id));
+  const before = previous && new Map(previous.map((row) => [row.id, row.at]));
   return {
-    puts: desired.filter((row) => held.get(row.id) !== row.at),
-    deletes: server.filter((row) => !wanted.has(row.id)).map((row) => row.id),
+    puts: desired.filter((row) => held.get(row.id) !== row.at && (!before || before.get(row.id) !== row.at)),
+    deletes: server.filter((row) => !wanted.has(row.id) && (!before || before.has(row.id))).map((row) => row.id),
   };
 }

@@ -596,33 +596,44 @@ func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64
 	if err := q.QueryRow(`SELECT c.owner_user_id,c.kind,c.team_id,u.quota_bytes FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.id=?`, cid).Scan(&owner, &kind, &team, &userQuota); err != nil {
 		return false, err
 	}
-	if userQuota == 0 {
-		userQuota = limits.UserQuotaBytes
-	}
 	if kind == "team" {
 		team = cid
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	over := func(quota int64, scope, key string) (bool, error) {
-		if quota <= 0 {
-			return false, nil
-		}
-		var used int64
-		err := q.QueryRow(`SELECT
+	if exceeded, err := userQuotaExceeded(q, limits, owner, userQuota, skip, n); exceeded || err != nil || team == "" || limits.TeamQuotaBytes <= 0 {
+		return exceeded, err
+	}
+	used, err := usedBytes(q, `SELECT id FROM containers WHERE id=?1 OR team_id=?1`, team, skip)
+	return used+n > limits.TeamQuotaBytes, err
+}
+
+// userQuotaExceeded charges n more bytes to one account: its notebooks plus its live sealed share
+// links. userQuota is users.quota_bytes (0 means the configured default).
+func userQuotaExceeded(q rowQuerier, limits config.Limits, owner string, userQuota int64, skip string, n int64) (bool, error) {
+	if userQuota == 0 {
+		userQuota = limits.UserQuotaBytes
+	}
+	if userQuota <= 0 {
+		return false, nil
+	}
+	used, err := usedBytes(q, `SELECT id FROM containers WHERE owner_user_id=?1`, owner, skip)
+	if err != nil {
+		return false, err
+	}
+	var links int64
+	err = q.QueryRow(`SELECT COALESCE(SUM(length(ciphertext)),0) FROM sealed_share_links WHERE owner_user_id=? AND revoked_at='' AND expires_at>?`, owner, time.Now().UTC().Format(time.RFC3339)).Scan(&links)
+	return used+links+n > userQuota, err
+}
+
+// usedBytes sums what the containers in scope (a query of ?1=key) hold or have reserved.
+func usedBytes(q rowQuerier, scope, key, skip string) (int64, error) {
+	var used int64
+	err := q.QueryRow(`SELECT
  (SELECT COALESCE(SUM(v.ciphertext_bytes),0) FROM object_versions v JOIN objects o ON o.id=v.object_id WHERE o.container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM conflicts WHERE container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM attachments WHERE deleted_at='' AND container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.digest IN (SELECT s.finalized_digest FROM upload_sessions s WHERE s.kind='preview' AND s.finalized_digest<>'' AND s.container_id IN (`+scope+`)))`, key, now, skip).Scan(&used)
-		return used+n > quota, err
-	}
-	if exceeded, err := over(userQuota, `SELECT id FROM containers WHERE owner_user_id=?1`, owner); exceeded || err != nil {
-		return exceeded, err
-	}
-	if team == "" {
-		return false, nil
-	}
-	return over(limits.TeamQuotaBytes, `SELECT id FROM containers WHERE id=?1 OR team_id=?1`, team)
++(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.digest IN (SELECT s.finalized_digest FROM upload_sessions s WHERE s.kind='preview' AND s.finalized_digest<>'' AND s.container_id IN (`+scope+`)))`, key, time.Now().UTC().Format(time.RFC3339), skip).Scan(&used)
+	return used, err
 }
 
 func uploadTTL(cfg config.Config) time.Duration {

@@ -7,6 +7,7 @@ function notebook(objects: LoadedObject[]) {
   const writes: string[] = [];
   let marked = false;
   let failAfter = Infinity;
+  const conflicts = new Set<string>();
   const write = (id: string, legacy?: Record<string, string>) => {
     if (writes.length >= failAfter) throw new Error("connection lost");
     writes.push(id);
@@ -15,6 +16,7 @@ function notebook(objects: LoadedObject[]) {
   };
   const io: MigrationIO = {
     pins: async (pageID): Promise<Record<string, string>> => (pageID === "obj_p1" ? { cmt_old: "a".repeat(64) } : {}),
+    legacyConflict: async (pageID) => conflicts.has(pageID),
     savePage: async (id, legacy) => write(id, legacy),
     saveStructure: async (_kind, id) => write(id),
     mark: async () => {
@@ -25,7 +27,7 @@ function notebook(objects: LoadedObject[]) {
   };
   // What the next load reads: the server's state now.
   const load = () => [...server.values()].map((object) => ({ ...object }));
-  return { io, load, writes, server, stopAfter: (n: number) => { failAfter = n; }, marked: () => marked };
+  return { io, load, writes, server, conflicts, stopAfter: (n: number) => { failAfter = n; }, marked: () => marked };
 }
 
 describe("migration pass", () => {
@@ -54,6 +56,25 @@ describe("migration pass", () => {
     expect(await migrateNotebook(nb.load(), 0, true, nb.io)).toBe("migrated");
     expect(nb.writes.filter((write) => write === "marker")).toHaveLength(1);
     expect(nb.writes).toHaveLength(4);
+  });
+
+  it("writes no marker while a page has an unresolved v1 conflict, and finishes once it is resolved", async () => {
+    const nb = notebook(objects);
+    nb.conflicts.add("obj_p3");
+    expect(await migrateNotebook(nb.load(), 0, false, nb.io)).toBe("conflicts");
+    expect(nb.marked()).toBe(false);
+    nb.conflicts.delete("obj_p3");
+    expect(await migrateNotebook(nb.load(), 0, false, nb.io)).toBe("migrated");
+    expect(nb.marked()).toBe(true);
+  });
+
+  it("counts a v1 conflict recorded while the pass was re-saving pages", async () => {
+    const nb = notebook(objects);
+    const save = nb.io.savePage;
+    // The conflict arrives on the first page after the pass has moved on from it.
+    nb.io.savePage = async (id, legacy) => { const saved = await save(id, legacy); if (id === "obj_p2") nb.conflicts.add("obj_p1"); return saved; };
+    expect(await migrateNotebook(nb.load(), 0, false, nb.io)).toBe("conflicts");
+    expect(nb.marked()).toBe(false);
   });
 
   it("writes no marker while an object was unreadable, or a save was skipped", async () => {

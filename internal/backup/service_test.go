@@ -339,3 +339,67 @@ func TestFailedRunsAdvanceSchedule(t *testing.T) {
 		})
 	}
 }
+
+// Q6: a capsule carries secrets/vapid.key when the server has one, and a capsule without it
+// (made before the key was a member) still passes the restore checks.
+func TestCapsuleCarriesTheVAPIDKeyAndOldCapsulesStillRestore(t *testing.T) {
+	svc, key := fixture(t)
+	exportOpen := func() (string, capsule.Manifest) {
+		raw, _, err := svc.Export(context.Background(), "system", "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(t.TempDir(), "opened")
+		m, _, err := capsule.Open(raw, key, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, check := range Checks(dir, m) {
+			if !check.Passed {
+				t.Fatal(check)
+			}
+		}
+		return dir, m
+	}
+	dir, _ := exportOpen()
+	if _, err := os.Stat(filepath.Join(dir, "secrets", "vapid.key")); !os.IsNotExist(err) {
+		t.Fatal("a capsule without a server VAPID key invented one")
+	}
+	if err := os.MkdirAll(filepath.Join(svc.cfg.DataDir, "secrets"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.cfg.DataDir, "secrets", "vapid.key"), []byte("dmFwaWQta2V5"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir, m := exportOpen()
+	if got, err := os.ReadFile(filepath.Join(dir, "secrets", "vapid.key")); err != nil || string(got) != "dmFwaWQta2V5" {
+		t.Fatalf("vapid key not restored: %q %v", got, err)
+	}
+	if err := os.Remove(filepath.Join(dir, "secrets", "vapid.key")); err != nil {
+		t.Fatal(err)
+	}
+	if Checks(dir, m)[0].Passed {
+		t.Fatal("a capsule listing the VAPID key passed without it")
+	}
+}
+
+// A capsule from a server with no active administrator still restores, and says how to add one.
+func TestCapsuleWithoutAnActiveAdministratorStillRestores(t *testing.T) {
+	svc, key := fixture(t)
+	if _, err := svc.store.DB().Exec(`UPDATE users SET status='disabled'`); err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := svc.Export(context.Background(), "system", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "opened")
+	m, _, err := capsule.Open(raw, key, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := Checks(dir, m)[0]
+	if !check.Passed || !strings.Contains(check.Message, "user add --admin") {
+		t.Fatalf("%+v", check)
+	}
+}

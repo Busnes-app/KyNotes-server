@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/Busnes-app/ky-primitives/offsite"
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -62,13 +63,19 @@ func mirrorCommand(command string, args []string) error {
 	if _, err = os.Stat(filepath.Join(cfg.DataDir, "kynotes.sqlite")); err != nil {
 		return errors.New("existing or restored database required")
 	}
-	st, err := storage.Open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
+	// mirror-blobs copies the live data and never migrates it; fetch-blobs follows a restore, which
+	// this release then upgrades.
+	open := storage.Open
+	if command == "mirror-blobs" {
+		open = storage.OpenCurrent
+	}
+	st, err := open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
 	if err != nil {
 		return err
 	}
 	defer st.Close()
 	if command == "mirror-blobs" {
-		service := backup.New(cfg, st, "dev")
+		service := backup.New(cfg, st, appversion.String())
 		defer service.Close()
 		stats, err := service.MirrorNow(ctx, "system", "cli")
 		if e := json.NewEncoder(os.Stdout).Encode(stats); e != nil {

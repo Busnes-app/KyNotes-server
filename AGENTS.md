@@ -84,9 +84,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   answers as the first did (`TestChunkRetryAfterALostCounterIsWrittenOnce`,
   `TestFinalizeAndLinkRetriesAreIdempotent`). SQLite runs `synchronous(FULL)`, and a binary refuses a database a
   newer release migrated (`ErrSchemaNewer`, `TestOpenRefusesANewerSchema`). In the browser, a save refused because
-  its page is gone is kept as `gone`, never sent, and listed under Unsent edits (`PAGE_GONE`, `stuckEdits.test.ts`);
-  a comment draft is cleared on page change; a drawing-only page is not shared (`inkOnly`, `document.test.ts`); a
-  missing lazy chunk reloads the tab once per failure (`e2e/council-pass1.e2e.ts`).
+  its page is gone, or as forbidden (a role lost), is kept as `gone`, never sent, and listed under Unsent edits
+  (`PAGE_GONE`, `stuckEdits.test.ts`); a drain that skips one reports attention, never "saved". The role in the open notebook is `unknown` (read-only) until
+  its load reads it; viewers, commenters and an unreadable member list, in a team or its child notebooks, get a
+  read-only title, canvas and page menu, no page-row drag or shortcuts, and every page or section write
+  (`readOnly`, `saveNow`) refuses; a comment draft is cleared on page change; a drawing-only page is not shared (`inkOnly`, `document.test.ts`); a
+  missing lazy chunk reloads the tab once per failure, never while offline, and `CanvasBoundary` keeps the app if
+  the editor still cannot load (`e2e/council-pass1.e2e.ts`). A comment reply or page creation that finishes after
+  a notebook switch never reopens its page (`selectNote`/`newNote` check the open notebook).
 
 ## Shared browser UI
 
@@ -118,7 +123,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   blocks; `TestDirectoryLock*`) and first-run
   bootstrap: only when no users exist, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` seed the administrator
   account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS` the everyday account (different
-  usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, or use
+  usernames, both flagged, one transaction); otherwise web `/setup` creates both accounts unflagged, given the one-time setup token
+  (`httpapi.EnsureSetupToken`: `secrets/setup.token`, 0600, minted at start while no account exists, kept
+  across restarts, logged as `setup_token`, deleted by setup and by any start that finds accounts;
+  `TestSetupNeedsTheOneTimeToken`; e2e `server.sh` seeds a known one), or use
   `user add [--admin | --everyday]` (default everyday, flagged). Start-up logs `no_active_admin` with the
   CLI remedy in the message when accounts exist but no active administrator account does (`WarnWithoutAdmin`,
   `TestServeWarnsWithoutAdmin`). The probe refuses an administrator account at login;
@@ -316,7 +324,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Team workspaces are child containers linked by `team_id`; their membership
   is copied from the parent team and membership changes propagate to children.
 - `internal/storage/migrations/0011_sealed_share_links.sql` stores browser-sealed
-  ciphertext separately from object-backed share links.
+  ciphertext separately from object-backed share links. `0029_share_link_owner.sql` gives each an
+  owner: creation is audited, in its own hourly bucket (`share`, at `invitation_per_hour`), refused
+  past 30 days (`MaxShareLinkLifetime`) or over the owner's quota (`userQuotaExceeded` counts live link
+  bytes); `GET /api/v1/share-links` lists the caller's live links and `DELETE /api/v1/share-links/{id}`
+  revokes one (owner only, audited; Settings → Share links, `components/ShareLinks.tsx`); GC deletes
+  expired and revoked rows. Verify `TestSealedShareLinksAreOwnedCappedChargedAndRevocable`.
 - `internal/storage/migrations/0012_sso.sql` adds `sso_subject` to users for KySignOn
   and OpenID Connect single sign-on integration.
 - `internal/sso` and `internal/httpapi` handle OpenID Connect PKCE authentication,
@@ -398,7 +411,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestCopyDataDirDoesNotMigrate`) and `restore-data-dir` (reads only `data_dir` from the config, so an
   empty volume needs no `--force`, `TestRestoreDataDirIntoAnEmptyVolume`; `--in` needs `kynotes.sqlite` and both
   `secrets/*.key`; stages beside the data, integrity-checks, swaps entries by rename and keeps the
-  old ones in `.restore-previous-*`; `TestRestoreDataDir*`). Every offline command that opens the
+  old ones in `.restore-previous-*`; `--revoke-credentials` applies the capsule-restore revocation
+  (`revokeRestoredCredentials`) to the staged copy, off by default; `TestRestoreDataDir*`). Capsules
+  carry `secrets/vapid.key` when the server has one, and `Checks` still accepts the older member list
+  (`TestCapsuleCarriesTheVAPIDKeyAndOldCapsulesStillRestore`). Every offline command that opens the
   database takes the lock (`openLocked`; `TestOfflineCommandsTakeTheDirectoryLock`) except
   `gc --now`, which the probe runs beside the live server (`ponytail:` in `gcCommand`); it refuses
   an unparsable or negative `--retention`. Capsules exclude all
@@ -862,6 +878,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   load renders) that re-saves v1 objects through `writeObject`/`updateStructure`/`pinPage` (the
   `chained` queue) and pins each page's v1 children (`childPins`: SHA-256 of the stored ciphertext,
   attachment bytes downloaded) in its `legacy`; only then the name is rewritten v2 with `objects: 2`.
+  While any page has an unresolved conflict that opens only as v1 (`legacyConflict`), the pass writes
+  no marker, answers `conflicts` and the notebook says to keep those versions as copies first (Q3).
   The marker is pinned per user and notebook in the vault (`KeyState.objects`, add-only); after it,
   server copies open v2 only (`readContainerObjects`), children need a pin (`legacyChildOpens`) and a
   name without the marker is refused (`OLDER_META`). Local copies (cache, queue, pending uploads) may

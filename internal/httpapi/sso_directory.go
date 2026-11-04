@@ -242,6 +242,11 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 	if err == nil && existingSubject != "" && (existingSubject != u.ID || existingIssuer != issuer) {
 		return "", "", errors.New("directory subject conflict")
 	}
+	// A local administrator account (the break-glass one) is never taken over by a username match:
+	// linking, demoting or disabling it is for the operator, not a directory user who shares its name.
+	if err == nil && existingSubject == "" && existingKind == auth.KindAdmin {
+		return "", "", errors.New("directory subject conflict")
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	username := strings.ToLower(u.UserName)

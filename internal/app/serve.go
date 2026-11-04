@@ -42,6 +42,14 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 		return fmt.Errorf("bootstrap admin failed: %w", err)
 	}
 	WarnWithoutAdmin(store.DB(), log)
+	token, err := httpapi.EnsureSetupToken(store.DB(), c.DataDir)
+	if err != nil {
+		return fmt.Errorf("secrets/setup.token: %w", err)
+	}
+	if token != "" {
+		// The token is in the message: the logger drops every attribute key outside its allowlist.
+		log.Warn("setup_token: no account exists yet; open the web setup and enter setup token "+token+" (also in secrets/setup.token in the data directory)", "event", "setup_token")
+	}
 	blobs, err := blobstore.New(c.DataDir)
 	if err != nil {
 		return err

@@ -57,7 +57,10 @@ mounts.
 
 An account is an administrator account (manages KyNotes, cannot open notes) or an
 everyday account (writes notes), never both. The web first-run setup creates one of
-each. On an empty database, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` create the
+each. While no account exists the server keeps a one-time setup token in
+`secrets/setup.token` (0600) and logs it at every start (`setup_token`); the setup screen asks
+for it and setup deletes it, so a stranger who reaches a fresh install first cannot claim it.
+Delete the file and restart to mint a new one. On an empty database, `BOOTSTRAP_ADMIN_USER`/`BOOTSTRAP_ADMIN_PASS` create the
 administrator account and the optional `BOOTSTRAP_EVERYDAY_USER`/`BOOTSTRAP_EVERYDAY_PASS`
 the everyday account (a different username); both must change their password at first
 sign-in. If the log shows `no_active_admin`, no administrator account is left: create one
@@ -150,7 +153,9 @@ then start it. Restore only while stopped, run `integrity-check` and
 Migrations run at startup. Make a backup before upgrades. To roll back, stop
 the server, restore the backup directory, run both integrity checks, and start
 again. `copy-data-dir` copies the database without migrating it, so a copy made with the newer
-image is still the old schema. A release refuses to start on a database a newer release
+image is still the old schema. Offline `export-capsule`, `deposit`, `backup-drill` and `mirror-blobs`
+never migrate either: they refuse a database another release wrote, so back up with the release that
+is running. A release refuses to start on a database a newer release
 migrated; select the previous image before restoring and checking a pre-upgrade copy. The server holds a data-directory lock (`.kynotes.lock`, a kernel `flock`) while
 running, so `copy-data-dir`, `restore-data-dir`, `user add`, `quota set`, `bootstrap-admin`,
 `integrity-check` and `consistency-check` refuse to run beside it: stop the service first.
@@ -159,7 +164,7 @@ server never blocks the next start. Do not delete the file by hand. `gc --now` i
 exception: it runs beside the live server and refuses an unparsable or negative `--retention`.
 
 `copy-data-dir --out DIR` needs an absent or empty `DIR` outside the data directory.
-`restore-data-dir --in DIR [--force]` refuses an `--in` without `kynotes.sqlite`,
+`restore-data-dir --in DIR [--force] [--revoke-credentials]` refuses an `--in` without `kynotes.sqlite`,
 `secrets/pairing.key` and `secrets/serversalt.key`. It copies `--in` into a staging
 directory inside the data directory, integrity-checks the staged database, then moves the
 current entries into `.restore-previous-<random>` and the staged ones into place by rename,
@@ -167,7 +172,15 @@ so a failed copy or check leaves the data untouched. The data directory itself i
 renamed because it is usually a mount point. Remove `.restore-previous-*` yourself once the
 restored server checks out.
 
-`secrets/vapid.key` (Web Push, created on first start) is optional in a restore: a server without it
+By default the restored sessions and paired devices keep working, which is what an upgrade
+rollback wants. Add `--revoke-credentials` when the copy is older than a revocation you need to
+keep: a stolen phone you unpaired, a session you ended, a share link you revoked. It applies what
+a capsule restore does to the staged copy: every session and paired device ends (users sign in and
+re-pair), share links and sealed share links are revoked, and pending invitations are deleted.
+
+Sealed capsules carry `secrets/vapid.key` (Web Push, created on first start), so a capsule
+restore keeps push reminders working; an older capsule without it still restores. It is optional in a
+plaintext restore too: a server without it
 mints a new one, and each browser with push reminders on re-subscribes the next time it opens KyNotes.
 
 ## Ciphertext blob mirror

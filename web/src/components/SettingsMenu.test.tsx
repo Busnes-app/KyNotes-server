@@ -15,7 +15,8 @@ describe("Settings menu markup", () => {
     expect(html).toContain('<div class="ky-menu-list" id="m" role="menu" aria-label="Settings" hidden="">');
     expect(items(html)).toEqual([
       "Account #/settings/account", "Phones & apps #/settings/devices", "Appearance #/settings/appearance",
-      "Reminders #/settings/reminders", "Colleague keys #/settings/colleague-keys", "Unsent edits #/settings/unsent",
+      "Reminders #/settings/reminders", "Colleague keys #/settings/colleague-keys", "Share links #/settings/share-links",
+      "Unsent edits #/settings/unsent",
     ]);
     expect(html).not.toContain('aria-current');
   });

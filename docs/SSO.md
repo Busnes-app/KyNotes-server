@@ -168,7 +168,8 @@ those originally obtained with a local password. Re-enabling requires a higher
 active revision and fresh login/device pairing; it never revives those credentials.
 Unknown inactive subjects retain a tombstone without creating a user. Local
 status edits and OIDC auto-provisioning cannot override an inactive tombstone.
-Previously issued share links remain valid until expiry or separate revocation;
+Previously issued share links remain valid until expiry (30 days at most for a sealed link) or
+until their owner revokes them under Settings → Share links;
 directory deactivation does not revoke them. These links continue to provide
 server-mediated access to their ciphertext. Downloaded plaintext and client-held
 keys cannot be recalled by the server.

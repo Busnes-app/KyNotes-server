@@ -315,7 +315,7 @@ func setupBody(admin, everyday string) []byte {
 	account := func(name, fill string) string {
 		return `{"username":` + quote(name) + `,"authSecret":"` + strings.Repeat(fill, 64) + `","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000}`
 	}
-	return []byte(`{"admin":` + account(admin, "a") + `,"everyday":` + account(everyday, "b") + `}`)
+	return []byte(`{"admin":` + account(admin, "a") + `,"everyday":` + account(everyday, "b") + `,"setupToken":"` + testSetupToken + `"}`)
 }
 
 func TestSetupCreatesBothAccounts(t *testing.T) {

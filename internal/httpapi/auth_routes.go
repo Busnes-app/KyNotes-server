@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -82,11 +83,23 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	// First-run setup creates the administrator account and the everyday account that writes notes,
 	// both with passwords the person at setup chose, and signs this browser in as the administrator.
 	handleSetupInit := func(w http.ResponseWriter, r *http.Request) {
-		var in struct{ Admin, Everyday *setupAccount }
+		var in struct {
+			Admin, Everyday *setupAccount
+			SetupToken      string `json:"setupToken"`
+		}
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		if dec.Decode(&in) != nil || in.Admin == nil || in.Everyday == nil || !valid(in.Admin) || !valid(in.Everyday) || in.Admin.Username == in.Everyday.Username {
 			WriteError(w, r, 400, "invalid_request", "an administrator and an everyday account with different usernames are required")
+			return
+		}
+		if !setupTokenMatches(cfg.DataDir, in.SetupToken) {
+			var count int
+			if db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count) == nil && count > 0 {
+				WriteError(w, r, http.StatusForbidden, "setup_completed", "setup has already been completed")
+				return
+			}
+			WriteError(w, r, http.StatusForbidden, "setup_token_invalid", "the setup token is missing or wrong; it is in secrets/setup.token in the data directory and in the server's startup log")
 			return
 		}
 		accountIDs := [2]string{}
@@ -117,7 +130,14 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 					return err
 				}
 			}
-			return storage.RecordAuditOutcomeTx(tx, accountIDs[0], "setup.initialized", "", accountIDs[1], "success", "", RequestID(r))
+			if err := storage.RecordAuditOutcomeTx(tx, accountIDs[0], "setup.initialized", "", accountIDs[1], "success", "", RequestID(r)); err != nil {
+				return err
+			}
+			// One use: a failed commit leaves no token, and the next start mints a new one.
+			if err := os.Remove(SetupTokenPath(cfg.DataDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return nil
 		})
 		if errors.Is(err, errSetupDone) {
 			WriteError(w, r, http.StatusForbidden, "setup_completed", "setup has already been completed")

@@ -72,10 +72,10 @@ export async function checkSetup() {
 
 export type SetupAccount = { username: string; authSecret: string; loginSalt: string; iterations: number };
 
-export function setupInit(admin: SetupAccount, everyday: SetupAccount) {
+export function setupInit(admin: SetupAccount, everyday: SetupAccount, setupToken: string) {
   return request<{ ok: boolean; user: User; expiresAt: string; hardExpiresAt: string }>("/api/v1/setup", {
     method: "POST",
-    body: JSON.stringify({ admin, everyday }),
+    body: JSON.stringify({ admin, everyday, setupToken: setupToken.trim() }),
   });
 }
 
@@ -268,6 +268,10 @@ export function createSealedShareLink(ciphertext: Uint8Array, expiresAt: string)
   let binary = ""; for (const byte of ciphertext) binary += String.fromCharCode(byte);
   return request<{ id: string; token: string; expiresAt: string }>("/api/v1/share-links", { method: "POST", body: JSON.stringify({ ciphertext: btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""), expiresAt }) });
 }
+
+export type ShareLinkSummary = { id: string; createdAt: string; expiresAt: string; bytes: number };
+export const listShareLinks = () => request<ShareLinkSummary[]>("/api/v1/share-links");
+export const revokeShareLink = (id: string) => request<void>(`/api/v1/share-links/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export async function fetchShareCiphertext(token: string) {
   const response = await fetch(`/api/v1/share-links/${encodeURIComponent(token)}`, { headers: { Accept: "application/octet-stream" } });

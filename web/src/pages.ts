@@ -158,7 +158,7 @@ export function formatRoute({ container, section, page }: Route): string {
 /** Settings tabs, in order: the suite's personal sections, then KyNotes' own. Each is #/settings/<id>. */
 export const SETTINGS_TABS = [
   ["account", "Account"], ["devices", "Phones & apps"], ["appearance", "Appearance"],
-  ["reminders", "Reminders"], ["colleague-keys", "Colleague keys"], ["unsent", "Unsent edits"],
+  ["reminders", "Reminders"], ["colleague-keys", "Colleague keys"], ["share-links", "Share links"], ["unsent", "Unsent edits"],
 ] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number][0];
 // The one-page Settings' jump links, kept working: each lands on the tab now holding its card.

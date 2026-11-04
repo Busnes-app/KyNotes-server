@@ -89,7 +89,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		TeamKeyRoutes(mux, db)
 		if blobs != nil {
 			ObjectRoutes(mux, db, blobs, cfg.Limits)
-			ShareLinkRoutes(mux, db, blobs)
+			ShareLinkRoutes(mux, db, blobs, cfg.Limits)
 			UploadRoutes(mux, db, blobs, cfg)
 		}
 	}

@@ -1,7 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { OWNER, adminConsole, openNotebooks, person, signIn, withDialog } from "./people";
+import { OWNER, adminConsole, adminSection, approve, createTeamFor, createUser, nameTeam, openNotebooks, person, signIn, signInAndChoose, vaultOf, withDialog } from "./people";
 
 // Regression checks for the hostile-review pass 1 client fixes.
+const TEMPORARY = "temporary horse battery staple";
+const READER = "reader-p1";
+const TEAM = "Council pass 1 team";
 
 const objectSave = (page: Page) => page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok());
 
@@ -14,9 +17,17 @@ async function newPage(page: Page, title: string) {
   await titled;
 }
 
-test("client fixes: comment drafts stay with their page, a stale tab survives a missing chunk", async ({ browser }) => {
+async function openTeam(page: Page, cid: string) {
+  await page.goto("about:blank");
+  await page.goto(`/#/${cid}`);
+  await expect(page.locator(".workspace-title")).toHaveText(TEAM);
+  await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
+}
+
+test("client fixes: comment drafts, read-only roles", async ({ browser }) => {
   const admin = await person(browser);
   const owner = await person(browser);
+  const reader = await person(browser);
   try {
     await adminConsole(admin.page);
     await signIn(owner.page, OWNER.username, OWNER.password);
@@ -55,8 +66,68 @@ test("client fixes: comment drafts stay with their page, a stale tab survives a 
       await page.unrouteAll({ behavior: "ignoreErrors" });
     }
 
-    for (const who of [admin, owner]) expect(who.unexpected).toEqual([]);
+    // A viewer reads a team page but gets no editable title or canvas.
+    await createUser(admin, READER, TEMPORARY);
+    await signInAndChoose(reader.page, READER, TEMPORARY, OWNER.password);
+    await expect.poll(() => vaultOf(reader.page), { timeout: 30_000 }).toMatchObject({ identity: expect.anything() });
+    const teamID = await createTeamFor(admin, OWNER.username);
+    await nameTeam(owner, teamID, TEAM);
+    await adminSection(admin.page, "Teams");
+    await admin.page.getByRole("combobox", { name: "Team", exact: true }).selectOption(teamID);
+    const who = admin.page.getByRole("combobox", { name: "Person", exact: true });
+    await who.selectOption((await who.locator("option", { hasText: new RegExp(`^${READER}$`) }).getAttribute("value"))!);
+    await admin.page.getByRole("combobox", { name: "Role", exact: true }).selectOption("viewer");
+    await withDialog(admin, { type: "alert", text: "Person added. They get the team's keys once one of its owners approves them." }, () => admin.page.getByRole("button", { name: "Add to team" }).click());
+    await openTeam(owner.page, teamID);
+    await approve(owner, READER);
+    await newPage(owner.page, "Team page");
+    await openTeam(reader.page, teamID);
+    await reader.page.locator(".note-row", { hasText: "Team page" }).click();
+    await expect(reader.page.locator(".title-input")).toHaveValue("Team page");
+    await expect(reader.page.locator(".title-input")).toHaveAttribute("readonly", "");
+    // Pass 2 (F5): no page write by keyboard either, and an unreadable member list is read-only too.
+    let writes = 0;
+    const countWrite = (request: { method: () => string; url: () => string }) => { if (request.method() !== "GET" && /\/api\/v1\/objects\//.test(request.url())) writes += 1; };
+    reader.page.on("request", countWrite);
+    await reader.page.locator(".note-row", { hasText: "Team page" }).focus();
+    await reader.page.keyboard.press("Alt+ArrowDown");
+    await reader.page.keyboard.press("Control+Alt+BracketRight");
+    await expect(reader.page.locator(".note-row", { hasText: "Team page" })).toHaveAttribute("draggable", "false");
+    expect(writes).toBe(0);
+    reader.page.off("request", countWrite);
+    await reader.page.route((url) => url.pathname === `/api/v1/containers/${teamID}/members`, (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":{"code":"internal","message":"internal server error"}}' }));
+    // The team name may stay unreadable without the list too, so this waits for the load, not the title.
+    await reader.page.goto("about:blank");
+    await reader.page.goto(`/#/${teamID}`);
+    await expect(reader.page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
+    await expect(reader.page.getByText("Your role in this notebook could not be loaded, so it is read-only for now.", { exact: false })).toBeVisible();
+    await expect(reader.page.getByRole("button", { name: "New page" })).toBeDisabled();
+    await reader.page.unrouteAll({ behavior: "ignoreErrors" });
+
+    // A team's child notebook copies the team's roles: the viewer reads it read-only too.
+    await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Council child" }, () =>
+      owner.page.getByRole("button", { name: "Notebook options" }).click().then(() => owner.page.getByRole("button", { name: "Create team notebook" }).click()));
+    await expect(owner.page.locator(".workspace-title")).toHaveText("Council child");
+    await newPage(owner.page, "Child page");
+    const child = /#\/(cnt_[0-9a-z]+)/.exec(owner.page.url())![1];
+    await reader.page.goto("about:blank");
+    await reader.page.goto(`/#/${child}`);
+    await expect(reader.page.locator(".workspace-title")).toHaveText("Council child");
+    await reader.page.locator(".note-row", { hasText: "Child page" }).click();
+    await expect(reader.page.locator(".title-input")).toHaveValue("Child page");
+    await expect(reader.page.getByText("This notebook is read-only until its keys reach this browser.")).toHaveCount(0);
+    await expect(reader.page.locator(".title-input")).toHaveAttribute("readonly", "");
+    // Pass 2: offline, a missing page chunk neither reloads the tab nor blanks the app.
+    let documents = 0;
+    owner.page.on("request", (request) => { if (request.resourceType() === "document") documents += 1; });
+    await owner.page.addInitScript(() => Object.defineProperty(Navigator.prototype, "onLine", { configurable: true, get: () => false }));
+    await owner.page.route((url) => /\/assets\/CanvasPage-[^/]+\.js$/.test(url.pathname), (route) => route.abort("internetdisconnected"));
+    await owner.page.reload();
+    await expect(owner.page.getByRole("alert").filter({ hasText: "This page's editor could not be loaded while offline." })).toBeVisible({ timeout: 30_000 });
+    await expect(owner.page.locator(".workspace-title")).toHaveText("Council child");
+    expect(documents).toBe(1);
+    for (const who of [admin, owner, reader]) expect(who.unexpected).toEqual([]);
   } finally {
-    for (const who of [admin, owner]) await who.page.context().close();
+    for (const who of [admin, owner, reader]) await who.page.context().close();
   }
 });

@@ -69,6 +69,7 @@ import { KeysWaitingError, sendComment, sendContainerName, sendObject, sendUploa
 import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, sessionStore, takeInviteLink } from "./invitations";
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
+import { ShareLinks } from "./components/ShareLinks";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { createKeyed, listContainers, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -164,7 +165,7 @@ import { applyStoredTheme } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
-import { desiredReminders, planReconcile } from "./reminderPush";
+import { desiredReminders, planReconcile, type ServerReminder } from "./reminderPush";
 import { documentText, emptyCanvasPage, hasInk, inkOnly, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
@@ -175,6 +176,10 @@ import "./ky-ui/appearance.css";
 import "./ky-ui/appearance-themes.css";
 
 const MAX_CHANGE_PAGES = 100;
+const MIGRATION_CONFLICTS = "This notebook's upgrade to the current encryption format is waiting on pages with conflicting versions saved by an older KyNotes. Open each page that says another device saved it first and choose Keep the other version as a copy; the upgrade finishes on a later visit. Until then, the notebook keeps working as it is.";
+const VIEW_ONLY = "You can read this notebook but not change its pages: your role here is viewer or commenter.";
+const ROLE_LOST = "You can no longer edit the page an unsent edit belongs to, so it cannot be saved. It is kept under Settings → Unsent edits, where you can export or discard it.";
+const ROLE_UNKNOWN = "Your role in this notebook could not be loaded, so it is read-only for now. Reopen the notebook to try again.";
 const PAGE_GONE = "A page you edited was deleted elsewhere, so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
@@ -196,10 +201,25 @@ const CanvasPage = lazy(() => import("./CanvasPage").then((module) => {
   chunkMarker(null);
   return module;
 }, (error: unknown) => {
-  if (chunkMarker() === location.href || chunkMarker(location.href) !== location.href) throw error;
+  // Offline, a reload would only show the browser's offline page; CanvasBoundary says so instead.
+  if (!navigator.onLine || chunkMarker() === location.href || chunkMarker(location.href) !== location.href) throw error;
   location.reload();
   return new Promise<never>(() => {});
 }));
+/** A page editor that could not be loaded leaves the rest of the app working, with a way back. */
+class CanvasBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="editor-loading" role="alert">
+        <p>{navigator.onLine ? "This page's editor could not be loaded." : "This page's editor could not be loaded while offline."} Your other pages and unsent edits are safe. Reload once you are connected.</p>
+        <button type="button" className="secondary" onClick={() => { chunkMarker(null); location.reload(); }}>Reload</button>
+      </div>
+    );
+  }
+}
 
 type AuthState = {
   username: string;
@@ -393,6 +413,7 @@ function Login({
   const [everydayConfirm, setEverydayConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [setupToken, setSetupToken] = useState("");
   const [sso, setSSO] = useState<{ enabled: boolean; issuerUrl: string; clientId: string } | null>(null);
 
   useEffect(() => {
@@ -423,7 +444,7 @@ function Login({
         const loginSalt = randomLoginSalt();
         return { username: name.trim(), authSecret: (await deriveLoginKeys(secret, loginSalt, 600000)).authSecret, loginSalt, iterations: 600000 };
       };
-      const result = await setupInit(await account(adminName, password), await account(everydayName, everydayPassword));
+      const result = await setupInit(await account(adminName, password), await account(everydayName, everydayPassword), setupToken);
       onLogin({ username: adminName.trim(), authSecret: "", user: result.user });
     } catch (error) {
       setError(error instanceof Error ? error.message : "Setup failed");
@@ -468,6 +489,11 @@ function Login({
         <form className="ky-auth-card setup-form" onSubmit={submitSetup}>
           <h2>Set up KyNotes</h2>
           <p className="setup-lede">Create two accounts: one to run the server and one to write notes with.</p>
+          <label>
+            Setup token
+            <input autoComplete="off" spellCheck={false} value={setupToken} onChange={(event) => setSetupToken(event.target.value)} required />
+          </label>
+          <p className="setup-hint">Proves you run this server. Find it in the server's startup log (<code>docker compose logs kynotes-server</code>) or in <code>secrets/setup.token</code> in its data volume.</p>
           <fieldset>
             <legend>Administrator login</legend>
             <p className="setup-hint">Manages users, teams, sign-on and backups. It cannot open notes.</p>
@@ -663,6 +689,10 @@ function Workspace({
   selectedNoteRef.current = selectedNote;
   const [notificationCount, setNotificationCount] = useState(0);
   const [membersForTeam, setMembersForTeam] = useState<Member[]>([]);
+  // This user's role in the open notebook, as its loaded member list says; undefined until known.
+  const [openRole, setOpenRole] = useState("unknown");
+  const openRoleRef = useRef(openRole);
+  openRoleRef.current = openRole;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -735,6 +765,10 @@ function Workspace({
   // Read-only until this generation's key reaches this browser.
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
+  // Viewers and commenters read pages; the server refuses their page writes.
+  // Until the load says otherwise the role is unknown, which is read-only too.
+  const writer = (role: string) => role === "owner" || role === "admin" || role === "editor";
+  const viewOnly = !writer(openRole);
   /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
   // Member management and team notebooks: the server's member list says whether this user is a steward of the open team (M1).
   const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;
@@ -745,6 +779,13 @@ function Workspace({
     const open = selectedRef.current;
     if (!open || writeKeyFor(open)) return false;
     setError(rolledBack(open) ? ROLLBACK : WAITING);
+    return true;
+  };
+  /** readOnlyForKeys, and true (saying why) when this user's role cannot change pages or sections here. */
+  const readOnly = () => {
+    if (readOnlyForKeys()) return true;
+    if (!selectedRef.current || writer(openRoleRef.current)) return false;
+    setError(openRoleRef.current === "unknown" ? ROLE_UNKNOWN : VIEW_ONLY);
     return true;
   };
   const [keyNotice, setKeyNotice] = useState("");
@@ -1108,14 +1149,18 @@ function Workspace({
   const pushTasks = useMemo(() => queueTasks.filter((task) => task.push).map((task) => ({ noteID: task.entry.note.id, remind: task.remind, push: true })), [queueTasks]);
   const pushTaskKey = pushTasks.map((task) => `${task.noteID}\n${task.remind}`).sort().join("\n");
   const reconciling = useRef(Promise.resolve());
+  // What this tab last reconciled: later passes send only this tab's own changes (planReconcile).
+  const reconciled = useRef<ServerReminder[] | undefined>(undefined);
   useEffect(() => {
-    if (!reminderPrefs.push || !queueComplete) return;
+    if (!reminderPrefs.push || !queueComplete) { reconciled.current = undefined; return; }
     reconciling.current = reconciling.current.then(async () => {
       const identity = await heldIdentity();
       if (!identity) return;
-      const plan = planReconcile(desiredReminders(reminderIDKey(identity), pushTasks, Date.now()), await serverReminders(), queueComplete);
+      const desired = desiredReminders(reminderIDKey(identity), pushTasks, Date.now());
+      const plan = planReconcile(desired, await serverReminders(), queueComplete, reconciled.current);
       for (const id of plan.deletes) await deleteReminder(id);
       for (const row of plan.puts) await putReminder(row.id, row.at);
+      reconciled.current = desired;
     }).catch(() => undefined);
   }, [reminderPrefs.push, queueComplete, pushTaskKey]);
   const listEntries = queueMode
@@ -1123,7 +1168,7 @@ function Workspace({
     : (query.trim() ? visibleNotes : sectionPages)
         .map((note) => ({ note, container: selected }))
         .filter((entry): entry is QueueEntry => Boolean(entry.container));
-  const reorderable = !queueMode && !query.trim();
+  const reorderable = !queueMode && !query.trim() && !viewOnly;
   const queueShown = new Set(visibleQueueEntries.map((entry) => entry.note.id));
   const queueRows = queueMode ? queueTasks.filter((task) => queueShown.has(task.entry.note.id))
     .map((task) => ({ ...task, missed: missedReminders.has(task.key), group: classifyTask(task, new Date(), missedReminders.has(task.key)) }))
@@ -1485,6 +1530,7 @@ function Workspace({
     if (superseded()) return [];
     // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
+    setOpenRole("unknown");
     if (leaveQueue) setQueueMode(false);
     selectedNoteRef.current = null;
     setSelectedNote(null);
@@ -1518,10 +1564,15 @@ function Workspace({
       showSection(resolveSection(route?.section, loadedSections));
       const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, keyed);
-      const team = container.kind === "team" ? await members(container.id) : [];
-      if (!superseded()) setMembersForTeam(team);
+      // An unreadable list leaves the role unknown, which is read-only (the server would refuse a viewer's writes).
+      const team = container.kind === "team" ? await members(container.id).catch(() => undefined) : [];
+      if (!superseded()) setMembersForTeam(team ?? []);
+      // A team's child notebook copies the team's memberships: its own member list holds this user's role.
+      const own = container.teamId ? await members(container.id).catch(() => undefined) : team;
       // Writers migrate in the background once this load has rendered (migrateOpen); viewers never do.
-      const role = container.kind === "team" ? team.find((member) => member.userId === auth.user.id)?.role : "owner";
+      const role = container.kind === "team" || container.teamId ? own?.find((member) => member.userId === auth.user.id)?.role ?? "unknown" : "owner";
+      if (!superseded()) setOpenRole(role);
+      if (!superseded() && role === "unknown") setError(ROLE_UNKNOWN);
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
         migrationDue.current = { containerID: keyed.id, unreadable: objects.unreadable, objects: kinds.map((object) => ({ ...object, v1: objects.legacy.has(object.id) })) };
@@ -1571,8 +1622,13 @@ function Workspace({
   /** False when the open page could not be flushed and stays open. */
   async function selectNote(selection: Note, container: Container | null = selected): Promise<boolean> {
     const containerID = container?.id ?? "";
+    // A late caller (a comment reply, a page creation) must not reopen a page under another notebook:
+    // its edits would be sealed with that notebook's key and become unreadable in their own.
+    if (container && (loadingContainerID.current ?? selectedRef.current?.id) !== containerID) return false;
     const previous = selectedNoteRef.current;
     if (previous && previous.id !== selection.id && !(await flushOpenPage())) return false;
+    // Again after the flush: the user may have switched notebook while it ran.
+    if (container && (loadingContainerID.current ?? selectedRef.current?.id) !== containerID) return false;
     // Search and resurfacing rows hold deferred copies; open the live entry.
     const note = previous?.id === selection.id ? previous : notesRef.current.find((entry) => entry.id === selection.id) ?? selection;
     selectedNoteRef.current = note;
@@ -1744,12 +1800,17 @@ function Workspace({
     }
   }
   async function newNote() {
-    if (!selected || keyWait) return;
+    if (!selected || keyWait || readOnly()) return;
     setBusy(true);
     try {
       // Before createObject: an exhausted order key must not leave an empty object behind.
       const order = endOrder(pagesInSection(notesRef.current, sectionsRef.current, sectionID));
       const object = await createObject(selected.id);
+      if ((loadingContainerID.current ?? selectedRef.current?.id) !== selected.id) {
+        // The user left the notebook meanwhile: never open the new page under another one's key.
+        await deleteObject(object.id).catch(() => undefined);
+        return;
+      }
       const note: Note = {
         id: object.id,
         title: "Untitled page",
@@ -1776,7 +1837,8 @@ function Workspace({
   }
   /** Returns the page it sent (saved, queued or kept as a conflict draft); undefined if nothing was. */
   async function saveNow(note: Note, automatic = false): Promise<Note | undefined> {
-    if (!selected) return undefined;
+    // A viewer's or commenter's page write would be refused and queued forever.
+    if (!selected || !writer(openRoleRef.current)) return undefined;
     if (!automatic) setBusy(true);
     try {
       const write = localKeyFor(selected) ?? notSaved();
@@ -1900,8 +1962,8 @@ function Workspace({
       // One key pass per container per drain.
       const synced = new Map<string, Promise<Container>>();
       for (const queuedItem of queued) {
-        // gone: its page was deleted elsewhere; listed under Unsent edits, never sent.
-        if (queuedItem.gone) continue;
+        // gone: its page was deleted elsewhere; listed under Unsent edits, never sent, and never "saved".
+        if (queuedItem.gone) { attention = true; continue; }
         let item = queuedItem;
         try {
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
@@ -1935,14 +1997,17 @@ function Workspace({
             await replaceQueuedSave(item);
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
-          } else if (error instanceof APIRequestError && error.code === "not_found") {
-            // Its page was deleted elsewhere: kept under Unsent edits, never sent again.
-            await replaceQueuedSave(item, { ...item, gone: true });
-            attention = true;
-            setError(PAGE_GONE);
           } else {
-            // A retired generation (already_exists): the next drain reads the container again and re-seals it.
-            remaining = true;
+            if (error instanceof APIRequestError && (error.code === "not_found" || error.code === "forbidden")) {
+              // Its page was deleted elsewhere, or this user may no longer edit it (now a viewer or
+              // commenter): kept under Unsent edits, never sent again.
+              await replaceQueuedSave(item, { ...item, gone: true });
+              attention = true;
+              setError(error.code === "forbidden" ? ROLE_LOST : PAGE_GONE);
+            } else {
+              // A retired generation (already_exists): the next drain reads the container again and re-seals it.
+              remaining = true;
+            }
           }
         }
       }
@@ -1972,7 +2037,7 @@ function Workspace({
     return undefined;
   }
   async function remove(note: Note) {
-    if (readOnlyForKeys() || !confirm("Delete this page?")) return;
+    if (readOnly() || !confirm("Delete this page?")) return;
     try {
       await deleteObject(note.id);
       await deleteCachedNote(auth.user.id, note.id);
@@ -2037,7 +2102,7 @@ function Workspace({
    * Chained encrypted write of a section or group, from its newest local copy; resolves true once saved.
    */
   function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>) {
-    if (readOnlyForKeys()) return Promise.resolve(false);
+    if (readOnly()) return Promise.resolve(false);
     const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
     patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
     return chained(async () => {
@@ -2060,13 +2125,23 @@ function Workspace({
     migrationDue.current = undefined;
     if (!due || migrating.current || selected?.id !== due.containerID || !writeKeyFor(selected)) return;
     migrating.current = true;
-    void migrateOpen(selected, due).catch(() => undefined).finally(() => { migrating.current = false; });
+    void migrateOpen(selected, due).then((result) => {
+      if (result === "conflicts" && selectedRef.current?.id === due.containerID) setError(MIGRATION_CONFLICTS);
+    }, () => undefined).finally(() => { migrating.current = false; });
   }, [migrationTick]);
   /** migrate.ts on the open notebook; it stops writing once the user leaves it. */
   function migrateOpen(container: Container, due: { objects: LoadedObject[]; unreadable: number }) {
     const here = () => selectedRef.current?.id === container.id;
     return migrateNotebook(due.objects, due.unreadable, migrated.current.has(container.id), {
       pins: (pageID) => childPins(container, pageID),
+      legacyConflict: async (pageID) => {
+        for (const conflict of (await objectConflicts(pageID)).filter((item) => !item.resolved)) {
+          const bytes = await conflictCiphertext(conflict.id);
+          const opens = (v1: boolean) => openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, container.id, pageID, bytes, v1)).then(() => true, () => false);
+          if (!(await opens(false)) && (await opens(true))) return true;
+        }
+        return false;
+      },
       savePage: async (id, legacy) => here() && pinPage(id, legacy),
       saveStructure: async (kind, id) => here() && updateStructure(kind, id, {}),
       mark: async () => {
@@ -2143,7 +2218,7 @@ function Workspace({
   }
 
   async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }) {
-    if (readOnlyForKeys()) return;
+    if (readOnly()) return;
     // An undefined level keeps the page's own; an undefined section means Quick Notes.
     const { level, ...rest } = placement;
     const change = level === undefined ? rest : placement;
@@ -2178,7 +2253,7 @@ function Workspace({
   }
   async function newStructure(kind: "section" | "group") {
     // Before createObject: no empty object is left behind while keys are missing.
-    if (!selected || readOnlyForKeys()) return;
+    if (!selected || readOnly()) return;
     setBusy(true);
     try {
       const parent = groupID;
@@ -2200,12 +2275,12 @@ function Workspace({
   }
   const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section or group");
   function renameStructure(kind: "section" | "group", entry: Section | Group) {
-    if (readOnlyForKeys()) return;
+    if (readOnly()) return;
     const title = prompt(kind === "section" ? "Section name" : "Group name", entry.title)?.trim();
     if (title) void updateStructure(kind, entry.id, { title }).catch(reportSection);
   }
   async function removeSection(section: Section) {
-    if (readOnlyForKeys()) return;
+    if (readOnly()) return;
     const count = pagesInSection(notes, sections, section.id).length;
     if (!confirm(`Delete section "${section.title}"? Its ${count} page${count === 1 ? "" : "s"} will move to Quick Notes.`)) return;
     try {
@@ -2219,7 +2294,7 @@ function Workspace({
   }
   /** Children move up one level first; a failed write stops before the delete, so nothing is lost. */
   async function removeGroup(group: Group) {
-    if (readOnlyForKeys() || !confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
+    if (readOnly() || !confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
     setBusy(true);
     try {
       const parent = groupParents(groupsRef.current).get(group.id);
@@ -2290,7 +2365,7 @@ function Workspace({
   /** Moves the block headed by `pageID` before page `beforeID` in `target`, or to its end. */
   function movePage(pageID: string, target: string, beforeID: string | null) {
     return onMoveChain(async () => {
-      if (readOnlyForKeys()) return;
+      if (readOnly()) return;
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const source = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
@@ -2311,7 +2386,7 @@ function Workspace({
   }
   function indentPage(pageID: string, delta: 1 | -1) {
     return onMoveChain(async () => {
-      if (readOnlyForKeys()) return;
+      if (readOnly()) return;
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
@@ -2345,7 +2420,7 @@ function Workspace({
   }
   async function keepConflictCopies() {
     const open = selectedNoteRef.current;
-    if (recoveringRef.current || !selected || !open || readOnlyForKeys()) return;
+    if (recoveringRef.current || !selected || !open || readOnly()) return;
     recoveringRef.current = true;
     setRecovering(open.id);
     const container = selected;
@@ -2393,7 +2468,7 @@ function Workspace({
       for (const id of resolveOnly) await resolveConflict(id).catch(() => { failed += 1; });
       for (const group of groups) {
         // Placement needs this notebook's page list; the rest stay on the server for a later run.
-        if (!sameNotebook() || readOnlyForKeys()) { failed += 1; continue; }
+        if (!sameNotebook() || readOnly()) { failed += 1; continue; }
         try {
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
           if (!(await placeConflictCopy(containerID, current, group.payload, sameNotebook))) { failed += 1; continue; }
@@ -2525,7 +2600,7 @@ function Workspace({
       return { id: uploaded.id, name: file.name, type: file.type, size: file.size, keyGeneration: uploaded.keyGeneration, page: job.objectID };
   }
   async function addAttachment(file: File) {
-    if (!selected || !selectedNote || readOnlyForKeys()) return;
+    if (!selected || !selectedNote || readOnly()) return;
     setBusy(true);
     try {
       const attachment = await uploadAttachment(file);
@@ -2706,10 +2781,11 @@ function Workspace({
         `${location.origin}/share/${link.token}#${sealed.key}`,
       );
       // The shared view shows text only; say so when the page holds ink it will not show.
+      const ink = hasInk(selectedNote.body);
       setError(
-        hasInk(selectedNote.body)
-          ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment."
-          : "Encrypted share link copied. The key is only in the URL fragment.",
+        ink
+          ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment. Revoke it under Settings → Share links."
+          : "Encrypted share link copied. The key is only in the URL fragment. Revoke it under Settings → Share links.",
       );
     } catch (error) {
       setError(
@@ -2749,8 +2825,8 @@ function Workspace({
           <div className="section-menu anchored-menu" id="notebook-menu" popover="auto" style={{ positionAnchor: "--notebook-menu" } as React.CSSProperties}>
             <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void renameWorkspace(); }}>Rename notebook</button>
             <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void exportWorkspace(); }}>Export notebook</button>
-            <button className="quiet" disabled={busy || keyWait} onClick={() => { closeMenu("notebook-menu"); void newStructure("section"); }}>New section</button>
-            <button className="quiet" disabled={busy || keyWait || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
+            <button className="quiet" disabled={busy || keyWait || viewOnly} onClick={() => { closeMenu("notebook-menu"); void newStructure("section"); }}>New section</button>
+            <button className="quiet" disabled={busy || keyWait || viewOnly || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
             {selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}
             {selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}
           </div>
@@ -2761,7 +2837,7 @@ function Workspace({
             groups={childGroups}
             path={groupTrail}
             current={sectionID}
-            busy={busy || keyWait}
+            busy={busy || keyWait || viewOnly}
             moveTargets={moveTargets}
             onSelect={(id) => { setView("workspace"); setShowNotebookNavigation(false); setPhoneList(true); void selectSection(id); }}
             onRename={renameStructure}
@@ -2867,7 +2943,7 @@ function Workspace({
                   className="icon-button quiet"
                   aria-label="New page"
                   title="New page"
-                  disabled={busy || sectionHidden || keyWait}
+                  disabled={busy || sectionHidden || keyWait || viewOnly}
                   onClick={() => { setView("workspace"); setShowNotebookNavigation(false); setPhoneList(false); void newNote(); }}
                 >
                   <NavIcon name="plus" />
@@ -2933,7 +3009,7 @@ function Workspace({
                   className="note-row"
                   aria-current={inWorkspace && selectedNote?.id === note.id ? "page" : undefined}
                   data-page-id={note.id}
-                  draggable
+                  draggable={!viewOnly}
                   onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
                     if (!reorderable) return;
@@ -3048,7 +3124,7 @@ function Workspace({
                     {recovering === selectedNote.id
                       ? "Saving the other version as a copy…"
                       : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
-                    <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
+                    <button className="secondary" disabled={recovering !== null || keyWait || viewOnly} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
                 )}
                 <button type="button" className="quiet pane-back" onClick={() => { setPhoneList(true); requestAnimationFrame(() => document.querySelector<HTMLElement>(".note-list .note-row[aria-current]")?.focus()); }}>
@@ -3059,7 +3135,7 @@ function Workspace({
                     ref={pageTitleRef}
                     aria-label="Page title"
                     className="title-input"
-                    readOnly={recovering === selectedNote.id || keyWait}
+                    readOnly={recovering === selectedNote.id || keyWait || viewOnly}
                     value={selectedNote.title}
                     onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                   />
@@ -3078,7 +3154,7 @@ function Workspace({
                       <div className="page-section-control">
                         <select
                           aria-label="Move page to section"
-                          disabled={keyWait}
+                          disabled={keyWait || viewOnly}
                           value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
                           onChange={(event) => { closeMenu("page-menu"); void movePage(selectedNote.id, event.target.value, null); }}
                         >
@@ -3087,25 +3163,27 @@ function Workspace({
                         </select>
                         <NavIcon name="chevron" />
                       </div>
-                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
-                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
-                      <button className="quiet danger" disabled={keyWait} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
+                      <button className="quiet" disabled={keyWait || viewOnly || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
+                      <button className="quiet" disabled={keyWait || viewOnly || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
+                      <button className="quiet danger" disabled={keyWait || viewOnly} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
                     </div>
                   </div>
                 </div>
                 <div className="page-canvas">
+                  <CanvasBoundary>
                   <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
                     <CanvasPage
                       key={`${selectedNote.id}:${editorRevision}`}
                       pageID={selectedNote.id}
                       body={selectedNote.body}
-                      editable={recovering !== selectedNote.id && !keyWait}
+                      editable={recovering !== selectedNote.id && !keyWait && !viewOnly}
                       onChange={(body) => editOpen(selectedNote.id, { body })}
                       onError={setError}
                       uploadFile={uploadInlineFile}
                       resolveFileUrl={resolveFileUrl}
                     />
                   </Suspense>
+                  </CanvasBoundary>
                 </div>
                 <details className="page-panel comments" open={commentsOpen} onToggle={(event) => setCommentsOpen(event.currentTarget.open)}>
                   <summary><span>Comments</span>{commentsForNote.length > 0 && <span className="page-panel-count">{commentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
@@ -3145,7 +3223,7 @@ function Workspace({
                   ))}
                   <label className="attachment-picker">
                     <NavIcon name="plus" /><span>Add encrypted file</span>
-                    <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
+                    <input type="file" disabled={busy || keyWait || viewOnly} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
                   </label>
                 </details>
               </>
@@ -3159,7 +3237,7 @@ function Workspace({
                   <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
                 )}
                 {selected && (
-                  <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
+                  <button disabled={keyWait || viewOnly} onClick={() => void newNote()}>Create a note</button>
                 )}
               </div>
             )}
@@ -3451,6 +3529,9 @@ function SettingsView({
       </div>
       <div className="settings-content" hidden={tab !== "colleague-keys"}>
         <PinnedKeys username={username} userID={userID} names={colleagueNames} />
+      </div>
+      <div className="settings-content" hidden={tab !== "share-links"}>
+        {tab === "share-links" && <ShareLinks />}
       </div>
       <div className="settings-content" hidden={tab !== "unsent"}>
         <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />

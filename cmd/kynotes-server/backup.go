@@ -18,6 +18,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky-primitives/shamir"
 	"github.com/Busnes-app/kynotes-server/internal/app"
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/httpapi"
@@ -61,12 +62,13 @@ func capsuleCommand(command string, args []string) error {
 		return err
 	}
 	defer unlock()
-	store, err := storage.Open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
+	// Never migrates: a backup made with a newer image must not upgrade the database it copies.
+	store, err := storage.OpenCurrent(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	service := backup.New(cfg, store, "dev")
+	service := backup.New(cfg, store, appversion.String())
 	defer service.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), backup.OperationTimeout)
 	defer cancel()
@@ -192,10 +194,12 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
+	var verified string
 	for _, check := range backup.Checks(target, manifest) {
 		if !check.Passed {
 			return fmt.Errorf("restore verification failed: %s; preserve this target for inspection", check.Message)
 		}
+		verified = check.Message
 	}
 	// Relocate only the data path. Keep effective deployment keys, issuer and pairing.
 	configPath := filepath.Join(target, "kynotes.yaml")
@@ -220,10 +224,19 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 		return err
 	}
 	defer store.Close()
-	// A snapshot must not resurrect credentials, links or invitations revoked after it was
-	// taken: sessions and paired devices end (identities stay), links and invitations go.
+	if err = revokeRestoredCredentials(store); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s (%s). Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID), verified)
+	return err
+}
+
+// revokeRestoredCredentials keeps a snapshot from resurrecting credentials, links or invitations
+// revoked after it was taken: sessions and paired devices end (identities stay), links and
+// invitations go. Capsule restore always runs it; restore-data-dir with --revoke-credentials.
+func revokeRestoredCredentials(store *storage.Store) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+	return store.WithTx(context.Background(), func(tx *sql.Tx) error {
 		for _, table := range []string{"sessions", "share_links", "sealed_share_links"} {
 			if _, e := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE revoked_at=''`, now); e != nil {
 				return e
@@ -235,9 +248,4 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 		_, e := tx.Exec(`DELETE FROM invitations WHERE status='pending'`)
 		return e
 	})
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s. Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID))
-	return err
 }

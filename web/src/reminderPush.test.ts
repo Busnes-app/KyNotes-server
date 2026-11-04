@@ -58,6 +58,17 @@ describe("reconcile planning", () => {
     expect(planReconcile([], server, true).deletes).toEqual(["a", "b", "z"]);
   });
 
+  it("after its first pass, a tab sends only its own changes, never another browser's", () => {
+    const mine = { id: "a", at: "2030-06-01T09:00:00Z" };
+    const theirs = { id: "b", at: "2030-06-02T09:00:00Z" };
+    const added = { id: "c", at: "2030-06-03T09:00:00Z" };
+    // This tab never saw "b" (stale pages) and still holds "old", which another browser removed.
+    const old = { id: "old", at: "2030-06-04T09:00:00Z" };
+    expect(planReconcile([mine, old, added], [mine, theirs], true, [mine, old])).toEqual({ puts: [added], deletes: [] });
+    // Its own removal still goes through.
+    expect(planReconcile([], [mine, theirs], true, [mine])).toEqual({ puts: [], deletes: ["a"] });
+  });
+
   it("does nothing on a partial load, so it never deletes what it could not see", () => {
     expect(planReconcile([], [{ id: "z", at: "2030-06-09T09:00:00Z" }], false)).toEqual({ puts: [], deletes: [] });
     expect(planReconcile([{ id: "a", at: "2030-06-01T09:00:00Z" }], [], false)).toEqual({ puts: [], deletes: [] });

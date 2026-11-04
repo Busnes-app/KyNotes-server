@@ -53,7 +53,11 @@ docker compose ps
 docker compose exec kynotes-server /kynotes-server healthcheck
 ```
 
-Open the HTTPS proxy origin and complete first-run setup: create a separate administrator
+Read the one-time setup token from the log (`docker compose logs kynotes-server | grep setup_token`;
+it is also `secrets/setup.token` in the data volume). Setup asks for it, so whoever finds a fresh
+install first cannot claim it.
+
+Open the HTTPS proxy origin and complete first-run setup: enter the token, create a separate administrator
 and everyday account, keep recovery codes, then sign in as the everyday user to create a
 notebook, note and attachment. Administrators cannot open users’ notebooks.
 

@@ -101,11 +101,15 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 		case r.Method != http.MethodGet && strings.HasPrefix(path, "/api/v1/me/link-requests/"):
 			// Claim, reveal, approve and cancel: a ceremony needs a handful; bounds refusal audit rows.
 			limit, rate, label = cfg.RateLimit.LoginPerMinute, cfg.RateLimit.LoginPerMinute, "link-step"
+		case r.Method == http.MethodPost && path == "/api/v1/share-links":
+			// Each sealed link stores up to 12 MB until it expires. ponytail: reuses invitation_per_hour;
+			// upgrade path is a dedicated share_per_hour key.
+			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "share"
 		case (strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/uploads")) || strings.HasPrefix(path, "/api/v1/uploads/"):
 			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "upload"
 		}
 		refill := float64(rate) / 60
-		if label == "pairing" || label == "invitation" || label == "accept" || label == "link" || label == "recovery" {
+		if label == "pairing" || label == "invitation" || label == "accept" || label == "link" || label == "recovery" || label == "share" {
 			refill = float64(rate) / 3600
 		}
 		ip := rateLimitClientIP(r, cfg.Server.BehindProxy, proxies)

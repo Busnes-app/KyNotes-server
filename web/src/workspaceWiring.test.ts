@@ -216,3 +216,30 @@ describe("content v2 refusal point", () => {
     expect(block("  async function childPins(")).toContain("decryptAttachment(key, container.id, pageID, bytes, true)");
   });
 });
+
+describe("hostile-review pass 2 wiring", () => {
+  it("never reopens a page under a notebook that is no longer the open one", () => {
+    // A comment reply or a page creation that resolves after a notebook switch must not reopen its page:
+    // the next autosave would seal it with the other notebook's key.
+    const select = block("  async function selectNote(");
+    expect(select).toContain("if (container && (loadingContainerID.current ?? selectedRef.current?.id) !== containerID) return false;");
+    const create = block("  async function newNote(");
+    expect(create.indexOf("(loadingContainerID.current ?? selectedRef.current?.id) !== selected.id")).toBeGreaterThan(create.indexOf("await createObject(selected.id)"));
+    expect(create.indexOf("(loadingContainerID.current ?? selectedRef.current?.id) !== selected.id")).toBeLessThan(create.indexOf("patchNotes("));
+  });
+
+  it("never retries forever an edit this user may no longer make", () => {
+    expect(main).toContain('(error.code === "not_found" || error.code === "forbidden")');
+  });
+
+  it("never reports a drain with a gone edit as saved", () => {
+    expect(main).toContain("if (queuedItem.gone) { attention = true; continue; }");
+  });
+
+  it("refuses page and section writes for a role that cannot make them", () => {
+    expect(block("  async function saveNow(")).toContain("if (!selected || !writer(openRoleRef.current)) return undefined;");
+    for (const start of ["  async function remove(", "  async function placePage(", "  function movePage(", "  function indentPage(", "  async function newNote("]) {
+      expect(block(start), start).toContain("readOnly()");
+    }
+  });
+});
