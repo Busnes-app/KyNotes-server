@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -174,5 +175,29 @@ func TestUploadRacingANotebookDeleteIsRefused(t *testing.T) {
 	var sessions int
 	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM upload_sessions WHERE container_id=?`, tm.id).Scan(&sessions); err != nil || sessions != 0 {
 		t.Fatalf("sessions=%d %v", sessions, err)
+	}
+}
+
+// A directory user who shares the local administrator's username never links, demotes or
+// disables that account.
+func TestDirectoryNeverAdoptsTheLocalAdministratorByUsername(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	adminID, _ := createAdminUser(t, db)
+	store := sso.NewStore(db)
+	secret := strings.Repeat("s", 32)
+	if err := store.Save(sso.SSOSettings{HMACSecret: secret, IssuerURL: "https://issuer.example"}); err != nil {
+		t.Fatal(err)
+	}
+	router := http.NewServeMux()
+	SSORoutes(router, db, cfg, store)
+	for i, kind := range []string{"user.updated", "user.deleted"} {
+		res := sendDirectory(t, router, "/sync/events", secret, "evt-"+kind, kind, directoryPayload("subject-x", "admin", int64(i+1), kind == "user.updated"))
+		if res.Code == http.StatusOK {
+			t.Fatalf("%s adopted the local administrator: %s", kind, res.Body.String())
+		}
+	}
+	var subject, role, status string
+	if err := db.QueryRow(`SELECT coalesce(sso_subject,''),role,status FROM users WHERE id=?`, adminID).Scan(&subject, &role, &status); err != nil || subject != "" || role != "admin" || status != "active" {
+		t.Fatalf("local administrator changed: %q %s %s %v", subject, role, status, err)
 	}
 }
