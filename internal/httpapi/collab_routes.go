@@ -10,13 +10,17 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"time"
 )
 
-func CollabRoutes(mux RouteMux, db *sql.DB) {
+// MaxCommentBytes caps one comment's ciphertext (owner decision Q7).
+const MaxCommentBytes = 64 << 10
+
+func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 	mux.Handle("GET /api/v1/containers/{id}/members", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		cid := r.PathValue("id")
@@ -294,10 +298,21 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}
+		if len(body) > MaxCommentBytes {
+			WriteError(w, r, 413, "payload_too_large", "This comment is too long. Shorten it, or put the text on the page.")
+			return
+		}
 		id, _ := ids.Mint("cmt")
 		now := time.Now().UTC().Format(time.RFC3339)
 		e = dbTx(db, func(tx *sql.Tx) error {
 			if e := checkWriteGate(tx, cid, s.UserID, int64(in.KeyGeneration), r.Header.Get(keySchemeHeader)); e != nil {
+				return e
+			}
+			// Comments are stored writes like any other: charged to the notebook owner's and team's quota.
+			if over, e := quotaExceeded(tx, limits, cid, "", int64(len(body))); e != nil || over {
+				if e == nil {
+					e = errQuota
+				}
 				return e
 			}
 			var seq int64
@@ -319,6 +334,10 @@ func CollabRoutes(mux RouteMux, db *sql.DB) {
 			}
 			return nil
 		})
+		if errors.Is(e, errQuota) {
+			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			return
+		}
 		if writeTeamKeyError(w, r, e) {
 			return
 		}

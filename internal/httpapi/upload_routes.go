@@ -630,9 +630,10 @@ func usedBytes(q rowQuerier, scope, key, skip string) (int64, error) {
 	err := q.QueryRow(`SELECT
  (SELECT COALESCE(SUM(v.ciphertext_bytes),0) FROM object_versions v JOIN objects o ON o.id=v.object_id WHERE o.container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM conflicts WHERE container_id IN (`+scope+`))
++(SELECT COALESCE(SUM(length(c.body_ciphertext)),0) FROM comments c JOIN objects o ON o.id=c.object_id AND o.deleted_at='' WHERE c.deleted_at='' AND c.container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM attachments WHERE deleted_at='' AND container_id IN (`+scope+`))
 +(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.digest IN (SELECT s.finalized_digest FROM upload_sessions s WHERE s.kind='preview' AND s.finalized_digest<>'' AND s.container_id IN (`+scope+`)))`, key, time.Now().UTC().Format(time.RFC3339), skip).Scan(&used)
++(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.digest IN (SELECT s.finalized_digest FROM upload_sessions s WHERE s.kind='preview' AND s.finalized_digest<>'' AND s.container_id IN (SELECT id FROM containers WHERE deleted_at='') AND s.container_id IN (`+scope+`)))`, key, time.Now().UTC().Format(time.RFC3339), skip).Scan(&used)
 	return used, err
 }
 

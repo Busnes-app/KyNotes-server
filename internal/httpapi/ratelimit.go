@@ -105,6 +105,9 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 			// Each sealed link stores up to 12 MB until it expires. ponytail: reuses invitation_per_hour;
 			// upgrade path is a dedicated share_per_hour key.
 			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "share"
+		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/objects/") && strings.HasSuffix(path, "/comments"):
+			// ponytail: reuses upload_per_minute; upgrade path is a dedicated comment_per_minute key.
+			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "comment"
 		case (strings.HasPrefix(path, "/api/v1/containers/") && strings.HasSuffix(path, "/uploads")) || strings.HasPrefix(path, "/api/v1/uploads/"):
 			limit, rate, label = cfg.RateLimit.UploadPerMinute, cfg.RateLimit.UploadPerMinute, "upload"
 		}
