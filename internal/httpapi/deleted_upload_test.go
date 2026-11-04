@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 func TestDeletedNotebookRefusesUploads(t *testing.T) {
@@ -115,5 +116,40 @@ func TestLegacyLateAttachmentRemainsCharged(t *testing.T) {
 	}
 	if over, err := userQuotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, "usr_upload_test", 0, "", 1); err != nil || !over {
 		t.Fatalf("historical late upload bypassed quota: %v %v", over, err)
+	}
+}
+
+// Older releases could finalize an attachment after its notebook was deleted. It must not
+// remain live forever: keep it charged until GC applies the notebook's existing deletion.
+func TestGCTombstonesLegacyDeletedNotebookUploads(t *testing.T) {
+	u := newUploadClient(t)
+	if _, err := u.db.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',10,'now')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.db.Exec(`UPDATE containers SET deleted_at='then' WHERE id=?`, u.container); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES('att_late00000000000000000000000',?,'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',10,x'',1,1,'now')`, u.container); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.db.Exec(`INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES('obj_late',?,'note',1,'now','now')`, u.container); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) VALUES('att_late00000000000000000000000','obj_late',1,'now')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.RunGC(u.db, nil, time.Now(), time.Hour, false); err != nil {
+		t.Fatal(err)
+	}
+	var refs int
+	if err := u.db.QueryRow(`SELECT COUNT(*) FROM attachment_refs`).Scan(&refs); err != nil || refs != 0 {
+		t.Fatalf("legacy deleted notebook's attachment remains linked: %d %v", refs, err)
+	}
+	var deleted string
+	if err := u.db.QueryRow(`SELECT deleted_at FROM attachments`).Scan(&deleted); err != nil || deleted != "then" {
+		t.Fatalf("legacy attachment remains live: %q %v", deleted, err)
+	}
+	if over, err := userQuotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, "usr_upload_test", 0, "", 1); err != nil || over {
+		t.Fatalf("reclaimed late attachment remains charged: %v %v", over, err)
 	}
 }

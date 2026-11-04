@@ -10,6 +10,24 @@ type GCStats struct{ ExpiredUploads, DeletedBlobs int }
 
 func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Duration, blobsEnabled bool) (GCStats, error) {
 	var st GCStats
+	// Older releases could finalize an attachment after notebook deletion. Finish that
+	// deletion before reclaiming blobs, so its live row cannot pin the file and quota forever.
+	tx, e := db.Begin()
+	if e != nil {
+		return st, e
+	}
+	for _, q := range []string{
+		`DELETE FROM attachment_refs WHERE attachment_id IN (SELECT id FROM attachments WHERE container_id IN (SELECT id FROM containers WHERE deleted_at<>''))`,
+		`UPDATE attachments SET deleted_at=(SELECT deleted_at FROM containers WHERE id=attachments.container_id) WHERE deleted_at='' AND container_id IN (SELECT id FROM containers WHERE deleted_at<>'')`,
+	} {
+		if _, e = tx.Exec(q); e != nil {
+			_ = tx.Rollback()
+			return st, e
+		}
+	}
+	if e = tx.Commit(); e != nil {
+		return st, e
+	}
 	// Failed sessions that never finalized too (a refused finalize, a deleted notebook): their partial
 	// file is never resumed. A cancelled finalized preview keeps its row, which charges its kept blob.
 	rows, e := db.Query(`SELECT id FROM upload_sessions WHERE (status='pending' AND expires_at<?) OR (status='failed' AND finalized_digest='')`, now.UTC().Format(time.RFC3339))
