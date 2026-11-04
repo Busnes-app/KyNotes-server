@@ -201,3 +201,30 @@ func TestDirectoryNeverAdoptsTheLocalAdministratorByUsername(t *testing.T) {
 		t.Fatalf("local administrator changed: %q %s %s %v", subject, role, status, err)
 	}
 }
+
+// A retried save (same Idempotency-Key, response lost) replays the version it committed, not one a
+// later save made, so the client's next save conflicts instead of overwriting that later save.
+func TestIdempotentReplayAnswersTheCommittedVersion(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	oid, code := tm.owner.save(t, tm.id, "", 2)
+	if code != http.StatusOK {
+		t.Fatalf("save=%d", code)
+	}
+	put := func() (int, string) {
+		return tm.owner.sendRacing(t, http.MethodPut, "/api/v1/objects/"+oid, map[string]string{"X-Kynotes-Key-Generation": "2", "X-Kynotes-Base-Version": "1", keySchemeHeader: keySchemeShared, "Idempotency-Key": "retry-key-1"}, []byte("edit-from-a"), func() {})
+	}
+	if code, out := put(); code != http.StatusOK || !strings.Contains(out, `"version":2`) {
+		t.Fatalf("first send=%d %s", code, out)
+	}
+	if _, code := tm.owner.save(t, tm.id, oid, 2); code != http.StatusOK {
+		t.Fatalf("later save=%d", code)
+	}
+	if code, out := put(); code != http.StatusOK || !strings.Contains(out, `"version":2`) {
+		t.Fatalf("replay=%d %s, want the committed version 2", code, out)
+	}
+	var versions int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM object_versions WHERE object_id=?`, oid).Scan(&versions); err != nil || versions != 3 {
+		t.Fatalf("versions=%d %v", versions, err)
+	}
+}

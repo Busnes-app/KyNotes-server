@@ -12,7 +12,8 @@ export type CachedNote = { id: string; containerID: string; version: number; pay
  * reads or replaces another's. previousKey: waiting under the key a reset replaced; never sent (M5).
  * gone: the server no longer has its page (deleted elsewhere); never sent, listed under Unsent edits.
  */
-export type PendingSave = CachedNote & { owner: string; previousKey?: true; gone?: true };
+/** idempotencyKey: the key its first send used; every resend reuses it (absent on older entries). */
+export type PendingSave = CachedNote & { owner: string; previousKey?: true; gone?: true; idempotencyKey?: string };
 /** owner: the user ID that started it; only that account lists, resumes, re-seals or clears it. */
 export type PendingUpload = { uploadId: string; owner: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 

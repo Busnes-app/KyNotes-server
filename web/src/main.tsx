@@ -1840,13 +1840,15 @@ function Workspace({
       const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
-        await queueOwn({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
+        await queueOwn({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }).catch(notSaved);
         setSyncStatus("local");
         setError(queuedNotice(stewardHere(selected)));
         return note;
       }
+      // One key for this edit: if the response is lost, the queued resend replays instead of conflicting.
+      const idempotencyKey = crypto.randomUUID();
       try {
-        const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version);
+        const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version, idempotencyKey);
         await clearOwnQueued(note.id);
         setCommitToastAt(Date.now());
         setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
@@ -1877,7 +1879,7 @@ function Workspace({
         } else {
           // A page deleted elsewhere: kept, never sent, and listed under Unsent edits.
           const gone = error instanceof APIRequestError && error.code === "not_found" ? { gone: true as const } : {};
-          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, ...gone }).catch(notSaved);
+          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, idempotencyKey, ...gone }).catch(notSaved);
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
@@ -1923,7 +1925,7 @@ function Workspace({
         if (!cached || cached.updatedAt !== note.updatedAt) continue;
         // Sent at its own base version even when another device saved meanwhile: the server then keeps
         // it as a conflict (the page offers "Keep the other version as a copy"), never drops it.
-        await queueOwn({ ...cached, owner: auth.user.id }, true).catch(notSaved);
+        await queueOwn({ ...cached, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }, true).catch(notSaved);
         queued = true;
       }
     } catch (error) {
@@ -1996,7 +1998,7 @@ function Workspace({
             continue;
           }
           item = ready.item;
-          const result = await sendObject({ container: ready.container, generation: item.keyGeneration! }, item.id, item.payload, item.version);
+          const result = await sendObject({ container: ready.container, generation: item.keyGeneration! }, item.id, item.payload, item.version, item.idempotencyKey);
           // A newer save of the same page may have been queued while this one was in flight.
           await replaceQueuedSave(item);
           const saved = { version: result.version, updatedAt: item.updatedAt };

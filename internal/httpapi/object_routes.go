@@ -250,14 +250,19 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			idemHash = hex.EncodeToString(sum[:])
 			var oldStatus int
 			var resource string
-			if e := db.QueryRow(`SELECT status_code,response_id FROM idempotency_keys WHERE key=?`, idemHash).Scan(&oldStatus, &resource); e == nil {
+			var committed int64
+			if e := db.QueryRow(`SELECT status_code,response_id,object_version FROM idempotency_keys WHERE key=?`, idemHash).Scan(&oldStatus, &resource, &committed); e == nil {
 				if oldStatus == 409 {
 					w.WriteHeader(409)
 					writeJSON(w, map[string]any{"error": map[string]any{"code": "version_conflict", "message": "base version is stale", "requestId": RequestID(r)}, "conflictId": resource})
 					return
 				}
-				var v int64
-				_ = db.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&v)
+				// The version this key committed: a page that moved on since must make the client's next
+				// save a conflict, never let it overwrite a later save it has not seen.
+				v := committed
+				if v == 0 {
+					_ = db.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&v)
+				}
 				writeJSON(w, map[string]any{"version": v, "resourceId": resource, "commitReceipt": currentCommitReceipt(db, oid, v)})
 				return
 			}
@@ -396,7 +401,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			_, e = tx.Exec(`UPDATE objects SET current_version=?,change_seq=?,routing_ciphertext=?,updated_at=? WHERE id=?`, next, changeSeq, routing, now, oid)
 		}
 		if e == nil && idemHash != "" {
-			_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at) VALUES(?,?,?,?)`, idemHash, oid, 200, now)
+			_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at,object_version) VALUES(?,?,?,?,?)`, idemHash, oid, 200, now, next)
 		}
 		if e != nil {
 			_ = tx.Rollback()
