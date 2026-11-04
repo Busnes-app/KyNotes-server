@@ -225,7 +225,29 @@ func TestMissingBlobIsDetectedByConsistencyCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = Consistency(s.DB(), b); err == nil {
+	if _, err = Consistency(s.DB(), b); err == nil {
 		t.Fatal("missing blob was not reported")
+	}
+}
+
+// A file with no row (the original blobs/ copied beside an older restored database) is reported,
+// not a failure (hostile-review pass 4).
+func TestUntrackedBlobIsReportedNotFailed(t *testing.T) {
+	s := openContract(t)
+	b, _ := blobstore.New(t.TempDir())
+	tmp, err := b.NewTemp("ups_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tmp.Write([]byte("extra")); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := tmp.Finalize("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	untracked, err := Consistency(s.DB(), b)
+	if err != nil || len(untracked) != 1 || untracked[0] != digest {
+		t.Fatalf("untracked=%v err=%v", untracked, err)
 	}
 }

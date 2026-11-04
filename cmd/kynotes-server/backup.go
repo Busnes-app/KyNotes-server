@@ -220,6 +220,20 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 		return err
 	}
 	store, err := storage.Open(filepath.Join(target, "kynotes.sqlite"))
+	if errors.Is(err, storage.ErrSchemaNewer) {
+		// A newer release wrote the capsule, and the operator will start that release on this target:
+		// it must not come up with the original's sessions live and its deposits on.
+		if newer, e := storage.OpenUnmigrated(filepath.Join(target, "kynotes.sqlite")); e == nil {
+			if e = revokeRestoredCredentials(newer); e == nil {
+				e = backup.DisableSchedule(newer)
+			}
+			newer.Close()
+			if e == nil {
+				return fmt.Errorf("%w; sessions, devices and links were revoked and scheduled deposits turned off: start only the release that wrote this capsule on this target", err)
+			}
+		}
+		return fmt.Errorf("%w; do not start any release on this target: restore again with the release that wrote the capsule, into a fresh target", err)
+	}
 	if err != nil {
 		return err
 	}

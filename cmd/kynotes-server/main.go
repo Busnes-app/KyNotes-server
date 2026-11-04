@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -250,7 +251,24 @@ func backupCommand(args []string) error {
 	if e = s.Close(); e != nil {
 		return e
 	}
-	return copyTree(c.DataDir, out)
+	if e = copyTree(c.DataDir, out); e != nil {
+		return e
+	}
+	// Secrets given by the config or the environment have no file in the data directory; the
+	// copy carries them as the capsule does, so restore-data-dir finds what it requires.
+	for name, secret := range map[string]string{"pairing.key": c.Secrets.PairingSecret, "serversalt.key": c.Secrets.ServerSaltKey} {
+		path := filepath.Join(out, "secrets", name)
+		if _, e := os.Lstat(path); !errors.Is(e, os.ErrNotExist) {
+			continue
+		}
+		if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
+			return e
+		}
+		if e = os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString([]byte(secret))), 0600); e != nil {
+			return e
+		}
+	}
+	return nil
 }
 
 // within reports whether path is root or below it, following symlinks.
@@ -500,7 +518,11 @@ func checkCommand(kind string, args []string) error {
 	if kind == "integrity-check" {
 		return s.IntegrityCheck(context.Background())
 	}
-	return storage.Consistency(s.DB(), b)
+	untracked, e := storage.Consistency(s.DB(), b)
+	if len(untracked) > 0 {
+		fmt.Fprintf(os.Stderr, "consistency-check: %d blob file(s) have no database row (for example newer than a restored capsule); they are unused and harmless\n", len(untracked))
+	}
+	return e
 }
 
 // An account is an administrator account or an everyday account, never both.
