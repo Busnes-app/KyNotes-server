@@ -1804,31 +1804,37 @@ function Workspace({
     } finally {
       setBusy(false);
     }
-    // Its pages are gone for every member: nothing of it may be saved or shown any more.
+    // Its pages are gone for every member: nothing of it may be saved or shown any more. Everything
+    // that reads the open notebook happens before the first await, so a switch the user makes
+    // meanwhile is never flushed or reloaded through this (stale) closure.
     const gone = (entry: Container) => entry.id === container.id || entry.teamId === container.id;
     const goneIDs = new Set(items.filter(gone).map((entry) => entry.id).concat(container.id));
-    // Unsent edits to its pages have nowhere to go: dropped, so the queue does not wait on them forever.
-    for (const item of await pendingSaves().catch(() => [])) {
-      if (item.owner === auth.user.id && goneIDs.has(item.containerID)) await clearQueuedSave(item.owner, item.id, item.updatedAt).catch(() => undefined);
-    }
     setItems((value) => value.filter((entry) => !gone(entry)));
     // The user may have opened another notebook while the delete ran: that one, and its edits, stay.
     const open = loadingContainerID.current ?? selectedRef.current?.id;
-    if (!open || !goneIDs.has(open)) return;
-    markDirty(false);
-    selectedNoteRef.current = null;
-    setSelectedNote(null);
-    for (const note of notesRef.current) await deleteCachedNote(auth.user.id, note.id).catch(() => undefined);
-    history.replaceState(null, "", location.pathname + location.search);
-    const next = items.find((entry) => !gone(entry));
-    if (next) {
-      await selectContainer(next);
-      return;
+    const wasOpen = Boolean(open && goneIDs.has(open));
+    const cached = wasOpen ? notesRef.current.map((note) => note.id) : [];
+    let reopen: Promise<unknown> = Promise.resolve();
+    if (wasOpen) {
+      markDirty(false);
+      selectedNoteRef.current = null;
+      setSelectedNote(null);
+      history.replaceState(null, "", location.pathname + location.search);
+      const next = items.find((entry) => !gone(entry));
+      if (next) reopen = selectContainer(next);
+      else {
+        setSelected(null);
+        patchNotes(() => []);
+        patchSections(() => []);
+        patchGroups(() => []);
+      }
     }
-    setSelected(null);
-    patchNotes(() => []);
-    patchSections(() => []);
-    patchGroups(() => []);
+    // Only by ID from here on: its cached pages, and unsent edits to them, which have nowhere to go.
+    for (const id of cached) await deleteCachedNote(auth.user.id, id).catch(() => undefined);
+    for (const item of await pendingSaves().catch(() => [])) {
+      if (item.owner === auth.user.id && goneIDs.has(item.containerID)) await clearQueuedSave(item.owner, item.id, item.updatedAt).catch(() => undefined);
+    }
+    await reopen;
   }
   /** Decrypts the notebook here and downloads it as a plaintext zip; nothing new is sent to the server. */
   async function exportWorkspace() {
