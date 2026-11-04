@@ -176,6 +176,7 @@ import "./ky-ui/appearance.css";
 import "./ky-ui/appearance-themes.css";
 
 const MAX_CHANGE_PAGES = 100;
+const MIGRATION_CONFLICTS = "This notebook's upgrade to the current encryption format is waiting on pages with conflicting versions saved by an older KyNotes. Open each page that says another device saved it first and choose Keep the other version as a copy; the upgrade finishes on a later visit. Until then, the notebook keeps working as it is.";
 const PAGE_GONE = "A page you edited was deleted elsewhere, so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
@@ -2067,13 +2068,23 @@ function Workspace({
     migrationDue.current = undefined;
     if (!due || migrating.current || selected?.id !== due.containerID || !writeKeyFor(selected)) return;
     migrating.current = true;
-    void migrateOpen(selected, due).catch(() => undefined).finally(() => { migrating.current = false; });
+    void migrateOpen(selected, due).then((result) => {
+      if (result === "conflicts" && selectedRef.current?.id === due.containerID) setError(MIGRATION_CONFLICTS);
+    }, () => undefined).finally(() => { migrating.current = false; });
   }, [migrationTick]);
   /** migrate.ts on the open notebook; it stops writing once the user leaves it. */
   function migrateOpen(container: Container, due: { objects: LoadedObject[]; unreadable: number }) {
     const here = () => selectedRef.current?.id === container.id;
     return migrateNotebook(due.objects, due.unreadable, migrated.current.has(container.id), {
       pins: (pageID) => childPins(container, pageID),
+      legacyConflict: async (pageID) => {
+        for (const conflict of (await objectConflicts(pageID)).filter((item) => !item.resolved)) {
+          const bytes = await conflictCiphertext(conflict.id);
+          const opens = (v1: boolean) => openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, container.id, pageID, bytes, v1)).then(() => true, () => false);
+          if (!(await opens(false)) && (await opens(true))) return true;
+        }
+        return false;
+      },
       savePage: async (id, legacy) => here() && pinPage(id, legacy),
       saveStructure: async (kind, id) => here() && updateStructure(kind, id, {}),
       mark: async () => {

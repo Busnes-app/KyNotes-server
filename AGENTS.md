@@ -873,6 +873,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   load renders) that re-saves v1 objects through `writeObject`/`updateStructure`/`pinPage` (the
   `chained` queue) and pins each page's v1 children (`childPins`: SHA-256 of the stored ciphertext,
   attachment bytes downloaded) in its `legacy`; only then the name is rewritten v2 with `objects: 2`.
+  While any page has an unresolved conflict that opens only as v1 (`legacyConflict`), the pass writes
+  no marker, answers `conflicts` and the notebook says to keep those versions as copies first (Q3).
   The marker is pinned per user and notebook in the vault (`KeyState.objects`, add-only); after it,
   server copies open v2 only (`readContainerObjects`), children need a pin (`legacyChildOpens`) and a
   name without the marker is refused (`OLDER_META`). Local copies (cache, queue, pending uploads) may
