@@ -62,12 +62,19 @@ func TestCopyDataDirSkipsRestoreLeftovers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, ".restore-previous-1", "blobs", "x"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A killed drill's scratch holds a decrypted database and secrets (pass 4).
+	if err := os.MkdirAll(filepath.Join(dataDir, "recoveryclient-drill-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	out := filepath.Join(t.TempDir(), "copy")
 	if err := backupCommand([]string{"--out", out, "--config", cfgPath}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(out, ".restore-previous-1")); err == nil {
 		t.Fatal("restore leftovers copied")
+	}
+	if _, err := os.Stat(filepath.Join(out, "recoveryclient-drill-1")); err == nil {
+		t.Fatal("drill scratch copied")
 	}
 	if _, err := os.Stat(filepath.Join(out, "kynotes.sqlite")); err != nil {
 		t.Fatal("database not copied:", err)

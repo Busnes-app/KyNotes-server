@@ -313,7 +313,7 @@ type rowQuerier interface {
 // has a key (shared_generation > 0). It returns the current generation.
 func checkContainerKeyed(q rowQuerier, cid, userID, scheme string) (int64, error) {
 	var generation, shared int64
-	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=?`, userID, cid).Scan(&generation, &shared)
+	err := q.QueryRow(`SELECT c.key_generation,c.shared_generation FROM containers c JOIN memberships m ON m.container_id=c.id AND m.user_id=? AND m.revoked_at='' WHERE c.id=? AND c.deleted_at=''`, userID, cid).Scan(&generation, &shared)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, errNotMember
 	}
@@ -373,6 +373,9 @@ func removeMemberTx(tx *sql.Tx, cid, target string) error {
 		// The removed steward's pending invitations die with them (envelopes cascade).
 		`DELETE FROM invitations WHERE container_id IN ` + scope + ` AND inviter_id=?2 AND status='pending'`,
 		`DELETE FROM invitation_envelopes WHERE container_id IN ` + scope + ` AND key_generation<(SELECT key_generation FROM containers c WHERE c.id=invitation_envelopes.container_id)`,
+		// The team's notebooks the removed member created are charged to the team's owner from now
+		// on: the member can no longer reach them, so must not keep paying for them.
+		`UPDATE containers SET owner_user_id=(SELECT t.owner_user_id FROM containers t WHERE t.id=?1),updated_at=?3 WHERE team_id=?1 AND owner_user_id=?2`,
 	} {
 		if _, err := tx.Exec(q, cid, target, now); err != nil {
 			return err

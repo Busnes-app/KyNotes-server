@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -83,5 +84,50 @@ func TestCredentialRoutesRequireStepUp(t *testing.T) {
 	}
 	if rr := do("PATCH", "/api/v1/admin/users/"+other, patch); rr.Code != 204 {
 		t.Fatalf("patch after step-up: %d %s", rr.Code, rr.Body)
+	}
+}
+
+// An administrator disabled while their request body is still arriving cannot finish it: a slow
+// self-update must not re-enable them (hostile-review pass 4).
+func TestAdminDisabledMidRequestCannotReenableThemselves(t *testing.T) {
+	db, cfg := setupTestDB(t)
+	mux := http.NewServeMux()
+	AuthRoutes(mux, db, cfg)
+	AdminRoutes(mux, db, sso.NewStore(db), cfg)
+	adminID, _ := createAdminUser(t, db)
+	rec := httptest.NewRecorder()
+	s, err := auth.MintSession(db, rec, adminID, true, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET stepup_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), s.ID); err != nil {
+		t.Fatal(err)
+	}
+	body, sending := io.Pipe()
+	req := httptest.NewRequest("PATCH", "/api/v1/admin/users/"+adminID, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", s.CSRF)
+	for _, c := range rec.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { mux.ServeHTTP(rr, req); close(done) }()
+	if _, err := sending.Write([]byte(`{"role":"admin",`)); err != nil {
+		t.Fatal(err)
+	}
+	// Another administrator disables this one meanwhile.
+	if _, err := db.Exec(`UPDATE users SET status='disabled' WHERE id=?`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET revoked_at='now' WHERE user_id=?`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sending.Write([]byte(`"status":"active","quotaBytes":0}`))
+	sending.Close()
+	<-done
+	var status string
+	if err := db.QueryRow(`SELECT status FROM users WHERE id=?`, adminID).Scan(&status); err != nil || status != "disabled" || rr.Code < 400 {
+		t.Fatalf("disabled administrator finished a self-update: %d %s, status %q %v", rr.Code, rr.Body, status, err)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
+	"io"
 	"net/http"
 	"time"
 )
@@ -367,17 +368,33 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 			return
 		}
 		defer rows.Close()
-		out := []map[string]any{}
+		// Streamed row by row: a page may hold many 64 KiB comments, and building the whole answer
+		// first held it twice in memory per reader. A failure mid-way ends the answer short, which
+		// the client cannot parse and reports.
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		enc := json.NewEncoder(w)
+		sep := "["
 		for rows.Next() {
 			var id, author, username, created string
 			var body []byte
 			var generation int
 			if rows.Scan(&id, &author, &username, &body, &generation, &created) != nil {
-				WriteError(w, r, 500, "internal", "internal server error")
 				return
 			}
-			out = append(out, map[string]any{"id": id, "authorUserId": author, "username": username, "bodyCiphertext": base64.StdEncoding.EncodeToString(body), "keyGeneration": generation, "createdAt": created})
+			if _, err := io.WriteString(w, sep); err != nil {
+				return
+			}
+			sep = ","
+			if enc.Encode(map[string]any{"id": id, "authorUserId": author, "username": username, "bodyCiphertext": base64.StdEncoding.EncodeToString(body), "keyGeneration": generation, "createdAt": created}) != nil {
+				return
+			}
 		}
-		writeJSON(w, out)
+		if rows.Err() != nil {
+			return
+		}
+		if sep == "[" {
+			_, _ = io.WriteString(w, "[")
+		}
+		_, _ = io.WriteString(w, "]\n")
 	})))
 }

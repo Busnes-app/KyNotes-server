@@ -129,6 +129,16 @@ func joinParts(root *os.Root, parts []string) error {
 	return err
 }
 
+// SweepSnapshots removes snapshot-* directories a killed Collect left in dataDir: each is a full
+// plaintext copy of the database. Only call it while holding the data-directory lock, before any
+// backup can start.
+func SweepSnapshots(dataDir string) {
+	stale, _ := filepath.Glob(filepath.Join(dataDir, "snapshot-*"))
+	for _, dir := range stale {
+		_ = os.RemoveAll(dir)
+	}
+}
+
 func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 	p := recoveryclient.Payload{ServiceName: config.AppName, AppVersion: s.version}
 	if len(s.cfg.Secrets.PairingSecret) < 32 || len(s.cfg.Secrets.ServerSaltKey) < 32 {

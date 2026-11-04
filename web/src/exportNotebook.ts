@@ -48,7 +48,7 @@ function namer() {
     used.set(dir, taken);
     for (let n = 1; ; n += 1) {
       const candidate = n === 1 ? name : `${name} (${n})`;
-      const keys = [candidate + extension, ...(extension === ".md" ? [`${candidate}.canvas.json`] : [])].map((key) => key.toLowerCase());
+      const keys = [candidate + extension, ...(extension === ".md" ? [`${candidate}.canvas.json`, `${candidate}.json`] : [])].map((key) => key.toLowerCase());
       if (keys.some((key) => taken.has(key))) continue;
       keys.forEach((key) => taken.add(key));
       return candidate;
@@ -169,11 +169,23 @@ export async function buildNotebookExport<T extends { id: string }>(input: Noteb
       const path = join(dir, `${base}.md`);
       const attachments = await pageAttachments(page.id);
       const canvas = isCanvas(page.body);
-      let markdown = `# ${title.replace(/\s+/g, " ")}\n\n${pageMarkdown(pageBlocks(page.body), input.toMarkdown, attachmentPaths, path).trim()}\n`;
-      if (canvas) markdown += `\n_Canvas page: positions and ink are in [${base}.canvas.json](${linkTo(path, join(dir, `${base}.canvas.json`))})._\n`;
+      // One malformed page (another client's, a newer build's blocks) never stops the export: its body
+      // is kept as saved beside a note, and it counts as unreadable.
+      const raw = join(dir, `${base}${canvas ? ".canvas" : ""}.json`);
+      let converted = true;
+      let text: string;
+      try {
+        text = pageMarkdown(pageBlocks(page.body), input.toMarkdown, attachmentPaths, path).trim();
+      } catch {
+        converted = false;
+        unreadable += 1;
+        text = `_This page could not be converted to Markdown. Its content is kept as saved in [${base}${canvas ? ".canvas" : ""}.json](${linkTo(path, raw)})._`;
+      }
+      let markdown = `# ${title.replace(/\s+/g, " ")}\n\n${text}\n`;
+      if (canvas && converted) markdown += `\n_Canvas page: positions and ink are in [${base}.canvas.json](${linkTo(path, raw)})._\n`;
       if (attachments.length) markdown += `\n## Attachments\n\n${attachments.map((entry) => `- [${entry.name.replace(/[[\]\\]/g, "\\$&")}](${linkTo(path, entry.path)})`).join("\n")}\n`;
       entries.push({ path, data: encoder.encode(markdown) });
-      if (canvas) entries.push({ path: join(dir, `${base}.canvas.json`), data: encoder.encode(page.body) });
+      if (canvas || !converted) entries.push({ path: raw, data: encoder.encode(page.body) });
       manifestPages.push({
         id: page.id,
         title: page.title,

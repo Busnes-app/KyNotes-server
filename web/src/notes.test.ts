@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note } from "./api";
-import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, notePayload, samePayload } from "./notes";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushRound, flushUntilStable, newestCopy, notePayload, samePayload, saveRefusal } from "./notes";
 import { parseObjectPayload } from "./pages";
 
 const A = "obj_a";
@@ -198,5 +198,15 @@ describe("page levels", () => {
 
   it("treats a level change as unsaved", () => {
     expect(samePayload(page(A, "x"), { ...page(A, "x"), level: 1 })).toBe(false);
+  });
+});
+
+describe("save refusals", () => {
+  it("names refusals a retry cannot fix, and leaves the rest to the queue", () => {
+    expect(saveRefusal("unauthenticated")).toMatch(/signed out/);
+    expect(saveRefusal("password_change_required")).toMatch(/signed out/);
+    expect(saveRefusal("quota_exceeded")).toMatch(/storage is full/);
+    expect(saveRefusal("payload_too_large")).toMatch(/too large/);
+    for (const code of [undefined, "already_exists", "internal", "rate_limited"]) expect(saveRefusal(code)).toBeUndefined();
   });
 });

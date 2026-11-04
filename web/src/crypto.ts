@@ -142,7 +142,7 @@ function deriveObjectKeyBytes(key: KeyRef, containerID: string, info: string): U
  * Content v2: 0x02 ‖ nonce(12) ‖ AES-256-GCM(HKDF(key, containerID, "kynotes/content/v2"), AAD).
  * The bound ID is the object for objects, the page for comments and attachments, the container for its meta.
  */
-type ContentKind = "object" | "comment" | "attachment" | "attachment-meta" | "container-meta";
+type ContentKind = "object" | "comment" | "attachment" | "attachment-meta" | "container-meta" | "share-label";
 /** Each field as uint16 big-endian length ‖ UTF-8 bytes: label, container, bound ID, kind. */
 function contentAAD(containerID: string, boundID: string, kind: ContentKind): Uint8Array {
   if (!boundID) throw new Error("content needs the ID it is bound to");
@@ -201,6 +201,13 @@ export const encryptComment = (key: KeyRef, containerID: string, pageID: string,
 export async function decryptComment(key: KeyRef, containerID: string, pageID: string, bytes: Uint8Array, v1: boolean): Promise<{ body: string; section?: string }> {
   return openJSON(key, containerID, pageID, "comment", "kynotes/comment/v1", bytes, v1) as Promise<{ body: string; section?: string }>;
 }
+
+/** What a share link shares, kept only in the browser that made it, bound to the link's ID (Settings → Share links). */
+export type ShareLabel = { title: string; notebook: string };
+export const encryptShareLabel = (key: KeyRef, containerID: string, linkID: string, label: ShareLabel) =>
+  sealContent(key, containerID, linkID, "share-label", encoder.encode(JSON.stringify(label)));
+export const decryptShareLabel = (key: KeyRef, containerID: string, linkID: string, bytes: Uint8Array) =>
+  openJSON(key, containerID, linkID, "share-label", "kynotes/share-label/v1", bytes, false) as Promise<ShareLabel>;
 
 /** Attachments are bound to the page they are uploaded for (PendingUpload.objectID). */
 export const encryptAttachmentMetadata = (key: KeyRef, containerID: string, pageID: string, metadata: { name: string; type: string; size: number }) =>

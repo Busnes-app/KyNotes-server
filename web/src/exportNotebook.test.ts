@@ -123,3 +123,17 @@ describe("notebook export", () => {
     expect(safeName("😀".repeat(150), "x")).toBe("😀".repeat(100));
   });
 });
+
+describe("notebook export of a malformed page", () => {
+  it("keeps the page as saved, counts it unreadable and exports the rest", async () => {
+    const broken = page("5", "Broken", JSON.stringify({ format: "kynotes.blocknote.v1", document: [{ type: "paragraph", content: "x", children: {} }] }), { section: SEC_A, order: "a2" });
+    const base = input();
+    const result = await buildNotebookExport({ ...base, notes: [...base.notes, broken] }, new Date("2026-10-17T00:00:00Z"));
+    const files = new Map(result.entries.map((entry) => [entry.path, decode(entry.data)]));
+    expect(files.get("My Notebook/Ideas/003 Broken.md")).toContain("could not be converted to Markdown");
+    expect(files.get("My Notebook/Ideas/003 Broken.json")).toBe(broken.body);
+    expect(files.has("My Notebook/Ideas/001 First.md")).toBe(true);
+    expect(result.pages).toBe(5);
+    expect(JSON.parse(files.get("My Notebook/manifest.json")!).unreadable).toBe(2);
+  });
+});

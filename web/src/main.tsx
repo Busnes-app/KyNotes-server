@@ -70,6 +70,7 @@ import { dropInvite, finalRefusal, inviteLink, keyRequestText, pendingInvite, se
 import { PinnedKeys } from "./components/PinnedKeys";
 import { UnsentEdits } from "./components/UnsentEdits";
 import { ShareLinks } from "./components/ShareLinks";
+import { keepShareLabel } from "./shareLabels";
 import { clearFloors, floorOf, raiseFloorIn, useFloors } from "./floors";
 import { createKeyed, listContainers, newContainer, type FloorSink } from "./observe";
 import { displayName, fingerprint, type PinChange } from "./pins";
@@ -105,7 +106,7 @@ import { QUICK_NOTES, SECTION_COLORS, compareOrdered, conflictCopy, groupConflic
 import { migrateNotebook, type LoadedObject } from "./migrate";
 import { PAGE_DRAG, SectionTabs } from "./components/SectionTabs";
 import { AppMark, NavIcon } from "./NavIcon";
-import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload, unreadableNotice } from "./notes";
+import { carryAll, carrySaved, carryVersions, editEntry, editOpenEntry, flushUntilStable, newestCopy, notePayload, samePayload, saveRefusal, unreadableNotice } from "./notes";
 import { loadGate } from "./loadGate";
 import { relativeDate } from "./relativeDate";
 import { MAX_GROUP_DEPTH, ancestors, blockRange, displayLevels, dropBefore, groupMoveAllowed, groupOfSection, groupParents, groupPath, groupTargets, parseCollapsed, placeBlock, sectionGroup, sectionTargets, shiftLevel, siblingMove, visibleRows } from "./outline";
@@ -183,6 +184,12 @@ const ROLE_UNKNOWN = "Your role in this notebook could not be loaded, so it is r
 const PAGE_GONE = "A page you edited was deleted elsewhere, so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
+const DELETE_NOTEBOOK_REAUTH = "Deleting a notebook needs a sign-in from the last 5 minutes. Sign out now, sign in again, then delete it?";
+/** What Delete notebook deletes, for every member; the user types the name to confirm. */
+function deleteNotebookPrompt(name: string, team: boolean): string {
+  const what = team ? "its pages, comments and attachments, and every notebook in this team with theirs," : "its pages, comments and attachments";
+  return `Delete "${name}"? This deletes ${what} for every member. It cannot be undone.\n\nType the notebook's name to confirm.`;
+}
 
 // A tab older than the running server asks for a chunk the server no longer has: reload once
 // (no page has opened yet, so no edit is lost) instead of unmounting to a blank screen.
@@ -1775,6 +1782,60 @@ function Workspace({
       setBusy(false);
     }
   }
+  /** Owners only (the server refuses others): the user types the name, and an old sign-in is asked to sign in again. */
+  async function deleteWorkspace() {
+    const container = selectedRef.current;
+    if (!container) return;
+    const name = nameOf(container);
+    const typed = prompt(deleteNotebookPrompt(name, container.kind === "team"));
+    if (typed === null) return;
+    if (typed.trim() !== name.trim()) {
+      setError("The name did not match, so nothing was deleted.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await deleteContainer(container.id);
+    } catch (error) {
+      if (error instanceof APIRequestError && error.status === 403 && error.message === "re-authentication required") {
+        if (confirm(DELETE_NOTEBOOK_REAUTH)) onLogout();
+      } else setError(error instanceof Error ? error.message : "Unable to delete notebook");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    // Its pages are gone for every member: nothing of it may be saved or shown any more. Everything
+    // that reads the open notebook happens before the first await, so a switch the user makes
+    // meanwhile is never flushed or reloaded through this (stale) closure.
+    const gone = (entry: Container) => entry.id === container.id || entry.teamId === container.id;
+    const goneIDs = new Set(items.filter(gone).map((entry) => entry.id).concat(container.id));
+    setItems((value) => value.filter((entry) => !gone(entry)));
+    // The user may have opened another notebook while the delete ran: that one, and its edits, stay.
+    const open = loadingContainerID.current ?? selectedRef.current?.id;
+    const wasOpen = Boolean(open && goneIDs.has(open));
+    const cached = wasOpen ? notesRef.current.map((note) => note.id) : [];
+    let reopen: Promise<unknown> = Promise.resolve();
+    if (wasOpen) {
+      markDirty(false);
+      selectedNoteRef.current = null;
+      setSelectedNote(null);
+      history.replaceState(null, "", location.pathname + location.search);
+      const next = items.find((entry) => !gone(entry));
+      if (next) reopen = selectContainer(next);
+      else {
+        setSelected(null);
+        patchNotes(() => []);
+        patchSections(() => []);
+        patchGroups(() => []);
+      }
+    }
+    // Only by ID from here on: its cached pages, and unsent edits to them, which have nowhere to go.
+    for (const id of cached) await deleteCachedNote(auth.user.id, id).catch(() => undefined);
+    for (const item of (await pendingSaves().catch(() => [])).filter((item) => item.owner === auth.user.id)) {
+      if (goneIDs.has(item.containerID)) await clearQueuedSave(item.owner, item.id, item.updatedAt).catch(() => undefined);
+    }
+    await reopen;
+  }
   /** Decrypts the notebook here and downloads it as a plaintext zip; nothing new is sent to the server. */
   async function exportWorkspace() {
     if (!selected) return;
@@ -1906,7 +1967,12 @@ function Workspace({
           else if (error instanceof APIRequestError && error.code === "not_found") {
             setSyncStatus("attention");
             setError(PAGE_GONE);
-          } else setError("Saved locally; encrypted change queued for the server.");
+          } else {
+            // Signed out, storage full, page too large: retrying alone never sends it, so say why.
+            const refused = saveRefusal(error instanceof APIRequestError ? error.code : undefined);
+            if (refused) setSyncStatus("attention");
+            setError(refused ?? "Saved locally; encrypted change queued for the server.");
+          }
         }
       }
       return note;
@@ -1983,7 +2049,12 @@ function Workspace({
           // first or stays queued (waiting for keys). An edit for a notebook this user lost waits here
           // until Settings → Unsent edits exports or discards it. Waiting edits are sealed with the identity's
           // waiting key.
-          const ready = await sendable(item, synced).catch(() => undefined);
+          // Its first call reads the notebook: an ended session or a forced password change is refused here.
+          const ready = await sendable(item, synced).catch((error: unknown) => {
+            const refused = saveRefusal(error instanceof APIRequestError ? error.code : undefined);
+            if (refused) { attention = true; setError(refused); }
+            return undefined;
+          });
           if (!ready) {
             remaining = true;
             continue;
@@ -2019,7 +2090,9 @@ function Workspace({
               setError(error.code === "forbidden" ? ROLE_LOST : PAGE_GONE);
             } else {
               // A retired generation (already_exists): the next drain reads the container again and re-seals it.
-              remaining = true;
+              // A refusal a retry cannot fix stays queued too, but says why.
+              const refused = saveRefusal(error instanceof APIRequestError ? error.code : undefined);
+              if (refused) { attention = true; setError(refused); } else remaining = true;
             }
           }
         }
@@ -2104,7 +2177,9 @@ function Workspace({
       } else {
         await queueOwn({ id, containerID: selected.id, version, payload: encrypted, updatedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
         syncChannel.current?.postMessage({ type: "queued", id });
-        setSyncStatus("local");
+        const refused = saveRefusal(error instanceof APIRequestError ? error.code : undefined);
+        setSyncStatus(refused ? "attention" : "local");
+        if (refused) setError(refused);
         if ((error instanceof APIRequestError && error.code === "already_exists") || error instanceof KeysWaitingError) void drainQueue();
       }
       return null;
@@ -2275,6 +2350,11 @@ function Workspace({
       const parent = groupID;
       const order = endOrder(siblings(kind, parent));
       const object = await createObject(selected.id, "folder");
+      if ((loadingContainerID.current ?? selectedRef.current?.id) !== selected.id) {
+        // The user left the notebook meanwhile: never list (and later seal) it under another one's key.
+        await deleteObject(object.id).catch(() => undefined);
+        return;
+      }
       const base = { id: object.id, version: object.version, order, group: parent };
       if (kind === "section") {
         patchSections((value) => [...value, { ...base, type: "section", title: "New section", color: SECTION_COLORS[value.length % SECTION_COLORS.length] }]);
@@ -2680,6 +2760,8 @@ function Workspace({
         setSelected((value) => (value?.id === synced.id ? synced : value));
         throw new Error("This notebook's keys just changed. Send the comment again.");
       }
+      // Sent. Only if the page is still open: a late reply never pulls the user back to it.
+      if (selectedNoteRef.current?.id !== selectedNote.id) return;
       setCommentText("");
       setCommentSection("");
       await selectNote(selectedNote);
@@ -2797,6 +2879,9 @@ function Workspace({
         sealed.ciphertext,
         new Date(Date.now() + 7 * 86400000).toISOString(),
       );
+      // Only this browser learns which page the link shares (Settings → Share links); best effort.
+      const write = selected && localKeyFor(selected);
+      if (selected && write) await keepShareLabel(auth.user.id, link.id, selected.id, write, { title: selectedNote.title, notebook: nameOf(selected) }).catch(() => undefined);
       await navigator.clipboard.writeText(
         `${location.origin}/share/${link.token}#${sealed.key}`,
       );
@@ -2851,6 +2936,7 @@ function Workspace({
             <button className="quiet" disabled={busy || keyWait || viewOnly || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
             {selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}
             {selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}
+            {openRole === "owner" && <button className="quiet danger" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void deleteWorkspace(); }}>Delete notebook</button>}
           </div>
         </div>
         <div className="notebook-sections">
@@ -3192,7 +3278,7 @@ function Workspace({
                   </div>
                 </div>
                 <div className="page-canvas">
-                  <CanvasBoundary>
+                  <CanvasBoundary key={selectedNote.id}>
                   <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
                     <CanvasPage
                       key={`${selectedNote.id}:${editorRevision}`}
@@ -3454,7 +3540,7 @@ function SettingsView({
   /** Usernames seen in key passes this session, for the colleague keys card. */
   colleagueNames: Record<string, string>;
   /** Keys this browser holds for a queued edit: its notebook's key for that generation, or the waiting key. */
-  keysFor: (item: PendingSave) => KeyRef[];
+  keysFor: (item: { containerID: string; keyGeneration?: number }) => KeyRef[];
   onForgetDevice?: () => void;
   onAuthSecret: (authSecret: string) => void;
   identityState: IdentityStatus | "unknown";
@@ -3553,7 +3639,7 @@ function SettingsView({
         <PinnedKeys username={username} userID={userID} names={colleagueNames} />
       </div>
       <div className="settings-content" hidden={tab !== "share-links"}>
-        {tab === "share-links" && <ShareLinks />}
+        {tab === "share-links" && <ShareLinks userID={userID} keysFor={keysFor} />}
       </div>
       <div className="settings-content" hidden={tab !== "unsent"}>
         <UnsentEdits username={username} userID={userID} keysFor={keysFor} waitingHeld={waitingHeld} />
