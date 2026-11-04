@@ -204,10 +204,25 @@ const CanvasPage = lazy(() => import("./CanvasPage").then((module) => {
   chunkMarker(null);
   return module;
 }, (error: unknown) => {
-  if (chunkMarker() === location.href || chunkMarker(location.href) !== location.href) throw error;
+  // Offline, a reload would only show the browser's offline page; CanvasBoundary says so instead.
+  if (!navigator.onLine || chunkMarker() === location.href || chunkMarker(location.href) !== location.href) throw error;
   location.reload();
   return new Promise<never>(() => {});
 }));
+/** A page editor that could not be loaded leaves the rest of the app working, with a way back. */
+class CanvasBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="editor-loading" role="alert">
+        <p>{navigator.onLine ? "This page's editor could not be loaded." : "This page's editor could not be loaded while offline."} Your other pages and unsent edits are safe. Reload once you are connected.</p>
+        <button type="button" className="secondary" onClick={() => { chunkMarker(null); location.reload(); }}>Reload</button>
+      </div>
+    );
+  }
+}
 
 type AuthState = {
   username: string;
@@ -3191,6 +3206,7 @@ function Workspace({
                   </div>
                 </div>
                 <div className="page-canvas">
+                  <CanvasBoundary>
                   <Suspense fallback={<div className="editor-loading">Loading page…</div>}>
                     <CanvasPage
                       key={`${selectedNote.id}:${editorRevision}`}
@@ -3203,6 +3219,7 @@ function Workspace({
                       resolveFileUrl={resolveFileUrl}
                     />
                   </Suspense>
+                  </CanvasBoundary>
                 </div>
                 <details className="page-panel comments" open={commentsOpen} onToggle={(event) => setCommentsOpen(event.currentTarget.open)}>
                   <summary><span>Comments</span>{commentsForNote.length > 0 && <span className="page-panel-count">{commentsForNote.length}</span>}<NavIcon name="chevron" /></summary>

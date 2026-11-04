@@ -129,6 +129,15 @@ test("client fixes: comment drafts, unsent drafts, read-only roles", async ({ br
     await expect(reader.page.locator(".title-input")).toHaveValue("Child page");
     await expect(reader.page.getByText("This notebook is read-only until its keys reach this browser.")).toHaveCount(0);
     await expect(reader.page.locator(".title-input")).toHaveAttribute("readonly", "");
+    // Pass 2: offline, a missing page chunk neither reloads the tab nor blanks the app.
+    let documents = 0;
+    owner.page.on("request", (request) => { if (request.resourceType() === "document") documents += 1; });
+    await owner.page.addInitScript(() => Object.defineProperty(Navigator.prototype, "onLine", { configurable: true, get: () => false }));
+    await owner.page.route((url) => /\/assets\/CanvasPage-[^/]+\.js$/.test(url.pathname), (route) => route.abort("internetdisconnected"));
+    await owner.page.reload();
+    await expect(owner.page.getByRole("alert").filter({ hasText: "This page's editor could not be loaded while offline." })).toBeVisible({ timeout: 30_000 });
+    await expect(owner.page.locator(".workspace-title")).toHaveText("Council child");
+    expect(documents).toBe(1);
     for (const who of [admin, owner, reader]) expect(who.unexpected).toEqual([]);
   } finally {
     for (const who of [admin, owner, reader]) await who.page.context().close();
