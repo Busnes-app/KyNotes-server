@@ -87,3 +87,20 @@ export async function flushUntilStable(
 /** Objects a notebook load could neither read from the server nor from this browser's copy. */
 export const unreadableNotice = (count: number) =>
   `${count} item(s) in this notebook could not be read or decrypted and are not shown. They remain on the server; reload to try again.`;
+
+/**
+ * Why the server refused a save in a way retrying cannot fix, or undefined (offline, a retired key:
+ * the queue retries). The edit stays queued in this browser either way.
+ */
+export function saveRefusal(code: string | undefined): string | undefined {
+  switch (code) {
+    case "unauthenticated":
+    case "password_change_required":
+      return "You were signed out, so your edits are kept only in this browser. Sign out, then sign in again to send them.";
+    case "quota_exceeded":
+      return "Your storage is full, so this edit is kept only in this browser. Delete pages or notebooks, or ask your administrator to raise your quota; it is sent once there is room.";
+    case "payload_too_large":
+      return "This page is too large to save, so the edit is kept only in this browser. Split it into smaller pages.";
+  }
+  return undefined;
+}
