@@ -1831,8 +1831,8 @@ function Workspace({
     }
     // Only by ID from here on: its cached pages, and unsent edits to them, which have nowhere to go.
     for (const id of cached) await deleteCachedNote(auth.user.id, id).catch(() => undefined);
-    for (const item of await pendingSaves().catch(() => [])) {
-      if (item.owner === auth.user.id && goneIDs.has(item.containerID)) await clearQueuedSave(item.owner, item.id, item.updatedAt).catch(() => undefined);
+    for (const item of (await pendingSaves().catch(() => [])).filter((item) => item.owner === auth.user.id)) {
+      if (goneIDs.has(item.containerID)) await clearQueuedSave(item.owner, item.id, item.updatedAt).catch(() => undefined);
     }
     await reopen;
   }
