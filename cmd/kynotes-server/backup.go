@@ -61,7 +61,8 @@ func capsuleCommand(command string, args []string) error {
 		return err
 	}
 	defer unlock()
-	store, err := storage.Open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
+	// Never migrates: a backup made with a newer image must not upgrade the database it copies.
+	store, err := storage.OpenCurrent(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
 	if err != nil {
 		return err
 	}

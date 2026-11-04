@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -42,5 +43,40 @@ func TestRestoreDataDirRevokeCredentials(t *testing.T) {
 		if want := map[bool]int{false: 2, true: 0}[revoke]; live != want {
 			t.Fatalf("revoke=%v: %d live credentials, want %d", revoke, live, want)
 		}
+	}
+}
+
+// An offline backup made with a newer binary must not upgrade the live database it copies: the
+// older release could no longer open it, and no copy with the old schema would exist.
+func TestOfflineBackupCommandsNeverMigrateTheLiveDatabase(t *testing.T) {
+	cfgPath, _, dataDir := setupCLIFixture(t)
+	db := filepath.Join(dataDir, "kynotes.sqlite")
+	s, err := storage.Open(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var latest int
+	if err = s.DB().QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	// As if an older release wrote it: its last migration is not recorded yet.
+	if _, err = s.DB().Exec(`DELETE FROM schema_migrations WHERE version=?`, latest); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	for _, command := range []string{"export-capsule", "backup-drill", "deposit"} {
+		err := capsuleCommand(command, []string{"--config", cfgPath, "--out", filepath.Join(t.TempDir(), "x.kycap")})
+		if !errors.Is(err, storage.ErrSchemaOlder) {
+			t.Fatalf("%s on an older schema: %v, want ErrSchemaOlder", command, err)
+		}
+	}
+	s, err = storage.OpenUnmigrated(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var now int
+	if err = s.DB().QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&now); err != nil || now != latest-1 {
+		t.Fatalf("schema now %d %v, want %d (unmigrated)", now, err, latest-1)
 	}
 }

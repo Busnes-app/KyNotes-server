@@ -62,7 +62,13 @@ func mirrorCommand(command string, args []string) error {
 	if _, err = os.Stat(filepath.Join(cfg.DataDir, "kynotes.sqlite")); err != nil {
 		return errors.New("existing or restored database required")
 	}
-	st, err := storage.Open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
+	// mirror-blobs copies the live data and never migrates it; fetch-blobs follows a restore, which
+	// this release then upgrades.
+	open := storage.Open
+	if command == "mirror-blobs" {
+		open = storage.OpenCurrent
+	}
+	st, err := open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
 	if err != nil {
 		return err
 	}

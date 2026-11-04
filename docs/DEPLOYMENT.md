@@ -153,7 +153,9 @@ then start it. Restore only while stopped, run `integrity-check` and
 Migrations run at startup. Make a backup before upgrades. To roll back, stop
 the server, restore the backup directory, run both integrity checks, and start
 again. `copy-data-dir` copies the database without migrating it, so a copy made with the newer
-image is still the old schema. A release refuses to start on a database a newer release
+image is still the old schema. Offline `export-capsule`, `deposit`, `backup-drill` and `mirror-blobs`
+never migrate either: they refuse a database another release wrote, so back up with the release that
+is running. A release refuses to start on a database a newer release
 migrated; select the previous image before restoring and checking a pre-upgrade copy. The server holds a data-directory lock (`.kynotes.lock`, a kernel `flock`) while
 running, so `copy-data-dir`, `restore-data-dir`, `user add`, `quota set`, `bootstrap-admin`,
 `integrity-check` and `consistency-check` refuse to run beside it: stop the service first.

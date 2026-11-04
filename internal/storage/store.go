@@ -31,6 +31,35 @@ func Open(path string) (*Store, error) { return open(path, true) }
 // its data was written with (a pre-upgrade copy made with the newer image stays restorable).
 func OpenUnmigrated(path string) (*Store, error) { return open(path, false) }
 
+// ErrSchemaOlder: the database predates this binary's migrations.
+var ErrSchemaOlder = errors.New("database schema is older than this release")
+
+// OpenCurrent opens without migrating and refuses a database whose schema is not exactly this
+// release's, so a backup command never upgrades the live database it is copying.
+func OpenCurrent(path string) (*Store, error) {
+	s, err := open(path, false)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := migrationFS.ReadDir("migrations")
+	var applied int
+	if err == nil {
+		err = s.db.QueryRow("SELECT COALESCE(MAX(version),0) FROM schema_migrations").Scan(&applied)
+	}
+	switch {
+	case err != nil:
+	case applied > len(rows):
+		err = fmt.Errorf("%w: database schema %d, this release knows %d; run the release that wrote it", ErrSchemaNewer, applied, len(rows))
+	case applied < len(rows):
+		err = fmt.Errorf("%w: database schema %d, this release expects %d; back it up with the release that wrote it, or start this release once to upgrade it first", ErrSchemaOlder, applied, len(rows))
+	}
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
 func open(path string, migrate bool) (*Store, error) {
 	// synchronous(FULL): a commit the server acknowledged survives power loss; clients drop their
 	// queued copy on that acknowledgement.
