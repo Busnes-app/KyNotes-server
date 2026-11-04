@@ -2,6 +2,10 @@
 
 ## 0.6.0 — 2026-11-01
 
+### Security
+
+- Deleted notebooks refuse new attachment and preview uploads, including uploads that race their deletion. Historical live attachment rows remain charged to quota until reclaimed.
+
 ### Changes
 
 - Web: the Settings gear opens a menu of the Settings sections (Account, Phones & apps,

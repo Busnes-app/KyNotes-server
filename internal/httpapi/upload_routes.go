@@ -144,8 +144,14 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		id, _ := ids.Mint("ups")
 		now := time.Now().UTC()
 		ttl := uploadTTL(cfg)
-		if _, e := db.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339)); e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		e := dbTx(db, func(tx *sql.Tx) error {
+			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
+				return e
+			}
+			_, e := tx.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339))
+			return e
+		})
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		tmp, e := blobs.NewTemp(id)
@@ -370,14 +376,16 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		if kind == "preview" {
 			now := time.Now().UTC().Format(time.RFC3339)
 			e = dbTx(db, func(tx *sql.Tx) error {
+				if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
+					return e
+				}
 				if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
 					return e
 				}
 				_, e := tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
 				return e
 			})
-			if e != nil {
-				WriteError(w, r, 500, "internal", "internal server error")
+			if writeTeamKeyError(w, r, e) {
 				return
 			}
 			writeJSON(w, map[string]any{"previewDigest": digest, "bytes": size})
@@ -602,7 +610,7 @@ func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64
 	if exceeded, err := userQuotaExceeded(q, limits, owner, userQuota, skip, n); exceeded || err != nil || team == "" || limits.TeamQuotaBytes <= 0 {
 		return exceeded, err
 	}
-	used, err := usedBytes(q, `SELECT id FROM containers WHERE (id=?1 OR team_id=?1) AND deleted_at=''`, team, skip)
+	used, err := usedBytes(q, `SELECT id FROM containers WHERE id=?1 OR team_id=?1`, team, skip)
 	return used+n > limits.TeamQuotaBytes, err
 }
 
@@ -615,7 +623,7 @@ func userQuotaExceeded(q rowQuerier, limits config.Limits, owner string, userQuo
 	if userQuota <= 0 {
 		return false, nil
 	}
-	used, err := usedBytes(q, `SELECT id FROM containers WHERE owner_user_id=?1 AND deleted_at=''`, owner, skip)
+	used, err := usedBytes(q, `SELECT id FROM containers WHERE owner_user_id=?1`, owner, skip)
 	if err != nil {
 		return false, err
 	}
@@ -624,8 +632,9 @@ func userQuotaExceeded(q rowQuerier, limits config.Limits, owner string, userQuo
 	return used+links+n > userQuota, err
 }
 
-// usedBytes sums what the containers in scope (a query of ?1=key) hold or have reserved. Callers scope
-// out deleted notebooks: their data is purged, and an upload that lands after the delete is unreachable.
+// usedBytes sums what the containers in scope (a query of ?1=key) hold or have reserved.
+// Notebook deletion tombstones its attachments and cancels pending uploads. Older late uploads
+// that are still live remain charged until reclaimed, even when their notebook is deleted.
 func usedBytes(q rowQuerier, scope, key, skip string) (int64, error) {
 	var used int64
 	err := q.QueryRow(`SELECT

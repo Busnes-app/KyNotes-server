@@ -65,7 +65,7 @@ func TestRemovedMembersTeamNotebooksPassToTheTeamOwner(t *testing.T) {
 	}
 }
 
-// An attachment finalized into a notebook deleted meanwhile is not charged to its owner forever.
+// Deleting a notebook tombstones its attachments and releases their quota charge.
 func TestDeletedNotebooksLeaveTheQuota(t *testing.T) {
 	u := newUploadClient(t, func(c *config.Config) { c.Limits.UserQuotaBytes = 10 })
 	if _, err := u.db.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',10,'now')`); err != nil {
@@ -77,8 +77,8 @@ func TestDeletedNotebooksLeaveTheQuota(t *testing.T) {
 	if over, err := quotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, u.container, "", 1); err != nil || !over {
 		t.Fatalf("live attachment not charged: %v %v", over, err)
 	}
-	if _, err := u.db.Exec(`UPDATE containers SET deleted_at='now' WHERE id=?`, u.container); err != nil {
-		t.Fatal(err)
+	if code, out := status(t, u.do(t, http.MethodDelete, "/api/v1/containers/"+u.container, nil, true)); code != http.StatusNoContent {
+		t.Fatalf("delete=%d %s", code, out)
 	}
 	if over, err := userQuotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, "usr_upload_test", 0, "", 1); err != nil || over {
 		t.Fatalf("deleted notebook's attachment still charged: %v %v", over, err)
