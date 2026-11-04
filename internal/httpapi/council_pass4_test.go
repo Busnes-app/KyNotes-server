@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -81,5 +82,35 @@ func TestDeletedNotebooksLeaveTheQuota(t *testing.T) {
 	}
 	if over, err := userQuotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, "usr_upload_test", 0, "", 1); err != nil || over {
 		t.Fatalf("deleted notebook's attachment still charged: %v %v", over, err)
+	}
+}
+
+// The comment list is streamed row by row and still answers the same JSON array, empty included.
+func TestCommentListStreamsTheSameArray(t *testing.T) {
+	tm := newTeam(t)
+	tm.rotate(t, tm.id, 1)
+	oid, code := tm.editor.save(t, tm.id, "", 2)
+	if code != http.StatusOK {
+		t.Fatalf("save=%d", code)
+	}
+	list := func() []map[string]any {
+		code, out := status(t, tm.editor.do(t, http.MethodGet, "/api/v1/objects/"+oid+"/comments", nil, false, false))
+		var got []map[string]any
+		if code != http.StatusOK || json.Unmarshal([]byte(out), &got) != nil || got == nil {
+			t.Fatalf("list=%d %q", code, out)
+		}
+		return got
+	}
+	if got := list(); len(got) != 0 {
+		t.Fatalf("empty page listed %v", got)
+	}
+	for _, body := range []string{"Y3Q=", "ZHU="} {
+		if code, out := status(t, tm.editor.do(t, http.MethodPost, "/api/v1/objects/"+oid+"/comments", []byte(`{"bodyCiphertext":"`+body+`","keyGeneration":2}`), true, false)); code != http.StatusOK {
+			t.Fatalf("comment=%d %s", code, out)
+		}
+	}
+	got := list()
+	if len(got) != 2 || got[0]["bodyCiphertext"] != "Y3Q=" || got[1]["bodyCiphertext"] != "ZHU=" || got[0]["username"] == "" {
+		t.Fatalf("listed %v", got)
 	}
 }
