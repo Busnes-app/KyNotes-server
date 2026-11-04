@@ -167,7 +167,7 @@ import { applyStoredTheme } from "./theme";
 import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes, searchNotes } from "./knowledge";
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
-import { desiredReminders, planReconcile } from "./reminderPush";
+import { desiredReminders, planReconcile, type ServerReminder } from "./reminderPush";
 import { documentText, emptyCanvasPage, hasInk, inkOnly, stringifyCanvasPage } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
@@ -1137,14 +1137,18 @@ function Workspace({
   const pushTasks = useMemo(() => queueTasks.filter((task) => task.push).map((task) => ({ noteID: task.entry.note.id, remind: task.remind, push: true })), [queueTasks]);
   const pushTaskKey = pushTasks.map((task) => `${task.noteID}\n${task.remind}`).sort().join("\n");
   const reconciling = useRef(Promise.resolve());
+  // What this tab last reconciled: later passes send only this tab's own changes (planReconcile).
+  const reconciled = useRef<ServerReminder[] | undefined>(undefined);
   useEffect(() => {
-    if (!reminderPrefs.push || !queueComplete) return;
+    if (!reminderPrefs.push || !queueComplete) { reconciled.current = undefined; return; }
     reconciling.current = reconciling.current.then(async () => {
       const identity = await heldIdentity();
       if (!identity) return;
-      const plan = planReconcile(desiredReminders(reminderIDKey(identity), pushTasks, Date.now()), await serverReminders(), queueComplete);
+      const desired = desiredReminders(reminderIDKey(identity), pushTasks, Date.now());
+      const plan = planReconcile(desired, await serverReminders(), queueComplete, reconciled.current);
       for (const id of plan.deletes) await deleteReminder(id);
       for (const row of plan.puts) await putReminder(row.id, row.at);
+      reconciled.current = desired;
     }).catch(() => undefined);
   }, [reminderPrefs.push, queueComplete, pushTaskKey]);
   const listEntries = queueMode
