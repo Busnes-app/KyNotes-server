@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
+import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, queueSaveIfNewer, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
@@ -217,6 +217,18 @@ describe("queued saves", () => {
     expect((await pendingSaves()).find((entry) => entry.id === item.id)).toEqual(newer);
     expect(await replaceQueuedSave(newer)).toBe(true);
     expect((await pendingSaves()).find((entry) => entry.id === item.id)).toBeUndefined();
+  });
+
+  it("queues a left-behind copy only over an older entry it may replace", async () => {
+    expect(await queueSaveIfNewer(item)).toBe(true);
+    // As new or newer, or never to be sent: the entry stays.
+    expect(await queueSaveIfNewer({ ...item, payload: new Uint8Array([9]) })).toBe(false);
+    const newer = { ...item, payload: new Uint8Array([2]), updatedAt: "2026-10-07T00:03:00Z" };
+    expect(await queueSaveIfNewer(newer)).toBe(true);
+    expect(await pendingSaves()).toEqual([newer]);
+    await queueSave({ ...newer, gone: true });
+    expect(await queueSaveIfNewer({ ...item, updatedAt: "2026-10-07T00:09:00Z" })).toBe(false);
+    expect((await pendingSaves())[0].gone).toBe(true);
   });
 
   it("clears only the save it was told about: a newer one queued meanwhile stays", async () => {

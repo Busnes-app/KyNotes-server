@@ -130,6 +130,7 @@ import {
   putNote,
   putUpload,
   queueSave,
+  queueSaveIfNewer,
   rememberAfter,
   replaceQueuedSave,
   noteResetSent,
@@ -139,6 +140,7 @@ import {
   storeConfirmedPin,
   storeKeyState,
   storePins,
+  type CachedNote,
   type PendingSave,
   type PendingUpload,
 } from "./storage";
@@ -177,7 +179,11 @@ import "./ky-ui/appearance-themes.css";
 
 const MAX_CHANGE_PAGES = 100;
 const MIGRATION_CONFLICTS = "This notebook's upgrade to the current encryption format is waiting on pages with conflicting versions saved by an older KyNotes. Open each page that says another device saved it first and choose Keep the other version as a copy; the upgrade finishes on a later visit. Until then, the notebook keeps working as it is.";
-const PAGE_GONE = "A page you edited was deleted elsewhere, so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
+/** A cached edit older than this, still ahead of the server, has no tab left to send it (autosave runs every 15 s). */
+const UNSENT_AGE_MS = 20_000;
+const VIEW_ONLY = "You can read this notebook but not change its pages: your role here is viewer or commenter.";
+const ROLE_UNKNOWN = "Your role in this notebook could not be loaded, so it is read-only for now. Reopen the notebook to try again.";
+const PAGE_GONE = "A page you edited was deleted elsewhere (or its notebook was), so the edit cannot be saved to it. It is kept under Settings → Unsent edits, where you can export or discard it.";
 const FLUSH_ROUNDS = 5;
 const EXPORT_WARNING = "The export is not encrypted: anyone who gets the file can read these notes and attachments.";
 
@@ -671,6 +677,10 @@ function Workspace({
   selectedNoteRef.current = selectedNote;
   const [notificationCount, setNotificationCount] = useState(0);
   const [membersForTeam, setMembersForTeam] = useState<Member[]>([]);
+  // This user's role in the open notebook, as its loaded member list says; undefined until known.
+  const [openRole, setOpenRole] = useState("unknown");
+  const openRoleRef = useRef(openRole);
+  openRoleRef.current = openRole;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -743,6 +753,10 @@ function Workspace({
   // Read-only until this generation's key reaches this browser.
   // putRing and the floor store re-render this component, so this is recomputed when either changes.
   const keyWait = Boolean(selected && !writeKeyFor(selected));
+  // Viewers and commenters read pages; the server refuses their page writes.
+  // Until the load says otherwise the role is unknown, which is read-only too.
+  const writer = (role: string) => role === "owner" || role === "admin" || role === "editor";
+  const viewOnly = !writer(openRole);
   /** Whether this user is an owner or admin of the container, from its loaded member list (keyNotices.ts). */
   // Member management and team notebooks: the server's member list says whether this user is a steward of the open team (M1).
   const teamSteward = stewardOf(membersForTeam, auth.user.id) === true;
@@ -753,6 +767,13 @@ function Workspace({
     const open = selectedRef.current;
     if (!open || writeKeyFor(open)) return false;
     setError(rolledBack(open) ? ROLLBACK : WAITING);
+    return true;
+  };
+  /** readOnlyForKeys, and true (saying why) when this user's role cannot change pages or sections here. */
+  const readOnly = () => {
+    if (readOnlyForKeys()) return true;
+    if (!selectedRef.current || writer(openRoleRef.current)) return false;
+    setError(openRoleRef.current === "unknown" ? ROLE_UNKNOWN : VIEW_ONLY);
     return true;
   };
   const [keyNotice, setKeyNotice] = useState("");
@@ -1131,7 +1152,7 @@ function Workspace({
     : (query.trim() ? visibleNotes : sectionPages)
         .map((note) => ({ note, container: selected }))
         .filter((entry): entry is QueueEntry => Boolean(entry.container));
-  const reorderable = !queueMode && !query.trim();
+  const reorderable = !queueMode && !query.trim() && !viewOnly;
   const queueShown = new Set(visibleQueueEntries.map((entry) => entry.note.id));
   const queueRows = queueMode ? queueTasks.filter((task) => queueShown.has(task.entry.note.id))
     .map((task) => ({ ...task, missed: missedReminders.has(task.key), group: classifyTask(task, new Date(), missedReminders.has(task.key)) }))
@@ -1409,7 +1430,8 @@ function Workspace({
     }
   }
   /** legacy: objects whose server copy is v1, or not proven v2 (a newer local copy was shown). */
-  async function readContainerObjects(container: Container): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string> }> {
+  /** queueUnsent: the notebook load only (never export or the work queue) queues edits that never reached the server. */
+  async function readContainerObjects(container: Container, queueUnsent = false): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string> }> {
     let unreadable = 0;
     const legacy = new Set<string>();
     // Server copies: v1 only before the notebook's migration marker. Local copies: this browser sealed them.
@@ -1423,6 +1445,8 @@ function Workspace({
       else if (payload.type === "group") foundGroups.push({ ...payload, id, version });
       else loaded.push({ id, title: payload.title, body: payload.body, section: payload.section, order: payload.order, level: payload.level, legacy: payload.legacy, version, updatedAt });
     };
+    // Local copies at the server's version that differ from it: edits that never reached the server.
+    const unsent: CachedNote[] = [];
     let since = 0;
     for (let page = 0; page < MAX_CHANGE_PAGES; page += 1) {
       const result = await changes(container.id, since);
@@ -1436,7 +1460,9 @@ function Workspace({
             ? await openFirst(ownCopyKeysFor(container, cached!.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached!.payload, true))
             : await server(v1).then((opened) => { if (opened.v1) legacy.add(change.id); return opened.payload; });
           // The server copy's format still decides migration.
-          if (useCache && (await server(false).then(() => false, () => true))) legacy.add(change.id);
+          const proven = useCache ? await server(false).then((opened) => opened.payload, () => undefined) : undefined;
+          if (useCache && !proven) legacy.add(change.id);
+          if (queueUnsent && useCache && proven && payload && JSON.stringify(proven) !== JSON.stringify(payload)) unsent.push(cached!);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
         } catch {
           try {
@@ -1454,6 +1480,7 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
+    if (unsent.length) void sendLeftBehind(unsent);
     return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
   }
   async function chooseNotebook(container: Container) {
@@ -1493,6 +1520,7 @@ function Workspace({
     if (superseded()) return [];
     // Nothing from the previous notebook may stay editable under this one's key.
     setSelected(container);
+    setOpenRole("unknown");
     if (leaveQueue) setQueueMode(false);
     selectedNoteRef.current = null;
     setSelectedNote(null);
@@ -1514,7 +1542,7 @@ function Workspace({
       if (superseded()) return [];
       setSelected(keyed);
       if ((await pinStore.loadKeyState(keyed.id)).objects === 2) migrated.current.add(keyed.id);
-      const objects = await readContainerObjects(keyed);
+      const objects = await readContainerObjects(keyed, true);
       if (superseded()) return [];
       if (objects.unreadable) setError(unreadableNotice(objects.unreadable));
       const loaded = carryAll(objects.notes, loadCarried.current);
@@ -1526,10 +1554,15 @@ function Workspace({
       showSection(resolveSection(route?.section, loadedSections));
       const routed = route?.page ? loaded.find((note) => note.id === route.page) : undefined;
       if (routed) await selectNote(routed, keyed);
-      const team = container.kind === "team" ? await members(container.id) : [];
-      if (!superseded()) setMembersForTeam(team);
+      // An unreadable list leaves the role unknown, which is read-only (the server would refuse a viewer's writes).
+      const team = container.kind === "team" ? await members(container.id).catch(() => undefined) : [];
+      if (!superseded()) setMembersForTeam(team ?? []);
+      // A team's child notebook copies the team's memberships: its own member list holds this user's role.
+      const own = container.teamId ? await members(container.id).catch(() => undefined) : team;
       // Writers migrate in the background once this load has rendered (migrateOpen); viewers never do.
-      const role = container.kind === "team" ? team.find((member) => member.userId === auth.user.id)?.role : "owner";
+      const role = container.kind === "team" || container.teamId ? own?.find((member) => member.userId === auth.user.id)?.role ?? "unknown" : "owner";
+      if (!superseded()) setOpenRole(role);
+      if (!superseded() && role === "unknown") setError(ROLE_UNKNOWN);
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
         migrationDue.current = { containerID: keyed.id, unreadable: objects.unreadable, objects: kinds.map((object) => ({ ...object, v1: objects.legacy.has(object.id) })) };
@@ -1752,7 +1785,7 @@ function Workspace({
     }
   }
   async function newNote() {
-    if (!selected || keyWait) return;
+    if (!selected || keyWait || readOnly()) return;
     setBusy(true);
     try {
       // Before createObject: an exhausted order key must not leave an empty object behind.
@@ -1784,7 +1817,8 @@ function Workspace({
   }
   /** Returns the page it sent (saved, queued or kept as a conflict draft); undefined if nothing was. */
   async function saveNow(note: Note, automatic = false): Promise<Note | undefined> {
-    if (!selected) return undefined;
+    // A viewer's or commenter's page write would be refused and queued forever.
+    if (!selected || !writer(openRoleRef.current)) return undefined;
     if (!automatic) setBusy(true);
     try {
       const write = localKeyFor(selected) ?? notSaved();
@@ -1856,9 +1890,37 @@ function Workspace({
     saveChain.current = run.then(() => {}, () => {});
     return run;
   }
-  function queueOwn(item: PendingSave) {
+  /** ifNewer: only when the queue holds no as-new or never-sent entry for the page (one transaction). */
+  async function queueOwn(item: PendingSave, ifNewer = false) {
+    if (ifNewer && !(await queueSaveIfNewer(item))) return;
     ownQueued.current.set(item.id, item.updatedAt);
-    return queueSave(item);
+    if (!ifNewer) await queueSave(item);
+  }
+  /**
+   * Cached copies ahead of the server that no tab is still sending, queued like any failed save. A tab
+   * editing a page rewrites its cached copy, and autosaves at least every 15 s, so a copy unchanged for
+   * UNSENT_AGE_MS has been left behind (a reload or a closed tab).
+   */
+  async function sendLeftBehind(seen: CachedNote[]) {
+    const wait = Math.max(0, ...seen.map((note) => UNSENT_AGE_MS - (Date.now() - Date.parse(note.updatedAt))));
+    if (wait > 0) await new Promise((resolve) => window.setTimeout(resolve, wait));
+    let queued = false;
+    try {
+      for (const note of seen) {
+        const cached = await getNote(auth.user.id, note.id).catch(() => undefined);
+        if (!cached || cached.updatedAt !== note.updatedAt) continue;
+        // Sent at its own base version even when another device saved meanwhile: the server then keeps
+        // it as a conflict (the page offers "Keep the other version as a copy"), never drops it.
+        await queueOwn({ ...cached, owner: auth.user.id }, true).catch(notSaved);
+        queued = true;
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+    if (queued) {
+      setSyncStatus("local");
+      drainQueue();
+    }
   }
   /** A save of id landed: this tab's older queued copy is obsolete; another tab's newer one is not. */
   async function clearOwnQueued(id: string) {
@@ -1943,14 +2005,16 @@ function Workspace({
             await replaceQueuedSave(item);
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
-          } else if (error instanceof APIRequestError && error.code === "not_found") {
-            // Its page was deleted elsewhere: kept under Unsent edits, never sent again.
-            await replaceQueuedSave(item, { ...item, gone: true });
-            attention = true;
-            setError(PAGE_GONE);
           } else {
-            // A retired generation (already_exists): the next drain reads the container again and re-seals it.
-            remaining = true;
+            if (error instanceof APIRequestError && error.code === "not_found") {
+              // Its page was deleted elsewhere: kept under Unsent edits, never sent again.
+              await replaceQueuedSave(item, { ...item, gone: true });
+              attention = true;
+              setError(PAGE_GONE);
+            } else {
+              // A retired generation (already_exists): the next drain reads the container again and re-seals it.
+              remaining = true;
+            }
           }
         }
       }
@@ -1980,7 +2044,7 @@ function Workspace({
     return undefined;
   }
   async function remove(note: Note) {
-    if (readOnlyForKeys() || !confirm("Delete this page?")) return;
+    if (readOnly() || !confirm("Delete this page?")) return;
     try {
       await deleteObject(note.id);
       await deleteCachedNote(auth.user.id, note.id);
@@ -2045,7 +2109,7 @@ function Workspace({
    * Chained encrypted write of a section or group, from its newest local copy; resolves true once saved.
    */
   function updateStructure(kind: "section" | "group", id: string, change: Partial<Pick<SectionPayload, "title" | "color" | "order" | "group">>) {
-    if (readOnlyForKeys()) return Promise.resolve(false);
+    if (readOnly()) return Promise.resolve(false);
     const patch = (update: <T extends Section | Group>(value: T[]) => T[]) => (kind === "section" ? patchSections(update) : patchGroups(update));
     patch((value) => value.map((entry) => (entry.id === id ? { ...entry, ...change } : entry)));
     return chained(async () => {
@@ -2161,7 +2225,7 @@ function Workspace({
   }
 
   async function placePage(id: string, placement: { section?: string; order?: string; level?: 0 | 1 | 2 }) {
-    if (readOnlyForKeys()) return;
+    if (readOnly()) return;
     // An undefined level keeps the page's own; an undefined section means Quick Notes.
     const { level, ...rest } = placement;
     const change = level === undefined ? rest : placement;
@@ -2196,7 +2260,7 @@ function Workspace({
   }
   async function newStructure(kind: "section" | "group") {
     // Before createObject: no empty object is left behind while keys are missing.
-    if (!selected || readOnlyForKeys()) return;
+    if (!selected || readOnly()) return;
     setBusy(true);
     try {
       const parent = groupID;
@@ -2218,12 +2282,12 @@ function Workspace({
   }
   const reportSection = (error: unknown) => setError(error instanceof Error ? error.message : "Unable to update section or group");
   function renameStructure(kind: "section" | "group", entry: Section | Group) {
-    if (readOnlyForKeys()) return;
+    if (readOnly()) return;
     const title = prompt(kind === "section" ? "Section name" : "Group name", entry.title)?.trim();
     if (title) void updateStructure(kind, entry.id, { title }).catch(reportSection);
   }
   async function removeSection(section: Section) {
-    if (readOnlyForKeys()) return;
+    if (readOnly()) return;
     const count = pagesInSection(notes, sections, section.id).length;
     if (!confirm(`Delete section "${section.title}"? Its ${count} page${count === 1 ? "" : "s"} will move to Quick Notes.`)) return;
     try {
@@ -2237,7 +2301,7 @@ function Workspace({
   }
   /** Children move up one level first; a failed write stops before the delete, so nothing is lost. */
   async function removeGroup(group: Group) {
-    if (readOnlyForKeys() || !confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
+    if (readOnly() || !confirm(`Delete group "${group.title || "Untitled group"}"? Its sections and groups move up one level.`)) return;
     setBusy(true);
     try {
       const parent = groupParents(groupsRef.current).get(group.id);
@@ -2308,7 +2372,7 @@ function Workspace({
   /** Moves the block headed by `pageID` before page `beforeID` in `target`, or to its end. */
   function movePage(pageID: string, target: string, beforeID: string | null) {
     return onMoveChain(async () => {
-      if (readOnlyForKeys()) return;
+      if (readOnly()) return;
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const source = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
@@ -2329,7 +2393,7 @@ function Workspace({
   }
   function indentPage(pageID: string, delta: 1 | -1) {
     return onMoveChain(async () => {
-      if (readOnlyForKeys()) return;
+      if (readOnly()) return;
       const page = notesRef.current.find((note) => note.id === pageID);
       if (!page) return;
       const list = pagesInSection(notesRef.current, sectionsRef.current, pageSection(page));
@@ -2363,7 +2427,7 @@ function Workspace({
   }
   async function keepConflictCopies() {
     const open = selectedNoteRef.current;
-    if (recoveringRef.current || !selected || !open || readOnlyForKeys()) return;
+    if (recoveringRef.current || !selected || !open || readOnly()) return;
     recoveringRef.current = true;
     setRecovering(open.id);
     const container = selected;
@@ -2411,7 +2475,7 @@ function Workspace({
       for (const id of resolveOnly) await resolveConflict(id).catch(() => { failed += 1; });
       for (const group of groups) {
         // Placement needs this notebook's page list; the rest stay on the server for a later run.
-        if (!sameNotebook() || readOnlyForKeys()) { failed += 1; continue; }
+        if (!sameNotebook() || readOnly()) { failed += 1; continue; }
         try {
           const current = notesRef.current.find((note) => note.id === open.id) ?? { id: open.id, ...reloaded };
           if (!(await placeConflictCopy(containerID, current, group.payload, sameNotebook))) { failed += 1; continue; }
@@ -2543,7 +2607,7 @@ function Workspace({
       return { id: uploaded.id, name: file.name, type: file.type, size: file.size, keyGeneration: uploaded.keyGeneration, page: job.objectID };
   }
   async function addAttachment(file: File) {
-    if (!selected || !selectedNote || readOnlyForKeys()) return;
+    if (!selected || !selectedNote || readOnly()) return;
     setBusy(true);
     try {
       const attachment = await uploadAttachment(file);
@@ -2724,8 +2788,9 @@ function Workspace({
         `${location.origin}/share/${link.token}#${sealed.key}`,
       );
       // The shared view shows text only; say so when the page holds ink it will not show.
+      const ink = hasInk(selectedNote.body);
       setError(
-        hasInk(selectedNote.body)
+        ink
           ? "Encrypted share link copied. It shows the page's text only; drawings are not included. The key is only in the URL fragment. Revoke it under Settings → Share links."
           : "Encrypted share link copied. The key is only in the URL fragment. Revoke it under Settings → Share links.",
       );
@@ -2767,8 +2832,8 @@ function Workspace({
           <div className="section-menu anchored-menu" id="notebook-menu" popover="auto" style={{ positionAnchor: "--notebook-menu" } as React.CSSProperties}>
             <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void renameWorkspace(); }}>Rename notebook</button>
             <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void exportWorkspace(); }}>Export notebook</button>
-            <button className="quiet" disabled={busy || keyWait} onClick={() => { closeMenu("notebook-menu"); void newStructure("section"); }}>New section</button>
-            <button className="quiet" disabled={busy || keyWait || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
+            <button className="quiet" disabled={busy || keyWait || viewOnly} onClick={() => { closeMenu("notebook-menu"); void newStructure("section"); }}>New section</button>
+            <button className="quiet" disabled={busy || keyWait || viewOnly || groupPath(groupID, parents).length >= MAX_GROUP_DEPTH} onClick={() => { closeMenu("notebook-menu"); void newStructure("group"); }}>New section group</button>
             {selected.kind === "team" && teamSteward && <button className="quiet" onClick={() => { closeMenu("notebook-menu"); void invite(); }}>Add person</button>}
             {selected.kind === "team" && teamSteward && <button className="quiet" disabled={busy} onClick={() => { closeMenu("notebook-menu"); void newTeamWorkspace(selected); }}>Create team notebook</button>}
           </div>
@@ -2779,7 +2844,7 @@ function Workspace({
             groups={childGroups}
             path={groupTrail}
             current={sectionID}
-            busy={busy || keyWait}
+            busy={busy || keyWait || viewOnly}
             moveTargets={moveTargets}
             onSelect={(id) => { setView("workspace"); setShowNotebookNavigation(false); setPhoneList(true); void selectSection(id); }}
             onRename={renameStructure}
@@ -2885,7 +2950,7 @@ function Workspace({
                   className="icon-button quiet"
                   aria-label="New page"
                   title="New page"
-                  disabled={busy || sectionHidden || keyWait}
+                  disabled={busy || sectionHidden || keyWait || viewOnly}
                   onClick={() => { setView("workspace"); setShowNotebookNavigation(false); setPhoneList(false); void newNote(); }}
                 >
                   <NavIcon name="plus" />
@@ -2951,7 +3016,7 @@ function Workspace({
                   className="note-row"
                   aria-current={inWorkspace && selectedNote?.id === note.id ? "page" : undefined}
                   data-page-id={note.id}
-                  draggable
+                  draggable={!viewOnly}
                   onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData(PAGE_DRAG, note.id); }}
                   onKeyDown={(event) => {
                     if (!reorderable) return;
@@ -3066,7 +3131,7 @@ function Workspace({
                     {recovering === selectedNote.id
                       ? "Saving the other version as a copy…"
                       : "Another device saved this page first. Your version was kept separately; save it as a copy next to this page."}
-                    <button className="secondary" disabled={recovering !== null || keyWait} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
+                    <button className="secondary" disabled={recovering !== null || keyWait || viewOnly} onClick={() => void keepConflictCopies()}>Keep the other version as a copy</button>
                   </div>
                 )}
                 <button type="button" className="quiet pane-back" onClick={() => { setPhoneList(true); requestAnimationFrame(() => document.querySelector<HTMLElement>(".note-list .note-row[aria-current]")?.focus()); }}>
@@ -3077,7 +3142,7 @@ function Workspace({
                     ref={pageTitleRef}
                     aria-label="Page title"
                     className="title-input"
-                    readOnly={recovering === selectedNote.id || keyWait}
+                    readOnly={recovering === selectedNote.id || keyWait || viewOnly}
                     value={selectedNote.title}
                     onChange={(event) => editOpen(selectedNote.id, { title: event.target.value })}
                   />
@@ -3096,7 +3161,7 @@ function Workspace({
                       <div className="page-section-control">
                         <select
                           aria-label="Move page to section"
-                          disabled={keyWait}
+                          disabled={keyWait || viewOnly}
                           value={pagesInSection([selectedNote], sections, QUICK_NOTES).length ? QUICK_NOTES : selectedNote.section}
                           onChange={(event) => { closeMenu("page-menu"); void movePage(selectedNote.id, event.target.value, null); }}
                         >
@@ -3105,9 +3170,9 @@ function Workspace({
                         </select>
                         <NavIcon name="chevron" />
                       </div>
-                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
-                      <button className="quiet" disabled={keyWait || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
-                      <button className="quiet danger" disabled={keyWait} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
+                      <button className="quiet" disabled={keyWait || viewOnly || !canShift(selectedNote.id, 1)} title="Ctrl+Alt+]" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, 1); }}>Indent page</button>
+                      <button className="quiet" disabled={keyWait || viewOnly || !canShift(selectedNote.id, -1)} title="Ctrl+Alt+[" onClick={() => { closeMenu("page-menu"); void indentPage(selectedNote.id, -1); }}>Outdent page</button>
+                      <button className="quiet danger" disabled={keyWait || viewOnly} onClick={() => { closeMenu("page-menu"); void remove(selectedNote); }}>Delete page</button>
                     </div>
                   </div>
                 </div>
@@ -3117,7 +3182,7 @@ function Workspace({
                       key={`${selectedNote.id}:${editorRevision}`}
                       pageID={selectedNote.id}
                       body={selectedNote.body}
-                      editable={recovering !== selectedNote.id && !keyWait}
+                      editable={recovering !== selectedNote.id && !keyWait && !viewOnly}
                       onChange={(body) => editOpen(selectedNote.id, { body })}
                       onError={setError}
                       uploadFile={uploadInlineFile}
@@ -3163,7 +3228,7 @@ function Workspace({
                   ))}
                   <label className="attachment-picker">
                     <NavIcon name="plus" /><span>Add encrypted file</span>
-                    <input type="file" disabled={busy || keyWait} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
+                    <input type="file" disabled={busy || keyWait || viewOnly} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addAttachment(file); event.currentTarget.value = ""; }} />
                   </label>
                 </details>
               </>
@@ -3177,7 +3242,7 @@ function Workspace({
                   <button disabled={busy} onClick={() => void newWorkspace()}>New notebook</button>
                 )}
                 {selected && (
-                  <button disabled={keyWait} onClick={() => void newNote()}>Create a note</button>
+                  <button disabled={keyWait || viewOnly} onClick={() => void newNote()}>Create a note</button>
                 )}
               </div>
             )}
