@@ -58,6 +58,18 @@ test("client fixes: comment drafts, unsent drafts, read-only roles", async ({ br
     hold = false;
     await sent;
     await expect(page.locator(".note-row", { hasText: "Second page, unsent edit" })).toBeVisible();
+    // Pass 2: a copy already older than 20 s when the tab comes back is sent too (after the role is read).
+    hold = true;
+    await page.locator(".title-input").fill("Second page, older unsent edit");
+    await page.waitForRequest((request) => request.method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(request.url()));
+    const back = page.url();
+    await page.goto("about:blank");
+    hold = false;
+    await page.waitForTimeout(21_000);
+    const sentLater = page.waitForResponse((response) => response.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(response.url()) && response.ok(), { timeout: 60_000 });
+    await page.goto(back);
+    await sentLater;
+    await expect(page.locator(".note-row", { hasText: "Second page, older unsent edit" })).toBeVisible();
 
     // A tab older than the server finds its page chunk gone: it reloads once and opens the page,
     // and does so again on a later upgrade.

@@ -10,8 +10,9 @@ type GCStats struct{ ExpiredUploads, DeletedBlobs int }
 
 func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Duration, blobsEnabled bool) (GCStats, error) {
 	var st GCStats
-	// Failed sessions too (a refused finalize, a deleted notebook): their partial file is never resumed.
-	rows, e := db.Query(`SELECT id FROM upload_sessions WHERE (status='pending' AND expires_at<?) OR status='failed'`, now.UTC().Format(time.RFC3339))
+	// Failed sessions that never finalized too (a refused finalize, a deleted notebook): their partial
+	// file is never resumed. A cancelled finalized preview keeps its row, which charges its kept blob.
+	rows, e := db.Query(`SELECT id FROM upload_sessions WHERE (status='pending' AND expires_at<?) OR (status='failed' AND finalized_digest='')`, now.UTC().Format(time.RFC3339))
 	if e != nil {
 		return st, e
 	}

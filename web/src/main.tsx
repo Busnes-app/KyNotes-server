@@ -1463,7 +1463,7 @@ function Workspace({
   }
   /** legacy: objects whose server copy is v1, or not proven v2 (a newer local copy was shown). */
   /** queueUnsent: the notebook load only (never export or the work queue) queues edits that never reached the server. */
-  async function readContainerObjects(container: Container, queueUnsent = false): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string> }> {
+  async function readContainerObjects(container: Container, queueUnsent = false): Promise<{ notes: Note[]; sections: Section[]; groups: Group[]; unreadable: number; legacy: Set<string>; unsent: CachedNote[] }> {
     let unreadable = 0;
     const legacy = new Set<string>();
     // Server copies: v1 only before the notebook's migration marker. Local copies: this browser sealed them.
@@ -1515,8 +1515,8 @@ function Workspace({
       if (!Number.isSafeInteger(next) || next <= since) break;
       since = next;
     }
-    if (unsent.length) void sendLeftBehind(unsent);
-    return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy };
+    // The load sends them once it knows this user's role (sendLeftBehind).
+    return { notes: loaded, sections: found, groups: foundGroups, unreadable, legacy, unsent };
   }
   async function chooseNotebook(container: Container) {
     // Back from Settings to the open notebook: nothing to reload.
@@ -1597,6 +1597,8 @@ function Workspace({
       // Writers migrate in the background once this load has rendered (migrateOpen); viewers never do.
       const role = container.kind === "team" || container.teamId ? own?.find((member) => member.userId === auth.user.id)?.role ?? "unknown" : "owner";
       if (!superseded()) setOpenRole(role);
+      // Left-behind edits go only to a notebook this user can still write.
+      if (!superseded() && writer(role) && objects.unsent.length) void sendLeftBehind(objects.unsent);
       if (!superseded() && role === "unknown") setError(ROLE_UNKNOWN);
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
@@ -1956,9 +1958,8 @@ function Workspace({
       for (const note of seen) {
         const cached = await getNote(auth.user.id, note.id).catch(() => undefined);
         if (!cached || cached.updatedAt !== note.updatedAt) continue;
-        // Only for a notebook this user can still write: a viewer's PUT would be refused (the drain keeps
-        // such an entry under Unsent edits). Left for the next load if the user moved on meanwhile.
-        if (selectedRef.current?.id !== cached.containerID || !writer(openRoleRef.current)) continue;
+        // The load checked the role before calling; left for the next load if the user moved on meanwhile.
+        if (selectedRef.current?.id !== cached.containerID) continue;
         // Sent at its own base version even when another device saved meanwhile: the server then keeps
         // it as a conflict (the page offers "Keep the other version as a copy"), never drops it.
         await queueOwn({ ...cached, owner: auth.user.id, idempotencyKey: crypto.randomUUID() }, true).catch(notSaved);
@@ -2553,6 +2554,8 @@ function Workspace({
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
       if (!failed && !unreadable) {
         setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
+        // Its edits are on the server now: the cached copy is no longer left behind.
+        void clearConflictedMark(auth.user.id, open.id).catch(() => {});
         setSyncStatus("saved");
       }
     } catch (error) {

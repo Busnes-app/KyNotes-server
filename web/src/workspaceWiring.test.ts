@@ -235,10 +235,15 @@ describe("hostile-review pass 2 wiring", () => {
     expect(block("  function persistDraft(")).toContain("conflictedRef.current.has(note.id) && { conflicted: true as const }");
     expect(main).toContain("else if (queueUnsent && cached?.conflicted && cached.version < object.version) unsent.push(cached);");
     expect(block("  async function sendLeftBehind(")).toContain("if (cached.conflicted) await clearConflictedMark(auth.user.id, cached.id, cached.updatedAt)");
+    // Resolved in this tab: the mark goes too, so the next load does not send the copied-out text again.
+    expect(block("  async function keepConflictCopies(")).toContain("void clearConflictedMark(auth.user.id, open.id)");
   });
 
   it("never queues or retries forever an edit this user may no longer make", () => {
-    expect(block("  async function sendLeftBehind(")).toContain("if (selectedRef.current?.id !== cached.containerID || !writer(openRoleRef.current)) continue;");
+    // Called by the load after it has read the role, never before (an unknown role would skip every draft).
+    expect(main).toContain("if (!superseded() && writer(role) && objects.unsent.length) void sendLeftBehind(objects.unsent);");
+    expect(main.indexOf("void sendLeftBehind(objects.unsent)")).toBeGreaterThan(main.indexOf("if (!superseded()) setOpenRole(role);"));
+    expect(main.match(/sendLeftBehind\(/g)).toHaveLength(2);
     expect(main).toContain('(error.code === "not_found" || error.code === "forbidden")');
   });
 

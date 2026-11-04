@@ -117,13 +117,13 @@ export async function pendingSaves(): Promise<PendingSave[]> {
 }
 
 /** Deletes owner's queued save of id only while it is the one saved at updatedAt: a newer save (another tab's) stays. */
-/** Drops the conflicted mark from a cached copy once it was queued, only while it is the copy the caller read. */
-export async function clearConflictedMark(owner: string, id: string, updatedAt: string): Promise<void> {
+/** Drops the conflicted mark from a cached copy once it was sent; with updatedAt, only while it is the copy the caller read. */
+export async function clearConflictedMark(owner: string, id: string, updatedAt?: string): Promise<void> {
   await write(storeName, (store) => {
     const read = store.get([owner, id]);
     read.onsuccess = guarded(store.transaction, () => {
       const row = read.result as (CachedNote & { owner: string }) | undefined;
-      if (row?.conflicted && row.updatedAt === updatedAt) { const { conflicted: _conflicted, ...rest } = row; store.put(rest); }
+      if (row?.conflicted && (updatedAt === undefined || row.updatedAt === updatedAt)) { const { conflicted: _conflicted, ...rest } = row; store.put(rest); }
     });
   });
 }
