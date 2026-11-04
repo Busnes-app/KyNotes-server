@@ -18,6 +18,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/ky-primitives/shamir"
 	"github.com/Busnes-app/kynotes-server/internal/app"
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/httpapi"
@@ -67,7 +68,7 @@ func capsuleCommand(command string, args []string) error {
 		return err
 	}
 	defer store.Close()
-	service := backup.New(cfg, store, "dev")
+	service := backup.New(cfg, store, appversion.String())
 	defer service.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), backup.OperationTimeout)
 	defer cancel()

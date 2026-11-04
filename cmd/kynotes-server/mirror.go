@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/Busnes-app/ky-primitives/offsite"
+	"github.com/Busnes-app/kynotes-server/internal/appversion"
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -74,7 +75,7 @@ func mirrorCommand(command string, args []string) error {
 	}
 	defer st.Close()
 	if command == "mirror-blobs" {
-		service := backup.New(cfg, st, "dev")
+		service := backup.New(cfg, st, appversion.String())
 		defer service.Close()
 		stats, err := service.MirrorNow(ctx, "system", "cli")
 		if e := json.NewEncoder(os.Stdout).Encode(stats); e != nil {
