@@ -1984,8 +1984,8 @@ function Workspace({
       // One key pass per container per drain.
       const synced = new Map<string, Promise<Container>>();
       for (const queuedItem of queued) {
-        // gone: its page was deleted elsewhere; listed under Unsent edits, never sent.
-        if (queuedItem.gone) continue;
+        // gone: its page was deleted elsewhere; listed under Unsent edits, never sent, and never "saved".
+        if (queuedItem.gone) { attention = true; continue; }
         let item = queuedItem;
         try {
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed

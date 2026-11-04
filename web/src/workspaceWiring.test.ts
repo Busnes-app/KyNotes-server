@@ -228,6 +228,10 @@ describe("hostile-review pass 2 wiring", () => {
     expect(create.indexOf("(loadingContainerID.current ?? selectedRef.current?.id) !== selected.id")).toBeLessThan(create.indexOf("patchNotes("));
   });
 
+  it("never reports a drain with a gone edit as saved", () => {
+    expect(main).toContain("if (queuedItem.gone) { attention = true; continue; }");
+  });
+
   it("refuses page and section writes for a role that cannot make them", () => {
     expect(block("  async function saveNow(")).toContain("if (!selected || !writer(openRoleRef.current)) return undefined;");
     for (const start of ["  async function remove(", "  async function placePage(", "  function movePage(", "  function indentPage(", "  async function newNote("]) {
