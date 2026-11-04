@@ -213,9 +213,15 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 			return fail("restored table count mismatch")
 		}
 	}
+	// A capsule from a server that had lost its last administrator still restores (deposits kept
+	// succeeding, so it may be the only copy); the operator then creates one with the CLI.
 	var admins int
-	if err = db.QueryRow(`SELECT count(*) FROM users WHERE role='admin' AND status='active'`).Scan(&admins); err != nil || admins == 0 {
-		return fail("no active administrator restored")
+	if err = db.QueryRow(`SELECT count(*) FROM users WHERE role='admin' AND status='active'`).Scan(&admins); err != nil {
+		return fail("administrator count unreadable")
+	}
+	note := ""
+	if admins == 0 {
+		note = "; no active administrator: after restoring, create one with kynotes-server user add --admin"
 	}
 	var pin string
 	if err = db.QueryRow(`SELECT value FROM server_settings WHERE key='kyrecovery_key_id'`).Scan(&pin); err != nil || pin != pub.ID() {
@@ -259,5 +265,5 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 	if rows.Err() != nil || i != len(inventory) {
 		return fail("incomplete blob inventory")
 	}
-	return []recoveryclient.Check{{Name: "KyNotes restore", Passed: true, Message: fmt.Sprintf("database, %d tables, administrator, secrets, pin and blob inventory verified; blob bytes require separate recovery", len(tables))}}
+	return []recoveryclient.Check{{Name: "KyNotes restore", Passed: true, Message: fmt.Sprintf("database, %d tables, secrets, pin and blob inventory verified; blob bytes require separate recovery", len(tables)) + note}}
 }

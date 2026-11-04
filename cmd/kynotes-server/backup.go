@@ -193,10 +193,12 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
+	var verified string
 	for _, check := range backup.Checks(target, manifest) {
 		if !check.Passed {
 			return fmt.Errorf("restore verification failed: %s; preserve this target for inspection", check.Message)
 		}
+		verified = check.Message
 	}
 	// Relocate only the data path. Keep effective deployment keys, issuer and pairing.
 	configPath := filepath.Join(target, "kynotes.yaml")
@@ -224,7 +226,7 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 	if err = revokeRestoredCredentials(store); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s. Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID))
+	_, err = fmt.Fprintf(stdout, "Restored capsule %s; recovery key %s (%s). Verify its receipt and recover ciphertext blobs before starting KyNotes.\n", recoveryclient.AuditSafe(manifest.CapsuleID), recoveryclient.AuditSafe(manifest.RecoveryKeyID), verified)
 	return err
 }
 

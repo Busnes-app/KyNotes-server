@@ -382,3 +382,24 @@ func TestCapsuleCarriesTheVAPIDKeyAndOldCapsulesStillRestore(t *testing.T) {
 		t.Fatal("a capsule listing the VAPID key passed without it")
 	}
 }
+
+// A capsule from a server with no active administrator still restores, and says how to add one.
+func TestCapsuleWithoutAnActiveAdministratorStillRestores(t *testing.T) {
+	svc, key := fixture(t)
+	if _, err := svc.store.DB().Exec(`UPDATE users SET status='disabled'`); err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := svc.Export(context.Background(), "system", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "opened")
+	m, _, err := capsule.Open(raw, key, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := Checks(dir, m)[0]
+	if !check.Passed || !strings.Contains(check.Message, "user add --admin") {
+		t.Fatalf("%+v", check)
+	}
+}
