@@ -228,6 +228,11 @@ describe("hostile-review pass 2 wiring", () => {
     expect(create.indexOf("(loadingContainerID.current ?? selectedRef.current?.id) !== selected.id")).toBeLessThan(create.indexOf("patchNotes("));
   });
 
+  it("asks before leaving a conflicted page with edits only this tab holds", () => {
+    expect(main).toContain("const conflictedEdits = dirty && selectedNote !== null && conflicted.has(selectedNote.id);");
+    expect(main).toContain('window.addEventListener("beforeunload", ask);');
+  });
+
   it("never reports a drain with a gone edit as saved", () => {
     expect(main).toContain("if (queuedItem.gone) { attention = true; continue; }");
   });

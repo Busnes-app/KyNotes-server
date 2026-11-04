@@ -1371,6 +1371,16 @@ function Workspace({
     }, 15000);
     return () => window.clearInterval(timer);
   }, [selectedNote?.id, autosaving]);
+  // A page in conflict keeps its edits only in this tab (its cached copy is older than the server's, so a
+  // reload shows the server's): ask before the tab goes. ponytail: browsers that skip beforeunload (iOS
+  // Safari) still lose them; upgrade path is keeping conflicted drafts as unsendable Unsent edits entries.
+  const conflictedEdits = dirty && selectedNote !== null && conflicted.has(selectedNote.id);
+  useEffect(() => {
+    if (!conflictedEdits) return;
+    const ask = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", ask);
+    return () => window.removeEventListener("beforeunload", ask);
+  }, [conflictedEdits]);
   useEffect(() => {
     const flushDraft = () => {
       const note = selectedNoteRef.current;
