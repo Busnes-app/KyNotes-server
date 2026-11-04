@@ -468,7 +468,7 @@ func copyTree(src, dst string) error {
 		// client and directory secrets in plaintext.
 		if info.IsDir() {
 			// Earlier restores' leftovers are not data; copying them nests every previous copy.
-			if filepath.Dir(rel) == "." && (strings.HasPrefix(rel, ".restore-") || strings.HasPrefix(rel, "snapshot-")) {
+			if filepath.Dir(rel) == "." && (strings.HasPrefix(rel, ".restore-") || strings.HasPrefix(rel, "snapshot-") || strings.HasPrefix(rel, "recoveryclient-drill-")) {
 				return filepath.SkipDir
 			}
 			if e = os.MkdirAll(target, 0700); e != nil {
