@@ -200,8 +200,24 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 			if blank {
 				reason = "blank"
 			}
-			if _, e := tx.Exec(`UPDATE containers SET deleted_at=?,change_seq=change_seq+1,updated_at=? WHERE id=?`, now, now, cid); e != nil {
+			// The notebook and its child notebooks go together, and their stored data goes as a page
+			// delete's does (pages tombstoned, versions, conflicts, attachment links and pending uploads
+			// dropped), so GC reclaims the blobs and the quota frees.
+			if _, e := tx.Exec(`UPDATE containers SET deleted_at=?2,change_seq=change_seq+1,updated_at=?2 WHERE deleted_at='' AND (id=?1 OR team_id=?1)`, cid, now); e != nil {
 				return e
+			}
+			scope := `(SELECT id FROM containers WHERE id=?1 OR team_id=?1)`
+			for _, q := range []string{
+				`DELETE FROM object_versions WHERE object_id IN (SELECT id FROM objects WHERE container_id IN ` + scope + `)`,
+				`DELETE FROM attachment_refs WHERE object_id IN (SELECT id FROM objects WHERE container_id IN ` + scope + `)`,
+				`DELETE FROM conflicts WHERE container_id IN ` + scope,
+				`UPDATE objects SET deleted_at=?2 WHERE deleted_at='' AND container_id IN ` + scope,
+				`UPDATE attachments SET deleted_at=?2 WHERE deleted_at='' AND container_id IN ` + scope,
+				`UPDATE upload_sessions SET status='failed',updated_at=?2 WHERE status='pending' AND container_id IN ` + scope,
+			} {
+				if _, e := tx.Exec(q, cid, now); e != nil {
+					return e
+				}
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "container.delete", cid, "", "success", reason, RequestID(r))
 		})
