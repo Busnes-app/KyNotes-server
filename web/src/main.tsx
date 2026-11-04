@@ -166,7 +166,7 @@ import { contextualNotes, graphEdges, indexNotes, noteDatedTasks, openTaskNotes,
 import { classifyTask, TASK_GROUPS } from "./taskDates";
 import { dropPushSubscription, ensurePushSubscription, readReminderPrefs, ReminderSettings, useReminders, type ReminderPrefs } from "./reminders";
 import { desiredReminders, planReconcile, type ServerReminder } from "./reminderPush";
-import { documentText, emptyCanvasPage, hasInk, inkOnly, stringifyCanvasPage } from "./document";
+import { documentText, emptyCanvasPage, hasInk, inkOnly, stringifyCanvasPage, withoutInk } from "./document";
 import { commitToastLabel, commitToastVisible, COMMIT_TOAST_DURATION_MS } from "./commitToast";
 import "./styles.css";
 import "./ky-ui/tokens.css";
@@ -301,6 +301,16 @@ function App() {
       })
       .finally(() => setChecking(false));
   }, []);
+  // Every tab shares the session cookie: once another tab signs in as someone else, this tab's
+  // requests would act as that account under this one's name and keys. It reloads as the account now signed in.
+  const signedIn = auth?.user.id;
+  useEffect(() => {
+    if (!signedIn || typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel("kynotes-account");
+    channel.onmessage = (event) => { if (event.data !== signedIn) location.reload(); };
+    channel.postMessage(signedIn);
+    return () => channel.close();
+  }, [signedIn]);
   if (checking) return <main className="center">Loading KyNotes…</main>;
   if (location.pathname.startsWith("/share/")) return <SharedNote />;
   // A browser's push subscription belongs to the signed-in account: it ends with the session.
@@ -1755,7 +1765,8 @@ function Workspace({
       setItems((value) =>
         value.map((entry) => (entry.id === next.id ? next : entry)),
       );
-      setSelected(next);
+      // Only if it is still open: a late rename must not switch the workspace back under another notebook's page.
+      setSelected((value) => (value?.id === next.id ? next : value));
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Unable to rename notebook",
@@ -1801,6 +1812,8 @@ function Workspace({
   }
   async function newNote() {
     if (!selected || keyWait || readOnly()) return;
+    // The open page's pending edit goes first, as on any other page switch.
+    if (!(await flushOpenPage())) return;
     setBusy(true);
     try {
       // Before createObject: an exhausted order key must not leave an empty object behind.
@@ -2137,7 +2150,10 @@ function Workspace({
       legacyConflict: async (pageID) => {
         for (const conflict of (await objectConflicts(pageID)).filter((item) => !item.resolved)) {
           const bytes = await conflictCiphertext(conflict.id);
-          const opens = (v1: boolean) => openFirst(readKeysFor(container, conflict.keyGeneration), (key) => decryptObject(key, container.id, pageID, bytes, v1)).then(() => true, () => false);
+          const keys = readKeysFor(container, conflict.keyGeneration);
+          // Without its generation's key this browser cannot tell: the pass stays partial until the keys arrive.
+          if (!keys.length) throw new Error("conflict key missing");
+          const opens = (v1: boolean) => openFirst(keys, (key) => decryptObject(key, container.id, pageID, bytes, v1)).then(() => true, () => false);
           if (!(await opens(false)) && (await opens(true))) return true;
         }
         return false;
@@ -2660,7 +2676,8 @@ function Workspace({
       } catch (error) {
         if (!(error instanceof APIRequestError && error.code === "already_exists")) throw error;
         // The notebook was re-keyed meanwhile: pick up the new key; the text stays in the box.
-        setSelected(await syncKeys(selected));
+        const synced = await syncKeys(selected);
+        setSelected((value) => (value?.id === synced.id ? synced : value));
         throw new Error("This notebook's keys just changed. Send the comment again.");
       }
       setCommentText("");
@@ -2745,8 +2762,11 @@ function Workspace({
   /** Re-reads the team's members and runs the key pass on it and its workspaces; `share` as in syncKeys. */
   async function reloadTeamMembers(team: Container, share = false) {
     for (const child of items.filter((entry) => entry.teamId === team.id)) await syncKeys(child, false, () => false, share);
-    setSelected(await syncKeys(team, false, () => false, share));
-    setMembersForTeam(await members(team.id));
+    // The key pass can take a while (each SSO wrap asks KySignOn): apply it only to the notebook still open.
+    const synced = await syncKeys(team, false, () => false, share);
+    setSelected((value) => (value?.id === synced.id ? synced : value));
+    const people = await members(team.id);
+    if (selectedRef.current?.id === team.id) setMembersForTeam(people);
   }
   async function approve(userID: string) {
     if (selected?.kind !== "team") return;
@@ -2771,7 +2791,7 @@ function Workspace({
     try {
       const sealed = await encryptSharePayload({
         title: selectedNote.title,
-        body: selectedNote.body,
+        body: withoutInk(selectedNote.body),
       });
       const link = await createSealedShareLink(
         sealed.ciphertext,
@@ -2789,7 +2809,9 @@ function Workspace({
       );
     } catch (error) {
       setError(
-        error instanceof Error
+        error instanceof APIRequestError && error.code === "payload_too_large"
+          ? "This page is too large to share as a link. Export it instead, or split it into smaller pages."
+          : error instanceof Error
           ? error.message
           : "Unable to create encrypted link",
       );

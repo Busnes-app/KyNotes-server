@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PartialBlock } from "@blocknote/core";
-import { CANVAS_FORMAT, LEGACY_BOX, MAX_COORD, MAX_STROKE_POINTS, documentText, emptyCanvasPage, hasInk, inkOnly, isStructuredNoteBody, openPage, pageBlocks, parseNoteDocument, stringifyCanvasPage, stringifyNoteDocument, type CanvasPage } from "./document";
+import { CANVAS_FORMAT, LEGACY_BOX, MAX_COORD, MAX_STROKE_POINTS, documentText, emptyCanvasPage, hasInk, inkOnly, isStructuredNoteBody, withoutInk, openPage, pageBlocks, parseNoteDocument, stringifyCanvasPage, stringifyNoteDocument, type CanvasPage } from "./document";
 
 describe("note document format", () => {
   it("round-trips structured content without Markdown", () => {
@@ -135,5 +135,25 @@ describe("shareable content", () => {
     expect(inkOnly(mixed)).toBe(false);
     expect(inkOnly(stringifyCanvasPage({ ...emptyCanvasPage(), boxes: [box] }))).toBe(false);
     expect(inkOnly("")).toBe(false);
+  });
+  it("a share link carries the text without the ink", () => {
+    const mixed = stringifyCanvasPage({ ...emptyCanvasPage(), boxes: [box], strokes: [stroke] });
+    const shared = withoutInk(mixed);
+    expect(hasInk(shared)).toBe(false);
+    expect(documentText(shared)).toBe("Words");
+    const text = stringifyCanvasPage({ ...emptyCanvasPage(), boxes: [box] });
+    expect(withoutInk(text)).toBe(text);
+  });
+});
+
+describe("malformed pages", () => {
+  // Another member's client may save any JSON: projecting it must never throw (it would break the page list).
+  it("projects malformed or very deep blocks as no text", () => {
+    const bad = (blocks: unknown) => JSON.stringify({ format: CANVAS_FORMAT, boxes: [{ id: "b1", x: 0, y: 0, width: 640, blocks }], strokes: [] });
+    expect(() => documentText(bad([{ type: "paragraph", content: "x", children: {} }]))).not.toThrow();
+    expect(() => documentText(bad([null]))).not.toThrow();
+    const n = 100000;
+    const deep = `{"format":"${CANVAS_FORMAT}","boxes":[{"id":"b1","x":0,"y":0,"width":640,"blocks":[${'{"type":"paragraph","children":['.repeat(n)}{"type":"paragraph","content":"x"}${"]}".repeat(n)}]}],"strokes":[]}`;
+    expect(() => documentText(deep)).not.toThrow();
   });
 });
