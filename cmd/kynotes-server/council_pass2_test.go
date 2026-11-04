@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -79,4 +80,28 @@ func TestOfflineBackupCommandsNeverMigrateTheLiveDatabase(t *testing.T) {
 	if err = s.DB().QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&now); err != nil || now != latest-1 {
 		t.Fatalf("schema now %d %v, want %d (unmigrated)", now, err, latest-1)
 	}
+}
+
+// copy-data-dir never leaves the copy readable by other local users, even into a 0755 --out.
+func TestCopyDataDirIsOwnerOnly(t *testing.T) {
+	cfgPath, _, dataDir := setupCLIFixture(t)
+	if err := userCommand([]string{"add", "--username", "copied", "--password", "pw-1", "--config", cfgPath}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dataDir, "kynotes.sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "copy")
+	if err := os.Mkdir(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := backupCommand([]string{"--out", out, "--config", cfgPath}); err != nil {
+		t.Fatal(err)
+	}
+	_ = filepath.Walk(out, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Mode().Perm()&0o077 != 0 {
+			t.Errorf("%s is %v", path, info.Mode().Perm())
+		}
+		return nil
+	})
 }

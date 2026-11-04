@@ -426,8 +426,13 @@ func copyTree(src, dst string) error {
 			return e
 		}
 		target := filepath.Join(dst, rel)
+		// Owner-only, whatever the source or an existing --out allowed: the database holds the SSO
+		// client and directory secrets in plaintext.
 		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode().Perm())
+			if e = os.MkdirAll(target, 0700); e != nil {
+				return e
+			}
+			return os.Chmod(target, info.Mode().Perm()&0700)
 		}
 		// The lock belongs to its own directory; sockets and links are not data.
 		if rel == storage.LockFileName || !info.Mode().IsRegular() {
@@ -441,7 +446,7 @@ func copyTree(src, dst string) error {
 		if e = os.MkdirAll(filepath.Dir(target), 0700); e != nil {
 			return e
 		}
-		out, e := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
+		out, e := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm()&0600)
 		if e != nil {
 			return e
 		}
