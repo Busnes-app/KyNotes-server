@@ -17,6 +17,7 @@ import (
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
 	"github.com/Busnes-app/ky-primitives/recoverykey"
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"gopkg.in/yaml.v3"
 )
 
@@ -181,6 +182,20 @@ func (s *Service) Collect(ctx context.Context) (recoveryclient.Payload, error) {
 		}
 		recipe.Counts[table] = count
 	}
+	// New metadata is counted when present; old capsule recipes remain readable.
+	for _, table := range []string{"audit_events", "cleanup_audit_slots"} {
+		var exists int
+		if err = snap.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&exists); err != nil {
+			return p, err
+		}
+		if exists != 0 {
+			var count int64
+			if err = snap.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&count); err != nil {
+				return p, err
+			}
+			recipe.Counts[table] = count
+		}
+	}
 	inventory := []Blob{}
 	rows, err := snap.QueryContext(ctx, `SELECT digest,size_bytes FROM blobs ORDER BY digest`)
 	if err != nil {
@@ -242,8 +257,13 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var recipe Recipe
-	if err = decoder.Decode(&recipe); err != nil || recipe.Version != 1 || !sqlitePathsValid(recipe.SQLitePaths) || len(recipe.Counts) != len(tables) {
+	if err = decoder.Decode(&recipe); err != nil || recipe.Version != 1 || !sqlitePathsValid(recipe.SQLitePaths) || len(recipe.Counts) < len(tables) || len(recipe.Counts) > len(tables)+2 {
 		return fail("missing or malformed required recipe")
+	}
+	for table := range recipe.Counts {
+		if !slices.Contains(tables, table) && table != "audit_events" && table != "cleanup_audit_slots" {
+			return fail("unknown table count")
+		}
 	}
 	want := append(slices.Clone(recipe.SQLitePaths), members[1:]...)
 	if !slices.Equal(recipe.RequiredFiles, want) && !slices.Equal(recipe.RequiredFiles, append(want, vapidMember)) {
@@ -311,6 +331,34 @@ func Checks(dir string, opened capsule.Manifest) []recoveryclient.Check {
 		var got int64
 		if err = db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&got); err != nil || got != want {
 			return fail("restored table count mismatch")
+		}
+	}
+	for _, table := range []string{"audit_events", "cleanup_audit_slots"} {
+		var exists int
+		if err = db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&exists); err != nil {
+			return fail("audit metadata unreadable")
+		}
+		want, listed := recipe.Counts[table]
+		// Older recipes did not count audit_events; a slot-bearing database must count
+		// its new representation, so deleting that recipe key cannot bypass verification.
+		if table == "audit_events" && !listed {
+			if _, slotRecipe := recipe.Counts["cleanup_audit_slots"]; slotRecipe {
+				return fail("ordinary audit count missing")
+			}
+		}
+		if table == "cleanup_audit_slots" && exists != 0 && !listed {
+			return fail("cleanup audit count missing")
+		}
+		if listed {
+			var got int64
+			if want < 0 || exists == 0 || db.QueryRow(`SELECT count(*) FROM `+table).Scan(&got) != nil || got != want {
+				return fail("restored audit metadata count mismatch")
+			}
+		}
+		if table == "cleanup_audit_slots" && exists != 0 {
+			if storage.VerifyCleanupReservations(db) != nil {
+				return fail("cleanup reservations invalid")
+			}
 		}
 	}
 	// A capsule from a server that had lost its last administrator still restores (deposits kept

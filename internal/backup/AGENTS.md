@@ -16,6 +16,9 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   incompressible data with `GOMEMLIMIT=1536MiB`), so `docker-compose.yml` caps the container at 2g, not 512m.
 - Capsule restore turns scheduled deposits off (`DisableSchedule`) and says so; the administrator
   turns them back on (`TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions`). Note-version and attachment blob bytes are recovered separately.
+- New recipes count `audit_events` and `cleanup_audit_slots` when present; restore
+  verifies both counts and live-source pending slots. Legacy recipes remain readable.
+  Read `../../docs/CLEANUP-CAPACITY.md` when changing cleanup metadata or its restore checks.
 - Snapshot the live SQLite handle. Collect recipe counts and inventory from that snapshot.
   Capsule-triggered mirroring receives that exact inventory even if live GC removed rows.
   Capsule and mirror results are independent; a receipt never proves blob coverage.

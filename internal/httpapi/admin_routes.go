@@ -368,7 +368,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 		if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value < 501 {
 			limit = value
 		}
-		rows, err := db.Query(`SELECT event,outcome,actor_user_id,container_id,object_id,reason_code,at FROM audit_events ORDER BY at DESC LIMIT ?`, limit)
+		rows, err := db.Query(`SELECT event,outcome,actor_user_id,container_id,object_id,reason_code,at FROM audit_history ORDER BY at DESC,id DESC LIMIT ?`, limit)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -382,6 +382,10 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 				return
 			}
 			out = append(out, map[string]string{"event": event, "outcome": outcome, "actorUserId": actor, "containerId": container, "objectId": object, "reasonCode": reason, "at": at})
+		}
+		if rows.Err() != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return
 		}
 		writeJSON(w, out)
 	})))

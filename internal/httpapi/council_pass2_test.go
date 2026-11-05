@@ -148,7 +148,7 @@ func TestSealedShareLinksAreOwnedCappedChargedAndRevocable(t *testing.T) {
 		t.Fatalf("revoked link still served: %d", code)
 	}
 	var audited int
-	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_events WHERE event IN ('share_link.create','share_link.revoke') AND object_id=?`, link.ID).Scan(&audited); err != nil || audited != 2 {
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM audit_history WHERE event IN ('share_link.create','share_link.revoke') AND object_id=?`, link.ID).Scan(&audited); err != nil || audited != 2 {
 		t.Fatalf("audit rows=%d %v", audited, err)
 	}
 	if _, err := storage.RunGC(tm.owner.db, nil, time.Now(), time.Hour, false); err != nil {

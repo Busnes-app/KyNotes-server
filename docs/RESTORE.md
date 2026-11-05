@@ -109,3 +109,15 @@ retrieves note-version and attachment ciphertext from a local mirror, checks rev
 foreign-service refusal. `go test ./internal/backup` proves WAL snapshot and opened-recipe
 checks. These are code/fixture proof; they do not claim access to real custodian cards or
 prove a deployment's remote blob coverage.
+
+
+## Cleanup-slot upgrade preflight
+
+Migration 0031 must fund future comment-deletion and sealed-link-revocation audit
+slots within the existing backup budget. Startup runs the conversion in a private
+copy before changing the live schema/data; if it cannot fit, it refuses the
+upgrade with the budget/required bytes and source counts. Keep a stopped-server
+pre-upgrade data-directory copy and the old release. Reduce unneeded pages,
+notebooks or share links using that release, then retry; do not bypass migration.
+New capsule recipes count cleanup slots and ordinary audits, and restore checks
+their counts and pending-source bindings. See [cleanup capacity](CLEANUP-CAPACITY.md).
