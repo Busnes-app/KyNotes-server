@@ -110,9 +110,10 @@ func auditRefusal(db *sql.DB, r *http.Request, actor, event, container, object s
 	recordAuditOutcome(db, actor, event, container, object, outcome, code, RequestID(r))
 }
 
-// memberTx returns the caller's role and the container's current generation.
+// memberTx returns the caller's role and the live container's current generation.
+// A historical child whose parent is absent or deleted is not a live notebook.
 func memberTx(tx *sql.Tx, cid, userID string) (role string, generation int64, err error) {
-	err = tx.QueryRow(`SELECT m.role,c.key_generation FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at=''`, cid, userID).Scan(&role, &generation)
+	err = tx.QueryRow(`SELECT m.role,c.key_generation FROM memberships m JOIN containers c ON c.id=m.container_id AND c.deleted_at='' WHERE m.container_id=? AND m.user_id=? AND m.revoked_at='' AND (c.team_id='' OR EXISTS(SELECT 1 FROM containers parent WHERE parent.id=c.team_id AND parent.deleted_at=''))`, cid, userID).Scan(&role, &generation)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = errNotMember
 	}
