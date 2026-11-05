@@ -164,8 +164,11 @@ describe("save queue wiring", () => {
 
   it("clears after a save only the queued copy this tab wrote", () => {
     expect(main).not.toMatch(/clearQueuedSave\(auth\.user\.id, (note\.)?id\)/);
-    expect(main.match(/\bqueueSave\(/g)).toHaveLength(1); // only queueOwn writes the queue
-    expect(block("  async function clearOwnQueued(")).toContain("await clearQueuedSave(auth.user.id, id, updatedAt);");
+    // Live pages, non-open objects and drains settle the exact encrypted entry;
+    // the storage regressions verify bytes/base/generation/timestamp CAS.
+    for (const method of ["saveNow", "writeObject", "drainNow"]) {
+      expect(block(`  async function ${method}(`)).toContain("settleDraft(item, result.version)");
+    }
   });
 
   it("does not autosave a page in conflict, and keystrokes do not restart the 15 s autosave", () => {
@@ -233,7 +236,7 @@ describe("hostile-review pass 2 wiring", () => {
   });
 
   it("never reports a drain with a gone edit as saved", () => {
-    expect(main).toContain("if (queuedItem.gone || queuedItem.conflicted) { attention = true; continue; }");
+    expect(main).toContain("if (queuedItem.gone || queuedItem.conflicted || sameDraft(heldConflicts.current.get(queuedItem.id), queuedItem)) { attention = true; continue; }");
   });
 
   it("refuses page and section writes for a role that cannot make them", () => {

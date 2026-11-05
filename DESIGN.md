@@ -763,6 +763,16 @@ Settlement compares the exact payload, generation, version and timestamp before 
 this account's cache or queue; a newer tab's copy is preserved. Server-held conflicts stay
 marked and are not repeatedly sent; newer edits survive reload and conflict recovery.
 
+The common page/section/group preparation reuses only bound v2 bytes; supported local v1
+copies are converted once before upload. A re-seal atomically replaces both the owned queue
+and its matching cache, preserving different newer bytes even at equal timestamps. Hashing
+for the stable request key finishes before the final current-key/floor gate. Confirmed409
+outcomes stop automatic sends of the exact rejected entry in memory even if its local
+marker cannot be written; newer edits for that page remain eligible for recovery;
+pre-send cache failure still shows the existing explicit no-local-copy warning.
+Export reads/decrypts local copies without marking or queueing them; only notebook/sync
+recovery activates those drafts for upload.
+
 The server records the version each new idempotency key committed and rechecks replay inside
 the immediate writer transaction. Replays acknowledge that version, including after a later
 writer advanced the page. Old keys lack that provenance and keep the legacy fallback.

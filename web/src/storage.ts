@@ -154,7 +154,7 @@ export async function recoverDraft(owner: string, id: string, expectedLegacy?: C
  } finally { db.close(); }
 }
 
-const sameDraft = (current: CachedNote | undefined, expected: CachedNote) => Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration && sameBytes(current.payload, expected.payload));
+export const sameDraft = (current: CachedNote | undefined, expected: CachedNote) => Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration && sameBytes(current.payload, expected.payload));
 
 /** Settle exactly this edit, preserving another tab's newer draft even at the same timestamp.
  * A committed version acknowledges the cache; a recovered conflict deletes its obsolete cache.
@@ -205,19 +205,30 @@ export async function clearQueuedSave(owner: string, id: string, updatedAt: stri
  * entry the caller read: a save that replaced it meanwhile is never overwritten. next keeps its owner and id.
  */
 export async function replaceQueuedSave(expected: PendingSave, next?: PendingSave): Promise<boolean> {
-  let same = false;
-  await write("pending", (store) => {
+  const db = await openDatabase();
+  try {
+    const tx = db.transaction([storeName, "pending"], "readwrite");
+    let same = false;
+    const done = committed(tx, () => same);
     const key = [expected.owner, expected.id];
-    const read = store.get(key);
-    read.onsuccess = guarded(store.transaction, () => {
-      const current = read.result as PendingSave | undefined;
-      same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration && sameBytes(current.payload, expected.payload));
+    const pending = tx.objectStore("pending");
+    const read = pending.get(key);
+    read.onsuccess = guarded(tx, () => {
+      same = sameDraft(read.result, expected);
       if (!same) return;
-      if (next) store.put({ ...next, owner: expected.owner, id: expected.id });
-      else store.delete(key);
+      if (!next) { pending.delete(key); return; }
+      const replacement = { ...next, owner: expected.owner, id: expected.id };
+      pending.put(replacement);
+      // A re-seal and its source cache move together. Another tab's distinct
+      // bytes still win, including when it used the same timestamp.
+      const cached = tx.objectStore(storeName).get(key);
+      cached.onsuccess = guarded(tx, () => {
+        const current: CachedNote | undefined = cached.result;
+        if (sameDraft(current, expected)) tx.objectStore(storeName).put({ ...replacement, unsent: current?.unsent });
+      });
     });
-  });
-  return same;
+    return await done;
+  } finally { db.close(); }
 }
 
 export async function putUpload(upload: PendingUpload): Promise<void> {

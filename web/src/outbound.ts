@@ -1,5 +1,5 @@
 import { approveLinkRequest, collectLinkRequest, createComment, createUpload, finalizeUpload, saveObject, updateContainer, uploadChunk, type LinkState } from "./api";
-import { base64 } from "./crypto";
+import { base64, digestSha256Hex } from "./crypto";
 import { queuedSaveStep } from "./drain";
 import { floorOf } from "./floors";
 import type { ReportedContainer, WriteKey } from "./keyring";
@@ -34,9 +34,10 @@ export function sendCiphertext(sealed: Sealed): void {
 }
 
 // main.tsx reaches these API calls only through the wrappers below (outbound.test.ts).
-export const sendObject = (sealed: Sealed, objectID: string, bytes: Uint8Array, baseVersion: number) => {
+export const sendObject = async (sealed: Sealed, objectID: string, bytes: Uint8Array, baseVersion: number) => {
+  const idempotencyKey = `${objectID}:${baseVersion}:${sealed.generation}:${await digestSha256Hex(bytes)}`;
   sendCiphertext(sealed);
-  return saveObject(objectID, bytes, baseVersion, sealed.generation);
+  return saveObject(objectID, bytes, baseVersion, sealed.generation, idempotencyKey);
 };
 export const sendContainerName = (sealed: Sealed, metaCiphertext: string, baseVersion: number) => {
   sendCiphertext(sealed);
