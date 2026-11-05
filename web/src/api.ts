@@ -239,7 +239,7 @@ export async function readObject(objectID: string, version?: number) {
   return { bytes: new Uint8Array(await response.arrayBuffer()), version: Number(response.headers.get("X-Kynotes-Version") ?? 0), keyGeneration, savedAt };
 }
 
-export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration: number) {
+export async function saveObject(objectID: string, bytes: Uint8Array, baseVersion: number, keyGeneration: number, idempotencyKey: string) {
   return request<{ version: number; resourceId?: string; commitReceipt?: string }>(`/api/v1/objects/${encodeURIComponent(objectID)}`, {
     method: "PUT",
     body: bytes as unknown as BodyInit,
@@ -247,7 +247,7 @@ export async function saveObject(objectID: string, bytes: Uint8Array, baseVersio
       "Content-Type": "application/octet-stream",
       "X-Kynotes-Base-Version": String(baseVersion),
       "X-Kynotes-Key-Generation": String(keyGeneration),
-      "Idempotency-Key": crypto.randomUUID(),
+      "Idempotency-Key": idempotencyKey,
     },
   });
 }

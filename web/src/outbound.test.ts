@@ -109,10 +109,11 @@ describe("outbound structure", () => {
     const main = import.meta.glob<string>("./main.tsx", { query: "?raw", import: "default", eager: true })["./main.tsx"];
     // A rejected cacheWrite is captured (cacheMiss) and reported; the send runs regardless.
     expect(main).not.toMatch(/await cacheWrite\(/);
-    expect(main.match(/await cacheMiss\(/g)).toHaveLength(2);
+    // Both page/object pre-send writes and post-commit settlements report local failure.
+    expect(main.match(/await cacheMiss\(/g)).toHaveLength(4);
     // A conflict without a local copy says so; a failed queue write says the edit is not saved.
     expect(main).toContain("noteConflictMessage(uncached)");
     expect(main).not.toContain("preserved locally");
-    expect(main.match(/await queueOwn\(/g)?.length).toBe(main.match(/\)\.catch\(notSaved\)/g)?.length);
+    expect(main.match(/await queueSave\(/g)?.length).toBe(main.match(/\)\.catch\(notSaved\)/g)?.length);
   });
 });

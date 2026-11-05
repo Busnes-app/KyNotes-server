@@ -358,12 +358,15 @@ describe("main.tsx key wiring", () => {
   it("uses ownCopyKeysFor only for entries this browser sealed itself", async () => {
     const own = [...main.matchAll(/ownCopyKeysFor\([^,]+, ([\w.!]+)\)/g)].map((match) => match[1]);
     expect(main.match(/ownCopyKeysFor\(/g)).toHaveLength(own.length);
-    expect(own).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
+    expect(own).toHaveLength(5); // actual legacy cache comparison, selected/fallback cache, another tab's draft, unsent edits
     expect(new Set(own)).toEqual(new Set(["cached!.keyGeneration", "cached.keyGeneration", "item.keyGeneration"]));
     // The cache holds only ciphertext this browser just sealed from its own edit, never a server read.
-    const writes = main.match(/putNote\([^]*?\}\)/g)!;
-    expect(writes).toHaveLength(3);
-    for (const write of writes) expect(write).toMatch(/payload: (?:encrypted|await encryptNote\(write\.key)/);
+    const writes = main.match(/putNote\(auth\.user\.id,[^\n]+/g)!;
+    expect(writes).toHaveLength(1); // persistDraft; live page/structure saves use atomic putDraft
+    for (const write of writes) expect(write).toMatch(/payload: encrypted|\.\.\.item, unsent: true/);
+    expect(main).toContain("prepared = await prepareDraft({owner:auth.user.id, containerID:selected.id, note, write});");
+    const drafts = import.meta.glob<string>("./drafts.ts", { query: "?raw", import: "default", eager: true })["./drafts.ts"];
+    expect(drafts).toContain("await encryptNote(write.key, containerID, id, content)");
   });
 });
 

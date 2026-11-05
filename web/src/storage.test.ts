@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAllDeviceKeys, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
+import { clearAllDeviceKeys, putDraft, recoverDraft, settleDraft, getQueuedSave, clearQueuedSave, deleteNote, getNote, pendingSaves, pendingUploads, putNote, putUpload, clearUpload, queueSave, replaceQueuedSave, clearDeviceKey, getIdentityKey, getKeyState, getPins, identityStorage, loadIdentityRecord, rememberAfter, storeConfirmedPin, openVault, storeIdentityKey, storeKeyState, storePins, vaultReady, noteResetSent, resetSentKey } from "./storage";
 import { generateIdentity } from "./teamKeys";
 import { confirmFingerprintChange, PinConfirmation } from "./pins";
 import type { KeyState } from "./keyring";
@@ -539,4 +539,44 @@ describe("a vault write the browser aborts", () => {
     await expect(replaceQueuedSave(entry, { ...entry, version: 2, payload: (() => 1) as never })).rejects.toThrow();
     await clearQueuedSave(me, entry.id, entry.updatedAt);
   });
+});
+
+
+describe("durable draft settlement", () => {
+ const save: PendingSave = {owner:userID,id:"obj_durable",containerID:"cnt_durable",version:3,keyGeneration:2,payload:new Uint8Array([1]),updatedAt:"same timestamp"};
+ it("recovers only a marked unsent draft, with the same account boundary",async()=>{
+  await putNote(userID,save);
+  expect(await recoverDraft(userID,save.id)).toBeUndefined();
+  await putNote(userID,{...save,unsent:true});
+  expect(await recoverDraft("another-account",save.id)).toBeUndefined();
+  expect(await recoverDraft(userID,save.id)).toEqual({...save,unsent:true});
+ });
+ it("preserves another tab's newer draft even at the same timestamp",async()=>{
+  await putDraft(save);
+  const newer={...save,payload:new Uint8Array([2]),unsent:true as const};
+  await putNote(userID,newer);
+  await settleDraft(save,4);
+  expect(await getQueuedSave(userID,save.id)).toBeUndefined();
+  expect((await getNote(userID,save.id))?.payload).toEqual(newer.payload);
+  await recoverDraft(userID,save.id);
+  await settleDraft(save);
+  expect((await getQueuedSave(userID,save.id))?.payload).toEqual(newer.payload);
+  expect((await getNote(userID,save.id))?.payload).toEqual(newer.payload);
+ });
+ it("keeps a server-held conflict stable, and recovers only a later edit for another send",async()=>{
+  const conflicted={...save,conflicted:true as const};
+  await putDraft(conflicted);
+  expect((await recoverDraft(userID,save.id))?.conflicted).toBe(true);
+  await putNote(userID,{...save,payload:new Uint8Array([3]),unsent:true});
+  expect((await recoverDraft(userID,save.id))?.conflicted).toBeUndefined();
+  await settleDraft(conflicted);
+  expect((await getQueuedSave(userID,save.id))?.payload).toEqual(new Uint8Array([3]));
+ });
+ it("acknowledges exactly its persisted cache and queue copy",async()=>{
+  await putDraft(save);
+  await settleDraft(save,4);
+  expect(await getQueuedSave(userID,save.id)).toBeUndefined();
+  const {owner:_,...cached}=save;
+  expect(await getNote(userID,save.id)).toEqual({...cached,version:4});
+ });
 });

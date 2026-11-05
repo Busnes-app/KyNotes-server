@@ -942,6 +942,40 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 `INSTALL.md` is the root-owned standalone entry point. When installation prerequisites, bootstrap, persistence or verification change, update it together with `README.md` and the linked operator guides.
 
+## Durable drafts and exact save replay
+
+- An actual unsent cache carries `unsent:true`. `recoverDraft` atomically queues that copy,
+  including one older than the server, scoped to its account. An unmarked legacy cache is
+  marked only when a same-version plaintext comparison proves it differs from the server,
+  including when an older pending/conflicted save exists. `localDraft` compares the actual
+  cache and re-reads after expected-copy recovery, examining a concurrent replacement afresh.
+  Drains read current writer membership once per notebook before sending; unknown or
+  read-only membership keeps drafts local without making an upload attempt.
+  Older unmarked ordinary caches retain their existing cache behavior; never invent dirty
+  provenance for them. Recovered unsent pages become dirty only after writer authority loads.
+- `prepareDraft` and the shared `prepareObjectDraft` reuse matching bound v2 edits for
+  pages, sections and groups. Local v1 is converted to v2 before any live send; retries
+  reuse that conversion. `sendObject` derives the object/base/generation/digest key before
+  the final key-floor gate, then begins the request without another preparation await.
+  Re-sealing replaces the owned queue and its still-matching cache atomically. A success
+  settles exactly that payload and timestamp; another tab's distinct bytes survive even
+  at equal timestamps. Local settlement failure never invalidates a confirmed save.
+- Server-held conflicting entries carry `conflicted:true` and are not repeatedly drained.
+  A later edit is marked unsent; successful conflict-copy recovery removes only the exact
+  server-held local copy it processed, preserving newer drafts. A confirmed409 always
+  enters the in-memory conflict stop state even if its local marker fails. Periodic
+  drains stop that exact encrypted entry, allowing newer edits for the same page;
+  local-copy warnings reflect the pre-send write.
+- Export calls `readContainerObjects` in read-only mode: it may decrypt current local
+  drafts but never marks/queues them or activates uploads. Notebook/sync loads recover.
+- Save replay stores the committed response version (`0030_save_replay_version.sql`) and
+  rechecks the key inside the immediate write transaction. Legacy keys with no stored
+  version retain the compatibility fallback; their historical version is not inferred.
+- Verify `TestSaveReplayReturnsTheVersionItCommitted`, `TestConcurrentSaveReplayMakesOneVersion`,
+  storage draft settlement tests, `draft-regressions.test.ts`, `npm test`,
+  `web/e2e/draft-durability.e2e.ts`, `web/e2e/draft-review.e2e.ts` and
+  `web/e2e/draft-legacy-mixed.e2e.ts` and `web/e2e/draft-viewer.e2e.ts`.
+
 ## Deleted notebook write admission
 
 Empty object creation and invitations recheck the live container and the caller's current

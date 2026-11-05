@@ -751,3 +751,32 @@ the existing password proof window. Other admin routes retain existing guards.
 The browser retains the request only in memory while a separate sign-in window
 completes the proof. See [SSO authorization](docs/SSO.md#fresh-authorization-for-backup-and-recovery-actions)
 for freshness, expiry, cancellation, restart and live-acceptance limits.
+
+### Durable local draft recovery and idempotent responses
+
+Actual unsent caches are marked and queued atomically on recovery, even if another writer
+advanced the server version. Ordinary older unmarked caches are retained as caches; only a
+same-version plaintext mismatch proves an old unmarked copy is unsent. An older pending
+or conflicted save does not suppress that comparison. Recovery compares the exact cache
+copy and re-examines a replacement before choosing its displayed winner. Recovered pages stay
+local/attention until acknowledged and become dirty after writer authority loads. Drains
+require current writer membership before upload; read-only or unknown membership leaves
+the draft local for a later permission change. A stable
+sealed edit produces a stable object/base/generation/ciphertext-digest idempotency key.
+Settlement compares the exact payload, generation, version and timestamp before changing
+this account's cache or queue; a newer tab's copy is preserved. Server-held conflicts stay
+marked and are not repeatedly sent; newer edits survive reload and conflict recovery.
+
+The common page/section/group preparation reuses only bound v2 bytes; supported local v1
+copies are converted once before upload. A re-seal atomically replaces both the owned queue
+and its matching cache, preserving different newer bytes even at equal timestamps. Hashing
+for the stable request key finishes before the final current-key/floor gate. Confirmed409
+outcomes stop automatic sends of the exact rejected entry in memory even if its local
+marker cannot be written; newer edits for that page remain eligible for recovery;
+pre-send cache failure still shows the existing explicit no-local-copy warning.
+Export reads/decrypts local copies without marking or queueing them; only notebook/sync
+recovery activates those drafts for upload.
+
+The server records the version each new idempotency key committed and rechecks replay inside
+the immediate writer transaction. Replays acknowledge that version, including after a later
+writer advanced the page. Old keys lack that provenance and keep the legacy fallback.

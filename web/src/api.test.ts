@@ -144,7 +144,7 @@ describe("writes and creation", () => {
 
   it("every write carries the shared-v2 key scheme; reads carry none", async () => {
     const sent = capture();
-    await saveObject(obj, new Uint8Array([1]), 0, 2);
+    await saveObject(obj, new Uint8Array([1]), 0, 2, "stable-save-key");
     await updateContainer(cnt, "AA==", 0, 2);
     await createComment(obj, "AA==", 2);
     await finalizeUpload("upl_x", "AA==", 2);
