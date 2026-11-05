@@ -30,7 +30,11 @@ type pairClient struct {
 
 func newPairClient(t *testing.T, pairing string) *pairClient {
 	t.Helper()
-	root := t.TempDir()
+	return newPairClientIn(t, pairing, t.TempDir())
+}
+
+func newPairClientIn(t *testing.T, pairing, root string) *pairClient {
+	t.Helper()
 	s, err := storage.Open(filepath.Join(root, "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)

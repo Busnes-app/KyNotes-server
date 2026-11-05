@@ -74,6 +74,9 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 			if _, e := tx.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id) VALUES(?,?,?,?,?,?)`, id, hex.EncodeToString(sum[:]), sealed, expires.UTC().Format(time.RFC3339), now, s.UserID); e != nil {
 				return e
 			}
+			if e := storage.ReserveCleanupAuditTx(tx, "sealed_share_link", id, ""); e != nil {
+				return e
+			}
 			if e := storage.RecordAuditOutcomeTx(tx, s.UserID, "share_link.create", "", id, "success", "", RequestID(r)); e != nil {
 				return e
 			}
@@ -134,14 +137,15 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 			return
 		}
 		err := dbTx(db, func(tx *sql.Tx) error {
-			res, e := tx.Exec(`UPDATE sealed_share_links SET revoked_at=? WHERE id=? AND owner_user_id=? AND revoked_at=''`, time.Now().UTC().Format(time.RFC3339), id, s.UserID)
+			now := time.Now().UTC().Format(time.RFC3339)
+			changed, e := storage.RevokeSealedLinkTx(tx, id, s.UserID, now)
 			if e != nil {
 				return e
 			}
-			if n, _ := res.RowsAffected(); n == 0 {
+			if !changed {
 				return sql.ErrNoRows
 			}
-			return storage.RecordAuditOutcomeTx(tx, s.UserID, "share_link.revoke", "", id, "success", "", RequestID(r))
+			return storage.FillCleanupAuditTx(tx, "sealed_share_link", id, s.UserID, RequestID(r), now)
 		})
 		if errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 404, "not_found", "not found")

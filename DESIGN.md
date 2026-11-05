@@ -780,3 +780,16 @@ recovery activates those drafts for upload.
 The server records the version each new idempotency key committed and rechecks replay inside
 the immediate writer transaction. Replays acknowledge that version, including after a later
 writer advanced the page. Old keys lack that provenance and keep the legacy fallback.
+
+
+## Approved cleanup-capacity amendment (migration 0031)
+
+Comment deletion and sealed-link revocation use preallocated, fixed-length audit
+slots rather than allocating new indexed audit rows at cleanup. Source padding
+preserves SQLite leaf-cell/overflow capacity while releasing comment ciphertext.
+The audit read model merges completed slots with ordinary historical events.
+Legacy migration is preflighted in a staged copy and refused safely when it
+cannot fit the unchanged 90% backup admission budget. Trusted proxy request IDs
+are bounded to128 bytes after CR/LF removal, with normal replacement beyond that.
+The schema, physical-capacity argument, upgrade procedure and regression checks
+are specified in [cleanup capacity](docs/CLEANUP-CAPACITY.md).

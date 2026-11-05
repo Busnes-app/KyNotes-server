@@ -11,7 +11,11 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/reqid"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
+
+// MaxRequestIDBytes bounds trusted diagnostic IDs, including their audit footprint.
+const MaxRequestIDBytes = storage.MaxAuditRequestIDBytes
 
 func Middleware(log *logging.Logger, max int64) func(http.Handler) http.Handler {
 	return MiddlewareWithProxies(log, max, nil)
@@ -24,7 +28,7 @@ func MiddlewareWithProxies(log *logging.Logger, max int64, proxies []*net.IPNet)
 				// Strip CR/LF: the ID is logged and echoed back.
 				id = strings.NewReplacer("\n", "", "\r", "").Replace(r.Header.Get("X-Request-Id"))
 			}
-			if id == "" {
+			if id == "" || len(id) > MaxRequestIDBytes {
 				id, _ = ids.Mint("req")
 			}
 			ctx := reqid.With(r.Context(), id)

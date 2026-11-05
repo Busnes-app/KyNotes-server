@@ -113,6 +113,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   The 10% reserve is for other database records and capsule members; sealing still enforces
   the real total capsule bound. Backups explains admission at 90% beside its 80% warning.
   Verify `TestDatabaseHeldWritesStopBeforeCapsuleCeiling` (crossing write and concurrent admission).
+- Cleanup capacity: migration 0031 preallocates fixed immutable audit slots and source-row
+  padding. Comment deletion and sealed-link revocation consume those slots atomically;
+  admin audit reads `audit_history`, which hides pending slots and uses operation time.
+  Fixed BLOBs use the database encoding; test actual encoding/page headers, not fixture labels.
+  Capsule restore fences the extracted target even if cleanup migration refuses.
+  Before changing storage layout, cleanup, audit reads, SQLite dependencies or migration/restore,
+  read `docs/CLEANUP-CAPACITY.md` for the physical leaf/overflow constraint, bounded tombstone
+  padding and staged upgrade refusal. Trusted diagnostic request IDs are capped at128 bytes
+  after CR/LF removal; longer IDs are replaced, with no request rejection.
+  Verify `TestCleanup*`, `TestCommentDeletionDoesNotGrowAtSQLiteOverflowCliff` and
+  `TestCapsulePreservesCleanupHistoryAndPendingReservations`.
 - Q13 (owner approved): `DELETE /api/v1/comments/{id}` requires an everyday session, CSRF,
   a live notebook/page and approved current membership. Authors and notebook owners/admins
   may delete; server administrators gain no content authority. One transaction clears

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"github.com/Busnes-app/ky-primitives/offsite"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
@@ -56,6 +57,13 @@ func TestRestoreCapsuleWithStdinSharesPreservesLoginAndRevokesSessions(t *testin
 		if _, err = st.DB().Exec(q, now, later); err != nil {
 			t.Fatal(q, err)
 		}
+	}
+	// This direct-SQL legacy-link fixture must fund its pending cleanup record,
+	// as migration0031 and the real creation route do before a capsule is made.
+	if err = st.WithTx(context.Background(), func(tx *sql.Tx) error {
+		return storage.ReserveCleanupAuditTx(tx, "sealed_share_link", "ssl_fixture", "")
+	}); err != nil {
+		t.Fatal(err)
 	}
 	cfg.Backup.BlobTarget.URL = "file://" + t.TempDir()
 	blobs, err := blobstore.New(cfg.DataDir)

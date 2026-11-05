@@ -148,3 +148,13 @@ deactivation until they expire. Each is in
 
 This case is updated when a trust boundary or a security requirement changes. A pull request that
 moves one must update this page in the same change.
+
+
+### Cleanup capacity
+
+Comment deletion and sealed-link revocation fund their immutable audit payloads
+at admission, retain bounded source-row layout padding, and consume both changes
+atomically. [Cleanup capacity](CLEANUP-CAPACITY.md) records the pinned SQLite
+physical boundary, explicit coverage limits, safe legacy upgrade refusal and
+executable before/after regressions. Restore verifies the new audit counts and
+pending slots; independent review and current-head CI remain separate evidence.

@@ -5,21 +5,23 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/Busnes-app/ky-primitives/capsule"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 var errStorageFull = errors.New("database backup budget exhausted")
 
 // Owner decision Q12: leave ten percent for other database records and capsule members.
-const databaseWriteBudget = capsule.MaxExpandedBytes * 9 / 10
+const databaseWriteBudget = storage.CleanupDatabaseBudget
 
-// checkDatabaseBudget runs after the complete write, before commit, under SQLite's immediate
-// writer transaction. Counting allocated pages includes ciphertext, indexes and audit overhead;
-// subtracting free pages lets deletions make room without VACUUM. No competing writer can
-// spend the same remaining capacity. The capsule's actual total limit is still checked at seal.
+// Physical admission includes the already-allocated future audit slots and source padding.
+// Creation funds its own slot in this transaction; migration/restore validate
+// legacy bindings. Admission counts pages rather than rescanning every old slot.
+func databaseBudgetBytes(tx *sql.Tx) (int64, error) {
+	return storage.DatabaseBytes(tx)
+}
 func checkDatabaseBudget(tx *sql.Tx) error {
-	var used int64
-	if err := tx.QueryRow(`SELECT (page_count-freelist_count)*page_size FROM pragma_page_count(),pragma_freelist_count(),pragma_page_size()`).Scan(&used); err != nil {
+	used, err := databaseBudgetBytes(tx)
+	if err != nil {
 		return err
 	}
 	if used > databaseWriteBudget {
@@ -29,7 +31,7 @@ func checkDatabaseBudget(tx *sql.Tx) error {
 }
 
 func writeStorageFull(w http.ResponseWriter, r *http.Request, err error) bool {
-	if !errors.Is(err, errStorageFull) {
+	if !errors.Is(err, errStorageFull) && !errors.Is(err, storage.ErrCleanupCapacity) && !errors.Is(err, storage.ErrCleanupInvariant) {
 		return false
 	}
 	WriteError(w, r, http.StatusInsufficientStorage, "storage_full", "The server's backup storage budget is full. Delete unneeded comments or revoke share links, then try again.")

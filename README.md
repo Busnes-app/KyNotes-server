@@ -105,3 +105,12 @@ KyNotes Server is released under the [MIT License](LICENSE.txt).
 - [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
 - [Security policy](SECURITY.md) — how to report a vulnerability privately.
 - [Release notes](CHANGELOG.md) — what changed in each release, and its upgrade impact.
+
+
+### Upgrading cleanup metadata
+
+This release reserves future comment-deletion/share-link audit storage during
+admission. Existing instances must pass a staged capacity preflight; an instance
+that cannot fund its legacy cleanup slots refuses the upgrade without changing
+its live schema/data. Keep a pre-upgrade copy and the old release for reducing
+unneeded data. See [cleanup capacity and upgrade](docs/CLEANUP-CAPACITY.md).
