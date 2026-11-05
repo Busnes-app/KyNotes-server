@@ -74,8 +74,14 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 			if _, e := tx.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id) VALUES(?,?,?,?,?,?)`, id, hex.EncodeToString(sum[:]), sealed, expires.UTC().Format(time.RFC3339), now, s.UserID); e != nil {
 				return e
 			}
-			return storage.RecordAuditOutcomeTx(tx, s.UserID, "share_link.create", "", id, "success", "", RequestID(r))
+			if e := storage.RecordAuditOutcomeTx(tx, s.UserID, "share_link.create", "", id, "success", "", RequestID(r)); e != nil {
+				return e
+			}
+			return checkDatabaseBudget(tx)
 		})
+		if writeStorageFull(w, r, err) {
+			return
+		}
 		if errors.Is(err, errQuota) {
 			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
 			return
@@ -200,7 +206,16 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 			return
 		}
 		created := time.Now().UTC().Format(time.RFC3339)
-		if _, err = db.Exec(`INSERT INTO share_links(id,token_hash,object_id,object_version,expires_at,created_at) VALUES(?,?,?,?,?,?)`, id, tokenHash, objectID, version, expires.UTC().Format(time.RFC3339), created); err != nil {
+		err = dbTx(db, func(tx *sql.Tx) error {
+			if _, e := tx.Exec(`INSERT INTO share_links(id,token_hash,object_id,object_version,expires_at,created_at) VALUES(?,?,?,?,?,?)`, id, tokenHash, objectID, version, expires.UTC().Format(time.RFC3339), created); e != nil {
+				return e
+			}
+			return checkDatabaseBudget(tx)
+		})
+		if writeStorageFull(w, r, err) {
+			return
+		}
+		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}

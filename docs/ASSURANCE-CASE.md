@@ -68,6 +68,14 @@ downloaded by a member before revocation.
 - **Least privilege.** Administrator and everyday accounts are separate, and an administrator
   account is refused at the note APIs (`refuseSession` in `internal/auth/middleware.go`). The
   image runs as distroless `nonroot`.
+- **Bounded database-held writes.** Comments and both share-link creation routes check the
+  complete write transaction's allocated non-free pages against 90% of the capsule limit;
+  exceeding it rolls back with `507 storage_full`. Capsule sealing retains its total bound.
+  `TestDatabaseHeldWritesStopBeforeCapsuleCeiling` exercises rollback and competing writers.
+- **Comment deletion authority.** Current approved authors and notebook owners/admins may
+  delete comments in live notebooks/pages; application administrators have no content authority.
+  Ciphertext removal, quota release, mention removal, sequence and audit commit atomically;
+  authorized retries do not repeat them (`TestCommentDeletionAuthorityAuditAndRollback`).
 - **Fail-safe defaults.** Forwarded headers are ignored unless the proxy is trusted. Push
   endpoints outside the known services are refused. Conflicts fail closed and keep the rejected
   ciphertext ([CONTRIBUTING.md](../CONTRIBUTING.md#security-requirements)).

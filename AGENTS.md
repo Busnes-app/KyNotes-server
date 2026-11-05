@@ -106,6 +106,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `restore-data-dir` follow a symlinked root, refuse links inside it and skip `.restore-*`/`snapshot-*`; restore
   refuses unknown arguments; `gc --now` opens with `OpenCurrent` (`cmd/kynotes-server/council_pass3_test.go`).
 
+
+- Q12 (owner approved): comment and both sealed/object-backed share-link creation check the
+  allocated non-free SQLite pages after all writes in their immediate transaction, refusing
+  507 `storage_full` past 90% of `capsule.MaxExpandedBytes`; refusal rolls back the write.
+  The 10% reserve is for other database records and capsule members; sealing still enforces
+  the real total capsule bound. Backups explains admission at 90% beside its 80% warning.
+  Verify `TestDatabaseHeldWritesStopBeforeCapsuleCeiling` (crossing write and concurrent admission).
+- Q13 (owner approved): `DELETE /api/v1/comments/{id}` requires an everyday session, CSRF,
+  a live notebook/page and approved current membership. Authors and notebook owners/admins
+  may delete; server administrators gain no content authority. One transaction clears
+  ciphertext and mentions, tombstones the comment, advances change_seq and audits `comment.delete`.
+  Quota frees immediately; authorized tombstone retries return 204 without another audit.
+  Member removal retains comments. The comment row menu confirms deletion; a delayed response
+  changes only its original page's list. Verify `TestCommentDeletionAuthorityAuditAndRollback`,
+  `TestCommentAuthorCanDeleteAndReleaseQuota` and `web/e2e/comment-deletion.e2e.ts`.
+
 ## Shared browser UI
 
 - The workspace and admin navigation end with the ky-ui account footer (`UserBlock`: `.ky-user-copy` with name and role, then `.ky-user-actions` holding `AppFrame`'s two `.ky-icon-button`s, the Settings menu's gear (`aria-current="page"` while Settings is open) and Sign out, each with `aria-label` and `title`; the words "Sign out" never show) and licence line (`web/src/components/LicenseFooter.tsx`); signed-out screens show the licence line under the card. It opens the shell About dialog (`ky-about`): name, "Developed by Busnes.app", MIT notice and `web/src/mit.txt`, a byte copy of `LICENSE.txt` (`LicenseFooter.test.tsx` fails when they differ). Signed in, the window shows the version from `GET /api/v1/auth/session` (`version`, `appversion.String()`); signed out it shows none, and the session route answers 401 (`TestAccountRoutesServeBothKinds`).

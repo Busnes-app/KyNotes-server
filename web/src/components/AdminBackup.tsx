@@ -33,7 +33,7 @@ export function AdminBackup({ username }: { username: string }) {
       {!status.keyID && <p role="status">Pair with KyRecovery or pin the suite public key by hand to enable backups.</p>}
       {status.keyID && !status.paired && !status.localDirectory && <p role="status">The key is pinned, but there is no destination. Pair KyRecovery or configure KYNOTES_BACKUP_DIR.</p>}
       {!status.intervalSeconds && <p role="status">Automatic backups are off.</p>}
-      {capsuleNearLimit(status) && <p role="alert">The database ({status.databaseBytes.toLocaleString()} bytes) is past 80% of what one capsule can hold ({status.capsuleLimitBytes.toLocaleString()} bytes). Once it is full, backups stop: delete unneeded notebooks or old pages.</p>}
+      {capsuleNearLimit(status) && <p role="alert">The database ({status.databaseBytes.toLocaleString()} bytes) is past 80% of what one capsule can hold ({status.capsuleLimitBytes.toLocaleString()} bytes). New comments and share links are refused if their write would push the database past 90%. Delete unneeded comments, pages or notebooks; revoke unneeded share links (garbage collection reclaims them).</p>}
       <p>{status.blobCount} ciphertext blobs ({status.blobBytes.toLocaleString()} bytes) are excluded from capsules.</p>
     </>}
     <div className="backup-actions">
@@ -48,6 +48,7 @@ export function AdminBackup({ username }: { username: string }) {
       <label>Backup interval in minutes (0 turns it off; otherwise at least 15)<input type="number" min="0" max="527040" step="1" value={minutes} onChange={event => setMinutes(event.target.value)} required /></label>
       <button className="secondary" disabled={busy}>Save schedule</button>
     </form>
+    <p>To preserve backup capacity, the server refuses new comments and share links before the database passes 90% of the capsule limit. Other capsule members still count toward the full limit.</p>
     <details><summary>Pair with KyRecovery</summary>
       <p>Generate a six-digit pairing code in KyRecovery. Compare the suite key fingerprint out of band, or pin it below before pairing. HTTPS protects the incoming key, token and receipt.</p>
       <form onSubmit={event => { event.preventDefault(); const pairingCode = code; setCode(""); void act(async () => { await backupAction("pair-remote", { url: remoteURL, pairing_code: pairingCode }); }); }}>

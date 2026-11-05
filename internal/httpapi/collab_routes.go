@@ -344,8 +344,11 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 					return errMentionNotMember
 				}
 			}
-			return nil
+			return checkDatabaseBudget(tx)
 		})
+		if writeStorageFull(w, r, e) {
+			return
+		}
 		if errors.Is(e, errQuota) {
 			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
 			return
@@ -358,6 +361,51 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 			return
 		}
 		writeJSON(w, map[string]string{"id": id})
+	})))
+	mux.Handle("DELETE /api/v1/comments/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.CheckCSRF(r) != nil {
+			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
+			return
+		}
+		id := r.PathValue("id")
+		if ids.Validate("cmt", id) != nil {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		s, _ := auth.SessionFromContext(r)
+		err := dbTx(db, func(tx *sql.Tx) error {
+			var cid, author, role, deleted string
+			// A server administrator has no notebook authority. A current approved member
+			// may delete its own comment; notebook owners/admins may delete any comment.
+			err := tx.QueryRow(`SELECT c.container_id,c.author_user_id,m.role,c.deleted_at FROM comments c JOIN containers n ON n.id=c.container_id AND n.deleted_at='' JOIN objects o ON o.id=c.object_id AND o.deleted_at='' JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? AND m.revoked_at='' AND m.approved=1 WHERE c.id=?`, s.UserID, id).Scan(&cid, &author, &role, &deleted)
+			if err != nil {
+				return err
+			}
+			if author != s.UserID && !isSteward(role) {
+				return errInsufficientRole
+			}
+			if deleted != "" {
+				return nil
+			} // An authorized retry releases nothing twice and adds no audit.
+			now := time.Now().UTC().Format(time.RFC3339)
+			var seq int64
+			if err := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); err != nil {
+				return err
+			}
+			// Keep the tombstone for authorized retries, but drop ciphertext to free backup
+			// capacity as well as quota. Mentions must stop producing notifications too.
+			if _, err := tx.Exec(`UPDATE comments SET deleted_at=?,body_ciphertext=X'',change_seq=? WHERE id=?`, now, seq, id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM mentions WHERE comment_id=?`, id); err != nil {
+				return err
+			}
+			return storage.RecordAuditOutcomeTx(tx, s.UserID, "comment.delete", cid, id, "success", "", RequestID(r))
+		})
+		if writeTeamKeyError(w, r, err) {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/objects/{id}/comments", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)

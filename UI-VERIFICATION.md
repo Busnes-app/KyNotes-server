@@ -379,3 +379,12 @@ Captured with `captures/drivers/kynotes-10-gear.mjs` (Playwright Chromium, 1440�
 
 The ky-ui update notice ("<app> was updated. Reload to use the new version.", Reload and Dismiss) is started from `web/src/main.tsx`; the entry document is never reused from a cache. Not captured in this repository: the notice is the shared ky-ui component, captured end to end (a real server upgrade under an open tab, 1440×900, Busnes Light and Dark) in KyIdentity and KyPost (`docs/ui-stale-tab-2026-11-02/`), and checked by ky-ui's `browser/update.spec.js` under a strict CSP at 390 and 1280 px. `check-vendor.mjs` passes and the web tests and build pass with Node 26.12.1.
 
+
+### Comment deletion (owner Q13)
+
+`web/e2e/comment-deletion.e2e.ts` checks confirmation/cancel, visible server failures,
+authorized deletion and switching pages while a delete response is held. The `shoot` helper
+captures the comment row at 1280×900 and 390×844, in light and dark OS schemes, with default
+Busnes themes and a fresh throwaway instance. `KYNOTES_BASELINE=1` captures the same state
+before exercising the action, for comparison against the base embedded assets. No visual
+redesign or storage/crypto format change is part of this action.
