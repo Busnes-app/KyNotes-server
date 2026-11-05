@@ -267,3 +267,37 @@ func TestCleanupHistoryUsesOperationTimeAndSurvivesSourceRemoval(t *testing.T) {
 		t.Fatalf("history lost %d %v", count, err)
 	}
 }
+
+func TestCleanupUpgradeAndHistoryUseTheActualDatabaseEncoding(t *testing.T) {
+	for _, encoding := range []string{"UTF-16le", "UTF-16be"} {
+		t.Run(encoding, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "db.sqlite")
+			createCleanupDatabaseFile(t, path, 4096, encoding)
+			legacyCleanupDatabase(t, path, 1, 30)
+			s, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			request := strings.Repeat("<", 128)
+			if err = s.WithTx(context.Background(), func(tx *sql.Tx) error {
+				if err := TombstoneCommentTx(tx, "cmt_00000000000000000000000000", "2026-11-05T00:00:00Z", 2); err != nil {
+					return err
+				}
+				return FillCleanupAuditTx(tx, "comment", "cmt_00000000000000000000000000", "usr_00000000000000000000000000", request, "2026-11-05T00:00:00Z")
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err = VerifyCleanupReservations(s.db); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			if err = s.db.QueryRow(`SELECT request_id FROM audit_history WHERE event='comment.delete'`).Scan(&got); err != nil || got != request {
+				t.Fatalf("historyrequest%q %v", got, err)
+			}
+			if _, err = s.db.Exec(`UPDATE cleanup_audit_slots SET payload=payload WHERE source_id='cmt_00000000000000000000000000'`); err == nil {
+				t.Fatal("completed audit mutable")
+			}
+		})
+	}
+}

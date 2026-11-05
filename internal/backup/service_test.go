@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -25,11 +26,32 @@ import (
 
 func fixture(t *testing.T) (*Service, recoverykey.PrivateKey) {
 	t.Helper()
+	return fixtureWithEncoding(t, "UTF-8")
+}
+
+func fixtureWithEncoding(t *testing.T, encoding string) (*Service, recoverykey.PrivateKey) {
+	t.Helper()
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
 	cfg.Backup.Dir = t.TempDir()
 	cfg.Secrets.PairingSecret = strings.Repeat("p", 32)
 	cfg.Secrets.ServerSaltKey = strings.Repeat("s", 32)
+	if encoding != "UTF-8" {
+		db, err := sql.Open("sqlite", filepath.Join(cfg.DataDir, "kynotes.sqlite"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(`PRAGMA encoding='` + encoding + `'; CREATE TABLE fixture_encoding(data TEXT)`); err != nil {
+			t.Fatal(err)
+		}
+		var actual string
+		if err = db.QueryRow(`PRAGMA encoding`).Scan(&actual); err != nil || actual != encoding {
+			t.Fatalf("encoding%s want%s: %v", actual, encoding, err)
+		}
+		if err = db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	st, err := storage.Open(filepath.Join(cfg.DataDir, "kynotes.sqlite"))
 	if err != nil {
 		t.Fatal(err)

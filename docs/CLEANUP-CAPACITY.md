@@ -9,10 +9,14 @@ limits. This is separate from owner/team content quota.
 
 Migration 0031 adds `cleanup_audit_slots`. Every live comment and unrevoked sealed
 link has a pending slot. Its source ID, audit ID, kind and container are immutable.
-The payload is a fixed-size BLOB containing `null` plus spaces until cleanup.
+The payload is a fixed-size BLOB containing `null` plus spaces until cleanup,
+encoded in the database's UTF-8/UTF-16 encoding so SQLite's BLOB-to-TEXT cast
+interprets the same JSON. UTF-16 slots double the conservative encoded-byte bound;
+their fill preserves exactly the original physical byte length. Restore checks
+decode those bytes before checking UTF-8 request-ID lengths.
 Slot size covers the maximum existing user-ID byte width (at least minted 30),
 128 request-ID bytes, a 20-character operation timestamp, JSON syntax and six-byte
-escaping; it rounds up to 64 bytes. Ordinary slots are 1024 bytes before SQLite/index
+escaping; it rounds up to 64 bytes. Ordinary UTF-8 slots are 1024 bytes before SQLite/index
 overhead. This is a size calculation, not a guaranteed comment count capacity.
 
 Deletion/revocation fills only that BLOB, in the same immediate transaction as
@@ -69,7 +73,12 @@ byte multiplier. The live migrations then recheck and commit together.
 
 If the conversion cannot fit, startup refuses the upgrade before changing the
 live schema/data, reports the required bytes/budget and source counts, and removes
-the staged copy. Keep the old release available: use its existing page/notebook
+the staged copy. A capacity refusal during capsule restore is different from
+ordinary startup: the extracted target's credentials are revoked and its deposits
+turned off even when migration refuses, before an operator can run the old release
+on it. If that safety work fails, the error explicitly forbids starting the target.
+The original running instance is never changed by this restore refusal.
+Keep the old release available: use its existing page/notebook
 and share-link cleanup to reduce the dataset, then retry. Do not bypass the
 migration or increase capsule limits. Make a pre-upgrade data-directory copy
 with the documented stopped-server `copy-data-dir` workflow first.
@@ -84,7 +93,8 @@ their existing restore path and undergo the staged migration before normal use.
   a crowded legacy wide-ID row at the spill boundary, actual nonfree pages and
   `recoveryclient.SQLiteSnapshot` (`VACUUM INTO`) before/after.
 - `TestCleanupRowsReleaseOverflowWithoutGrowingLeafCells`:512/4096/65536-byte
-  pages, UTF-8/UTF-16 encodings, header/counter/body-width boundaries, forward,
+  pages and UTF-8/UTF-16 encodings (asserted after opening the active database),
+  header/counter/body-width boundaries, forward,
   reverse and deterministic permuted deletions, checking each partial snapshot.
 - `TestCleanupRecordSizeMatchesSQLite`: compare record sizing with actual `dbstat`
   payloads, Unicode encodings and signed-integer/header boundaries.
@@ -98,3 +108,14 @@ their existing restore path and undergo the staged migration before normal use.
 
 These cover the named cleanup paths. Other metadata writes can still grow the
 database; this change does not claim a bound for all possible server operations.
+
+- `TestCapacityRefusedRestoreStillRevokesCredentialsAndStopsDeposits`: an authentic
+  custodian-opened schema30 capsule with250000 tiny comments that cannot fund
+  new slots; preserves legacy contents and the source instance while fencing the
+  extracted target's sessions, devices, links, invitations and scheduled deposits.
+- `TestNativeUTF16CleanupIsAuthorizedAuditedAndSizeStable` and
+  `TestCleanupUpgradeAndHistoryUseTheActualDatabaseEncoding`: verified native
+  files, migration, real authorized DELETE and administrator audit reads.
+
+The initial fixture labels did not establish physical encoding/page sizes. Their
+old passing logs are historical; use the asserted-layout regressions above.

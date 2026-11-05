@@ -13,13 +13,17 @@ import (
 func TestCleanupRecordSizeMatchesSQLite(t *testing.T) {
 	for _, encoding := range []string{"UTF-8", "UTF-16le", "UTF-16be"} {
 		t.Run(encoding, func(t *testing.T) {
-			s, err := OpenUnmigrated(filepath.Join(t.TempDir(), "db.sqlite"))
+			db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "db.sqlite"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer s.Close()
-			if _, err = s.db.Exec(`PRAGMA encoding='` + encoding + `'; CREATE TABLE sizing(a,b,c,d)`); err != nil {
+			defer db.Close()
+			if _, err = db.Exec(`PRAGMA encoding='` + encoding + `'; CREATE TABLE sizing(a,b,c,d)`); err != nil {
 				t.Fatal(err)
+			}
+			var actualEncoding string
+			if err = db.QueryRow(`PRAGMA encoding`).Scan(&actualEncoding); err != nil || actualEncoding != encoding {
+				t.Fatalf("encoding=%s want%s: %v", actualEncoding, encoding, err)
 			}
 			code := uint32(1)
 			if encoding == "UTF-16le" {
@@ -30,12 +34,12 @@ func TestCleanupRecordSizeMatchesSQLite(t *testing.T) {
 			}
 			for _, n := range []int{0, 1, 57, 58, 63, 64, 127, 128, 4096, 8191, 8192, 16383, 65536} {
 				for _, counter := range []int64{-140737488355329, -2147483649, -8388609, -32769, -129, -128, -1, 0, 1, 127, 128, 32768, 8388608, 2147483648, 140737488355328} {
-					values := []any{counter, strings.Repeat("λ𝄞", n/2), make([]byte, n), nil}
-					if _, err = s.db.Exec(`DELETE FROM sizing; INSERT INTO sizing VALUES(?,?,?,?)`, values...); err != nil {
+					values := []any{counter, strings.Repeat("ascii界", n/2), make([]byte, n), nil}
+					if _, err = db.Exec(`DELETE FROM sizing; INSERT INTO sizing VALUES(?,?,?,?)`, values...); err != nil {
 						t.Fatal(err)
 					}
 					var actual int
-					if err = s.db.QueryRow(`SELECT max(mx_payload) FROM dbstat WHERE name='sizing' AND pagetype='leaf'`).Scan(&actual); err != nil {
+					if err = db.QueryRow(`SELECT max(mx_payload) FROM dbstat WHERE name='sizing' AND pagetype='leaf'`).Scan(&actual); err != nil {
 						t.Fatal(err)
 					}
 					if got := sqliteRecordBytes(values, code); got != actual {
@@ -44,6 +48,31 @@ func TestCleanupRecordSizeMatchesSQLite(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Configure the real file BEFORE the normal WAL-opening path. An existing table
+// fixes the encoding; WAL would otherwise ignore a requested VACUUM page resize.
+func createCleanupDatabaseFile(t *testing.T, path string, pageSize int, encoding string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec(fmt.Sprintf(`PRAGMA encoding='%s'; PRAGMA page_size=%d; CREATE TABLE fixture_encoding(data TEXT)`, encoding, pageSize)); err != nil {
+		t.Fatal(err)
+	}
+	var actualEncoding string
+	var actualPageSize int
+	if err = db.QueryRow(`PRAGMA encoding`).Scan(&actualEncoding); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(`PRAGMA page_size`).Scan(&actualPageSize); err != nil {
+		t.Fatal(err)
+	}
+	if actualEncoding != encoding || actualPageSize != pageSize {
+		t.Fatalf("actual encoding/page%s/%d, want%s/%d", actualEncoding, actualPageSize, encoding, pageSize)
 	}
 }
 
@@ -58,19 +87,24 @@ func TestCleanupRowsReleaseOverflowWithoutGrowingLeafCells(t *testing.T) {
 		for _, order := range []string{"forward", "reverse", "permuted"} {
 			t.Run(fmt.Sprintf("page%d/%s/%s", pageSize, scenario.encoding, order), func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "db.sqlite")
-				prior, err := OpenUnmigrated(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err = prior.db.Exec(fmt.Sprintf(`PRAGMA encoding='%s'; PRAGMA page_size=%d; VACUUM`, scenario.encoding, pageSize)); err != nil {
-					t.Fatal(err)
-				}
-				prior.Close()
+				createCleanupDatabaseFile(t, path, pageSize, scenario.encoding)
 				s, err := Open(path)
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer s.Close()
+				var actualEncoding string
+				var actualPageSize int
+				if err = s.db.QueryRow(`PRAGMA encoding`).Scan(&actualEncoding); err != nil {
+					t.Fatal(err)
+				}
+				if err = s.db.QueryRow(`PRAGMA page_size`).Scan(&actualPageSize); err != nil {
+					t.Fatal(err)
+				}
+				if actualEncoding != scenario.encoding || actualPageSize != pageSize {
+					t.Fatalf("active layout%s/%d want%s/%d", actualEncoding, actualPageSize, scenario.encoding, pageSize)
+				}
+				t.Logf("verified active encoding=%s page_size=%d", actualEncoding, actualPageSize)
 				if _, err = s.db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('user','person','opaque','opaque',100000,'now','now')`); err != nil {
 					t.Fatal(err)
 				}

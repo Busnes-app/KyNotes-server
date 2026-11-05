@@ -3,11 +3,13 @@ package storage
 import (
 	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"time"
+	"unicode/utf16"
 
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
@@ -21,7 +23,10 @@ const cleanupSchemaVersion = 31
 var ErrCleanupCapacity = errors.New("cleanup metadata does not fit the backup budget")
 var ErrCleanupInvariant = errors.New("cleanup reservation missing or invalid")
 
-type cleanupQuery interface{ QueryRow(string, ...any) *sql.Row }
+type cleanupQuery interface {
+	QueryRow(string, ...any) *sql.Row
+	Query(string, ...any) (*sql.Rows, error)
+}
 
 // DatabaseBytes counts real allocated pages, excluding pages VACUUM INTO discards.
 func DatabaseBytes(q cleanupQuery) (int64, error) {
@@ -46,6 +51,14 @@ func cleanupSlotBytes(q cleanupQuery) (int, error) {
 	// invalid UTF8 replacement. Existing legacy IDs are measured in bytes, not characters.
 	n := int64(len(empty)) + 6*(actorBytes+MaxAuditRequestIDBytes)
 	n = (n + 63) / 64 * 64
+	order, err := cleanupJSONOrder(q)
+	if err != nil {
+		return 0, err
+	}
+	if order != nil {
+		n *= 2
+	} // SQLite casts a BLOB using the database's text encoding.
+
 	if n > CleanupDatabaseBudget {
 		return 0, ErrCleanupCapacity
 	}
@@ -66,7 +79,14 @@ func reserveCleanupAuditTx(tx *sql.Tx, kind, source, container string, size int)
 	if err != nil {
 		return err
 	}
-	payload := append([]byte("null"), bytes.Repeat([]byte{' '}, size-4)...)
+	order, err := cleanupJSONOrder(tx)
+	if err != nil {
+		return err
+	}
+	payload, err := padCleanupJSON([]byte("null"), size, order)
+	if err != nil {
+		return err
+	}
 	_, err = tx.Exec(`INSERT INTO cleanup_audit_slots(source_id,audit_id,kind,container_id,payload) VALUES(?,?,?,?,?)`, source, id, kind, container, payload)
 	return err
 }
@@ -81,17 +101,25 @@ func FillCleanupAuditTx(tx *sql.Tx, kind, source, actor, request, now string) er
 	if err := tx.QueryRow(`SELECT payload FROM cleanup_audit_slots WHERE source_id=? AND kind=?`, source, kind).Scan(&payload); err != nil {
 		return fmt.Errorf("%w: %v", ErrCleanupInvariant, err)
 	}
-	if !bytes.Equal(bytes.TrimSpace(payload), []byte("null")) {
+	order, err := cleanupJSONOrder(tx)
+	if err != nil {
+		return err
+	}
+	decoded, err := decodeCleanupJSON(payload, order)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(bytes.TrimSpace(decoded), []byte("null")) {
 		return ErrCleanupInvariant
 	}
 	record, err := json.Marshal(cleanupRecord{Actor: actor, Request: request, At: now})
 	if err != nil {
 		return err
 	}
-	if len(record) > len(payload) {
-		return ErrCleanupInvariant
+	record, err = padCleanupJSON(record, len(payload), order)
+	if err != nil {
+		return err
 	}
-	record = append(record, bytes.Repeat([]byte{' '}, len(payload)-len(record))...)
 	_, err = tx.Exec(`UPDATE cleanup_audit_slots SET payload=? WHERE source_id=? AND kind=?`, record, source, kind)
 	return err
 }
@@ -99,15 +127,47 @@ func FillCleanupAuditTx(tx *sql.Tx, kind, source, actor, request, now string) er
 // VerifyCleanupReservations checks live-source bindings at migration/restore.
 // Ordinary creation reserves its own slot atomically, without a full-history scan.
 func VerifyCleanupReservations(q cleanupQuery) error {
-	var invalid int
-	if err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM cleanup_audit_slots WHERE length(payload)%64<>0 OR (json_type(CAST(payload AS TEXT))='object' AND (COALESCE(json_type(CAST(payload AS TEXT),'$.actor'),'')<>'text' OR COALESCE(json_type(CAST(payload AS TEXT),'$.request'),'')<>'text' OR COALESCE(json_type(CAST(payload AS TEXT),'$.at'),'')<>'text' OR length(CAST(json_extract(CAST(payload AS TEXT),'$.request') AS BLOB))>128 OR length(CAST(json_extract(CAST(payload AS TEXT),'$.at') AS BLOB))<>20)))`).Scan(&invalid); err != nil {
+	order, err := cleanupJSONOrder(q)
+	if err != nil {
 		return err
 	}
-	if invalid != 0 {
-		return ErrCleanupInvariant
+	rows, err := q.Query(`SELECT payload FROM cleanup_audit_slots`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		if len(raw) == 0 || len(raw)%64 != 0 {
+			return ErrCleanupInvariant
+		}
+		decoded, err := decodeCleanupJSON(raw, order)
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(bytes.TrimSpace(decoded), []byte("null")) {
+			continue
+		}
+		var record struct {
+			Actor   *string `json:"actor"`
+			Request *string `json:"request"`
+			At      *string `json:"at"`
+		}
+		if json.Unmarshal(decoded, &record) != nil || record.Actor == nil || record.Request == nil || record.At == nil || len(*record.Request) > MaxAuditRequestIDBytes || len(*record.At) != 20 {
+			return ErrCleanupInvariant
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
 	}
 	var missing int
-	err := q.QueryRow(`SELECT EXISTS(SELECT 1 FROM comments c LEFT JOIN cleanup_audit_slots s ON s.source_id=c.id AND s.kind='comment' WHERE c.deleted_at='' AND (s.source_id IS NULL OR json_type(CAST(s.payload AS TEXT))<>'null')) OR EXISTS(SELECT 1 FROM sealed_share_links l LEFT JOIN cleanup_audit_slots s ON s.source_id=l.id AND s.kind='sealed_share_link' WHERE l.revoked_at='' AND (s.source_id IS NULL OR json_type(CAST(s.payload AS TEXT))<>'null'))`).Scan(&missing)
+	err = q.QueryRow(`SELECT EXISTS(SELECT 1 FROM comments c LEFT JOIN cleanup_audit_slots s ON s.source_id=c.id AND s.kind='comment' WHERE c.deleted_at='' AND (s.source_id IS NULL OR json_type(CAST(s.payload AS TEXT))<>'null')) OR EXISTS(SELECT 1 FROM sealed_share_links l LEFT JOIN cleanup_audit_slots s ON s.source_id=l.id AND s.kind='sealed_share_link' WHERE l.revoked_at='' AND (s.source_id IS NULL OR json_type(CAST(s.payload AS TEXT))<>'null'))`).Scan(&missing)
 	if err != nil {
 		return err
 	}
@@ -212,7 +272,7 @@ func initializeCleanupSlotsTx(tx *sql.Tx) error {
 	}
 	// A necessary lower bound rejects un-fundable legacy sets before allocating a huge
 	// scratch database. The final decision below uses physical pages, never this estimate.
-	if (comments+links)*int64(size) > CleanupDatabaseBudget {
+	if comments+links > CleanupDatabaseBudget/int64(size) {
 		return fmt.Errorf("%w: %d comments and %d links need at least %d slot bytes; budget%d; reduce pages/notebooks with the old release", ErrCleanupCapacity, comments, links, (comments+links)*int64(size), CleanupDatabaseBudget)
 	}
 	rows, err := tx.Query(`SELECT id,container_id,'comment' FROM comments WHERE deleted_at='' UNION ALL SELECT id,'','sealed_share_link' FROM sealed_share_links WHERE revoked_at=''`)
@@ -252,3 +312,50 @@ func initializeCleanupSlotsTx(tx *sql.Tx) error {
 
 // Operation timestamps use this exact fixed-width format throughout the cleanup path.
 func CleanupTime(now time.Time) string { return now.UTC().Format(time.RFC3339) }
+
+// SQLite CAST(BLOB AS TEXT) interprets bytes in the database encoding. Keep the
+// fixed BLOB in that encoding too; its physical byte length never changes on fill.
+func cleanupJSONOrder(q cleanupQuery) (binary.ByteOrder, error) {
+	var encoding string
+	if err := q.QueryRow(`PRAGMA encoding`).Scan(&encoding); err != nil {
+		return nil, err
+	}
+	switch encoding {
+	case "UTF-8":
+		return nil, nil
+	case "UTF-16le":
+		return binary.LittleEndian, nil
+	case "UTF-16be":
+		return binary.BigEndian, nil
+	}
+	return nil, ErrCleanupInvariant
+}
+func padCleanupJSON(raw []byte, size int, order binary.ByteOrder) ([]byte, error) {
+	space := []byte{' '}
+	if order != nil {
+		units := utf16.Encode([]rune(string(raw)))
+		raw = make([]byte, len(units)*2)
+		for i, unit := range units {
+			order.PutUint16(raw[i*2:], unit)
+		}
+		space = make([]byte, 2)
+		order.PutUint16(space, ' ')
+	}
+	if len(raw) > size || (size-len(raw))%len(space) != 0 {
+		return nil, ErrCleanupInvariant
+	}
+	return append(raw, bytes.Repeat(space, (size-len(raw))/len(space))...), nil
+}
+func decodeCleanupJSON(raw []byte, order binary.ByteOrder) ([]byte, error) {
+	if order == nil {
+		return raw, nil
+	}
+	if len(raw)%2 != 0 {
+		return nil, ErrCleanupInvariant
+	}
+	units := make([]uint16, len(raw)/2)
+	for i := range units {
+		units[i] = order.Uint16(raw[i*2:])
+	}
+	return []byte(string(utf16.Decode(units))), nil
+}

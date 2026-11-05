@@ -91,3 +91,85 @@ func TestCommentDeletionDoesNotGrowAtSQLiteOverflowCliff(t *testing.T) {
 		t.Fatal("authenticated cleanup increased compact/allocated bytes despite prepaid slot")
 	}
 }
+
+func TestNativeUTF16CleanupIsAuthorizedAuditedAndSizeStable(t *testing.T) {
+	for _, encoding := range []string{"UTF-16le", "UTF-16be"} {
+		t.Run(encoding, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "db.sqlite")
+			seed, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = seed.Exec(`PRAGMA encoding='` + encoding + `'; CREATE TABLE fixture_encoding(data TEXT)`); err != nil {
+				t.Fatal(err)
+			}
+			var actual string
+			if err = seed.QueryRow(`PRAGMA encoding`).Scan(&actual); err != nil || actual != encoding {
+				t.Fatalf("encoding%s want%s: %v", actual, encoding, err)
+			}
+			seed.Close()
+			p := newPairClientIn(t, strings.Repeat("p", 32), root)
+			admin := p.addAdmin(t, "audit-admin")
+			cid, oid, id, link := "cnt_00000000000000000000000000", "obj_00000000000000000000000000", "cmt_00000000000000000000000000", "shl_00000000000000000000000000"
+			if err = dbTx(p.db, func(tx *sql.Tx) error {
+				for _, q := range []string{
+					`INSERT INTO containers(id,kind,owner_user_id,change_seq,created_at,updated_at) VALUES(?1,'workbook',?2,127,'now','now')`,
+					`INSERT INTO memberships(container_id,user_id,role,created_at) VALUES(?1,?2,'owner','now')`,
+					`INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES(?3,?1,'note',1,'now','now')`,
+					`INSERT INTO comments(id,container_id,object_id,author_user_id,body_ciphertext,key_generation,change_seq,created_at) VALUES(?4,?1,?3,?2,X'63',1,1,'now')`,
+					`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id) VALUES(?5,'token',X'63','2099-01-01T00:00:00Z','now',?2)`,
+				} {
+					if _, err := tx.Exec(q, cid, pairUser, oid, id, link); err != nil {
+						return err
+					}
+				}
+				if err := storage.ReserveCleanupAuditTx(tx, "comment", id, cid); err != nil {
+					return err
+				}
+				return storage.ReserveCleanupAuditTx(tx, "sealed_share_link", link, "")
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err = storage.VerifyCleanupReservations(p.db); err != nil {
+				t.Fatal(err)
+			}
+			snap := func(tag string) int64 {
+				f := filepath.Join(t.TempDir(), tag)
+				if err := recoveryclient.SQLiteSnapshot(context.Background(), p.db, f); err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Stat(f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return info.Size()
+			}
+			before, err := storage.DatabaseBytes(p.db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compactBefore := snap("before")
+			for _, path := range []string{"/api/v1/comments/" + id, "/api/v1/share-links/" + link} {
+				if code, out := status(t, p.do(t, http.MethodDelete, path, nil, true, false)); code != 204 {
+					t.Fatalf("DELETE%s=%d %s", path, code, out)
+				}
+			}
+			after, err := storage.DatabaseBytes(p.db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compactAfter := snap("after")
+			if after > before || compactAfter > compactBefore {
+				t.Fatalf("cleanup grew allocated%d->%d, compact%d->%d", before, after, compactBefore, compactAfter)
+			}
+			if err = storage.VerifyCleanupReservations(p.db); err != nil {
+				t.Fatal(err)
+			}
+			code, out := status(t, admin.do(t, http.MethodGet, "/api/v1/admin/audit", nil, false, false))
+			if code != 200 || !strings.Contains(out, "comment.delete") || !strings.Contains(out, "share_link.revoke") {
+				t.Fatalf("audit read%d %s", code, out)
+			}
+		})
+	}
+}

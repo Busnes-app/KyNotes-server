@@ -121,3 +121,10 @@ pre-upgrade data-directory copy and the old release. Reduce unneeded pages,
 notebooks or share links using that release, then retry; do not bypass migration.
 New capsule recipes count cleanup slots and ordinary audits, and restore checks
 their counts and pending-source bindings. See [cleanup capacity](CLEANUP-CAPACITY.md).
+
+If a capsule restore reaches that capacity refusal, its extracted target is left
+with snapshot credentials revoked and scheduled deposits off, preserving the
+legacy data for cleanup with the old release. If those safety steps fail, do not
+start any release on that target; restore into a fresh target using the release
+that wrote the capsule. Ordinary startup refusal leaves the original instance's
+credentials and schedule unchanged.

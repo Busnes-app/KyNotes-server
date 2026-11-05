@@ -116,6 +116,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - Cleanup capacity: migration 0031 preallocates fixed immutable audit slots and source-row
   padding. Comment deletion and sealed-link revocation consume those slots atomically;
   admin audit reads `audit_history`, which hides pending slots and uses operation time.
+  Fixed BLOBs use the database encoding; test actual encoding/page headers, not fixture labels.
+  Capsule restore fences the extracted target even if cleanup migration refuses.
   Before changing storage layout, cleanup, audit reads, SQLite dependencies or migration/restore,
   read `docs/CLEANUP-CAPACITY.md` for the physical leaf/overflow constraint, bounded tombstone
   padding and staged upgrade refusal. Trusted diagnostic request IDs are capped at128 bytes

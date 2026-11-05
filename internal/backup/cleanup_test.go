@@ -13,7 +13,13 @@ import (
 )
 
 func TestCapsulePreservesCleanupHistoryAndPendingReservations(t *testing.T) {
-	svc, key := fixture(t)
+	for _, encoding := range []string{"UTF-8", "UTF-16le", "UTF-16be"} {
+		t.Run(encoding, func(t *testing.T) { testCapsuleCleanupEncoding(t, encoding) })
+	}
+}
+
+func testCapsuleCleanupEncoding(t *testing.T, encoding string) {
+	svc, key := fixtureWithEncoding(t, encoding)
 	if err := svc.store.WithTx(context.Background(), func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('person','person','opaque','opaque',100000,'now','now'); INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('notebook','workbook','person','now','now'); INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES('page','notebook','note',1,'now','now')`); err != nil {
 			return err
