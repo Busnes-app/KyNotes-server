@@ -182,6 +182,13 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 		id, _ := ids.Mint("inv")
 		now := time.Now().UTC()
 		e := dbTx(db, func(tx *sql.Tx) error {
+			role, _, err := memberTx(tx, cid, s.UserID)
+			if err != nil {
+				return err
+			}
+			if !isSteward(role) {
+				return errInsufficientRole
+			}
 			if len(in.Envelopes) > 0 {
 				if e := auth.RecheckUserStepUpTx(tx, s, time.Now().UTC()); e != nil {
 					return e

@@ -941,3 +941,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 `docs/ASSURANCE-CASE.md` and `docs/VERIFYING-RELEASES.md` make claims about the code and the release workflow; a change that moves a trust boundary, a security requirement, the image build or its attestation identity updates them in the same change.
 
 `INSTALL.md` is the root-owned standalone entry point. When installation prerequisites, bootstrap, persistence or verification change, update it together with `README.md` and the linked operator guides.
+
+## Deleted notebook write admission
+
+Empty object creation and invitations recheck the live container and the caller's current
+writer/steward role inside their immediate transaction (`memberTx`). A notebook deleted
+before that transaction, including deletion during body admission, takes no new page,
+section/group object or invitation. Child creation also rechecks the live parent's
+steward role in that transaction before inserting or copying memberships. `memberTx`
+refuses historical children whose parent is absent or deleted. Existing content, name
+and key gates remain in force.
+Verify `TestDeletedNotebookRefusesContentKeysAndInvitations`,
+`TestInvitationRacingNotebookDeletionIsRefused`, `TestNewPageRacingNotebookDeletionIsRefused`,
+`TestChildCreationRacingParentDeletionIsRefused` and
+`TestHistoricalOrphanRefusesObjectsAndInvitations`.
