@@ -1605,11 +1605,7 @@ function Workspace({
       const role = container.kind === "team" || container.teamId ? own?.find((member) => member.userId === auth.user.id)?.role ?? "unknown" : "owner";
       if (!superseded()) setOpenRole(role);
       if (!superseded() && role === "unknown") setError(ROLE_UNKNOWN);
-      if (!superseded() && writer(role)) {
-        const open=selectedNoteRef.current;
-        const pending=open ? await getQueuedSave(auth.user.id,open.id).catch(()=>undefined) : undefined;
-        if(!superseded() && open && selectedNoteRef.current?.id===open.id && pending && !pending.gone && !pending.previousKey && !pending.conflicted) markDirty(true);
-      }
+      if (!superseded() && writer(role)) await markRecoveredDraftDirty(superseded);
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
         migrationDue.current = { containerID: keyed.id, unreadable: objects.unreadable, objects: kinds.map((object) => ({ ...object, v1: objects.legacy.has(object.id) })) };
@@ -1620,6 +1616,13 @@ function Workspace({
       if (!superseded()) setError(error instanceof Error ? error.message : "Unable to load notebook");
       return [];
     }
+  }
+  async function markRecoveredDraftDirty(superseded: () => boolean) {
+    // Read after selectNote has chosen the routed page and writer authority has loaded.
+    const open = selectedNoteRef.current;
+    if (!open) return;
+    const pending = await getQueuedSave(auth.user.id, open.id).catch(() => undefined);
+    if (!superseded() && selectedNoteRef.current?.id === open.id && pending && !pending.gone && !pending.previousKey && !pending.conflicted) markDirty(true);
   }
   async function loadWorkQueue() {
     const personalContainers = items.filter((item) => item.kind !== "team" && !item.teamId);
