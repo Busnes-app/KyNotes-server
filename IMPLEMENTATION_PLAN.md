@@ -2060,3 +2060,18 @@ capsule/mirror results and pass snapshot inventory through possible concurrent G
 redacted mirror coverage. Offline mirror/fetch share the server directory lock.
 No frozen crypto format, capsule v1 recipe, or product upload limit changes. Remote
 history is retained; full restore is capsule, fetch-blobs, consistency-check, browser proof.
+
+## Owner-approved comment storage admission and deletion (Q12/Q13)
+
+Comment and share-link creation (both route families) returns 507 `storage_full` when its
+complete transaction would leave allocated non-free database pages above 90% of
+`capsule.MaxExpandedBytes`. The write rolls back, including mentions, sequences and audit.
+The existing capsule total bound, per-account/team quotas, limits and blob format remain.
+
+`DELETE /api/v1/comments/{id}`: everyday session plus CSRF; live page/notebook and approved
+current member. The author, notebook owner or notebook admin may delete; a different member
+gets 403, missing/inaccessible comments 404, an authorized tombstone retry 204. In one
+transaction clear body ciphertext and mentions, set deleted_at, advance the notebook's
+change_seq and audit `comment.delete`; quota releases immediately. A retry adds no audit.
+The browser's comment menu confirms the irreversible action and leaves the current page
+alone if selection changed during deletion. Membership removal never deletes comments.

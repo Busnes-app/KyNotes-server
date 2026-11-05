@@ -21,6 +21,7 @@ import {
   deleteUpload,
   createSealedShareLink,
   deleteContainer,
+  deleteComment,
   deleteObject,
   downloadAttachment,
   fetchShareCiphertext,
@@ -239,6 +240,7 @@ type AuthState = {
 };
 type PlainComment = {
   id: string;
+  authorUserId: string;
   username: string;
   body: string;
   section?: string;
@@ -1667,6 +1669,7 @@ function Workspace({
           const decrypted = await openFirst(container ? readKeysFor(container, item.keyGeneration) : [], (key) => decryptComment(key, containerID, note.id, bytes, v1));
           decoded.push({
             id: item.id,
+            authorUserId: item.authorUserId,
             username: item.username,
             body: decrypted.body,
             section: decrypted.section,
@@ -2743,6 +2746,22 @@ function Workspace({
       setError(error instanceof Error ? error.message : "Unable to open attachment");
     }
   }
+  async function removeComment(comment: PlainComment) {
+    const pageID = selectedNoteRef.current?.id;
+    const containerID = selectedRef.current?.id;
+    if (!pageID || !containerID || (comment.authorUserId !== auth.user.id && openRoleRef.current !== "owner" && openRoleRef.current !== "admin")) return;
+    if (!confirm("Delete this comment for everyone? This cannot be undone.")) return;
+    setBusy(true);
+    const current = () => selectedNoteRef.current?.id === pageID && selectedRef.current?.id === containerID;
+    try {
+      await deleteComment(comment.id);
+      if (current()) setCommentsForNote((items) => items.filter((item) => item.id !== comment.id));
+    } catch (error) {
+      if (current()) setError(error instanceof Error ? error.message : "Unable to delete comment");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function addComment() {
     if (!selectedNote || !selected || !commentText.trim() || readOnlyForKeys()) return;
     setBusy(true);
@@ -3297,10 +3316,15 @@ function Workspace({
                   <summary><span>Comments</span>{commentsForNote.length > 0 && <span className="page-panel-count">{commentsForNote.length}</span>}<NavIcon name="chevron" /></summary>
                   {commentsForNote.map((comment) => (
                     <div className="comment" key={comment.id}>
-                      <strong>
-                        {comment.username}
-                        {comment.section ? ` · § ${comment.section}` : ""}
-                      </strong>
+                      <div className="comment-head">
+                        <strong>{comment.username}{comment.section ? ` · § ${comment.section}` : ""}</strong>
+                        {(comment.authorUserId === auth.user.id || openRole === "owner" || openRole === "admin") && <>
+                          <button className="icon-button quiet menu-button" popoverTarget={`comment-menu-${comment.id}`} aria-label={`Comment options by ${comment.username}`} style={{ anchorName: `--comment-${comment.id}` }}><NavIcon name="more" /></button>
+                          <div className="section-menu anchored-menu" id={`comment-menu-${comment.id}`} popover="auto" style={{ positionAnchor: `--comment-${comment.id}` } as React.CSSProperties}>
+                            <button className="quiet danger" disabled={busy} onClick={() => { closeMenu(`comment-menu-${comment.id}`); void removeComment(comment); }}>Delete comment</button>
+                          </div>
+                        </>}
+                      </div>
                       <span>{comment.body}</span>
                     </div>
                   ))}

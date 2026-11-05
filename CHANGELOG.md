@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- New comments and share links preserve backup capacity: writes that exceed the server-wide database budget return 507 `storage_full`. Backups explains the 90% admission ceiling.
+- Comment authors and notebook owners/admins can delete comments from their row menu. Deletion is audited, releases quota and removes mentions; removing a member retains their comments.
+
 ## 0.6.0 — 2026-11-01
 
 ### Security

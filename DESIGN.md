@@ -442,6 +442,12 @@ of end-to-end encryption and is treated as best-effort revocation.
 Team roles are owner, admin, editor, commenter, and viewer. A member the server administrator added (`approved=0`) receives no envelope and is not required by rotation until a steward approves it; invitations admit approved members. It holds the `viewer` role meanwhile (`pending_role` keeps the role approval grants; migration `0027_pending_viewer.sql` triggers refuse any other pending state), so no write or delete reaches it either. The server
 enforces membership and operation authorization without decrypting content.
 
+Comment deletion is available to its author and the notebook's owners/admins, while they
+remain approved members of its live notebook and page. `DELETE /api/v1/comments/{id}` needs
+an everyday session and CSRF; application administrators receive no content authority.
+Deletion atomically clears ciphertext and mentions, keeps a tombstone for authorized retries,
+releases quota and records `comment.delete`. Removing a member retains their comments.
+
 ## 5. Storage architecture
 
 Use SQLite for metadata and an encrypted filesystem blob store for content.
@@ -456,6 +462,14 @@ restored table counts, keys and inventory and revokes restored sessions, paired 
 share links and pending invitations. Blob payloads
 (note-version and attachment ciphertext) require separate mirroring and restoration.
 A database-only restore does not establish that content is recoverable.
+
+Comments and share-link creation share a server-wide database admission budget (owner Q12).
+After each complete write, under the SQLite immediate transaction, allocated non-free pages
+must fit within 90% of `capsule.MaxExpandedBytes`; otherwise the whole write rolls back with
+507 `storage_full`. Both sealed and object-backed share links use this gate. The reserve
+leaves room for other records and capsule members; it does not replace the capsule's total
+expanded-byte check. Backups warns at 80% and explains the admission ceiling. Comment deletion
+releases its ciphertext immediately; revoked/expired share-link rows leave through GC.
 
 The blob store should be content-addressed by the encrypted blob digest. This
 supports deduplication, immutable versions, and garbage collection after

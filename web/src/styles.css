@@ -252,6 +252,7 @@ h2.pane-title { margin: 0; min-width: 0; overflow: hidden; color: var(--ink-stro
 .page-panel[open] { padding-bottom: 16px; }
 .page-panel-count { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--ink-strong); font-size: 12px; text-align: center; }
 .comment { display: grid; gap: 4px; margin: 6px 0; padding: 10px 12px; border-radius: var(--ky-control-radius); background: var(--accent-soft); color: var(--ink); max-width: 70ch; }
+.comment-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .comment strong { color: var(--ink-strong); font-size: 12px; }
 .comment-compose { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .comment-compose input { flex: 1; min-width: 0; min-height: var(--ky-control-size); padding: 8px 10px; border: 1px solid var(--ky-field-border); background: var(--panel); color: var(--ink-strong); font-size: var(--ky-type-nav); }
