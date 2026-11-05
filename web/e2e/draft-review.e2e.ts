@@ -3,6 +3,15 @@ import { expect, test, type Page } from "@playwright/test";
 import { adminConsole, OWNER, person, signIn, withDialog, openNotebooks } from "./people";
 
 const objectSave = (page: Page) => page.waitForResponse(r => r.request().method() === "PUT" && /\/api\/v1\/objects\/obj_/.test(r.url()) && r.ok());
+async function queued(page: Page, id: string): Promise<boolean> {
+  return page.evaluate(async id => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open("kynotes-web", 7); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+    try { return await new Promise<boolean>((resolve, reject) => {
+      const r = db.transaction("pending").objectStore("pending").getAll();
+      r.onsuccess = () => resolve(r.result.some((row: { id: string }) => row.id === id)); r.onerror = () => reject(r.error);
+    }); } finally { db.close(); }
+  }, id);
+}
 async function failLocalStore(page: Page) {
   await page.evaluate(() => Object.defineProperty(window, "indexedDB", { configurable: true, get() { throw new DOMException("Storage unavailable", "SecurityError"); } }));
 }
@@ -46,6 +55,9 @@ for (const kind of ["section", "group"] as const) {
       expect(sent).toHaveLength(2);
       expect(sent[1].body).toEqual(sent[0].body);
       expect(sent[1].key).toBe(sent[0].key);
+      // Response headers precede local settlement and its UI update. Finish
+      // that retry before opening a menu for the next distinct edit.
+      await expect.poll(() => queued(page, new URL(url).pathname.split("/").at(-1)!)).toBe(false);
       const changed = page.waitForResponse(r => r.url() === url && r.request().method() === "PUT");
       await rename(title, "Actually changed");
       expect((await changed).status()).toBe(200);
