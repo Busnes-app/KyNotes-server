@@ -946,7 +946,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - An actual unsent cache carries `unsent:true`. `recoverDraft` atomically queues that copy,
   including one older than the server, scoped to its account. An unmarked legacy cache is
-  marked only when a same-version plaintext comparison proves it differs from the server.
+  marked only when a same-version plaintext comparison proves it differs from the server,
+  including when an older pending/conflicted save exists. `localDraft` compares the actual
+  cache and re-reads after expected-copy recovery, examining a concurrent replacement afresh.
+  Drains read current writer membership once per notebook before sending; unknown or
+  read-only membership keeps drafts local without making an upload attempt.
   Older unmarked ordinary caches retain their existing cache behavior; never invent dirty
   provenance for them. Recovered unsent pages become dirty only after writer authority loads.
 - `prepareDraft` and the shared `prepareObjectDraft` reuse matching bound v2 edits for
@@ -969,4 +973,5 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   version retain the compatibility fallback; their historical version is not inferred.
 - Verify `TestSaveReplayReturnsTheVersionItCommitted`, `TestConcurrentSaveReplayMakesOneVersion`,
   storage draft settlement tests, `draft-regressions.test.ts`, `npm test`,
-  `web/e2e/draft-durability.e2e.ts` and `web/e2e/draft-review.e2e.ts`.
+  `web/e2e/draft-durability.e2e.ts`, `web/e2e/draft-review.e2e.ts` and
+  `web/e2e/draft-legacy-mixed.e2e.ts` and `web/e2e/draft-viewer.e2e.ts`.

@@ -358,7 +358,7 @@ describe("main.tsx key wiring", () => {
   it("uses ownCopyKeysFor only for entries this browser sealed itself", async () => {
     const own = [...main.matchAll(/ownCopyKeysFor\([^,]+, ([\w.!]+)\)/g)].map((match) => match[1]);
     expect(main.match(/ownCopyKeysFor\(/g)).toHaveLength(own.length);
-    expect(own).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
+    expect(own).toHaveLength(5); // actual legacy cache comparison, selected/fallback cache, another tab's draft, unsent edits
     expect(new Set(own)).toEqual(new Set(["cached!.keyGeneration", "cached.keyGeneration", "item.keyGeneration"]));
     // The cache holds only ciphertext this browser just sealed from its own edit, never a server read.
     const writes = main.match(/putNote\(auth\.user\.id,[^\n]+/g)!;

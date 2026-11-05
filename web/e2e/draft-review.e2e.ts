@@ -86,7 +86,8 @@ for (const failure of ["before-save", "after-conflict"] as const) {
   });
 }
 
-test("export reads another tab's unqueued unsent text without activating an upload", async ({ browser }) => {
+for (const mixed of [false, true]) {
+test(`export reads another tab's ${mixed ? "mixed legacy" : "unqueued unsent"} text without activating an upload`, async ({ browser }) => {
   const admin = await person(browser), owner = await person(browser), page = owner.page;
   let second: Page | undefined;
   try {
@@ -117,6 +118,17 @@ test("export reads another tab's unqueued unsent text without activating an uplo
       }); } finally { db.close(); }
     }, { id, remove });
     await queued(true);
+    if (mixed) await page.evaluate(async ({ id, payload }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open("kynotes-web", 7); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      try { await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(["notes", "pending"], "readwrite"), all = tx.objectStore("notes").getAll();
+        all.onsuccess = () => { for (const row of all.result) if (row.id === id) {
+          delete row.unsent; tx.objectStore("notes").put(row);
+          tx.objectStore("pending").put({ ...row, payload: new Uint8Array(payload), updatedAt: "", conflicted: true });
+        } };
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+      }); } finally { db.close(); }
+    }, { id, payload: Array.from(first.request().postDataBuffer()!) });
     let writes = 0;
     page.on("request", request => { if (request.url() === url && request.method() === "PUT") writes++; });
     const download = page.waitForEvent("download");
@@ -125,9 +137,11 @@ test("export reads another tab's unqueued unsent text without activating an uplo
     const file = await download, path = await file.path();
     if (!path) throw new Error("missing export");
     expect((await readFile(path)).includes(Buffer.from("Unqueued export draft"))).toBe(true);
-    expect.soft(await queued()).toBe(0);
+    expect.soft(await queued()).toBe(mixed ? 1 : 0);
     await page.waitForTimeout(16_000); // Cover an actual periodic drain after export.
     expect(writes).toBe(0);
-    expect(await queued()).toBe(0);
+    expect(await queued()).toBe(mixed ? 1 : 0);
   } finally { if (second && !second.isClosed()) await second.close(); await admin.page.context().close(); await page.context().close(); }
 });
+
+}

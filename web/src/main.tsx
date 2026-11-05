@@ -1,4 +1,4 @@
-import { prepareDraft, prepareObjectDraft, sameDraftContents } from "./drafts";
+import { prepareDraft, prepareObjectDraft, localDraft } from "./drafts";
 import { AdminConsole } from "./components/AdminConsole";
 import { Appearance, ThemeSwitcher } from "./components/Appearance";
 import { AppFrame, NavItem, usePhone } from "./components/AppNav";
@@ -130,7 +130,6 @@ import {
   pendingSaves,
   getQueuedSave,
   putDraft,
-  recoverDraft,
   settleDraft,
   sameDraft,
   clearQueuedSave,
@@ -1491,22 +1490,16 @@ function Workspace({
       const result = await changes(container.id, since);
       for (const change of result.changes.filter((entry) => entry.kind === "object" && !entry.deleted)) {
         try {
-          const pending = await (mode === "recover" ? recoverDraft(auth.user.id, change.id) : getQueuedSave(auth.user.id, change.id));
           const object = await readObject(change.id);
-          const draft = pending && !pending.gone && !pending.previousKey ? pending : undefined;
-          const local = await getNote(auth.user.id, change.id);
-          const cached = local?.unsent && (!draft || local.updatedAt >= draft.updatedAt) ? local : draft ?? local;
-          const useCache = Boolean(cached && (cached.unsent || cached === draft || cached.version >= object.version));
           const server = (allowV1: boolean) => openFirst(readKeysFor(container, object.keyGeneration), (key) => openObject(key, container.id, change.id, object.bytes, allowV1));
+          const cached = await localDraft({ owner: auth.user.id, id: change.id, version: object.version, mode,
+            open: (cached) => openFirst(ownCopyKeysFor(container, cached.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached.payload, true)),
+            server: () => server(v1).then((opened) => opened.payload),
+          });
+          const useCache = Boolean(cached);
           const payload = useCache
             ? await openFirst(ownCopyKeysFor(container, cached!.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached!.payload, true))
             : await server(v1).then((opened) => { if (opened.v1) legacy.add(change.id); return opened.payload; });
-          // A legacy cache at this exact server version is provably unsent only when
-          // its complete page payload differs. Never infer this for an older ordinary cache.
-          if (!draft && cached && cached.version===object.version && payload?.type==="page") {
-            const remote=await server(v1);
-            if(mode === "recover" && remote.payload?.type==="page" && !sameDraftContents(payload,remote.payload)) await recoverDraft(auth.user.id,change.id,cached);
-          }
           // The server copy's format still decides migration.
           if (useCache && (await server(false).then(() => false, () => true))) legacy.add(change.id);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
@@ -2066,7 +2059,7 @@ function Workspace({
       let remaining = false;
       let attention = false;
       // One key pass per container per drain.
-      const synced = new Map<string, Promise<Container>>();
+      const synced = new Map<string, Promise<Container | undefined>>();
       for (const queuedItem of queued) {
         // gone: its page was deleted elsewhere; listed under Unsent edits, never sent, and never "saved".
         if (queuedItem.gone || queuedItem.conflicted || sameDraft(heldConflicts.current.get(queuedItem.id), queuedItem)) { attention = true; continue; }
@@ -2139,10 +2132,16 @@ function Workspace({
    * this tab's floor), re-sealed for the current write key if needed; undefined keeps it queued.
    * Waiting edits are sealed with the identity's waiting key.
    */
-  async function sendable(item: PendingSave, synced: Map<string, Promise<Container>>): Promise<{ item: PendingSave; container: Container } | undefined> {
+  async function sendable(item: PendingSave, synced: Map<string, Promise<Container | undefined>>): Promise<{ item: PendingSave; container: Container } | undefined> {
     // One background key pass per container per drain; it never opens a dialog.
-    if (!synced.has(item.containerID)) synced.set(item.containerID, currentContainer(item.containerID).then((found) => syncKeys(found, true)));
+    if (!synced.has(item.containerID)) synced.set(item.containerID, currentContainer(item.containerID).then(async (found) => {
+      // A recovered cache is not writer authority. Unknown/read-only membership
+      // leaves the draft local; a later promotion can make it sendable again.
+      const role = (await members(found.id)).find((member) => member.userId === auth.user.id)?.role;
+      return role && writer(role) ? syncKeys(found, true) : undefined;
+    }));
     const container = await synced.get(item.containerID)!;
+    if (!container) return undefined;
     adoptGenerations(container);
     const ready = await readyToSend(item, container, floorFor(container), writeKeyFor(container), ringsRef.current[container.id] ?? noKeys, waitingRef.current);
     if (!ready) return undefined;

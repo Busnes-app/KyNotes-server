@@ -1,6 +1,6 @@
 import { encryptNote, openObject } from "./crypto";
 import { notePayload } from "./notes";
-import { getQueuedSave, getNote, type PendingSave } from "./storage";
+import { getQueuedSave, getNote, recoverDraft, sameDraft, type CachedNote, type PendingSave } from "./storage";
 import type { Note } from "./api";
 import type { WriteKey } from "./keyring";
 import type { ObjectPayload, PagePayload } from "./pages";
@@ -26,4 +26,31 @@ export async function prepareObjectDraft({ owner, containerID, id, version, cont
     if (opened?.payload && !opened.v1 && contents(opened.payload) === contents(content)) return previous;
   }
   return { owner, id, containerID, version, keyGeneration: write.generation, payload: await encryptNote(write.key, containerID, id, content), updatedAt: new Date().toISOString() };
+}
+
+/** Choose local text independently of an older queue entry. Export performs no recovery writes. */
+export async function localDraft({ owner, id, version, mode, open, server }: {
+  owner: string; id: string; version: number; mode: "recover" | "read";
+  open: (copy: CachedNote) => Promise<ObjectPayload | undefined>;
+  server: () => Promise<ObjectPayload | undefined>;
+}): Promise<CachedNote | undefined> {
+  let pending = await (mode === "recover" ? recoverDraft(owner, id) : getQueuedSave(owner, id));
+  let local = await getNote(owner, id);
+  // An exact-version full comparison is evidence of a legacy unsent edit, even
+  // with an older pending/conflicted save. Older ordinary caches remain caches.
+  while (local && !local.unsent && local.version === version && !pending?.gone && !pending?.previousKey &&
+    (!pending || local.updatedAt >= pending.updatedAt)) {
+    const payload = await open(local), remote = await server();
+    if (payload?.type !== "page" || remote?.type !== "page" || sameDraftContents(payload, remote)) break;
+    if (mode === "read") return local;
+    const expected = local;
+    pending = await recoverDraft(owner, id, expected);
+    local = await getNote(owner, id);
+    // A replacement during comparison is examined afresh, never rendered from
+    // the stale snapshot or marked on the strength of another copy's plaintext.
+    if (sameDraft(local, expected)) break;
+  }
+  const draft = pending && !pending.gone && !pending.previousKey ? pending : undefined;
+  const cached = local?.unsent && (!draft || local.updatedAt >= draft.updatedAt) ? local : draft ?? local;
+  return cached && (cached.unsent || cached === draft || cached.version >= version) ? cached : undefined;
 }

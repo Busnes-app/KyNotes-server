@@ -756,8 +756,12 @@ for freshness, expiry, cancellation, restart and live-acceptance limits.
 
 Actual unsent caches are marked and queued atomically on recovery, even if another writer
 advanced the server version. Ordinary older unmarked caches are retained as caches; only a
-same-version plaintext mismatch proves an old unmarked copy is unsent. Recovered pages stay
-local/attention until acknowledged and become dirty after writer authority loads. A stable
+same-version plaintext mismatch proves an old unmarked copy is unsent. An older pending
+or conflicted save does not suppress that comparison. Recovery compares the exact cache
+copy and re-examines a replacement before choosing its displayed winner. Recovered pages stay
+local/attention until acknowledged and become dirty after writer authority loads. Drains
+require current writer membership before upload; read-only or unknown membership leaves
+the draft local for a later permission change. A stable
 sealed edit produces a stable object/base/generation/ciphertext-digest idempotency key.
 Settlement compares the exact payload, generation, version and timestamp before changing
 this account's cache or queue; a newer tab's copy is preserved. Server-held conflicts stay

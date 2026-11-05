@@ -140,7 +140,7 @@ export async function recoverDraft(owner: string, id: string, expectedLegacy?: C
    const cached = tx.objectStore(storeName).get([owner,id]);
    cached.onsuccess = guarded(tx, () => {
     let draft: (CachedNote & {owner:string}) | undefined = cached.result;
-    if (draft && expectedLegacy && sameDraft(draft,expectedLegacy)) {
+    if (draft && expectedLegacy && !result?.gone && !result?.previousKey && sameDraft(draft,expectedLegacy)) {
       draft={...draft,unsent:true};tx.objectStore(storeName).put(draft);
     }
     if (!draft?.unsent || result?.gone || result?.previousKey) return;
