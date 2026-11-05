@@ -1,9 +1,14 @@
 package httpapi
 
 import (
+	"crypto/rand"
+	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestDeletedNotebookRefusesContentKeysAndInvitations(t *testing.T) {
@@ -71,5 +76,91 @@ func TestNewPageRacingNotebookDeletionIsRefused(t *testing.T) {
 	var objects int
 	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM objects WHERE container_id=?`, tm.id).Scan(&objects); err != nil || objects != 0 {
 		t.Fatalf("objects=%d %v", objects, err)
+	}
+}
+
+// No parallel tests: the reader pauses only the second 16-byte read, the child ID
+// minted after the real router's request ID and successful parent precheck.
+// Subsequent reads (including the actual DELETE's request/audit IDs) keep working.
+type childMintPause struct {
+	io.Reader
+	reads           atomic.Int32
+	reached, resume chan struct{}
+}
+
+func (p *childMintPause) Read(b []byte) (int, error) {
+	if len(b) == 16 && p.reads.Add(1) == 2 {
+		close(p.reached)
+		<-p.resume
+	}
+	return p.Reader.Read(b)
+}
+
+func TestChildCreationRacingParentDeletionIsRefused(t *testing.T) {
+	tm := newTeam(t)
+	original := rand.Reader
+	pause := &childMintPause{Reader: original, reached: make(chan struct{}), resume: make(chan struct{})}
+	rand.Reader = pause
+	var release sync.Once
+	done := make(chan struct{})
+	var code int
+	var err error
+	defer func() {
+		release.Do(func() { close(pause.resume) })
+		<-done
+		rand.Reader = original
+	}()
+	go func() {
+		defer close(done)
+		code, err = tm.admin.send(http.MethodPost, "/api/v1/containers", []byte(`{"kind":"workbook","teamId":"`+tm.id+`"}`))
+	}()
+	select {
+	case <-pause.reached:
+	case <-done:
+		t.Fatalf("child returned before pause: %d %v", code, err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("child did not reach the ID mint after parent precheck")
+	}
+	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id, nil, true, false)); code != 204 {
+		t.Fatalf("parent delete=%d %s", code, out)
+	}
+	release.Do(func() { close(pause.resume) })
+	<-done
+	if err != nil || code != 404 {
+		t.Errorf("late child creation=%d %v, want 404", code, err)
+	}
+	var live int
+	if err := tm.owner.db.QueryRow(`SELECT COUNT(*) FROM containers WHERE team_id=? AND deleted_at=''`, tm.id).Scan(&live); err != nil || live != 0 {
+		t.Fatalf("live children after parent deletion=%d %v", live, err)
+	}
+}
+
+func TestHistoricalOrphanRefusesObjectsAndInvitations(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	outsider := p.addUser(t, "orphan-invitee")
+	for _, parentState := range []string{"deleted", "missing"} {
+		t.Run(parentState, func(t *testing.T) {
+			parent := mint(t, "cnt")
+			if parentState == "deleted" {
+				parent = seedContainer(t, p, "team", "", map[string]string{pairUser: "owner"})
+				if code, out := status(t, p.do(t, http.MethodDelete, "/api/v1/containers/"+parent, nil, true, false)); code != 204 {
+					t.Fatalf("parent delete=%d %s", code, out)
+				}
+			}
+			// Represent a child left by the historical precheck/insert race.
+			child := seedContainer(t, p, "workbook", parent, map[string]string{pairUser: "owner"})
+			for _, kind := range []string{"note", "folder"} {
+				if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/containers/"+child+"/objects", []byte(`{"kind":"`+kind+`"}`), true, false)); code != 404 {
+					t.Errorf("orphan %s=%d %s", kind, code, out)
+				}
+			}
+			if code, out := status(t, p.do(t, http.MethodPost, "/api/v1/containers/"+child+"/invitations", []byte(`{"inviteeID":"`+outsider.id+`","role":"viewer"}`), true, false)); code != 404 {
+				t.Errorf("orphan invitation=%d %s", code, out)
+			}
+			var stored int
+			if err := p.db.QueryRow(`SELECT (SELECT COUNT(*) FROM objects WHERE container_id=?)+(SELECT COUNT(*) FROM invitations WHERE container_id=?)`, child, child).Scan(&stored); err != nil || stored != 0 {
+				t.Errorf("orphan mutations=%d %v", stored, err)
+			}
+		})
 	}
 }

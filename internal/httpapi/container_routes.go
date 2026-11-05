@@ -84,6 +84,18 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 		mem, _ := ids.Mint("mem")
 		now := time.Now().UTC().Format(time.RFC3339)
 		e := dbTx(db, func(tx *sql.Tx) error {
+			// The outer check precedes ID minting; deletion or steward removal
+			// may have committed since then. Admission and membership copying
+			// must observe the parent under the same writer lock.
+			if in.TeamID != "" {
+				role, _, err := memberTx(tx, in.TeamID, s.UserID)
+				if err != nil {
+					return err
+				}
+				if !isSteward(role) {
+					return errInsufficientRole
+				}
+			}
 			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, []byte{}, 0, now, now); e != nil {
 				return e
 			}
@@ -97,8 +109,7 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 			_, err := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, mem, id, s.UserID, "owner", now)
 			return err
 		})
-		if e != nil {
-			WriteError(w, r, 500, "internal", "internal server error")
+		if writeTeamKeyError(w, r, e) {
 			return
 		}
 		recordAudit(db, s.UserID, "container.create", id, "", r.Header.Get("X-Request-Id"))

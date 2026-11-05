@@ -947,6 +947,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 Empty object creation and invitations recheck the live container and the caller's current
 writer/steward role inside their immediate transaction (`memberTx`). A notebook deleted
 before that transaction, including deletion during body admission, takes no new page,
-section/group object or invitation. Existing content, name and key gates remain in force.
+section/group object or invitation. Child creation also rechecks the live parent's
+steward role in that transaction before inserting or copying memberships. `memberTx`
+refuses historical children whose parent is absent or deleted. Existing content, name
+and key gates remain in force.
 Verify `TestDeletedNotebookRefusesContentKeysAndInvitations`,
-`TestInvitationRacingNotebookDeletionIsRefused` and `TestNewPageRacingNotebookDeletionIsRefused`.
+`TestInvitationRacingNotebookDeletionIsRefused`, `TestNewPageRacingNotebookDeletionIsRefused`,
+`TestChildCreationRacingParentDeletionIsRefused` and
+`TestHistoricalOrphanRefusesObjectsAndInvitations`.
