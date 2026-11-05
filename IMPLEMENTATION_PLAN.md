@@ -2075,3 +2075,11 @@ transaction clear body ciphertext and mentions, set deleted_at, advance the note
 change_seq and audit `comment.delete`; quota releases immediately. A retry adds no audit.
 The browser's comment menu confirms the irreversible action and leaves the current page
 alone if selection changed during deletion. Membership removal never deletes comments.
+## Save replay response version correction
+
+Migration `0030_save_replay_version.sql` adds `idempotency_keys.object_version` (integer,
+not null, default0 for older keys). New success/conflict records store the version they
+committed/observed. Lookup is repeated under the immediate transaction before quota or new
+version/conflict insertion. Replay returns the stored version, with the prior fallback only
+for older0 records. Browser keys bind object/base/generation/ciphertext digest, reusing one
+persisted sealed edit. No content sealing format changes.

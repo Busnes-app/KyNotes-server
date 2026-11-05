@@ -361,9 +361,12 @@ describe("main.tsx key wiring", () => {
     expect(own).toHaveLength(4); // the cache (fresh and fallback), another tab's draft, unsent edits
     expect(new Set(own)).toEqual(new Set(["cached!.keyGeneration", "cached.keyGeneration", "item.keyGeneration"]));
     // The cache holds only ciphertext this browser just sealed from its own edit, never a server read.
-    const writes = main.match(/putNote\([^]*?\}\)/g)!;
-    expect(writes).toHaveLength(3);
-    for (const write of writes) expect(write).toMatch(/payload: (?:encrypted|await encryptNote\(write\.key)/);
+    const writes = main.match(/putNote\(auth\.user\.id,[^\n]+/g)!;
+    expect(writes).toHaveLength(2);
+    for (const write of writes) expect(write).toMatch(/payload: encrypted|\.\.\.item, unsent: true/);
+    expect(main).toContain("prepared = await prepareDraft({owner:auth.user.id, containerID:selected.id, note, write});");
+    const drafts = import.meta.glob<string>("./drafts.ts", { query: "?raw", import: "default", eager: true })["./drafts.ts"];
+    expect(drafts).toContain("await encryptNote(write.key, containerID, note.id, payload)");
   });
 });
 

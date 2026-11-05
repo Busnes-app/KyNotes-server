@@ -233,7 +233,7 @@ describe("hostile-review pass 2 wiring", () => {
   });
 
   it("never reports a drain with a gone edit as saved", () => {
-    expect(main).toContain("if (queuedItem.gone) { attention = true; continue; }");
+    expect(main).toContain("if (queuedItem.gone || queuedItem.conflicted) { attention = true; continue; }");
   });
 
   it("refuses page and section writes for a role that cannot make them", () => {

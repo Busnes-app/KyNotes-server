@@ -79,6 +79,10 @@ downloaded by a member before revocation.
 - **Fail-safe defaults.** Forwarded headers are ignored unless the proxy is trusted. Push
   endpoints outside the known services are refused. Conflicts fail closed and keep the rejected
   ciphertext ([CONTRIBUTING.md](../CONTRIBUTING.md#security-requirements)).
+- **Durable draft acknowledgment.** An unsent local copy is marked, account-scoped and
+  recovered before being reported as saved. Settlement compares exact payloads; stable
+  sealed retries and transactional idempotency acknowledge the originally committed
+  version (`TestConcurrentSaveReplayMakesOneVersion`, `draft-durability.e2e.ts`).
 - **Complete mediation.** Every request resolves its session from the database
   (`ResolveSession`), so a revoked session or deactivated account stops at the next request.
 - **Economy of mechanism.** Seven direct Go modules (`go.mod`); WebCrypto in the browser.

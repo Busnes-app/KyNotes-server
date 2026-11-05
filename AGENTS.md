@@ -941,3 +941,23 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 `docs/ASSURANCE-CASE.md` and `docs/VERIFYING-RELEASES.md` make claims about the code and the release workflow; a change that moves a trust boundary, a security requirement, the image build or its attestation identity updates them in the same change.
 
 `INSTALL.md` is the root-owned standalone entry point. When installation prerequisites, bootstrap, persistence or verification change, update it together with `README.md` and the linked operator guides.
+
+## Durable drafts and exact save replay
+
+- An actual unsent cache carries `unsent:true`. `recoverDraft` atomically queues that copy,
+  including one older than the server, scoped to its account. An unmarked legacy cache is
+  marked only when a same-version plaintext comparison proves it differs from the server.
+  Older unmarked ordinary caches retain their existing cache behavior; never invent dirty
+  provenance for them. Recovered unsent pages become dirty only after writer authority loads.
+- `prepareDraft` reuses a matching sealed queued edit. `saveObject` binds its idempotency key
+  to object/base/generation/ciphertext digest. A success settles exactly that cache/queue
+  payload and timestamp; another tab's newer bytes survive even at equal timestamps.
+  Local settlement failure never turns a confirmed server save into a failed save.
+- Server-held conflicting entries carry `conflicted:true` and are not repeatedly drained.
+  A later edit is marked unsent; successful conflict-copy recovery removes only the exact
+  server-held local copy it processed, preserving newer drafts.
+- Save replay stores the committed response version (`0030_save_replay_version.sql`) and
+  rechecks the key inside the immediate write transaction. Legacy keys with no stored
+  version retain the compatibility fallback; their historical version is not inferred.
+- Verify `TestSaveReplayReturnsTheVersionItCommitted`, `TestConcurrentSaveReplayMakesOneVersion`,
+  storage draft settlement tests, `npm test` and `web/e2e/draft-durability.e2e.ts`.

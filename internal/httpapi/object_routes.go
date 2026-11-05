@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -41,7 +42,7 @@ func commitReceipt(objectID, digest string, version, bytes, generation, baseVers
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
-func currentCommitReceipt(db *sql.DB, objectID string, version int64) string {
+func currentCommitReceipt(db rowQuerier, objectID string, version int64) string {
 	var digest string
 	var bytes, generation, baseVersion, changeSeq int64
 	if db.QueryRow(`SELECT v.blob_digest,v.ciphertext_bytes,v.key_generation,v.base_version,v.change_seq FROM object_versions v WHERE v.object_id=? AND v.version=?`, objectID, version).Scan(&digest, &bytes, &generation, &baseVersion, &changeSeq) != nil {
@@ -255,17 +256,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		if idemKey != "" {
 			sum := sha256.Sum256([]byte(s.UserID + "\x00" + "PUT /api/v1/objects/{id}" + "\x00" + idemKey))
 			idemHash = hex.EncodeToString(sum[:])
-			var oldStatus int
-			var resource string
-			if e := db.QueryRow(`SELECT status_code,response_id FROM idempotency_keys WHERE key=?`, idemHash).Scan(&oldStatus, &resource); e == nil {
-				if oldStatus == 409 {
-					w.WriteHeader(409)
-					writeJSON(w, map[string]any{"error": map[string]any{"code": "version_conflict", "message": "base version is stale", "requestId": RequestID(r)}, "conflictId": resource})
-					return
-				}
-				var v int64
-				_ = db.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&v)
-				writeJSON(w, map[string]any{"version": v, "resourceId": resource, "commitReceipt": currentCommitReceipt(db, oid, v)})
+			if replayObjectSave(w, r, db, oid, idemHash) {
 				return
 			}
 		}
@@ -350,6 +341,12 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			writeTeamKeyError(w, r, e)
 			return
 		}
+		// Another tab may have committed this exact edit while both bodies streamed.
+		// Replay before charging quota or making another version/conflict.
+		if idemHash != "" && replayObjectSave(w, r, tx, oid, idemHash) {
+			refuse()
+			return
+		}
 		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
 			refuse()
 			if err != nil {
@@ -378,7 +375,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 				_, e = tx.Exec(`INSERT INTO conflicts(id,object_id,container_id,base_version,current_version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, cidID, oid, cid, base, live, digest, size, generation, changeSeq, now)
 			}
 			if e == nil && idemHash != "" {
-				_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at) VALUES(?,?,?,?)`, idemHash, cidID, 409, now)
+				_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at,object_version) VALUES(?,?,?,?,?)`, idemHash, cidID, 409, now, live)
 			}
 			if e != nil {
 				_ = tx.Rollback()
@@ -403,7 +400,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			_, e = tx.Exec(`UPDATE objects SET current_version=?,change_seq=?,routing_ciphertext=?,updated_at=? WHERE id=?`, next, changeSeq, routing, now, oid)
 		}
 		if e == nil && idemHash != "" {
-			_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at) VALUES(?,?,?,?)`, idemHash, oid, 200, now)
+			_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at,object_version) VALUES(?,?,?,?,?)`, idemHash, oid, 200, now, next)
 		}
 		if e != nil {
 			_ = tx.Rollback()
@@ -442,4 +439,34 @@ func claimBlob(tx *sql.Tx, blobs *blobstore.Store, digest, cid string, size int6
 		e = os.ErrNotExist
 	}
 	return e
+}
+
+// replayObjectSave returns whether a response was sent (including an unreadable-key error).
+// Call it under the write transaction too: two drains can pass the initial lookup together.
+func replayObjectSave(w http.ResponseWriter, r *http.Request, q rowQuerier, oid, key string) bool {
+	var status int
+	var resource string
+	var version int64
+	err := q.QueryRow(`SELECT status_code,response_id,object_version FROM idempotency_keys WHERE key=?`, key).Scan(&status, &resource, &version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	if err != nil {
+		WriteError(w, r, 500, "internal", "internal server error")
+		return true
+	}
+	if status == 409 {
+		w.WriteHeader(409)
+		writeJSON(w, map[string]any{"error": map[string]any{"code": "version_conflict", "message": "base version is stale", "requestId": RequestID(r)}, "conflictId": resource, "currentVersion": version})
+		return true
+	}
+	// Legacy keys predate stored response versions. Do not invent historical provenance.
+	if version == 0 {
+		if err := q.QueryRow(`SELECT current_version FROM objects WHERE id=?`, oid).Scan(&version); err != nil {
+			WriteError(w, r, 500, "internal", "internal server error")
+			return true
+		}
+	}
+	writeJSON(w, map[string]any{"version": version, "resourceId": resource, "commitReceipt": currentCommitReceipt(q, oid, version)})
+	return true
 }

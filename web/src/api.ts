@@ -1,3 +1,4 @@
+import { digestSha256Hex } from "./crypto";
 import { confirmSSOAction } from "./reauth";
 import type { IdentityAPI, IdentityRecord, IdentityUpload, PublicIdentity } from "./identity";
 import type { Envelope, InvitationEnvelope, Member } from "./keyring";
@@ -247,7 +248,7 @@ export async function saveObject(objectID: string, bytes: Uint8Array, baseVersio
       "Content-Type": "application/octet-stream",
       "X-Kynotes-Base-Version": String(baseVersion),
       "X-Kynotes-Key-Generation": String(keyGeneration),
-      "Idempotency-Key": crypto.randomUUID(),
+      "Idempotency-Key": `${objectID}:${baseVersion}:${keyGeneration}:${await digestSha256Hex(bytes)}`,
     },
   });
 }

@@ -751,3 +751,18 @@ the existing password proof window. Other admin routes retain existing guards.
 The browser retains the request only in memory while a separate sign-in window
 completes the proof. See [SSO authorization](docs/SSO.md#fresh-authorization-for-backup-and-recovery-actions)
 for freshness, expiry, cancellation, restart and live-acceptance limits.
+
+### Durable local draft recovery and idempotent responses
+
+Actual unsent caches are marked and queued atomically on recovery, even if another writer
+advanced the server version. Ordinary older unmarked caches are retained as caches; only a
+same-version plaintext mismatch proves an old unmarked copy is unsent. Recovered pages stay
+local/attention until acknowledged and become dirty after writer authority loads. A stable
+sealed edit produces a stable object/base/generation/ciphertext-digest idempotency key.
+Settlement compares the exact payload, generation, version and timestamp before changing
+this account's cache or queue; a newer tab's copy is preserved. Server-held conflicts stay
+marked and are not repeatedly sent; newer edits survive reload and conflict recovery.
+
+The server records the version each new idempotency key committed and rechecks replay inside
+the immediate writer transaction. Replays acknowledge that version, including after a later
+writer advanced the page. Old keys lack that provenance and keep the legacy fallback.

@@ -6,13 +6,13 @@ import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
 const storeName = "notes";
 
-export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number };
+export type CachedNote = { id: string; containerID: string; version: number; payload: Uint8Array; updatedAt: string; keyGeneration?: number; unsent?: true };
 /**
  * owner: the user ID that queued it. The cache and queue are keyed by [owner, id], so one account never
  * reads or replaces another's. previousKey: waiting under the key a reset replaced; never sent (M5).
  * gone: the server no longer has its page (deleted elsewhere); never sent, listed under Unsent edits.
  */
-export type PendingSave = CachedNote & { owner: string; previousKey?: true; gone?: true };
+export type PendingSave = CachedNote & { owner: string; previousKey?: true; gone?: true; conflicted?: true };
 /** owner: the user ID that started it; only that account lists, resumes, re-seals or clears it. */
 export type PendingUpload = { uploadId: string; owner: string; containerID: string; objectID: string; objectVersion: number; keyGeneration: number; chunkBytes: number; nextChunk: number; payload: Uint8Array; metadataCiphertext: string; name: string; type: string; size: number };
 
@@ -102,6 +102,82 @@ export async function queueSave(note: PendingSave): Promise<void> {
   await write("pending", (store) => store.put(note));
 }
 
+/** Keep the cache and its unsent edit in one transaction: a persisted draft is always drainable. */
+export async function putDraft(note: PendingSave): Promise<void> {
+ const db = await openDatabase();
+ try {
+  const tx = db.transaction([storeName, "pending"], "readwrite");
+  const done = committed(tx, () => undefined);
+  guarded(tx, () => { tx.objectStore(storeName).put({...note,unsent:true}); tx.objectStore("pending").put(note); })();
+  await done;
+ } finally { db.close(); }
+}
+
+export async function getQueuedSave(owner: string, id: string): Promise<PendingSave | undefined> {
+ const db = await openDatabase();
+ try {
+  return await new Promise<PendingSave | undefined>((resolve, reject) => {
+   const read = db.transaction("pending").objectStore("pending").get([owner, id]);
+   read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error);
+  });
+ } finally { db.close(); }
+}
+
+/** Recover only marked unsent drafts, including a draft older than the current server version.
+ * Ordinary old caches stay caches. Read and queue atomically so another tab's newer copy wins.
+ */
+// expectedLegacy is supplied only when a same-version plaintext comparison proves
+// an old unmarked cache differs from the server; older ordinary caches stay untouched.
+export async function recoverDraft(owner: string, id: string, expectedLegacy?: CachedNote): Promise<PendingSave | undefined> {
+ const db = await openDatabase();
+ try {
+  const tx = db.transaction([storeName, "pending"], "readwrite");
+  let result: PendingSave | undefined;
+  const done = committed(tx, () => result);
+  const queued = tx.objectStore("pending").get([owner,id]);
+  queued.onsuccess = guarded(tx, () => {
+   result = queued.result;
+   const cached = tx.objectStore(storeName).get([owner,id]);
+   cached.onsuccess = guarded(tx, () => {
+    let draft: (CachedNote & {owner:string}) | undefined = cached.result;
+    if (draft && expectedLegacy && sameDraft(draft,expectedLegacy)) {
+      draft={...draft,unsent:true};tx.objectStore(storeName).put(draft);
+    }
+    if (!draft?.unsent || result?.gone || result?.previousKey) return;
+    if (result && result.updatedAt > draft.updatedAt) return;
+    if (result && sameBytes(result.payload,draft.payload)) return;
+    result = {...draft,owner};
+    tx.objectStore("pending").put(result);
+   });
+  });
+  return await done;
+ } finally { db.close(); }
+}
+
+const sameDraft = (current: CachedNote | undefined, expected: CachedNote) => Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration && sameBytes(current.payload, expected.payload));
+
+/** Settle exactly this edit, preserving another tab's newer draft even at the same timestamp.
+ * A committed version acknowledges the cache; a recovered conflict deletes its obsolete cache.
+ */
+export async function settleDraft(expected: PendingSave, version?: number): Promise<void> {
+ const db = await openDatabase();
+ try {
+  const tx = db.transaction([storeName,"pending"],"readwrite");
+  const done = committed(tx,()=>undefined);
+  const key=[expected.owner,expected.id];
+  const queued=tx.objectStore("pending").get(key);
+  queued.onsuccess=guarded(tx,()=>{if(sameDraft(queued.result,expected)) tx.objectStore("pending").delete(key);});
+  const cached=tx.objectStore(storeName).get(key);
+  cached.onsuccess=guarded(tx,()=>{
+   const current: (CachedNote & {owner:string}) | undefined = cached.result;
+   if(!current || !sameDraft(current,expected)) return;
+   if(version===undefined) tx.objectStore(storeName).delete(key);
+   else {const {unsent:_,...kept}=current;tx.objectStore(storeName).put({...kept,version});}
+  });
+  await done;
+ } finally {db.close();}
+}
+
 /** Every account's queued saves. */
 export async function pendingSaves(): Promise<PendingSave[]> {
   const db = await openDatabase();
@@ -135,7 +211,7 @@ export async function replaceQueuedSave(expected: PendingSave, next?: PendingSav
     const read = store.get(key);
     read.onsuccess = guarded(store.transaction, () => {
       const current = read.result as PendingSave | undefined;
-      same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration);
+      same = Boolean(current && current.updatedAt === expected.updatedAt && current.version === expected.version && current.keyGeneration === expected.keyGeneration && sameBytes(current.payload, expected.payload));
       if (!same) return;
       if (next) store.put({ ...next, owner: expected.owner, id: expected.id });
       else store.delete(key);

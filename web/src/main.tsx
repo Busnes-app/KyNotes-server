@@ -1,3 +1,4 @@
+import { prepareDraft, sameDraftContents } from "./drafts";
 import { AdminConsole } from "./components/AdminConsole";
 import { Appearance, ThemeSwitcher } from "./components/Appearance";
 import { AppFrame, NavItem, usePhone } from "./components/AppNav";
@@ -128,6 +129,10 @@ import {
   vaultReady,
   clearUpload,
   pendingSaves,
+  getQueuedSave,
+  putDraft,
+  recoverDraft,
+  settleDraft,
   pendingUploads,
   putNote,
   putUpload,
@@ -1484,13 +1489,21 @@ function Workspace({
       const result = await changes(container.id, since);
       for (const change of result.changes.filter((entry) => entry.kind === "object" && !entry.deleted)) {
         try {
+          const pending = await recoverDraft(auth.user.id, change.id);
           const object = await readObject(change.id);
-          const cached = await getNote(auth.user.id, change.id);
-          const useCache = Boolean(cached && cached.version >= object.version);
+          const draft = pending && !pending.gone && !pending.previousKey ? pending : undefined;
+          const cached = draft ?? await getNote(auth.user.id, change.id);
+          const useCache = Boolean(cached && (draft || cached.version >= object.version));
           const server = (allowV1: boolean) => openFirst(readKeysFor(container, object.keyGeneration), (key) => openObject(key, container.id, change.id, object.bytes, allowV1));
           const payload = useCache
             ? await openFirst(ownCopyKeysFor(container, cached!.keyGeneration), (key) => decryptObject(key, container.id, change.id, cached!.payload, true))
             : await server(v1).then((opened) => { if (opened.v1) legacy.add(change.id); return opened.payload; });
+          // A legacy cache at this exact server version is provably unsent only when
+          // its complete page payload differs. Never infer this for an older ordinary cache.
+          if (!draft && cached && cached.version===object.version && payload?.type==="page") {
+            const remote=await server(v1);
+            if(remote.payload?.type==="page" && !sameDraftContents(payload,remote.payload)) await recoverDraft(auth.user.id,change.id,cached);
+          }
           // The server copy's format still decides migration.
           if (useCache && (await server(false).then(() => false, () => true))) legacy.add(change.id);
           add(change.id, payload, useCache ? cached!.version : object.version, useCache ? cached!.updatedAt : object.savedAt);
@@ -1592,6 +1605,11 @@ function Workspace({
       const role = container.kind === "team" || container.teamId ? own?.find((member) => member.userId === auth.user.id)?.role ?? "unknown" : "owner";
       if (!superseded()) setOpenRole(role);
       if (!superseded() && role === "unknown") setError(ROLE_UNKNOWN);
+      if (!superseded() && writer(role)) {
+        const open=selectedNoteRef.current;
+        const pending=open ? await getQueuedSave(auth.user.id,open.id).catch(()=>undefined) : undefined;
+        if(!superseded() && open && selectedNoteRef.current?.id===open.id && pending && !pending.gone && !pending.previousKey && !pending.conflicted) markDirty(true);
+      }
       if (!superseded() && (role === "owner" || role === "admin" || role === "editor")) {
         const kinds = [...loaded.map((note) => ({ id: note.id, type: "page" as const, legacy: note.legacy })), ...loadedSections.map(({ id }) => ({ id, type: "section" as const })), ...objects.groups.map(({ id }) => ({ id, type: "group" as const }))];
         migrationDue.current = { containerID: keyed.id, unreadable: objects.unreadable, objects: kinds.map((object) => ({ ...object, v1: objects.legacy.has(object.id) })) };
@@ -1655,6 +1673,11 @@ function Workspace({
     if (previous?.id !== note.id) {
       markDirty(false);
       setLastSavedAt(note.version > 0 ? note.updatedAt : "");
+      const pending = await getQueuedSave(auth.user.id, note.id).catch(() => undefined);
+      if (pending && selectedNoteRef.current?.id === note.id) {
+        setSyncStatus(pending.conflicted || pending.gone ? "attention" : "local");
+        setLastSavedAt("");
+      }
     }
     // A later selection or notebook switch owns the panels below.
     const current = () => selectedNoteRef.current?.id === note.id;
@@ -1919,10 +1942,15 @@ function Workspace({
     if (!automatic) setBusy(true);
     try {
       const write = localKeyFor(selected) ?? notSaved();
-      const encrypted = await encryptNote(write.key, selected.id, note.id, notePayload(note));
-      const savedAt = new Date().toISOString();
+      let prepared: PendingSave | undefined;
+      const uncached = await cacheMiss(async () => {
+        prepared = await prepareDraft({owner:auth.user.id, containerID:selected.id, note, write});
+        await putDraft(prepared);
+      });
+      const item = prepared ?? notSaved();
+      const encrypted = item.payload;
+      const savedAt = item.updatedAt;
       const containerID = selected.id;
-      const uncached = await cacheMiss(() => putNote(auth.user.id, { id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation }));
       if (write.generation === WAITING_GENERATION) {
         // No key for the current generation: queue the edit; the drain re-seals it once keys arrive.
         await queueOwn({ id: note.id, containerID, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id }).catch(notSaved);
@@ -1932,13 +1960,13 @@ function Workspace({
       }
       try {
         const result = await sendObject({ container: selected, generation: write.generation }, note.id, encrypted, note.version);
-        await clearOwnQueued(note.id);
+        const unsettled = await cacheMiss(() => settleDraft(item, result.version));
         setCommitToastAt(Date.now());
         setConflicted((value) => { const next = new Set(value); next.delete(note.id); return next; });
         const saved = { ...note, version: result.version, updatedAt: savedAt };
         setLastSavedAt(savedAt);
         setSyncStatus("saved");
-        if (uncached) setError(UNCACHED);
+        if (uncached || unsettled) setError(UNCACHED);
         // Edits or a move may have landed while the request was in flight:
         // carry only the version forward, never the sent content.
         patchNotes((value) => carrySaved(value, saved.id, saved));
@@ -1956,13 +1984,14 @@ function Workspace({
         }
       } catch (error) {
         if (error instanceof APIRequestError && error.code === "version_conflict") {
+          await replaceQueuedSave(item, { ...item, conflicted: true });
           setConflicted((value) => new Set(value).add(note.id));
           setSyncStatus("attention");
           setError(noteConflictMessage(uncached));
         } else {
           // A page deleted elsewhere: kept, never sent, and listed under Unsent edits.
           const gone = error instanceof APIRequestError && error.code === "not_found" ? { gone: true as const } : {};
-          await queueOwn({ id: note.id, containerID: selected.id, version: note.version, payload: encrypted, updatedAt: savedAt, keyGeneration: write.generation, owner: auth.user.id, ...gone }).catch(notSaved);
+          await queueOwn({ ...item, ...gone }).catch(notSaved);
           syncChannel.current?.postMessage({ type: "queued", id: note.id });
           setSyncStatus("local");
           // The notebook's key generation moved on (or this tab's floor did): the queue re-encrypts the change for it.
@@ -2045,7 +2074,7 @@ function Workspace({
       const synced = new Map<string, Promise<Container>>();
       for (const queuedItem of queued) {
         // gone: its page was deleted elsewhere; listed under Unsent edits, never sent, and never "saved".
-        if (queuedItem.gone) { attention = true; continue; }
+        if (queuedItem.gone || queuedItem.conflicted) { attention = true; continue; }
         let item = queuedItem;
         try {
           // Only ciphertext sealed for the current write key ever leaves: anything else is re-sealed
@@ -2065,7 +2094,7 @@ function Workspace({
           item = ready.item;
           const result = await sendObject({ container: ready.container, generation: item.keyGeneration! }, item.id, item.payload, item.version);
           // A newer save of the same page may have been queued while this one was in flight.
-          await replaceQueuedSave(item);
+          await settleDraft(item, result.version);
           const saved = { version: result.version, updatedAt: item.updatedAt };
           patchNotes((value) => carrySaved(value, item.id, saved));
           carryDuringLoad(item.id, saved);
@@ -2081,7 +2110,7 @@ function Workspace({
           }
         } catch (error) {
           if (error instanceof APIRequestError && error.code === "version_conflict") {
-            await replaceQueuedSave(item);
+            await replaceQueuedSave(item, { ...item, conflicted: true });
             setConflicted((value) => new Set(value).add(item.id));
             attention = true;
           } else {
@@ -2143,14 +2172,10 @@ function Workspace({
     const containerID = selected.id;
     const write = localKeyFor(selected);
     if (!write) return;
-    void cacheWrite(async () => putNote(auth.user.id, {
-      id: note.id,
-      containerID,
-      version: note.version,
-      payload: await encryptNote(write.key, containerID, note.id, notePayload(note)),
-      updatedAt: new Date().toISOString(),
-      keyGeneration: write.generation,
-    })).catch(() => {});
+    void cacheWrite(async () => {
+      const item = await prepareDraft({owner:auth.user.id, containerID, note, write});
+      await putNote(auth.user.id, { ...item, unsent: true });
+    }).catch(() => {});
   }
   /** Encrypted write for an object that is not the open page (sections, moved pages). */
   async function writeObject(id: string, version: number, payload: ObjectPayload): Promise<number | null> {
@@ -2531,6 +2556,9 @@ function Workspace({
       if (dirty) await save(open, true);
       const latest = selectedNoteRef.current;
       if (latest?.id === open.id && !samePayload(latest, open)) await save(latest, true);
+      await cacheChain.current;
+      const queued = await getQueuedSave(auth.user.id, open.id).catch(() => undefined);
+      const recovered = queued?.conflicted ? queued : undefined;
       // Reload before placing copies: they belong next to the server's placement, and a
       // renumber may have to write the original at its server version.
       const server = await readObject(open.id);
@@ -2588,6 +2616,9 @@ function Workspace({
       if (unreadable) setError(`${unreadable} version(s) could not be opened with this notebook's key and remain on the server.`);
       else if (failed) setError((value) => value || "Some conflicting versions could not be copied; try again.");
       if (!failed && !unreadable) {
+        if (recovered) await settleDraft(recovered);
+        const remaining = await getQueuedSave(auth.user.id, open.id).catch(() => undefined);
+        if (remaining) { setSyncStatus(remaining.conflicted ? "attention" : "local"); return; }
         setConflicted((value) => { const next = new Set(value); next.delete(open.id); return next; });
         setSyncStatus("saved");
       }
