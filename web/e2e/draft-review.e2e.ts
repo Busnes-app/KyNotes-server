@@ -17,6 +17,14 @@ async function failLocalStore(page: Page) {
 }
 async function createNotebook(owner: Awaited<ReturnType<typeof person>>, name: string) {
   await openNotebooks(owner.page);
+  // The encrypted list loads after sign-in. Let it render before creating this
+  // fixture, so its late arrival cannot move an open section/group menu.
+  const count = await owner.page.evaluate(async () => {
+    const list: unknown = await (await fetch("/api/v1/containers")).json();
+    if (!Array.isArray(list)) throw new Error("Invalid notebook list");
+    return list.length;
+  });
+  await expect(owner.page.locator(".notebook-item")).toHaveCount(count);
   await withDialog(owner, { type: "prompt", text: "Notebook name", answer: name }, () => owner.page.getByRole("button", { name: "＋ New notebook" }).click());
   await expect(owner.page.locator(".workspace-title")).toHaveText(name);
   await expect(owner.page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
