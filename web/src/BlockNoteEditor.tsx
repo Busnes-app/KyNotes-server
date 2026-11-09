@@ -1,6 +1,6 @@
 import { BlockNoteView } from "@blocknote/mantine";
-import { GridSuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
-import { getDefaultEmojiPickerItems, type Block, type PartialBlock } from "@blocknote/core";
+import { EmojiPickerController, useCreateBlockNote, useExtensionState } from "@blocknote/react";
+import { type Block, type PartialBlock } from "@blocknote/core";
 import { SuggestionMenu, type SuggestionMenuOptions } from "@blocknote/core/extensions";
 import { useCallback, useEffect, useRef } from "react";
 import "@blocknote/mantine/style.css";
@@ -38,15 +38,14 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
     resolveFileUrl: (url) => resolveRef.current(url),
   }, [noteID]);
 
-  // Stable, so the menu does not reload its items (and drop an Enter) on every re-render.
+  // Stable, so the menu does not re-register on every re-render.
   const emojiShouldOpen: NonNullable<SuggestionMenuOptions["shouldOpen"]> = useCallback((tr) => emojiTriggerStartsWord(tr.selection.$from.parent.textBetween(0, tr.selection.$from.parentOffset, undefined, " ")), []);
-  const emojiItems = useCallback(async (query: string) => {
-    if (!emojiQueryReady(query)) {
+  const emojiQuery = useExtensionState(SuggestionMenu, { editor, selector: state => state?.triggerCharacter === ":" ? state.query : "" });
+  useEffect(() => {
+    if (emojiQuery.length >= 2 && !emojiQueryReady(emojiQuery)) {
       editor.getExtension(SuggestionMenu)?.closeMenu();
-      return [];
     }
-    return (await getDefaultEmojiPickerItems(editor, query)).map(({ id, onItemClick }) => ({ id, onItemClick, icon: <>{id}</> }));
-  }, [editor]);
+  }, [editor, emojiQuery]);
 
   useEffect(() => {
     hydratedRef.current = false;
@@ -84,12 +83,10 @@ export function BlockNoteEditor({ noteID, initialContent, legacyMarkdown, onChan
         }}
       >
         {/* BlockNote's own picker opens on any ':' ("due:"); this one waits for a word start and two letters. */}
-        <GridSuggestionMenuController
+        <EmojiPickerController
           triggerCharacter=":"
-          columns={10}
           minQueryLength={2}
           shouldOpen={emojiShouldOpen}
-          getItems={emojiItems}
         />
       </BlockNoteView>
     </div>
