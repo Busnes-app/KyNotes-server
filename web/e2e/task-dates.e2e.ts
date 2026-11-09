@@ -27,7 +27,7 @@ async function newTextPage(owner: Person, notebook: string) {
   await page.getByRole("button", { name: "Add text" }).click();
   await page.locator(".bn-editor").first().click();
 }
-const emojiMenu = (page: Page) => page.locator(".bn-grid-suggestion-menu");
+const emojiMenu = (page: Page) => page.locator("#bn-suggestion-menu");
 const queueRow = (page: Page, group: string) => page.locator(`[data-task-group="${group}"] .note-row`, { hasText: TASK });
 
 test("a repeating checklist item rolls forward when ticked, and the work queue groups it by date", async ({ browser }) => {
@@ -111,7 +111,7 @@ test("':' opens the emoji menu only where it starts a word and two letters follo
     await expect(emojiMenu(page)).toHaveCount(0);
     await page.keyboard.type("mile");
     // Enter picks nothing until the menu's items have loaded.
-    await expect(emojiMenu(page).locator(".bn-grid-suggestion-menu-item").first()).toBeVisible();
+    await expect(emojiMenu(page).locator("[aria-selected=true]").first()).toBeVisible();
     await page.keyboard.press("Enter");
     await expect(emojiMenu(page)).toHaveCount(0);
     await expect(page.locator(".bn-editor").first()).not.toContainText(":smile");
