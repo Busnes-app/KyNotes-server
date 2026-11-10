@@ -1270,7 +1270,8 @@ function Workspace({
     else location.hash = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
   }, [view]);
   useEffect(() => {
-    if (viewRef.current !== "workspace" || queueMode || loadingContainer || !selected) return;
+    // A Settings hash whose hashchange is still queued is not ours to overwrite.
+    if (viewRef.current !== "workspace" || settingsTabOf(location.hash) || queueMode || loadingContainer || !selected) return;
     const next = formatRoute({ container: selected.id, section: sectionID, page: selectedNote?.id });
     if (location.hash === next) return;
     // Normalizing an empty or unparseable hash must not add a history entry.

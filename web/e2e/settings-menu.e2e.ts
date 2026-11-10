@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { adminConsole, OWNER, person, signIn } from "./people";
+import { adminConsole, openNotebooks, OWNER, person, signIn, withDialog } from "./people";
 
 const TABS = ["Account", "Phones & apps", "Appearance", "Reminders", "Colleague keys", "Share links", "Unsent edits"];
 
@@ -73,6 +73,48 @@ test("the Settings gear opens a menu of the Settings tabs, by mouse and by keybo
     await adminMenu.getByRole("menuitem", { name: "Appearance" }).click();
     await expect(admin.page).toHaveURL(/#appearance$/);
     await expect(adminGear).toHaveAttribute("aria-current", "page");
+  } finally {
+    await admin.page.context().close();
+    await owner.page.context().close();
+  }
+});
+
+test("a Settings tab chosen as the first notebook finishes loading stays open", async ({ browser }) => {
+  const admin = await person(browser);
+  const owner = await person(browser);
+  try {
+    await adminConsole(admin.page);
+    await signIn(owner.page, OWNER.username, OWNER.password);
+    const { page } = owner;
+    // A notebook for the fresh load to open.
+    await openNotebooks(page);
+    await withDialog(owner, { type: "prompt", text: "Notebook name", answer: "Settings race" }, () => page.getByRole("button", { name: "＋ New notebook" }).click());
+    await expect(page.locator(".workspace-title")).toHaveText("Settings race");
+    // Hold the first notebook's object list after a fresh load.
+    let arrived!: () => void, release!: () => void;
+    const fetching = new Promise<void>((resolve) => { arrived = resolve; });
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let first = true;
+    await page.route((url) => /^\/api\/v1\/containers\/[^/]+\/changes$/.test(url.pathname), async (route) => {
+      if (!first) return route.fallback();
+      first = false;
+      arrived();
+      await held;
+      await route.continue();
+    });
+    await page.goto("about:blank");
+    await page.goto("/");
+    await fetching;
+    // A menu click sets the hash; its hashchange is still queued when the load finishes.
+    await page.evaluate(() => history.replaceState(null, "", "#/settings/reminders"));
+    const loaded = page.waitForResponse((response) => /\/api\/v1\/containers\/[^/]+\/changes/.test(response.url()));
+    release();
+    await loaded;
+    await expect(page.locator(".note-list")).toHaveAttribute("aria-busy", "false");
+    await page.evaluate(() => window.dispatchEvent(new HashChangeEvent("hashchange")));
+    await expect(page).toHaveURL(/#\/settings\/reminders$/);
+    await expect(page.getByRole("navigation", { name: "Settings sections" }).getByRole("link", { name: "Reminders", exact: true })).toHaveAttribute("aria-current", "page");
+    expect(owner.unexpected).toEqual([]);
   } finally {
     await admin.page.context().close();
     await owner.page.context().close();
