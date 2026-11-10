@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A Settings tab chosen from the gear menu while the first notebook was still loading no longer drops back to the notebook.
 - New comments and share links preserve backup capacity: writes that exceed the server-wide database budget return 507 `storage_full`. Backups explains the 90% admission ceiling.
 - Comment authors and notebook owners/admins can delete comments from their row menu. Deletion is audited, releases quota and removes mentions; removing a member retains their comments.
 - Unsent drafts survive reload, including edits typed after a conflict; recovery preserves another tab's newer copy. Retrying a sealed edit after a lost save response acknowledges its original version without a duplicate conflict.
