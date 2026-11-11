@@ -27,7 +27,15 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   Capsule and mirror results are independent; a receipt never proves blob coverage.
 - `TokenLabel` and effective deployment secret bytes are compatibility contracts.
 - Service operations serialize pin/pair/run/export/drill; CLI takes the same directory
-  lock as the server, or runs `deposit`/`backup-drill` in it over `admin.sock` when it is up. Close waits for bounded operations before SQLite closes.
+  lock as the server, or runs `deposit`/`backup-drill` in it over `admin.sock` when it is up.
+- Shutdown interrupts, it does not wait. `Stop` ends the context every operation runs on, so
+  the snapshot, upload, pairing claim and blob mirror stop at once; settings and audit writes
+  take no context and still land. `Run` records the interruption as `backup_stopping` and
+  restores the previous `backup_last_attempt` row (or deletes it when there was none), so the
+  run is due again on the next start; a run that fails for another reason keeps its stamp.
+  After `Stop` every operation returns `ErrClosed`. `Close` then waits for the active
+  operation before SQLite closes. `backup_last_attempt` is the lib's unexported key;
+  `TestInterruptedRunIsDueAgain` fails if it changes.
 - Export uses POST with admin, step-up and CSRF; a GET cannot trigger collection.
 - HTTP deposit ("Back up now") needs admin and CSRF only, like the rest of the Ky suite: it seals to the
   already-pinned key and destinations, so it cannot redirect or reveal data. Every other backup mutation

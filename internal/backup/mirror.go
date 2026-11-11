@@ -58,6 +58,8 @@ func (s *Service) MirrorNow(ctx context.Context, actor, requestID string) (mirro
 		return mirror.Stats{}, err
 	}
 	defer s.mu.Unlock()
+	ctx, cancel := s.stoppable(ctx)
+	defer cancel()
 	inventory, err := mirror.List(ctx, s.store.DB())
 	if err != nil {
 		return mirror.Stats{}, err

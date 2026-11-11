@@ -49,23 +49,45 @@ type Service struct {
 	mu      sync.Mutex
 	closed  bool
 	client  recoveryTransport
+	// stopping ends with Stop. Operations run on a context that ends with it too.
+	stopping context.Context
+	stop     context.CancelFunc
 }
 
 func New(cfg config.Config, store *storage.Store, version string) *Service {
-	return &Service{cfg: cfg, store: store, version: version, client: recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})}
+	s := &Service{cfg: cfg, store: store, version: version, client: recoveryclient.NewClient(recoveryclient.Options{AllowPrivate: cfg.Backup.AllowPrivateRecovery})}
+	s.stopping, s.stop = context.WithCancel(context.Background())
+	return s
+}
+
+// lastAttemptKey is the row recoveryclient.Run stamps before it works and NextRun counts from.
+// The lib does not export it; TestInterruptedRunIsDueAgain fails if the two drift apart.
+const lastAttemptKey = "backup_last_attempt"
+
+// Stop aborts the slow steps of the operation in flight: the database snapshot, the upload,
+// a pairing claim, the blob mirror. Shutdown calls it first, so Close and the drains wait
+// seconds, not OperationTimeout. Settings and audit writes take no context and still land.
+// An interrupted Run gives its attempt stamp back, so it is due again on the next start.
+func (s *Service) Stop() { s.stop() }
+
+// stoppable is ctx, ended early by Stop.
+func (s *Service) stoppable(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	unhook := context.AfterFunc(s.stopping, cancel)
+	return ctx, func() { unhook(); cancel() }
 }
 func (s *Service) begin() error {
 	if !s.mu.TryLock() {
 		return recoveryclient.ErrInProgress
 	}
-	if s.closed {
+	if s.closed || s.stopping.Err() != nil {
 		s.mu.Unlock()
 		return ErrClosed
 	}
 	return nil
 }
 
-// Close waits for the bounded active operation before the application closes SQLite.
+// Close waits for the active operation before the application closes SQLite. Call Stop first.
 func (s *Service) Close() { s.mu.Lock(); defer s.mu.Unlock(); s.closed = true }
 func (s *Service) sealer() (recoveryclient.Sealer, error) {
 	return recoveryclient.NewAESGCMSealer([]byte(s.cfg.Secrets.ServerSaltKey), TokenLabel)
@@ -89,6 +111,8 @@ func (s *Service) audit(actor, event, requestID string, err error, details map[s
 }
 func ErrorCode(err error) string {
 	switch {
+	case errors.Is(err, ErrClosed):
+		return "backup_stopping"
 	case errors.Is(err, ErrNoBlobTarget):
 		return "blob_target_required"
 	case errors.Is(err, mirror.ErrIncomplete):
@@ -114,8 +138,6 @@ func ErrorCode(err error) string {
 	case errors.Is(err, ErrDatabaseTooLarge), errors.Is(err, capsule.ErrCapsuleTooLarge):
 		// Past the container limit: everything but the database is kilobytes.
 		return "database_too_large"
-	case errors.Is(err, ErrClosed):
-		return "backup_stopping"
 	default:
 		return "backup_failed"
 	}
@@ -139,6 +161,8 @@ func (s *Service) Pair(ctx context.Context, actor, requestID, url, code string) 
 		return e
 	}
 	defer s.mu.Unlock()
+	ctx, cancel := s.stoppable(ctx)
+	defer cancel()
 	// Refuse before sending the code; preserve the same domain-separated sealer forever.
 	err := recoveryclient.ValidateURL(url, s.cfg.Backup.AllowPrivateRecovery)
 	if err != nil {
@@ -191,9 +215,12 @@ func (s *Service) Run(ctx context.Context, actor, requestID string) (Result, err
 		return Result{}, e
 	}
 	defer s.mu.Unlock()
+	ctx, cancel := s.stoppable(ctx)
+	defer cancel()
 	seal, err := s.sealer()
 	var result Result
 	var inventory []mirror.Object
+	previous, previousErr := s.store.GetSetting(lastAttemptKey)
 	if err == nil {
 		result.Result, err = recoveryclient.Run(ctx, recoveryclient.RunConfig{DataDir: s.cfg.DataDir, AppName: config.AppName, AppVersion: s.version, BackupDir: s.cfg.Backup.Dir, Keep: s.cfg.Backup.Keep, Sealer: seal}, settings{s.store}, func() (recoveryclient.Payload, error) {
 			payload, err := s.Collect(ctx)
@@ -210,6 +237,14 @@ func (s *Service) Run(ctx context.Context, actor, requestID string) (Result, err
 			return payload, nil
 		}, s.client)
 	}
+	// A failure while stopping was cut short by Stop: it is recorded as backup_stopping.
+	interrupted := func(err error) error {
+		if err == nil || s.stopping.Err() == nil || errors.Is(err, ErrClosed) {
+			return err
+		}
+		return errors.Join(ErrClosed, err)
+	}
+	err = interrupted(err)
 	// Outcome understands a successful remote deposit whose receipt write failed. Do not
 	// put raw transport errors, which can contain URL credentials, into logs or responses.
 	safeErr := err
@@ -227,11 +262,25 @@ func (s *Service) Run(ctx context.Context, actor, requestID string) (Result, err
 		err = errors.Join(err, ErrAudit)
 	}
 	if inventory != nil && s.cfg.Backup.BlobTarget.URL != "" {
-		stats, mirrorErr := s.mirrorRun(ctx, actor, requestID, inventory)
-		result.Mirror = &stats
-		if mirrorErr != nil {
-			result.MirrorError = "blob_mirror_incomplete"
-			err = errors.Join(err, mirrorErr)
+		if s.stopping.Err() != nil {
+			err = errors.Join(err, ErrClosed) // the mirror is not started
+		} else {
+			stats, mirrorErr := s.mirrorRun(ctx, actor, requestID, inventory)
+			result.Mirror = &stats
+			if mirrorErr != nil {
+				result.MirrorError = "blob_mirror_incomplete"
+				err = interrupted(errors.Join(err, mirrorErr))
+			}
+		}
+	}
+	// Cut short in the capsule or in the mirror: not this interval's attempt, so give the
+	// stamp back and the scheduler runs it again on the next start.
+	if errors.Is(err, ErrClosed) {
+		switch {
+		case errors.Is(previousErr, storage.ErrNotFound):
+			_ = s.store.DeleteSetting(lastAttemptKey)
+		case previousErr == nil:
+			_ = s.store.SetSetting(lastAttemptKey, previous)
 		}
 	}
 	return result, err
@@ -241,6 +290,8 @@ func (s *Service) Export(ctx context.Context, actor, requestID string) ([]byte, 
 		return nil, capsule.Manifest{}, e
 	}
 	defer s.mu.Unlock()
+	ctx, cancel := s.stoppable(ctx)
+	defer cancel()
 	key, err := recoveryclient.LoadRecoveryKey(s.cfg.DataDir, settings{s.store})
 	var p recoveryclient.Payload
 	var raw []byte
@@ -262,6 +313,8 @@ func (s *Service) Drill(ctx context.Context, actor, requestID string) (*recovery
 		return nil, e
 	}
 	defer s.mu.Unlock()
+	ctx, cancel := s.stoppable(ctx)
+	defer cancel()
 	p, err := s.Collect(ctx)
 	var result *recoveryclient.DrillResult
 	if err == nil {
