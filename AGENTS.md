@@ -570,9 +570,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `revokeForRoleChange`). `backup.Service.ApplySetup` compares env-fixed dir/keep, sets the
   interval only when unset and claims a pairing only when unpaired. `internal/app` owns
   `admin.sock`: 0600, peer uid or root, created after the data-dir lock, never a network
-  listener; shutdown drains a running apply for up to `backup.OperationTimeout` plus a
-  minute before SQLite closes, then removes the socket (compose `stop_grace_period: 17m`
-  covers it). One audit row per change (actor `system`, request `apply-setup`). The same
+  listener; shutdown calls `backup.Service.Stop`, which cancels the claim or deposit a running
+  apply is in, drains it for up to `backupDrain` (10s) so its outcome is recorded before
+  SQLite closes, then removes the socket (compose `stop_grace_period: 2m` covers the four
+  sequential `shutdown_grace` drains plus that one; `TestComposeGraceCoversShutdown`). One audit row per change (actor `system`, request `apply-setup`). The same
   socket serves `POST /v1/deposit` and `/v1/backup-drill` through `backup.Service.Run`/`Drill`
   (actor `system`, request `admin-socket`), one operation at a time with the same drain;
   answers are `{"result","error_code"}` and the CLI exits 1 on any error code.

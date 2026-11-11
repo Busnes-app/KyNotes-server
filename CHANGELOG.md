@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stopping the server no longer waits up to 17 minutes for a backup. On stop, a backup, pairing claim or `apply-setup` in flight is interrupted: the snapshot and the upload are cancelled, the interruption is audited as `backup_stopping`, and the scheduled backup runs again about a minute after the next start. `docker-compose.yml` lowers `stop_grace_period` from 17m to 2m; a Kubernetes `terminationGracePeriodSeconds` of 120 is enough.
 - A Settings tab chosen from the gear menu while the first notebook was still loading no longer drops back to the notebook.
 - New comments and share links preserve backup capacity: writes that exceed the server-wide database budget return 507 `storage_full`. Backups explains the 90% admission ceiling.
 - Comment authors and notebook owners/admins can delete comments from their row menu. Deletion is audited, releases quota and removes mentions; removing a member retains their comments.

@@ -17,8 +17,8 @@ and how it configures KyNotes with `apply-setup`.
   capsule brings back accounts and settings but no note content. The apply-setup handover
   reports `blobTargetConfigured`; when it is `false`, KyNotes copies no blobs itself, so the
   installer must run restic or tell the owner the backup is incomplete.
-- **Stop timeout:** at least 17 minutes (`stop_grace_period: 17m` in `docker-compose.yml`,
-  `terminationGracePeriodSeconds: 1020` in Kubernetes). See [Shutdown](#shutdown).
+- **Stop timeout:** 2 minutes (`stop_grace_period: 2m` in `docker-compose.yml`,
+  `terminationGracePeriodSeconds: 120` in Kubernetes). See [Shutdown](#shutdown).
 - **Environment** the installer sets:
   - `TRUSTED_PROXY_CIDRS`: the reverse proxy's address only. Setting it also turns on
     `X-Forwarded-For` handling. The compose default is empty: no proxy is trusted.
@@ -221,7 +221,13 @@ scheme and append the observed client address.
 
 ## Shutdown
 
-On stop, the server drains a running `apply-setup` (a KyRecovery claim can take up to the
-16-minute backup operation timeout) before SQLite closes, for at most 17 minutes. A
-container or init stop timeout shorter than that kills the process mid-apply; rerun the
-bundle after restart.
+On stop, the server interrupts a backup, pairing claim or `apply-setup` in flight: the
+database snapshot and the upload are cancelled and the interruption is audited. An
+interrupted scheduled backup runs again about a minute after the next start; rerun an
+interrupted bundle after restart.
+
+A normal stop takes about a second. The worst case is 90 seconds: HTTP requests, reminder
+pushes, a garbage-collection pass and the admin socket are each given up to
+`server.shutdown_grace` (20 seconds by default), one after the other, and an interrupted
+backup gets 10 more seconds to record its outcome before SQLite closes. A shorter stop
+timeout kills whatever is still draining at that point.

@@ -79,7 +79,9 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 		sh, cancel := context.WithTimeout(context.Background(), parse(c.Server.ShutdownGrace))
 		defer cancel()
 		_ = admin.Shutdown(sh)
-		drain, cancelDrain := context.WithTimeout(context.Background(), backup.OperationTimeout+time.Minute)
+		// Stop has cancelled the apply's claim or deposit; this waits for it to record the outcome.
+		backups.Stop()
+		drain, cancelDrain := context.WithTimeout(context.Background(), backupDrain)
 		defer cancelDrain()
 		if !setup.Drain(drain) {
 			log.Error("apply_setup_drain_cut_off", "reason_code", "timeout")
@@ -129,6 +131,8 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 	select {
 	case <-ctx.Done():
 		h.SetReady(false)
+		// Before the HTTP drain, so an interrupted deposit request answers inside it.
+		backups.Stop()
 		sh, cancel := context.WithTimeout(context.Background(), parse(c.Server.ShutdownGrace))
 		defer cancel()
 		return srv.Shutdown(sh)
@@ -139,6 +143,11 @@ func Serve(ctx context.Context, c config.Config, log *logging.Logger, version st
 		return err
 	}
 }
+
+// backupDrain bounds the wait for an interrupted admin-socket operation to record its outcome.
+// backup.Service.Stop has already cancelled its snapshot, upload or claim; what may still run
+// is the sealing and local copy of one capsule already collected.
+const backupDrain = 10 * time.Second
 
 var gcPass = storage.RunGC
 

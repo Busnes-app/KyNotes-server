@@ -45,7 +45,10 @@ services:
     pull_policy: missing
     container_name: KyNotes-Server
     restart: unless-stopped
-    stop_grace_period: 17m
+    # Covers the worst case: four drains of server.shutdown_grace (20s each: HTTP, reminder push,
+    # GC, admin socket) plus 10s for an interrupted backup to record its outcome. A normal stop
+    # takes about a second.
+    stop_grace_period: 2m
     read_only: true
     security_opt:
       - no-new-privileges:true

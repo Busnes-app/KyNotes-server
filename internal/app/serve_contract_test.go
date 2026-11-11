@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"io"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -71,5 +74,23 @@ func TestGracefulShutdownDrainsInFlightRequest(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Serve drains HTTP, reminder pushes, GC and the admin socket one after the other, each for up
+// to shutdown_grace, then gives an interrupted backup backupDrain to record its outcome. The
+// compose file must grant more than that worst case, or Docker's SIGKILL lands mid-drain.
+func TestComposeGraceCoversShutdown(t *testing.T) {
+	budget := 4*parse(config.Defaults().Server.ShutdownGrace) + backupDrain
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s*stop_grace_period:\s*(\S+)\s*$`).FindSubmatch(raw)
+	if m == nil {
+		t.Fatal("docker-compose.yml sets no stop_grace_period; Docker's default 10s is shorter than the shutdown budget")
+	}
+	if grace := parse(string(m[1])); grace <= budget {
+		t.Errorf("stop_grace_period %s does not cover the worst-case shutdown (%s)", m[1], budget)
 	}
 }
