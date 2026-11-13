@@ -37,9 +37,20 @@ func (m *recordingMux) HandleFunc(pattern string, handler func(http.ResponseWrit
 }
 
 func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any) http.Handler {
-	mux, cfg, db := buildRoutes(ready, extras...)
+	var cfg config.Config
+	var db *sql.DB
+	for _, extra := range extras {
+		switch v := extra.(type) {
+		case config.Config:
+			cfg = v
+		case *sql.DB:
+			db = v
+		}
+	}
+	exempt := loadExemptNetworks(cfg, db, log)
+	mux, _, _ := buildRoutes(ready, append(extras, exempt)...)
 	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
-	return SecurityHeaders(MiddlewareWithProxies(log, max, proxies)(AccessLog(log, rateLimitMiddleware(cfg, db, mux.ServeMux))))
+	return SecurityHeaders(MiddlewareWithProxies(log, max, proxies)(AccessLog(log, rateLimitMiddlewareWith(cfg, db, exempt, mux.ServeMux))))
 }
 
 // buildRoutes registers every network route; the returned mux lists each pattern registered.
@@ -51,6 +62,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 	var backups *backup.Service
 	var ssoStore *sso.Store
 	var push *webpush.Sender
+	var exempt *exemptNetworks
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case *sql.DB:
@@ -65,6 +77,8 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 			ssoStore = v
 		case *webpush.Sender:
 			push = v
+		case *exemptNetworks:
+			exempt = v
 		}
 	}
 	if db != nil {
@@ -75,6 +89,10 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		SSORoutes(mux, db, cfg, ssoStore)
 		SuiteRoutes(mux, db, ssoStore)
 		AdminRoutes(mux, db, ssoStore, cfg)
+		if exempt == nil {
+			exempt = loadExemptNetworks(cfg, db, nil)
+		}
+		ExemptNetworkRoutes(mux, db, exempt)
 		if backups != nil {
 			BackupRoutes(mux, db, backups)
 		}

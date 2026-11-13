@@ -529,6 +529,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   records that address with `auth.WithClientIP`; every lockout keys on `auth.ClientIP`
   (`TestLoginLockoutKeysOnTrustedForwardedClient`). A full lockout table drops all but
   live locks before shedding a new key (`TestLockoutFloodOfCountsAdmitsFreshKey`).
+- Office networks (`internal/httpapi/exempt_networks.go`, ky-primitives `netallow`): `ratelimit.exempt_networks`
+  (`KYNOTES_RATELIMIT_EXEMPT_NETWORKS`, refused at startup when invalid, too broad or loopback) plus the
+  `server_settings` key `rate_limit_exempt_networks` (GET admin, PUT step-up + CSRF at
+  `/api/v1/admin/rate-limit-networks`; validated first, setting and `admin.rate_limit_networks` audit in one
+  transaction, then the live list swaps). A stored list that no longer parses is dropped at startup. The match
+  is `resolvedClientIP`'s exact address. Only the per-IP `login`, `oidc` and sessionless `auth` buckets skip;
+  lockouts, session-keyed buckets, `challenge`, the back-channel logout throttle and device lockouts never do.
+  Empty by default. The Server section's Office networks card (`components/OfficeNetworks.tsx`) shows the refusal
+  verbatim. Verify `TestExemptNetwork*`, `TestForgedForwardedForCannotClaimAnExemptNetwork`,
+  `TestAdminSetsExemptNetworks`, `TestExemptNetworksAreAdminOnly`, `TestRateLimitExemptNetworksAreValidatedAtStartup`,
+  `OfficeNetworks.test.tsx` and `web/e2e/admin-separation.e2e.ts`.
 
 - Migration `0018_sso_app_roles.sql` removes unproven linked-account admin roles,
   except active local grants when no unlinked active admin exists; retention is audited.

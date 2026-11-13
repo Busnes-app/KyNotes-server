@@ -365,6 +365,9 @@ h2.pane-title { margin: 0; min-width: 0; overflow: hidden; color: var(--ink-stro
 .data-table tbody tr:hover { background: var(--panel-hover); }
 .data-table .row-actions { width: 48px; padding: 0 4px; text-align: right; }
 .admin-panel { max-width: 48rem; }
+.office-networks { max-width: 48rem; margin-top: var(--ky-space-4); }
+.office-networks textarea { border: 1px solid var(--ky-field-border); background: var(--panel); padding: 10px 12px; color: var(--ink-strong); font-family: var(--ky-font-mono, monospace); }
+.office-networks .status-list { margin-top: var(--ky-space-3); }
 .admin-panel > p { max-width: 70ch; line-height: 1.5; }
 .admin-panel > button { display: block; min-height: var(--ky-control-size); margin-top: 12px; padding: 0 16px; font-size: var(--ky-type-nav); }
 .admin-teams { padding-left: 1.2rem; color: var(--ink); line-height: 1.6; }

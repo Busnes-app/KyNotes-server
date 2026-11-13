@@ -5,7 +5,7 @@ go 1.26.9
 toolchain go1.27.4
 
 require (
-	github.com/Busnes-app/ky-primitives v0.10.2-0.20261031161215-6478a44aaa9d
+	github.com/Busnes-app/ky-primitives v0.10.2-0.20261113220457-9f4bc5875e04
 	github.com/Busnes-app/ky-primitives/offsite v0.2.3-0.20261026050236-bae5c14dba4c
 	github.com/cloudflare/circl v1.6.5
 	github.com/modelcontextprotocol/go-sdk v1.8.0

@@ -37,6 +37,18 @@ test("administrator and everyday accounts stay apart", async ({ browser }) => {
     await adminConsole(admin.page);
     await adminSection(admin.page, "Server");
     await expect(admin.page.getByText(ADMIN_ACCOUNT_NOTE)).toBeVisible();
+    // Office networks: a too-broad range is refused with the server's reason, a real one is stored canonically.
+    const office = admin.page.getByRole("region", { name: "Office networks" });
+    const networks = office.getByLabel("Networks that skip the per-address limit, one per line");
+    await expect(networks).toBeEnabled();
+    await networks.fill("10.0.0.0/8");
+    await office.getByRole("button", { name: "Save networks" }).click();
+    await expect(office.getByRole("alert")).toContainText("too broad");
+    await expect(networks).toHaveValue("10.0.0.0/8");
+    await networks.fill("203.0.113.9/24");
+    await office.getByRole("button", { name: "Save networks" }).click();
+    await expect(office.getByRole("status")).toContainText("Saved");
+    await expect(networks).toHaveValue("203.0.113.0/24");
     // The administrator's gear offers its own two sections, none of the workspace's.
     await admin.page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(admin.page.getByRole("menuitem")).toHaveText(["Account", "Appearance"]);

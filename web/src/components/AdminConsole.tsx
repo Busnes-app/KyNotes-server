@@ -19,6 +19,7 @@ import {
 } from "../api";
 import { deriveAuthSecret, randomLoginSalt } from "../crypto";
 import { AdminBackup } from "./AdminBackup";
+import { OfficeNetworks } from "./OfficeNetworks";
 import { NavIcon, type IconName } from "../NavIcon";
 import { AppFrame, NavItem } from "./AppNav";
 import { Appearance } from "./Appearance";
@@ -33,7 +34,7 @@ const SECTIONS = [
   ["sso", "Single sign-on", "sso", "Connect KyNotes to KySignOn Server for one-click single sign-on and automated user directory replication."],
   ["backups", "Backups", "backups", "Scheduled backups of this server, kept in a local directory or in KyRecovery."],
   ["audit", "Audit log", "audit", "Metadata-only records of administrative actions."],
-  ["server", "Server", "server", "Health and readiness of this KyNotes server."],
+  ["server", "Server", "server", "Health and readiness of this KyNotes server, and the office networks that skip the sign-in limit."],
 ] as const satisfies ReadonlyArray<readonly [string, string, IconName, string]>;
 type SectionID = (typeof SECTIONS)[number][0] | "account" | "appearance";
 
@@ -119,6 +120,7 @@ export function AdminConsole({ username, sso, onLogout, password }: { username: 
                   <div><dt>Health</dt><dd><Probe ok={status?.health} /></dd></div>
                   <div><dt>Readiness</dt><dd><Probe ok={status?.ready} /></dd></div>
                 </dl>
+                <OfficeNetworks username={username} />
               </>
             )}
           </section>
