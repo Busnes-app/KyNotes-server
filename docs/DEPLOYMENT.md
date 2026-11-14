@@ -299,7 +299,10 @@ office's networks under **Server → Office networks** in the administrator cons
 `ratelimit.exempt_networks` (`KYNOTES_RATELIMIT_EXEMPT_NETWORKS`, comma-separated); the two
 lists are combined and the configured half is shown read-only. The list is empty by default.
 
-Requests from a listed network skip those per-address buckets only. The per-account lockouts
+Requests from a listed network skip those per-address buckets only, and only while the
+office budget lasts: all listed networks together may make 300 requests a minute to each
+bucket (login, OIDC sign-in start, recovery). Past that, their requests meet the ordinary
+per-address bucket again, so one host inside the office cannot make unlimited attempts. The per-account lockouts
 (3 failed sign-ins per account and address for 15 minutes, 3 failed recoveries for 60), every
 per-account bucket (step-up, password change, pairing, uploads and the rest) and the
 back-channel logout throttle still apply. The match uses the client address resolved through
@@ -316,7 +319,8 @@ List only networks you control. Everyone behind a listed address loses the per-a
 so never list guest Wi-Fi, a shared or public network, a VPN provider's exit or the reverse
 proxy's own address: with a proxy listed and not trusted, every client would be exempt. A
 guesser inside a listed network is still held to 3 wrong passwords per account and address every 15
-minutes, but no longer to the per-address rate across accounts.
+minutes (concurrent guesses included), and to the shared office budget across accounts, but no
+longer to the per-address rate.
 
 `X-Forwarded-Proto` and `X-Forwarded-Host` follow the same rule: KyNotes reads them, last value
 first, only from a trusted proxy. They shape the SSO callback and KySignOn pairing URL when none

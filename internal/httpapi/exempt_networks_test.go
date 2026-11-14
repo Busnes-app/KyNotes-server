@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -300,5 +302,93 @@ func TestUnreadableStoredExemptNetworksAreIgnored(t *testing.T) {
 	}
 	if throttled(h, 4, "198.18.7.9:1", "") {
 		t.Fatal("the configured network lost its exemption")
+	}
+}
+
+// Offices share one budget per bucket. Past it their requests meet the ordinary per-IP bucket,
+// so one host inside an office cannot make unbounded attempts or churn the lockout tables.
+// Only requests that skipped the per-IP bucket are counted as exempted.
+func TestOfficeBudgetFallsBackToThePerIPLimit(t *testing.T) {
+	db, cfg := officeConfig(t)
+	exempt := loadExemptNetworks(cfg, db, nil)
+	h := rateLimitMiddlewareWith(cfg, db, exempt, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	login := func(peer string) int {
+		return send(h, "POST", "/api/v1/auth/login", `{}`, peer, "", nil, "").Code
+	}
+	for i := 1; i <= officeBudget; i++ {
+		if code := login(officePeer); code == http.StatusTooManyRequests {
+			t.Fatalf("office attempt %d throttled inside the budget of %d", i, officeBudget)
+		}
+	}
+	refused := false
+	for i := 0; i < 20 && !refused; i++ {
+		before := exempt.list.Load().Exempted()
+		if login(officePeer) == http.StatusTooManyRequests {
+			refused = true
+			if exempt.list.Load().Exempted() != before {
+				t.Fatal("a refused office request was counted as exempted")
+			}
+		}
+	}
+	if !refused {
+		t.Fatal("the office was never throttled once its budget was spent")
+	}
+	if got := exempt.list.Load().Exempted(); got < officeBudget || got > officeBudget+20 {
+		t.Fatalf("exempted = %d, want about the budget of %d", got, officeBudget)
+	}
+	// Another office address has its own per-IP bucket once the budget is spent.
+	if login("203.0.113.77:41000") == http.StatusTooManyRequests {
+		t.Fatal("a second office address was throttled by the first one's per-IP bucket")
+	}
+}
+
+// Concurrent wrong guesses at one account from the office reserve their lockout place before
+// any verification: no more than the lockout's three reach it, however they interleave.
+func TestConcurrentOfficeGuessesCannotOutrunTheLockout(t *testing.T) {
+	db, cfg := officeConfig(t)
+	h := exemptRouter(db, cfg)
+	var verified atomic.Int64
+	beforeSecretVerify = func() { verified.Add(1) }
+	t.Cleanup(func() { beforeSecretVerify = nil })
+	t.Cleanup(func() { loginLockout.Success("erin-office\x00203.0.113.5") })
+	wrong := `{"username":"erin-office","authSecret":"` + strings.Repeat("b", 64) + `"}`
+	var wg sync.WaitGroup
+	var denied, busy atomic.Int64
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			switch send(h, "POST", "/api/v1/auth/login", wrong, officePeer, "", nil, "").Code {
+			case http.StatusUnauthorized:
+				denied.Add(1)
+			case http.StatusServiceUnavailable:
+				busy.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	// A busy verifier hands its reservation back, so only verdicts count against the limit.
+	if got := verified.Load() - busy.Load(); got > 3 || denied.Load() < 1 || denied.Load() > 3 {
+		t.Fatalf("%d guesses reached a verdict (%d refused as wrong), want at most 3", got, denied.Load())
+	}
+}
+
+// A reservation is a failure until handed back: Release undoes it and lifts the lock it set.
+func TestLockoutReserveAndRelease(t *testing.T) {
+	l := auth.NewLockout(2, time.Minute, 10)
+	now := time.Now()
+	if !l.Reserve("k", now) || !l.Reserve("k", now) {
+		t.Fatal("the first two reservations were refused")
+	}
+	if l.Reserve("k", now) {
+		t.Fatal("a third reservation passed a limit of two")
+	}
+	l.Release("k")
+	if !l.Reserve("k", now) {
+		t.Fatal("a released reservation still held its lock")
+	}
+	l.Success("k")
+	if !l.Reserve("k", now) {
+		t.Fatal("success did not clear the key")
 	}
 }

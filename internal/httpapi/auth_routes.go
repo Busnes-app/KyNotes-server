@@ -196,7 +196,9 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		key := strings.ToLower(in.Username) + "\x00" + auth.ClientIP(r)
-		if !loginLockout.Try(key, time.Now().UTC()) {
+		// Reserved before the lookup and verification, so concurrent guesses (an office network
+		// skips the per-IP bucket that used to space them) cannot all pass the lockout at once.
+		if !loginLockout.Reserve(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "login temporarily unavailable")
 			return
 		}
@@ -207,6 +209,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			stored, err = dummyVerifier()
 			if err != nil {
 				auth.DummyVerify()
+				loginLockout.Release(key)
 				if errors.Is(err, auth.ErrBusy) {
 					authBusy(w, r, "login temporarily unavailable")
 					return
@@ -215,13 +218,17 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 				return
 			}
 		}
+		if beforeSecretVerify != nil {
+			beforeSecretVerify()
+		}
 		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
 		if errors.Is(verifyErr, auth.ErrBusy) {
+			loginLockout.Release(key)
 			authBusy(w, r, "login temporarily unavailable")
 			return
 		}
 		if err != nil || verifyErr != nil || status != "active" {
-			loginLockout.Fail(key, time.Now().UTC())
+			// The reservation stands as the failure.
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
 			return
 		}
@@ -668,7 +675,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		key := strings.ToLower(in.Username) + "\x00" + auth.ClientIP(r)
-		if !recoveryLockout.Try(key, time.Now().UTC()) {
+		// Reserved before the lookup and verification, like login; a failure keeps it.
+		if !recoveryLockout.Reserve(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "recovery temporarily unavailable")
 			return
 		}
@@ -676,15 +684,17 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		e := db.QueryRow(`SELECT id,recovery_hash FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored)
 		if e != nil || stored == "" {
 			auth.DummyVerify()
-			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
+		if beforeSecretVerify != nil {
+			beforeSecretVerify()
+		}
 		if e := auth.VerifyRecoveryCode(in.RecoveryCode, stored); errors.Is(e, auth.ErrBusy) {
+			recoveryLockout.Release(key)
 			authBusy(w, r, "recovery temporarily unavailable")
 			return
 		} else if e != nil {
-			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
@@ -693,6 +703,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		newHash, e := auth.HashAuthSecret(in.NewAuthSecret)
 		if e != nil {
+			recoveryLockout.Release(key)
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
@@ -700,6 +711,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		// returned once in the response and never stored in the clear.
 		nextCode, recoveryHash, e := auth.NewRecoveryCode()
 		if e != nil {
+			recoveryLockout.Release(key)
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
@@ -728,11 +740,11 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return e
 		})
 		if errors.Is(e, sql.ErrNoRows) {
-			recoveryLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")
 			return
 		}
 		if e != nil {
+			recoveryLockout.Release(key)
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}

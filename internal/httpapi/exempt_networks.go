@@ -66,14 +66,22 @@ func storedExemptNetworks(db *sql.DB) (string, error) {
 	return v, err
 }
 
-// exempt reports whether the request's client address, resolved exactly as the rate limiter
-// resolves it (trusted proxies only), is on the list, and counts it if so.
-func (e *exemptNetworks) exempt(r *http.Request, behindProxy bool, proxies []*net.IPNet) bool {
+// officeBudget is what all listed office networks together may spend each minute on one
+// per-IP bucket before their requests meet that bucket again. It keeps one host inside an
+// office from making unbounded attempts. Sized so office traffic alone cannot fill a lockout
+// table: 300 a minute for the longest cooldown (recovery, 60 minutes) is about 18,300 keys,
+// under the 50,000 that loginLockout and recoveryLockout each hold.
+const officeBudget = 300
+
+// office reports whether the request's client address, resolved exactly as the rate limiter
+// resolves it (trusted proxies only), is on the list. It counts nothing: the caller counts an
+// exemption with e.list.Load().Exempt only once the office budget let the request skip.
+func (e *exemptNetworks) office(r *http.Request, behindProxy bool, proxies []*net.IPNet) (netip.Addr, bool) {
 	if e == nil {
-		return false
+		return netip.Addr{}, false
 	}
 	addr, ok := netip.AddrFromSlice(resolvedClientIP(r, behindProxy, proxies))
-	return ok && e.list.Load().Exempt(addr)
+	return addr, ok && e.list.Load().Contains(addr)
 }
 
 func (e *exemptNetworks) status(stored string) map[string]any {
