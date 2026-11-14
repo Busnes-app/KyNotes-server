@@ -30,6 +30,7 @@ ratelimit:
   upload_per_minute: 60
   invitation_per_hour: 30 # invitation creation; accepts get their own bucket at this rate
   link_poll_per_minute: 60 # browser link collect polls (every 4 s, backing off on 429), per account
+  exempt_networks: [] # office networks (e.g. "203.0.113.0/24") that skip the per-address sign-in buckets; never guest Wi-Fi, a VPN exit or the proxy (docs/DEPLOYMENT.md)
 log:
   level: "info"
   format: "json"

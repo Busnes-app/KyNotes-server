@@ -61,6 +61,10 @@ func canonicalAPIPath(p string) string {
 }
 
 func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.Handler {
+	return rateLimitMiddlewareWith(cfg, db, loadExemptNetworks(cfg, db, nil), next)
+}
+
+func rateLimitMiddlewareWith(cfg config.Config, db *sql.DB, exempt *exemptNetworks, next http.Handler) http.Handler {
 	l := newLimiter()
 	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +126,18 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 				identity = s.UserID
 			}
 		}
-		if label != "" && !l.allow(label+"\x00"+identity, refill, limit, time.Now().UTC()) {
+		// An office network skips only the per-IP sign-in buckets: login, OIDC start and the
+		// sessionless auth routes (recover). It draws on one shared office budget per bucket
+		// instead, and meets its per-IP bucket again once that is spent. Lockouts and every
+		// per-account bucket still apply.
+		officeExempt := false
+		if identity == ip && (label == "login" || label == "oidc" || label == "auth") {
+			if addr, ok := exempt.office(r, cfg.Server.BehindProxy, proxies); ok && l.allow(label+"\x00office", officeBudget/60.0, officeBudget, time.Now().UTC()) {
+				exempt.list.Load().Exempt(addr) // counted only when the per-IP bucket was skipped
+				officeExempt = true
+			}
+		}
+		if label != "" && !officeExempt && !l.allow(label+"\x00"+identity, refill, limit, time.Now().UTC()) {
 			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(1/refill))))
 			WriteError(w, r, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 			return

@@ -290,6 +290,38 @@ address such as `172.20.0.5` means the same, and an entry that is neither stops 
 installer must supply it. Releases up to 0.4.2 defaulted to loopback plus all RFC1918 ranges,
 which let any host on those networks choose its rate-limit address.
 
+## Office networks
+
+Staff in one office usually reach KyNotes from one public NAT address, so they share every
+per-address sign-in bucket (`ratelimit.login_per_minute` for login, login parameters, OIDC
+sign-in start and account recovery) and can be refused together on a busy morning. List the
+office's networks under **Server → Office networks** in the administrator console, or set
+`ratelimit.exempt_networks` (`KYNOTES_RATELIMIT_EXEMPT_NETWORKS`, comma-separated); the two
+lists are combined and the configured half is shown read-only. The list is empty by default.
+
+Requests from a listed network skip those per-address buckets only, and only while the
+office budget lasts: all listed networks together may make 300 requests a minute to each
+bucket (login, OIDC sign-in start, recovery). Past that, their requests meet the ordinary
+per-address bucket again, so one host inside the office cannot make unlimited attempts. The per-account lockouts
+(3 failed sign-ins per account and address for 15 minutes, 3 failed recoveries for 60), every
+per-account bucket (step-up, password change, pairing, uploads and the rest) and the
+back-channel logout throttle still apply. The match uses the client address resolved through
+`server.trusted_proxies` as above, so a forged `X-Forwarded-For` cannot claim a listed network.
+
+Entries are CIDR ranges or single addresses, at most 256. Ranges broader than /16 (IPv4) or
+/48 (IPv6), loopback and invalid entries are refused: at startup for the configuration (the
+server does not start) and with 400 for the setting. A stored list that no longer parses at
+startup is ignored with a warning, leaving the configured list. Changing the setting needs a
+password step-up and is audited as `admin.rate_limit_networks`; the screen counts the
+requests that skipped the limit since the last change or restart.
+
+List only networks you control. Everyone behind a listed address loses the per-address limit,
+so never list guest Wi-Fi, a shared or public network, a VPN provider's exit or the reverse
+proxy's own address: with a proxy listed and not trusted, every client would be exempt. A
+guesser inside a listed network is still held to 3 wrong passwords per account and address every 15
+minutes (concurrent guesses included), and to the shared office budget across accounts, but no
+longer to the per-address rate.
+
 `X-Forwarded-Proto` and `X-Forwarded-Host` follow the same rule: KyNotes reads them, last value
 first, only from a trusted proxy. They shape the SSO callback and KySignOn pairing URL when none
 is configured, and the SSO state cookie's `Secure` flag.

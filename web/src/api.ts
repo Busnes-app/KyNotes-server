@@ -111,6 +111,11 @@ export const adminSSO = () => request<SSOSettings>("/api/v1/admin/sso");
 export const saveAdminSSO = (settings: SSOSettings) => request<SSOSettings>("/api/v1/admin/sso", { method: "POST", body: JSON.stringify(settings) });
 export const pairAdminSSO = (issuerUrl: string, pairingToken: string, callbackUrl?: string) => request<{ success: boolean; systemId: string; settings: SSOSettings }>("/api/v1/admin/sso/pair", { method: "POST", body: JSON.stringify({ issuerUrl, pairingToken, callbackUrl }) });
 
+/** The office networks that skip the per-address sign-in limit: the admin's list, the configured one (read-only) and the count since the last change or start. */
+export type ExemptNetworks = { networks: string; environment: string; exempted: number };
+export const adminExemptNetworks = () => request<ExemptNetworks>("/api/v1/admin/rate-limit-networks");
+export const saveAdminExemptNetworks = (networks: string) => request<ExemptNetworks>("/api/v1/admin/rate-limit-networks", { method: "PUT", body: JSON.stringify({ networks }) });
+
 export const session = () => request<Session>("/api/v1/auth/session");
 export type SuiteApp = { id: string; name: string; url: string };
 export const suiteApps = () => request<{ apps: SuiteApp[] }>("/api/v1/suite/apps");

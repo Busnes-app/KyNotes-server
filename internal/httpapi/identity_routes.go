@@ -507,3 +507,7 @@ func stripPasswordWrapTx(tx *sql.Tx, userID, actor, requestID string) error {
 // afterPasswordVerified lets tests commit a concurrent change between a password
 // verification and the transaction that acts on it. Always nil in production.
 var afterPasswordVerified func()
+
+// beforeSecretVerify lets tests count the sign-in and recovery attempts that reach secret
+// verification. Always nil in production.
+var beforeSecretVerify func()

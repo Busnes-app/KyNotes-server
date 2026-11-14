@@ -203,3 +203,26 @@ func TestEmptyTrustedProxyCIDRsTrustsNoProxy(t *testing.T) {
 		t.Fatalf("%v %#v", err, c.Server)
 	}
 }
+
+// Office networks are validated at startup by ky-primitives/netallow: a bad, too-broad or
+// loopback entry stops the server.
+func TestRateLimitExemptNetworksAreValidatedAtStartup(t *testing.T) {
+	t.Setenv("KYNOTES_RATELIMIT_EXEMPT_NETWORKS", " 203.0.113.9/24, 2001:db8:1::/48 ")
+	c := Defaults()
+	if err := applyEnv(&c); err != nil {
+		t.Fatal(err)
+	}
+	c.DataDir, c.Server.Bind, c.Server.DevInsecureCookies = t.TempDir(), "127.0.0.1:8080", true
+	if err := Validate(c); err != nil || len(c.RateLimit.ExemptNetworks) != 2 {
+		t.Fatalf("valid list: %v %q", err, c.RateLimit.ExemptNetworks)
+	}
+	if Defaults().RateLimit.ExemptNetworks != nil {
+		t.Fatal("the default list is not empty")
+	}
+	for _, bad := range []string{"0.0.0.0/0", "::/0", "10.0.0.0/8", "office", "127.0.0.1"} {
+		c.RateLimit.ExemptNetworks = []string{bad}
+		if err := Validate(c); err == nil || !strings.Contains(err.Error(), "ratelimit.exempt_networks") {
+			t.Errorf("%q: err = %v, want a startup failure naming the setting", bad, err)
+		}
+	}
+}

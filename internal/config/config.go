@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/keyfile"
+	"github.com/Busnes-app/ky-primitives/netallow"
 	"github.com/Busnes-app/ky-primitives/offsite"
 	"gopkg.in/yaml.v3"
 )
@@ -61,6 +62,9 @@ type RateLimit struct {
 	UploadPerMinute   int `yaml:"upload_per_minute"`
 	InvitationPerHour int `yaml:"invitation_per_hour"`
 	LinkPollPerMinute int `yaml:"link_poll_per_minute"`
+	// ExemptNetworks are office networks whose sign-in requests skip the per-IP buckets
+	// (ky-primitives/netallow rules); the admin setting adds to them.
+	ExemptNetworks []string `yaml:"exempt_networks"`
 }
 type Log struct {
 	Level  string `yaml:"level"`
@@ -295,6 +299,9 @@ func applyEnv(c *Config) error {
 			return err
 		}
 	}
+	if v := os.Getenv("KYNOTES_RATELIMIT_EXEMPT_NETWORKS"); v != "" {
+		c.RateLimit.ExemptNetworks = splitList(v)
+	}
 	if v := os.Getenv("KYNOTES_LOG_LEVEL"); v != "" {
 		c.Log.Level = v
 	}
@@ -399,6 +406,9 @@ func validate(c Config, probeWrite bool) error {
 	}
 	if r := c.RateLimit; r.LoginPerMinute < 1 || r.PairingPerHour < 1 || r.UploadPerMinute < 1 || r.InvitationPerHour < 1 || r.LinkPollPerMinute < 1 {
 		return errors.New("ratelimit: every limit must be a positive integer")
+	}
+	if _, err := netallow.Parse(strings.Join(c.RateLimit.ExemptNetworks, ",")); err != nil {
+		return fmt.Errorf("ratelimit.exempt_networks: %w", err)
 	}
 	if c.Limits.AttachmentMaxBytes < c.Limits.ChunkBytes {
 		return errors.New("limits.attachment_max_bytes: smaller than chunk_bytes")
