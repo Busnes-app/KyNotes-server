@@ -6,6 +6,9 @@ tmp
 data
 web/node_modules
 web/dist
+/kynotes-server
+/kynotes-mcp
+/kynotes-probe
 .env
 **/.env.*
 !**/.env.example
