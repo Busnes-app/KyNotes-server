@@ -147,6 +147,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Child DOX Index
 
+- `docs/AGENTS.md` — mdBook manual, chapter ownership and documentation checks.
+
 - `docs/ui-notes-eight/AGENTS.md` owns the sequential UI council evidence, round scores, capture provenance and supplemental theme checks.
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and

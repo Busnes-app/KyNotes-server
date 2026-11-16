@@ -114,3 +114,12 @@ admission. Existing instances must pass a staged capacity preflight; an instance
 that cannot fund its legacy cleanup slots refuses the upgrade without changing
 its live schema/data. Keep a pre-upgrade copy and the old release for reducing
 unneeded data. See [cleanup capacity and upgrade](docs/CLEANUP-CAPACITY.md).
+
+## User manual
+
+Read the [online manual](https://busnes.app/manuals/kynotes-server/) or browse its
+[Markdown sources](docs/src/introduction.md).
+
+Build and check it with `mdbook build docs` and `python3 docs/check-links.py`,
+then open `docs/book/index.html`. The documentation workflow also provides a
+downloadable `documentation-book` artifact.
