@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prepare application version `0.6.1` (from `0.6.0`) for the compatible dependency refresh. Rebuild or install the updated application; this version bump requires no additional data, account, key or configuration migration.
+
 - Adopt the published `ky-primitives/offsite v0.3.0` release. Rebuild the application and verify configured S3, SFTP and SMB destinations; no stored-data or credential format migration is required. The release retains strong SFTP key/algorithm requirements and idle/total transfer budgets. See the [module release notes](https://github.com/Busnes-app/ky-primitives/blob/offsite/v0.3.0/CHANGELOG.md#offsite-module) for compatibility checks.
 
 - Refresh compatible dependency versions and lockfiles. Rebuild or install the updated application; no database, configuration, account or key migration is required.
