@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/Busnes-app/ky-primitives v0.10.2-0.20261113220457-9f4bc5875e04
-	github.com/Busnes-app/ky-primitives/offsite v0.2.3-0.20261026050236-bae5c14dba4c
+	github.com/Busnes-app/ky-primitives/offsite v0.3.0
 	github.com/cloudflare/circl v1.6.5
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pkg/sftp v1.13.12
@@ -18,8 +18,8 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2 v1.48.0 // indirect
 	github.com/aws/smithy-go v1.28.9 // indirect
-	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701 // indirect
-	github.com/cloudsoda/sddl v0.0.0-20250224235906-926454e91efc // indirect
+	github.com/cloudsoda/go-smb2 v0.0.0-20261105190815-95be04a983b8 // indirect
+	github.com/cloudsoda/sddl v0.0.0-20261105185302-1c8f96799263 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/geoffgarside/ber v1.2.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
