@@ -1,0 +1,696 @@
+== a1 alice login: POST /api/v1/auth/login
+200
+Cache-Control: no-store
+Content-Length: 175
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+Set-Cookie: kynotes_session=<tok1>; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax; csrf_token=<tok2>; Path=/; Max-Age=604800; SameSite=Lax
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"expiresAt":"<time>","hardExpiresAt":"<time>","passwordChangeRequired":false,"user":{"accountKind":"user","id":"usr_golden_alice","role":"user"}}
+
+
+== a2 bob login: POST /api/v1/auth/login
+200
+Cache-Control: no-store
+Content-Length: 173
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+Set-Cookie: kynotes_session=<tok3>; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax; csrf_token=<tok4>; Path=/; Max-Age=604800; SameSite=Lax
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"expiresAt":"<time>","hardExpiresAt":"<time>","passwordChangeRequired":false,"user":{"accountKind":"user","id":"usr_golden_bob","role":"user"}}
+
+
+== a3 admin login: POST /api/v1/auth/login
+200
+Cache-Control: no-store
+Content-Length: 177
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+Set-Cookie: kynotes_session=<tok5>; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax; csrf_token=<tok6>; Path=/; Max-Age=604800; SameSite=Lax
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"expiresAt":"<time>","hardExpiresAt":"<time>","passwordChangeRequired":false,"user":{"accountKind":"admin","id":"usr_golden_admin","role":"admin"}}
+
+
+== b session: GET /api/v1/auth/session
+200
+Cache-Control: no-store
+Content-Length: 224
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+Set-Cookie: csrf_token=<tok2>; Path=/; Max-Age=604800; SameSite=Lax
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"expiresAt":"<time>","hardExpiresAt":"<time>","passwordChangeRequired":false,"sso":false,"user":{"accountKind":"user","id":"usr_golden_alice","role":"user","username":"alice"},"version":"0.6.1"}
+
+
+== b containers: GET /api/v1/containers
+200
+Cache-Control: no-store
+Content-Length: 316
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"changeSeq":5,"id":"<cnt7>","keyGeneration":1,"kind":"workbook","metaCiphertext":"","metaVersion":0,"sharedGeneration":1,"teamId":""},{"changeSeq":4,"id":"<cnt8>","keyGeneration":1,"kind":"team","metaCiphertext":"","metaVersion":0,"sharedGeneration":1,"teamId":""}]
+
+
+== b bob containers: GET /api/v1/containers
+200
+Cache-Control: no-store
+Content-Length: 157
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"changeSeq":4,"id":"<cnt8>","keyGeneration":1,"kind":"team","metaCiphertext":"","metaVersion":0,"sharedGeneration":1,"teamId":""}]
+
+
+== b changes: GET /api/v1/containers/<cnt7>/changes
+200
+Cache-Control: no-store
+Content-Length: 311
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"changes":[{"changeSeq":3,"deleted":false,"id":"<obj9>","kind":"object"},{"changeSeq":4,"deleted":false,"id":"<cfl10>","kind":"conflict"},{"changeSeq":5,"deleted":false,"id":"<att11>","kind":"attachment"}],"hasMore":false,"nextCursor":"5"}
+
+
+== b team changes: GET /api/v1/containers/<cnt8>/changes
+200
+Cache-Control: no-store
+Content-Length: 220
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"changes":[{"changeSeq":3,"deleted":false,"id":"<obj12>","kind":"object"},{"changeSeq":4,"deleted":false,"id":"<cmt13>","kind":"comment"}],"hasMore":false,"nextCursor":"4"}
+
+
+== b members: GET /api/v1/containers/<cnt8>/members
+200
+Cache-Control: no-store
+Content-Length: 159
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"approved":true,"role":"owner","userId":"usr_golden_alice","username":"alice"},{"approved":true,"role":"editor","userId":"usr_golden_bob","username":"bob"}]
+
+
+== b envelopes: GET /api/v1/containers/<cnt8>/envelopes
+200
+Cache-Control: no-store
+Content-Length: 624
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"alg":"<tok18>","createdAt":"now","deviceId":"<dev14>","envelope":"<tok19>","id":"<env15>","keyGeneration":1},{"alg":"<tok18>","createdAt":"now","deviceId":"<dev16>","envelope":"<tok19>","id":"<env17>","keyGeneration":1}]
+
+
+== b page: GET /api/v1/objects/<obj9>
+200
+Cache-Control: no-store
+Content-Length: 13
+Content-Security-Policy: default-src 'none'
+Content-Type: application/octet-stream
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Kynotes-Change-Seq: 5
+X-Kynotes-Digest: <tok20>
+X-Kynotes-Key-Generation: 1
+X-Kynotes-Saved-At: <time>
+X-Kynotes-Version: 1
+
+ciphertext-v1
+
+== b team page: GET /api/v1/objects/<obj12>
+200
+Cache-Control: no-store
+Content-Length: 15
+Content-Security-Policy: default-src 'none'
+Content-Type: application/octet-stream
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Kynotes-Change-Seq: 4
+X-Kynotes-Digest: <tok21>
+X-Kynotes-Key-Generation: 1
+X-Kynotes-Saved-At: <time>
+X-Kynotes-Version: 1
+
+team-ciphertext
+
+== b comments: GET /api/v1/objects/<obj12>/comments
+200
+Cache-Control: no-store
+Content-Length: 173
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"authorUserId":"usr_golden_alice","bodyCiphertext":"Y3Q=","createdAt":"<time>","id":"<cmt13>","keyGeneration":1,"username":"alice"}
+]
+
+
+== b attachments: GET /api/v1/objects/<obj9>/attachments
+200
+Cache-Control: no-store
+Content-Length: 3
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[]
+
+
+== b attachment: GET /api/v1/attachments/<att11>
+200
+Accept-Ranges: bytes
+Cache-Control: no-store
+Content-Length: 21
+Content-Security-Policy: default-src 'none'
+Content-Type: application/octet-stream
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+attachment-ciphertext
+
+== b links: GET /api/v1/share-links
+200
+Cache-Control: no-store
+Content-Length: 123
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"id":"<shl22>","createdAt":"<time>","expiresAt":"<time>","bytes":32}]
+
+
+== b public link: GET /api/v1/share-links/<tok23>
+200
+Cache-Control: no-store
+Content-Length: 13
+Content-Security-Policy: default-src 'none'
+Content-Type: application/octet-stream
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Kynotes-Change-Seq: 3
+X-Kynotes-Commit-Receipt: sha256:<tok24>
+X-Kynotes-Digest: <tok20>
+X-Kynotes-Key-Generation: 1
+X-Kynotes-Object: <obj9>
+X-Kynotes-Version: 1
+
+ciphertext-v1
+
+== b bob reads alice's notebook: GET /api/v1/containers/<cnt7>/changes
+404
+Cache-Control: no-store
+Content-Length: 98
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"error":{"code":"not_found","message":"not found","requestId":"<req25>"}}
+
+
+== b admin users: GET /api/v1/admin/users
+200
+Cache-Control: no-store
+Content-Length: 443
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"accountKind":"user","createdAt":"<time>","id":"usr_golden_alice","quotaBytes":0,"role":"user","status":"active","username":"alice"},{"accountKind":"user","createdAt":"<time>","id":"usr_golden_bob","quotaBytes":0,"role":"user","status":"active","username":"bob"},{"accountKind":"admin","createdAt":"<time>","id":"usr_golden_admin","quotaBytes":0,"role":"admin","status":"active","username":"root"}]
+
+
+== b admin settings: GET /api/v1/admin/settings
+200
+Cache-Control: no-store
+Content-Length: 29
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"defaultTheme":"Patina Ky"}
+
+
+== b admin teams: GET /api/v1/admin/teams
+200
+Cache-Control: no-store
+Content-Length: 142
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"id":"<cnt8>","keyed":true,"memberCount":2,"named":false,"ownerUserId":"usr_golden_alice","ownerUsername":"alice"}]
+
+
+== b admin audit: GET /api/v1/admin/audit
+200
+Cache-Control: no-store
+Content-Length: 1315
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"actorUserId":"usr_golden_admin","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"share_link.create","objectId":"<shl22>","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"<cnt7>","event":"container.create","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"<cnt8>","event":"container.create","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_bob","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_bob","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""}]
+
+== c1 save: PUT /api/v1/objects/<obj9>
+200
+Cache-Control: no-store
+Content-Length: 191
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"bytes":13,"commitReceipt":"sha256:<tok26>","digest":"<tok27>","version":2}
+
+
+== c2 stale save: PUT /api/v1/objects/<obj9>
+409
+Cache-Control: no-store
+Content-Length: 182
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"conflictId":"<cfl28>","currentVersion":2,"error":{"code":"version_conflict","message":"base version is stale","requestId":"<req29>"}}
+
+
+== c3 bob comments: POST /api/v1/objects/<obj12>/comments
+200
+Cache-Control: no-store
+Content-Length: 40
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"id":"<cmt30>"}
+
+
+== c4 new notebook: POST /api/v1/containers
+200
+Cache-Control: no-store
+Content-Length: 159
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"changeSeq":1,"id":"<cnt31>","keyGeneration":1,"kind":"workbook","metaCiphertext":"","metaVersion":0,"sharedGeneration":0,"teamId":""}
+
+
+== c5 page in it: POST /api/v1/containers/<cnt31>/objects
+200
+Cache-Control: no-store
+Content-Length: 66
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"changeSeq":2,"id":"<obj32>","version":0}
+
+
+== c6 unkeyed save: PUT /api/v1/objects/<obj32>
+409
+Cache-Control: no-store
+Content-Length: 117
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"error":{"code":"already_exists","message":"key rotation incomplete","requestId":"<req33>"}}
+
+
+== c7 upload: POST /api/v1/containers/<cnt7>/uploads
+200
+Cache-Control: no-store
+Content-Length: 116
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"chunkBytes":4194304,"expiresAt":"<time>","nextChunk":0,"uploadId":"<ups34>"}
+
+
+== c8 chunk: PATCH /api/v1/uploads/<ups34>
+200
+Cache-Control: no-store
+Content-Length: 35
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"nextChunk":1,"receivedBytes":17}
+
+
+== c9 finalize: POST /api/v1/uploads/<ups34>/finalize
+200
+Cache-Control: no-store
+Content-Length: 137
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"attachmentId":"<att35>","bytes":17,"digest":"<tok36>"}
+
+
+== c10 sealed link: POST /api/v1/share-links
+200
+Cache-Control: no-store
+Content-Length: 129
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"expiresAt":"<time>","id":"<shl37>","token":"<tok38>"}
+
+
+== c11 delete page: DELETE /api/v1/objects/<obj9>
+204
+Cache-Control: no-store
+Content-Security-Policy: default-src 'none'
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+
+
+== d session: GET /api/v1/auth/session
+200
+Cache-Control: no-store
+Content-Length: 224
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+Set-Cookie: csrf_token=<tok2>; Path=/; Max-Age=604800; SameSite=Lax
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"expiresAt":"<time>","hardExpiresAt":"<time>","passwordChangeRequired":false,"sso":false,"user":{"accountKind":"user","id":"usr_golden_alice","role":"user","username":"alice"},"version":"0.6.1"}
+
+
+== d containers: GET /api/v1/containers
+200
+Cache-Control: no-store
+Content-Length: 475
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"changeSeq":9,"id":"<cnt7>","keyGeneration":1,"kind":"workbook","metaCiphertext":"","metaVersion":0,"sharedGeneration":1,"teamId":""},{"changeSeq":5,"id":"<cnt8>","keyGeneration":1,"kind":"team","metaCiphertext":"","metaVersion":0,"sharedGeneration":1,"teamId":""},{"changeSeq":2,"id":"<cnt31>","keyGeneration":1,"kind":"workbook","metaCiphertext":"","metaVersion":0,"sharedGeneration":0,"teamId":""}]
+
+
+== d bob containers: GET /api/v1/containers
+200
+Cache-Control: no-store
+Content-Length: 157
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"changeSeq":5,"id":"<cnt8>","keyGeneration":1,"kind":"team","metaCiphertext":"","metaVersion":0,"sharedGeneration":1,"teamId":""}]
+
+
+== d changes: GET /api/v1/containers/<cnt7>/changes
+200
+Cache-Control: no-store
+Content-Length: 312
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"changes":[{"changeSeq":5,"deleted":false,"id":"<att11>","kind":"attachment"},{"changeSeq":8,"deleted":false,"id":"<att35>","kind":"attachment"},{"changeSeq":9,"deleted":true,"id":"<obj9>","kind":"object"}],"hasMore":false,"nextCursor":"9"}
+
+
+== d team changes: GET /api/v1/containers/<cnt8>/changes
+200
+Cache-Control: no-store
+Content-Length: 307
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"changes":[{"changeSeq":3,"deleted":false,"id":"<obj12>","kind":"object"},{"changeSeq":4,"deleted":false,"id":"<cmt13>","kind":"comment"},{"changeSeq":5,"deleted":false,"id":"<cmt30>","kind":"comment"}],"hasMore":false,"nextCursor":"5"}
+
+
+== d members: GET /api/v1/containers/<cnt8>/members
+200
+Cache-Control: no-store
+Content-Length: 159
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"approved":true,"role":"owner","userId":"usr_golden_alice","username":"alice"},{"approved":true,"role":"editor","userId":"usr_golden_bob","username":"bob"}]
+
+
+== d envelopes: GET /api/v1/containers/<cnt8>/envelopes
+200
+Cache-Control: no-store
+Content-Length: 624
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"alg":"<tok18>","createdAt":"now","deviceId":"<dev14>","envelope":"<tok19>","id":"<env15>","keyGeneration":1},{"alg":"<tok18>","createdAt":"now","deviceId":"<dev16>","envelope":"<tok19>","id":"<env17>","keyGeneration":1}]
+
+
+== d page: GET /api/v1/objects/<obj9>
+404
+Cache-Control: no-store
+Content-Length: 98
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"error":{"code":"not_found","message":"not found","requestId":"<req39>"}}
+
+
+== d team page: GET /api/v1/objects/<obj12>
+200
+Cache-Control: no-store
+Content-Length: 15
+Content-Security-Policy: default-src 'none'
+Content-Type: application/octet-stream
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-Kynotes-Change-Seq: 5
+X-Kynotes-Digest: <tok21>
+X-Kynotes-Key-Generation: 1
+X-Kynotes-Saved-At: <time>
+X-Kynotes-Version: 1
+
+team-ciphertext
+
+== d comments: GET /api/v1/objects/<obj12>/comments
+200
+Cache-Control: no-store
+Content-Length: 340
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"authorUserId":"usr_golden_alice","bodyCiphertext":"Y3Q=","createdAt":"<time>","id":"<cmt13>","keyGeneration":1,"username":"alice"}
+,{"authorUserId":"usr_golden_bob","bodyCiphertext":"Y3Q=","createdAt":"<time>","id":"<cmt30>","keyGeneration":1,"username":"bob"}
+]
+
+
+== d attachments: GET /api/v1/objects/<obj9>/attachments
+200
+Cache-Control: no-store
+Content-Length: 3
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[]
+
+
+== d attachment: GET /api/v1/attachments/<att11>
+200
+Accept-Ranges: bytes
+Cache-Control: no-store
+Content-Length: 21
+Content-Security-Policy: default-src 'none'
+Content-Type: application/octet-stream
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+attachment-ciphertext
+
+== d links: GET /api/v1/share-links
+200
+Cache-Control: no-store
+Content-Length: 244
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"id":"<shl37>","createdAt":"<time>","expiresAt":"<time>","bytes":32},{"id":"<shl22>","createdAt":"<time>","expiresAt":"<time>","bytes":32}]
+
+
+== d public link: GET /api/v1/share-links/<tok23>
+404
+Cache-Control: no-store
+Content-Length: 98
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"error":{"code":"not_found","message":"not found","requestId":"<req40>"}}
+
+
+== d bob reads alice's notebook: GET /api/v1/containers/<cnt7>/changes
+404
+Cache-Control: no-store
+Content-Length: 98
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"error":{"code":"not_found","message":"not found","requestId":"<req41>"}}
+
+
+== d admin users: GET /api/v1/admin/users
+200
+Cache-Control: no-store
+Content-Length: 443
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"accountKind":"user","createdAt":"<time>","id":"usr_golden_alice","quotaBytes":0,"role":"user","status":"active","username":"alice"},{"accountKind":"user","createdAt":"<time>","id":"usr_golden_bob","quotaBytes":0,"role":"user","status":"active","username":"bob"},{"accountKind":"admin","createdAt":"<time>","id":"usr_golden_admin","quotaBytes":0,"role":"admin","status":"active","username":"root"}]
+
+
+== d admin settings: GET /api/v1/admin/settings
+200
+Cache-Control: no-store
+Content-Length: 29
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+{"defaultTheme":"Patina Ky"}
+
+
+== d admin teams: GET /api/v1/admin/teams
+200
+Cache-Control: no-store
+Content-Length: 142
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"id":"<cnt8>","keyed":true,"memberCount":2,"named":false,"ownerUserId":"usr_golden_alice","ownerUsername":"alice"}]
+
+
+== d admin audit: GET /api/v1/admin/audit
+200
+Cache-Control: no-store
+Content-Length: 1690
+Content-Security-Policy: default-src 'none'
+Content-Type: application/json; charset=utf-8
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+
+[{"actorUserId":"usr_golden_admin","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"share_link.create","objectId":"<shl22>","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"","event":"share_link.create","objectId":"<shl37>","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"<cnt31>","event":"container.create","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"<cnt7>","event":"container.create","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_alice","at":"<time>","containerId":"<cnt8>","event":"container.create","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_bob","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""},{"actorUserId":"usr_golden_bob","at":"<time>","containerId":"","event":"auth.login","objectId":"","outcome":"success","reasonCode":""}]
+
