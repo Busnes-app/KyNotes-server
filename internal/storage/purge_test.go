@@ -246,7 +246,7 @@ UNION ALL SELECT (SELECT group_concat(name,' ') FROM (SELECT name FROM pragma_in
 		}
 		return false
 	}
-	for _, step := range purgeSteps {
+	for _, step := range append(append([]purgeStep{}, purgeSteps...), eraseSteps...) {
 		if !unique(step.table, step.key) {
 			t.Errorf("purge step %s: key (%s) is not a unique key", step.table, step.key)
 		}

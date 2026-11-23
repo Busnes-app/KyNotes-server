@@ -240,7 +240,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 				}
 			}
 		}
-		if err == nil && event.Type == "user.erased" && !mismatch && accountOrg != "" {
+		if err == nil && tenancy.Multi() && event.Type == "user.erased" && !mismatch && accountOrg != "" { // single mode refuses user.erased above
 			_, err = tx.Exec(`INSERT INTO erased_subjects(subject,org_id,revision) VALUES(?,?,?) ON CONFLICT(subject) DO NOTHING`, u.ID, accountOrg, revision)
 			var account string
 			if err == nil {

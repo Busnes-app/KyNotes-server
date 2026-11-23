@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -42,6 +43,10 @@ func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &inv); err != nil || inv.ID == "" {
 		t.Fatalf("invite: %s", body)
 	}
+	var cursor int64 // the rest of the team has synced everything so far
+	if err := tm.owner.db.QueryRow(`SELECT change_seq FROM containers WHERE id=?`, tm.id).Scan(&cursor); err != nil {
+		t.Fatal(err)
+	}
 	toMultiMode(t, tm.owner.db, "org_staff")
 	erase(t, tm.owner.db, pairUser)
 
@@ -67,6 +72,24 @@ func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	var ciphertext []byte
 	if err := tm.owner.db.QueryRow(`SELECT deleted_at,body_ciphertext FROM comments WHERE id=?`, comment).Scan(&deleted, &ciphertext); err != nil || deleted == "" || len(ciphertext) != 0 {
 		t.Fatalf("the erased member's comment: deleted_at=%q body=%d bytes (%v)", deleted, len(ciphertext), err)
+	}
+	// ... at a fresh change sequence, so a device synced before the erasure drops it.
+	_, out := status(t, tm.admin.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/changes?since="+fmt.Sprint(cursor), nil, false, false))
+	var changes struct {
+		Changes []struct {
+			ID      string
+			Deleted bool
+		}
+	}
+	if err := json.Unmarshal([]byte(out), &changes); err != nil {
+		t.Fatalf("changes: %s", out)
+	}
+	synced := false
+	for _, c := range changes.Changes {
+		synced = synced || c.ID == comment && c.Deleted
+	}
+	if !synced {
+		t.Fatalf("the tombstoned comment is not in the changes since %d: %s", cursor, out)
 	}
 	var username, secret, salt string
 	if err := tm.owner.db.QueryRow(`SELECT username,auth_secret_hash,login_salt FROM users WHERE id=?`, pairUser).Scan(&username, &secret, &salt); err != nil || username != pairUser || secret != "" || salt != "" {

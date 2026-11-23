@@ -280,21 +280,59 @@ func EraseMembers(ctx context.Context, db *sql.DB) error {
 }
 
 // eraseMember tombstones the member's comments in notebooks others keep, in batches (ciphertext
-// cleared, as a comment deletion does), then scrubs its user row down to its random ID: no name,
-// secret, salt, recovery or SSO binding is left (owner decision 12). erased_subjects keeps the
-// subject, so it can never sign in again. ponytail: a plain update, as on PostgreSQL, the only
-// multi-mode store; SQLite's cleanup slots are not filled here.
+// cleared, as a comment deletion does), each at a fresh change sequence of its notebook so every
+// device syncs the deletion. Then it scrubs the user row down to its random ID: no name, secret,
+// salt, recovery or SSO binding is left (owner decision 12). erased_subjects keeps the subject,
+// so it can never sign in again. ponytail: plain updates, as on PostgreSQL, the only multi-mode
+// store; SQLite's cleanup slots are not filled here.
 func eraseMember(ctx context.Context, db *sql.DB, user string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for {
-		res, err := db.ExecContext(ctx, `UPDATE comments SET body_ciphertext=X'',deleted_at=? WHERE id IN (SELECT id FROM comments WHERE author_user_id=? AND deleted_at='' LIMIT `+fmt.Sprint(purgeBatch)+`)`, now, user)
+		n, err := tombstoneBatch(ctx, db, user, now)
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n < int64(purgeBatch) {
+		if n < purgeBatch {
 			break
 		}
 	}
 	_, err := db.ExecContext(ctx, `UPDATE users SET username=id,auth_secret_hash='',login_salt='',recovery_hash='',recovery_used_at='',sso_subject='',sso_issuer='',password_admin_known=0,role='user',updated_at=? WHERE id=? AND status='erased'`, now, user)
 	return err
+}
+
+// tombstoneBatch tombstones up to purgeBatch of the member's live comments in one transaction.
+func tombstoneBatch(ctx context.Context, db *sql.DB, user, now string) (int, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id,container_id FROM comments WHERE author_user_id=? AND deleted_at='' LIMIT `+fmt.Sprint(purgeBatch), user)
+	if err != nil {
+		return 0, err
+	}
+	var batch [][2]string
+	for rows.Next() {
+		var c [2]string
+		if err := rows.Scan(&c[0], &c[1]); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		batch = append(batch, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, c := range batch {
+		// One sequence per comment: sync pages by change_seq, so rows must not share one.
+		var seq int64
+		if err := tx.QueryRowContext(ctx, `UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, c[1]).Scan(&seq); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE comments SET body_ciphertext=X'',deleted_at=?,change_seq=? WHERE id=?`, now, seq, c[0]); err != nil {
+			return 0, err
+		}
+	}
+	return len(batch), tx.Commit()
 }
