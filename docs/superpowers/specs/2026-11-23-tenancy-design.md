@@ -36,6 +36,17 @@ Owner decisions (fixed, not reopened here):
     holds the pool.** Each app checks it before a write that adds bytes and reports its usage.
     Today's per-upload and per-user caps may stay as safety limits, but the number a customer
     buys is the pool.
+11. **Object storage only in multi-tenant mode** (2026-11-23, afternoon; KyNotes #176). There is
+    no disk-volume fallback: a hosted install refuses to start without object storage. Single-tenant
+    installs keep their volumes. This replaces decision 9's "launch may run on volumes".
+12. **Delete everything and shared data** (2026-11-23, afternoon). Shared content passes to the
+    longest-standing admin, then an editor, then any member. A person's messages in shared rooms
+    become tombstones; for KyNotes, their comments in notebooks others keep. Nothing other
+    members wrote is deleted. This answers open question 4 with (a).
+13. **No automatic version pruning at launch** (2026-11-23, afternoon). This answers open question 12.
+14. The pool is KyIdentity's merged contract (#290, `docs/SUITE-DIRECTORY.md` "Storage pool"):
+    report-and-grant. It replaces this spec's assumed allowance in the org poll ("The org storage
+    pool" below). The 2026-11-23 decisions on incoming mail and seats do not touch KyNotes.
 
 Tracking: `Busnes-app/ky-launch#4` (a checklist per app).
 
@@ -110,12 +121,12 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, an invitation acceptance, or a key or invitation envelope (`key_envelopes`, `invitation_envelopes`) whose user is in another org than the container. **No trigger runs on invitation insert:** an invitation to another org's user ID is created like one to an unknown ID, so creation answers the same for both, and it can never be accepted. Handlers check the org explicitly before each insert and answer as for a missing row: accept answers not-found, and `insertInvitationEnvelopeTx` adds the org to its identity-device check (`teamkeys_routes.go:473-477`), so another org's device gets `errEnvelopeInvalid`, as an unknown device does today. The triggers are a backstop whose error no handler maps to its own answer. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
 | N8 | **Blobs become org-owned.** `blobs` gains `org_id`, and on PostgreSQL its key is `(org_id, digest)`. The key in multi mode is `orgs/<org_id>/blobs/aa/bb/<digest>` on both backends (today's fan-out under an org prefix). Single-tenant keeps `<data>/blobs/aa/bb/<digest>` and the digest key. | Fact 3. A shared digest across orgs would let one org's upload, purge or quota interact with another's file. Per-org keys make a purge a prefix delete and quota exact. KyDrive refused content addressing for the same reason (D "Blob storage"). |
 | N9 | KyNotes keeps a local mirror of `/api/suite/orgs` (`orgs` table), polled about every 60 s by the elected worker (`suitedir.Client.Orgs`, `suitedir/client.go:241`). Every authenticated read joins the account's org row in the same query as the account. | T D6 and downstream contract 5. C D6. A suspension then takes effect at the next request on every replica. |
-| N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the org's allowance (the pool less what every other app reports). The allowance is cached in the `orgs` mirror, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
+| N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the grant KyIdentity's answer to the report gives (owner decision 14: `ceiling_bytes`, valid `ttl_seconds`). The grant is stored per org, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
 | N11 | **Export runs in the browser, under `export_only`.** A session whose ID token carries `"export_only": true` is marked so. It admits only the routes the browser export needs, listed once in Lifecycle, Export: the reads, plus the few writes that hold no content (logout, recovery-code fetch, browser linking), so a fresh browser can still export (open question 6). Every other route answers `403 export_only`. There is no operator export command. | Fact 1: only the browser can decrypt. The browser export already exists (`exportNotebook.ts`, `AGENTS.md:273-277`). Owner decision 8. |
 | N12 | **Multi mode adopts the replica pattern**: `/livez` and `/readyz` with the drain order, a shared-configuration fingerprint, one elected worker through a PostgreSQL session advisory lock, and every security limit in PostgreSQL. | Owner decision 7. The pattern's "Product rollout contract" (a) to (f) is the checklist (Replica work). |
 | N13 | Each multi install serves one region, `KYNOTES_REGION`, **required in multi mode with no default** (N1), so a replica cannot silently join as the wrong region. An org whose `home_region` differs is treated as not serving. | T "Home region" H1 to H4: an org's data lives in one region. A misrouted token then reaches no data. |
 | N14 | A `deleted` org is purged by the elected worker in short, resumable batches behind a fail-closed audit row. Its `orgs` row stays as a tombstone. Erased subjects come from `/api/suite/erased`. | C D12 and T "Delete everything". A purge in one transaction would hold N3's lock and stop every other org's writes. |
-| N15 | **One blob interface, two backends.** `internal/blobstore` gets an interface with the methods its callers use today (`NewTemp`, `Reopen`, `Open`, `Stat`, `Delete`, `ListDigests`), plus a prefix delete for the purge. `volume` is today's code. `object` is S3-compatible. Single-tenant always uses `volume` at `<data>/blobs`, unchanged. Multi mode takes `KYNOTES_BLOB_BACKEND=object` or `volume`, and `volume` there must be a directory every replica mounts (`KYNOTES_BLOB_DIR`). The backend joins the shared-configuration fingerprint. | Owner decision 9: launch may run on volumes, so both backends must work. A replica on a private disk would lose blobs written by the others, so a store-ID check proves the storage is shared ("Blobs in S3-compatible storage"). |
+| N15 | **One blob interface, two backends.** `internal/blobstore` gets an interface with the methods its callers use today (`NewTemp`, `Reopen`, `Open`, `Stat`, `Delete`, `ListDigests`), plus a prefix delete for the purge. `volume` is today's code. `object` is S3-compatible. Single-tenant always uses `volume` at `<data>/blobs`, unchanged. **Multi mode uses `object` only, and refuses to start without it** (owner decision 11). The bucket's endpoint, bucket and region join the shared-configuration fingerprint. | Owner decisions 9 and 11: hosted content is in object storage, and single-tenant installs keep volumes. A replica in another bucket would lose blobs written by the others, so a store-ID check proves the storage is shared ("Blobs in S3-compatible storage"). |
 
 ## Inventory
 
@@ -504,6 +515,10 @@ the purge, and keeps today's code as the `volume` backend. That PR changes no be
 Single-tenant installs always get `volume` at `<data>/blobs`, so their files, paths and upgrade
 are unchanged.
 
+**Owner decision 11 (2026-11-23, afternoon) supersedes this paragraph's `volume` option:** multi
+mode runs `object` only and refuses to start without it; `volume` is single-tenant only. The text
+below is kept for the record of the design; read every multi-mode `volume` case as removed.
+
 **Two backends in multi mode**, chosen by `KYNOTES_BLOB_BACKEND`:
 
 - `object`, the target. S3-compatible, configured by `KYNOTES_BLOB_S3_ENDPOINT`, `_REGION`,
@@ -727,13 +742,16 @@ between batches finishes on the next run.
    at most 500 child rows a transaction, the container row last). After step 2 these are exactly
    the ones with no other approved member: their personal notebooks and any team they alone
    are in.
-5. In batches: delete their comments and mentions in shared notebooks, reminders, push
-   subscriptions, share links and sealed links. Sealed links have no FK
+5. In batches: **tombstone** their comments in notebooks others keep (owner decision 12: the
+   ciphertext cleared and `deleted_at` set, as a comment deletion does), and delete their
+   mentions, reminders, push subscriptions, share links and sealed links. Sealed links have no FK
    (`0029_share_link_owner.sql:3`), so this step is needed.
-6. Delete the user row. The cascades from `users` then take what is left: memberships, the
-   invitations they sent (`inviter_id`, `0003_collaboration.sql:1`), and any comment
-   (`0003_collaboration.sql:2`) or mention (`:3`) a batch missed. A pending invitation from an
-   erased member cannot be accepted any more, which is intended: the new owner re-invites.
+6. **Scrub the user row and keep it** (owner decision 12): its comments reference it and
+   `comments.author_user_id` cascades, so deleting it would delete the tombstones. The row keeps
+   only its random ID: username set to the ID, every secret, salt, recovery and SSO field
+   cleared, status `erased`. Its devices, identity, sessions, memberships and link requests are
+   deleted. A pending invitation from an erased member cannot be accepted any more, which is
+   intended: the new owner re-invites.
 
 Pages they wrote in a shared notebook are the team's, and they stay.
 `object_versions.author_user_id` has no FK (`0022_team_keys.sql:2`), so it keeps the erased
@@ -817,6 +835,25 @@ what the customer stored plus encryption overhead, and it is the figure staff an
   Isolation step 4 are the ones that share names across backends.
   `TestOrgUsageMatchesUsedBytes` builds an org with every term and compares the trigger figure
   with the full `usedBytes` query after each write, delete, GC sweep and purge batch.
+
+**Owner decision 14 supersedes "Report" and "Check" below** with KyIdentity's merged contract
+(`POST /api/suite/storage`, KyIdentity `docs/SUITE-DIRECTORY.md` "Storage pool"):
+
+- **Report:** the elected worker sends `{org_id, used_bytes, seq, want_bytes}` for every serving
+  org whose charged bytes changed, about every 60 s, at once when half its grant is used, and at
+  least once per `ttl_seconds` for every grant held (`want_bytes: 0` releases one). `seq` comes from
+  a PostgreSQL sequence, so replicas never collide; a `stale` answer resynchronises it (after a
+  restore). `want_bytes` is a fixed step, the larger of 256 MiB and a tenth of the org's pool.
+- **Grant:** an `ok` answer stores `ceiling_bytes` and its expiry, `ttl_seconds` after the
+  request was **sent**, per org. `unknown_org` and every refusal store a ceiling of 0.
+- **Check:** a write that adds `n` bytes passes only while the org's committed charged bytes plus
+  `n` are at most the stored ceiling and the grant has not expired, checked inside the write's
+  transaction under N3's lock. No grant, or an expired one, refuses growth, as below. Writes that
+  add nothing always pass. The answer stays `413 quota_exceeded`.
+- `pool_bytes`, `org_used_bytes` and `over_since` are read for `GET /admin/orgs` only.
+
+The paragraphs below are the design before the contract existed; where they differ, the bullets
+above win.
 
 ### Report
 
@@ -971,12 +1008,12 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
      A report carries only `org_id`, the app and the figure, and a purge reports the lower
      figure at once. A forged or unauthenticated allowance answer changes nothing (the suite
      client's existing verification). The single-tenant golden is unchanged.
-5. **Replica work and blob storage.** Split so launch never waits on object storage:
+5. **Replica work and blob storage.** Owner decision 11: object storage now blocks launch.
    - (a) The elected worker, reminder claims, the in-memory state moved to PostgreSQL,
-     environment-only keys, the fingerprint, `/readyz`, the blob interface (N15), the shared
-     `volume` backend with org prefixes and upload parts, and the store-ID check. This is enough
-     to launch.
-   - (b) The `object` backend on ky-primitives' S3 type, with keys from the environment or a file.
+     environment-only keys, the fingerprint, `/readyz`, the blob interface (N15) with org
+     prefixes and upload parts, and the store-ID check. No shared `volume` backend.
+   - (b) The `object` backend, with keys from the environment or a file. Multi mode cannot start
+     without it.
    - Tests: a two-replica test on one PostgreSQL database and one shared directory, then the same
      test on one bucket (MinIO or another local S3 server in CI, unverified which). A sign-in
      started on one replica completes on the other. A chunked upload alternates replicas. A
@@ -1261,7 +1298,7 @@ Branch `feat/tenancy-build-4b`, stacked on PR 4a.
    kept for single-tenant installs and Enterprise. The restore reset (Lifecycle) then runs after a
    PostgreSQL restore too. KyIdentity, KyCalendar and KyDrive face the same limit (unverified for
    their sizes).
-4. **An erased owner's team notebooks with other members.** Delete everything deletes the
+4. **Answered (owner decision 12): (a), with tombstoned comments.** An erased owner's team notebooks with other members. Delete everything deletes the
    clicker's data, and a team notebook is shared.
    - (a) Ownership passes to the longest-standing approved admin, else the longest-standing
      editor, else the longest-standing approved member of any role. The notebook and the pages
@@ -1290,11 +1327,11 @@ Branch `feat/tenancy-build-4b`, stacked on PR 4a.
     Recommend 15 minutes, as KyCalendar's open question 11: long enough to ride out a KyIdentity
     restart without refusing saves, short enough that other apps cannot overshoot the pool by
     much. If KyIdentity's contract fixes a figure, that figure wins.
-11. **The volume fallback's filesystem.** Owner decision 9 lets launch run on volumes, and
+11. **Moot (owner decision 11: no volume fallback).** The volume fallback's filesystem. Owner decision 9 let launch run on volumes, and
     replicas on several hosts need one filesystem they all mount (NFS or CephFS). Recommend one
     shared filesystem per region for every app that falls back, chosen with KyDrive and
     KyMessages, and moving to `object` before the first plan with large pools fills it.
-12. **Version history and the pool.** Every save adds a version that counts. Recommend no
+12. **Answered (owner decision 13): no automatic pruning at launch.** Version history and the pool. Every save adds a version that counts. Recommend no
     automatic pruning for launch, since it would delete customer data; an over-quota member
     frees room by deleting pages, notebooks or attachments, which frees their bytes at once
     ("What over-quota refuses"). A history limit per plan is a later owner choice.
