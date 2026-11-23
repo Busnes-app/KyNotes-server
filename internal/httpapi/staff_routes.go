@@ -145,13 +145,14 @@ func serveStaffAudit(w http.ResponseWriter, r *http.Request, db *sql.DB) bool {
 		limit = n
 	}
 	staffRead(w, r, db, org, "audit", func(tx *sql.Tx) (any, error) {
+		// Multi uses the PostgreSQL event ledger; single mode keeps audit_history and cleanup slots.
 		scope := "org_id IS NULL"
 		args := []any{limit}
 		if org != "" {
 			scope = "org_id=?"
 			args = []any{org, limit}
 		}
-		rows, err := tx.QueryContext(r.Context(), `SELECT event,outcome,actor_user_id,container_id,object_id,reason_code,at FROM audit_history WHERE `+scope+` ORDER BY at DESC,id DESC LIMIT ?`, args...)
+		rows, err := tx.QueryContext(r.Context(), `SELECT event,outcome,actor_user_id,container_id,object_id,reason_code,at FROM audit_events WHERE `+scope+` ORDER BY at DESC,id DESC LIMIT ?`, args...)
 		if err != nil {
 			return nil, err
 		}

@@ -35,6 +35,7 @@ test("staff console selects an org, ignores late replies and exposes no customer
     await page.route("**/api/v1/admin/audit**", (route) => route.fulfill({ json: [{ event: new URL(route.request().url()).searchParams.has("org") ? "customer.event" : "platform.event", outcome: "success", at: "2026-11-23T12:00:00Z" }] }));
     page.on("request", (request) => { if (request.url().includes("/admin/") && request.method() !== "GET") writes.push(request.url()); });
     await page.goto("/#orgs");
+    await page.reload(); // A hash-only navigation does not re-fetch the session marker.
     await expect(page.getByRole("heading", { name: "Organizations", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Organization directory" })).toContainText("org_a");
     await expect(page.getByRole("link", { name: "Teams", exact: true })).toHaveCount(0);
