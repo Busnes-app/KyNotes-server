@@ -540,6 +540,12 @@ func checkCommand(kind string, args []string) error {
 var errUserAddUsage = errors.New("usage: user add --username <name> [--password <pass>] [--admin | --everyday]  (default --everyday; --admin creates an administrator account, which cannot open notes)")
 
 func userCommand(args []string) error {
+	if os.Getenv("KYNOTES_TENANCY") == "multi" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		return staffUserCommand(ctx, args, os.Stdin, os.Stdout)
+	}
+
 	if len(args) < 1 || args[0] != "add" {
 		return errUserAddUsage
 	}
