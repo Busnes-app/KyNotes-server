@@ -154,7 +154,7 @@ func TestStaffBootstrapAuditFailureAndCustomerAdminDoNotGrantStaff(t *testing.T)
 	t.Setenv("BOOTSTRAP_ADMIN_USER", "operator")
 	t.Setenv("BOOTSTRAP_EVERYDAY_USER", "")
 	t.Setenv("BOOTSTRAP_EVERYDAY_PASS", "")
-	if _, err := st.DB().Exec(`INSERT INTO users(id,username,role,account_kind,status,created_at,updated_at) VALUES('usr_customer_admin','customer-admin','admin','admin','active','t','t')`); err != nil {
+	if _, err := st.DB().Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,status,created_at,updated_at) VALUES('usr_customer_admin','customer-admin','','',600000,'admin','admin','active','t','t')`); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
