@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/suitedir"
+	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"github.com/Busnes-app/kynotes-server/internal/webpush"
 )
@@ -101,5 +103,56 @@ func TestStoppedOrgsRemindersWait(t *testing.T) {
 	}
 	if ps.count("/live") != 1 {
 		t.Fatalf("the resumed org's reminder was not pushed: %v", ps.hits)
+	}
+}
+
+// Through the org poll: a suspension ends the org's sessions, so a device paired from an SSO
+// session (bound to it, as every SSO-derived device is) must be linked again after the resume,
+// while a device paired from a password session works again with no re-linking.
+func TestSuspendAndResumeThroughThePoll(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	var code int
+	p.deviceID, p.deviceSecret, code = p.register(t, p.mintToken(t), bytes.Repeat([]byte{1}, 32))
+	if code != http.StatusOK {
+		t.Fatalf("register=%d", code)
+	}
+	ssoDevice := *p
+	ssoDevice.deviceID, ssoDevice.deviceSecret, code = p.register(t, p.mintToken(t), bytes.Repeat([]byte{2}, 32))
+	if code != http.StatusOK {
+		t.Fatalf("register=%d", code)
+	}
+	if _, err := p.db.Exec(`UPDATE devices SET sso_session_id=(SELECT id FROM sessions WHERE user_id=? LIMIT 1) WHERE id=?`, pairUser, ssoDevice.deviceID); err != nil {
+		t.Fatal(err)
+	}
+	toMultiMode(t, p.db, "org_staff")
+	revision := int64(0)
+	setStatus := func(s string) {
+		t.Helper()
+		revision++
+		list := func(context.Context, int64) ([]suitedir.Org, int64, error) {
+			return []suitedir.Org{{ID: storage.DefaultOrgID, Status: s, Revision: revision, HomeRegion: "local", Enabled: true}}, revision, nil
+		}
+		if err := orgsync.New(p.db, list).Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	device := func(c *pairClient) int {
+		code, _ := status(t, c.doDeviceOnly(t, http.MethodGet, "/api/v1/sync/pending", nil))
+		return code
+	}
+	setStatus("active")
+	if device(p) != 200 || device(&ssoDevice) != 200 {
+		t.Fatal("devices refused while the org serves")
+	}
+	setStatus("suspended")
+	if device(p) != 401 || device(&ssoDevice) != 401 {
+		t.Fatal("a device served a suspended org")
+	}
+	setStatus("active")
+	if got := device(p); got != 200 {
+		t.Fatalf("the password-paired device after the resume: %d", got)
+	}
+	if got := device(&ssoDevice); got != 401 {
+		t.Fatalf("the SSO-derived device outlived its ended session: %d", got)
 	}
 }
