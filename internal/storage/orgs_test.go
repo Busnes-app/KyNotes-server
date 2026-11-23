@@ -291,6 +291,10 @@ func TestOrgTriggersRefuseCrossOrgRows(t *testing.T) {
 			t.Errorf("%s: %v, want an org trigger refusal", name, err)
 		}
 	}
+	// A blob claim names its key as PostgreSQL does: (org_id, digest).
+	if err := exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES('d1',2,'t') ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`); err != nil {
+		t.Fatalf("claim by (org_id,digest): %v", err)
+	}
 	// Platform audit rows (no account, or an unknown actor such as "system") carry no org.
 	if err := exec(`INSERT INTO audit_events(id,user_id,event,created_at,at,outcome,org_id) VALUES('aud_p','system','backup.run','t','t','success',NULL)`); err != nil {
 		t.Fatalf("platform audit row: %v", err)

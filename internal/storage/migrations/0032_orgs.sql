@@ -27,6 +27,9 @@ ALTER TABLE sealed_share_links ADD COLUMN org_id TEXT NOT NULL DEFAULT '00000000
 -- NULL is a platform row. Every writer names the org; no default, so one that forgets cannot
 -- land in an org by accident (and the trigger below refuses it for a customer account).
 ALTER TABLE audit_events ADD COLUMN org_id TEXT;
+-- PostgreSQL keys blobs by (org_id, digest) (N8). This index makes the pair a key here too
+-- (implied by the digest key), so a claim's ON CONFLICT(org_id,digest) is one SQL text for both.
+CREATE UNIQUE INDEX blobs_org_digest ON blobs(org_id,digest);
 
 -- Cleanup sizes a row from SELECT *, which reports ALTER's virtual default. Store it in every
 -- cleanup source row now, so a later cleanup rewrite cannot grow the cell (docs/CLEANUP-CAPACITY.md).

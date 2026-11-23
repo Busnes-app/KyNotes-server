@@ -1006,6 +1006,10 @@ Branch `feat/tenancy-build-1`. Files are cited at that branch's head.
   without the two `UPDATE`s it fails (149 bytes stored against 186 computed for a container).
   `docs/CLEANUP-CAPACITY.md` says so. The 31→32 upgrade adds no capacity refusal: the growth is one
   `org_id` per container, sealed link and audit row.
+- A unique index `blobs_org_digest` on `blobs(org_id, digest)` makes the pair a key on SQLite
+  too (it is implied by the digest key there), so the blob claim reads
+  `ON CONFLICT(org_id,digest)` (`internal/httpapi/object_routes.go`, `claimBlob`), one SQL text
+  for both backends. Isolation step 5's "SQLite keeps `digest` as the key" still holds.
 - Triggers, per table: `<table>_org_exists`, `<table>_org_fixed`, and for a table with a parent
   `<table>_org_parent` (insert) and `<table>_org_parent_move` (update of the parent column), plus
   `audit_events_org_named`. A missing parent row compares as NULL and passes: FKs own existence, and
