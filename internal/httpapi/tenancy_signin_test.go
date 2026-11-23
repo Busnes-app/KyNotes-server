@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Busnes-app/ky-primitives/suitedir"
+	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 )
 
 // signInWith completes an OIDC sign-in whose ID token also carries extra claims.
@@ -204,5 +208,32 @@ func TestMultiModeLogoutWithAnotherOrgStillEndsSessions(t *testing.T) {
 		if got := mismatches(); got != c.audited {
 			t.Fatalf("after %s: %d mismatch audits, want %d", c.subject, got, c.audited)
 		}
+	}
+}
+
+// A sign-in for an org not yet mirrored waits for one org poll; a forged org ID polls at most
+// once every ten seconds and is refused (spec, Identity binding, Sign-in, step 2).
+func TestMultiModeSignInWaitsForOnePollOfAnUnmirroredOrg(t *testing.T) {
+	f := newLogoutFixture(t)
+	toMultiMode(t, f.db, "org_staff")
+	if _, err := f.db.Exec(`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t')`); err != nil {
+		t.Fatal(err)
+	}
+	polls := 0
+	f.orgPoll = orgsync.New(f.db, func(context.Context, int64) ([]suitedir.Org, int64, error) {
+		polls++
+		return []suitedir.Org{{ID: "org_new", Status: "active", Revision: 1, HomeRegion: "eu", Enabled: true}}, 1, nil
+	})
+	f.restartRouter()
+	if res := f.signInWith("newcomer", map[string]any{"org_id": "org_new"}); res.Code != 302 || polls != 1 {
+		t.Fatalf("unmirrored listed org: %d %s after %d polls", res.Code, res.Body.String(), polls)
+	}
+	for range 2 {
+		if res := f.signInWith("forger", map[string]any{"org_id": "org_forged"}); res.Code != 403 || errorCode(t, res.Body.String()) != "org_not_active" {
+			t.Fatalf("forged org: %d %s", res.Code, res.Body.String())
+		}
+	}
+	if polls != 2 {
+		t.Fatalf("a forged org triggered %d polls in ten seconds, want 1", polls-1)
 	}
 }

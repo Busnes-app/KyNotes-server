@@ -5,7 +5,7 @@ go 1.26.9
 toolchain go1.27.4
 
 require (
-	github.com/Busnes-app/ky-primitives v0.10.2-0.20261113220457-9f4bc5875e04
+	github.com/Busnes-app/ky-primitives v0.10.2-0.20261123013446-90b0e58aa724
 	github.com/Busnes-app/ky-primitives/offsite v0.3.0
 	github.com/cloudflare/circl v1.6.5
 	github.com/jackc/pgx/v5 v5.13.0
