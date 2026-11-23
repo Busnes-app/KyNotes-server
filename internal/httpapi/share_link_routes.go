@@ -236,7 +236,7 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 		sum := sha256.Sum256([]byte(token))
 		var sealedExpires string
 		var sealed []byte
-		if err := db.QueryRow(`SELECT ciphertext,expires_at FROM sealed_share_links WHERE token_hash=? AND revoked_at=''`, hex.EncodeToString(sum[:])).Scan(&sealed, &sealedExpires); err == nil {
+		if err := db.QueryRow(`SELECT ciphertext,expires_at FROM sealed_share_links WHERE token_hash=? AND revoked_at='' AND `+storage.OrgServes("org_id"), hex.EncodeToString(sum[:])).Scan(&sealed, &sealedExpires); err == nil {
 			expiresAt, parseErr := time.Parse(time.RFC3339, sealedExpires)
 			if parseErr != nil || !expiresAt.After(time.Now().UTC()) {
 				WriteError(w, r, 404, "not_found", "not found")
@@ -250,7 +250,7 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 		}
 		var objectID, digest, expires string
 		var version, generation, baseVersion, changeSeq, size int64
-		if db.QueryRow(`SELECT l.object_id,l.object_version,l.expires_at,COALESCE(v.blob_digest,''),COALESCE(v.key_generation,0),COALESCE(v.base_version,0),COALESCE(v.change_seq,0),COALESCE(v.ciphertext_bytes,0) FROM share_links l LEFT JOIN objects o ON o.id=l.object_id LEFT JOIN object_versions v ON v.object_id=l.object_id AND v.version=l.object_version WHERE l.token_hash=? AND l.revoked_at=''`, hex.EncodeToString(sum[:])).Scan(&objectID, &version, &expires, &digest, &generation, &baseVersion, &changeSeq, &size) != nil {
+		if db.QueryRow(`SELECT l.object_id,l.object_version,l.expires_at,COALESCE(v.blob_digest,''),COALESCE(v.key_generation,0),COALESCE(v.base_version,0),COALESCE(v.change_seq,0),COALESCE(v.ciphertext_bytes,0) FROM share_links l LEFT JOIN objects o ON o.id=l.object_id LEFT JOIN object_versions v ON v.object_id=l.object_id AND v.version=l.object_version WHERE l.token_hash=? AND l.revoked_at='' AND `+storage.OrgServes("(SELECT c.org_id FROM containers c WHERE c.id=o.container_id)"), hex.EncodeToString(sum[:])).Scan(&objectID, &version, &expires, &digest, &generation, &baseVersion, &changeSeq, &size) != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}

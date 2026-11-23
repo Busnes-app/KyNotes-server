@@ -59,13 +59,14 @@ func TestCrossOrgInviteeIsRefusedAsMissing(t *testing.T) {
 	}
 }
 
-// toMultiMode records multi mode and a staff org, as ensureOrgs will in multi mode (spec N1);
+// toMultiMode records multi mode, a staff org and the region (local), as ensureOrgs will in multi
+// mode (spec N1, N13);
 // handlers and SQL read the mode from these rows.
 func toMultiMode(t *testing.T, db *sql.DB, staffOrg string) {
 	t.Helper()
 	for _, q := range []string{
 		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','` + staffOrg + `','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','` + staffOrg + `','t'),('region','local','t')`,
 		`INSERT INTO orgs(id,status,home_region) VALUES('` + staffOrg + `','active','local') ON CONFLICT(id) DO NOTHING`,
 	} {
 		if _, err := db.Exec(q); err != nil {

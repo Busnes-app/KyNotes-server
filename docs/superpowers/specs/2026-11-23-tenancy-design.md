@@ -621,8 +621,12 @@ The org poll (N9) drives every transition, on the elected worker.
   `deletion_scheduled`, sessions marked `export_only` are kept, so a member who signed in for
   export just before the poll is not cut off mid-export. `TestExportOnlySessionSurvives` also runs
   the transition while such a session is open.
-- Devices, identities and envelopes are kept, so a resume needs no re-linking. Device credentials
-  answer `401` while the org does not serve (`resolveDevice`).
+- Devices, identities and envelopes are kept. Device credentials answer `401` while the org does
+  not serve (`resolveDevice`). **Correction (PR 4b, found in review):** a resume needs no
+  re-linking only for a device paired from a password session. A device paired from an SSO
+  session requires that live session on every request (`AGENTS.md`, "SSO-derived device
+  credentials require a live parent session"), so it ends with the sessions and must be linked
+  again; in multi mode that is every customer's device. Open question 14.
 - Share links of the org's owners answer `404`. Reminders are not sent. GC does not sweep the
   org's blobs.
 - Nothing is deleted.
@@ -1184,6 +1188,30 @@ Branch `feat/tenancy-build-4a`, stacked on PR 3c.
   poller is ready for it. `/api/suite/erased` has no `suitedir` method yet (the plan's
   prerequisite for PR 4d).
 
+### PR 4b as built
+
+Branch `feat/tenancy-build-4b`, stacked on PR 4a.
+
+- **`storage.OrgServes(col)`** (`internal/storage/orgs.go`): SQL true in single mode, and in multi
+  mode only for an org that is `active`, enabled and homed in `server_settings.region` (N9, N13).
+  It is a predicate on the recorded mode, not a join, so single mode's answers are unchanged (the
+  golden).
+- **Credentials:** `ResolveSession` and `resolveDevice` (`internal/auth`) carry it: a stopped org's
+  session and device answer 401, as for an inactive account. **Links:** the public share-link
+  read carries it for sealed links (`org_id`) and page links (the page's notebook's org): 404.
+  **Workers:** `webpush.Fire` and GC's sweep (candidates and the in-transaction recheck) carry
+  it, so reminders wait and blobs are not swept until a resume or a purge.
+- **Transition:** `orgsync.Poller.poll` compares each org's serving state before and after its
+  upsert; when it stops serving, the same transaction deletes the org's sessions and writes
+  `org.sessions_ended` (platform row, `status=...,sessions=N`). Devices, identities and envelopes
+  stay. The `export_only` exception waits for PR 4c.
+- **SSO-derived devices** end with the sessions (Lifecycle, "Suspended", correction):
+  `TestSuspendAndResumeThroughThePoll` suspends and resumes through the poller; the
+  password-paired device works again, the SSO-derived one stays refused. Open question 14.
+- Tests: `TestStoppedOrgIsRefusedOnEveryCredential` (suspended, disabled and another region, then
+  the resume), `TestStoppedOrgsRemindersWait`, `TestGCWaitsWhileTheBlobsOrgIsStopped`,
+  `TestPollEndsTheSessionsOfAnOrgThatStops` (one audit row over two polls).
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the
@@ -1274,3 +1302,12 @@ Branch `feat/tenancy-build-4a`, stacked on PR 3c.
     secret the server never discloses. If the owner wants it closed, key `reminders` by
     `(user_id, id)` in one migration, accepting that another account's ID then creates a
     reminder instead of answering 404 on single-tenant installs too.
+14. **Devices across a suspension** (PR 4b). Ending a stopped org's sessions, as T does, also ends
+    every device paired from an SSO session, so members re-link their phones after a resume.
+    - (a) Keep that: a suspension ends all access, and a resume revives no credential, which
+      matters when an org is suspended because a member's credentials were stolen.
+    - (b) Keep the sessions, refused while the org is stopped, so they and their devices work
+      again on resume until they expire.
+    - **Recommend (a)**, as built: it is the safer default, and re-linking is one approval from a
+      signed-in browser. Owner question.
+

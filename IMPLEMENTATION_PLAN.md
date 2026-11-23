@@ -2165,3 +2165,12 @@ moving an org back to an older revision, and a failed poll changes nothing. In m
 sign-in whose org is not yet mirrored waits up to 5 s for one poll; an org ID KyIdentity does not
 list triggers at most one poll every 10 s. The poll's schedule runs on the elected worker, which a
 later PR adds. Single mode never polls.
+
+## Tenancy amendment, PR 4b (org status on every credential)
+
+In multi mode an org that does not serve (not active, disabled, or homed in another region) is
+refused at the next request: its sessions and device credentials answer 401, its share links
+404, its reminders are not sent and GC does not sweep its blobs. Nothing is deleted, and devices,
+identities and envelopes are kept, so a resume needs no re-linking. When the org mirror sees an
+org stop serving, the same transaction deletes its sessions and records a platform audit row.
+Single mode is unchanged.
