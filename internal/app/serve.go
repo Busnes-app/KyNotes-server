@@ -151,7 +151,7 @@ const backupDrain = 10 * time.Second
 
 var gcPass = storage.RunGC
 
-func runGC(ctx context.Context, db *sql.DB, blobs *blobstore.Store, c config.Config) {
+func runGC(ctx context.Context, db *sql.DB, blobs blobstore.Backend, c config.Config) {
 	ticker := time.NewTicker(parse(c.GC.Interval))
 	defer ticker.Stop()
 	for {

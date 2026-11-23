@@ -74,7 +74,7 @@ func (s *Service) mirrorRun(ctx context.Context, actor, requestID string, invent
 	target, err := offsite.Parse(cfg)
 	var stats mirror.Stats
 	if err == nil {
-		var blobs *blobstore.Store
+		var blobs blobstore.Backend
 		blobs, err = blobstore.New(s.cfg.DataDir)
 		if err == nil {
 			stats, err = mirror.Sync(ctx, s.store.DB(), blobs, target, mirror.TargetKey(cfg), inventory)

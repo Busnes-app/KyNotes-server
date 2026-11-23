@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -68,7 +69,7 @@ func TenancyOf(q interface {
 	QueryRow(string, ...any) *sql.Row
 }) (Tenancy, error) {
 	var t Tenancy
-	err := q.QueryRow(`SELECT COALESCE(MAX(CASE WHEN key='tenancy_mode' THEN value END),'single'),COALESCE(MAX(CASE WHEN key='staff_org_id' THEN value END),''),COALESCE(MAX(CASE WHEN key='region' THEN value END),'') FROM server_settings WHERE key IN ('tenancy_mode','staff_org_id','region')`).Scan(&t.Mode, &t.StaffOrg, &t.Region)
+	err := q.QueryRow(tenancyQuery).Scan(&t.Mode, &t.StaffOrg, &t.Region)
 	return t, err
 }
 
@@ -78,4 +79,15 @@ func TenancyOf(q interface {
 // the next request and its reminders and blobs wait.
 func OrgServes(col string) string {
 	return `(COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR EXISTS(SELECT 1 FROM orgs so WHERE so.id=` + col + ` AND so.status='active' AND so.enabled=1 AND so.home_region=(SELECT value FROM server_settings WHERE key='region')))`
+}
+
+const tenancyQuery = `SELECT COALESCE(MAX(CASE WHEN key='tenancy_mode' THEN value END),'single'),COALESCE(MAX(CASE WHEN key='staff_org_id' THEN value END),''),COALESCE(MAX(CASE WHEN key='region' THEN value END),'') FROM server_settings WHERE key IN ('tenancy_mode','staff_org_id','region')`
+
+// TenancyOfContext is the same recorded-mode read for cancellable request/worker paths.
+func TenancyOfContext(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) (Tenancy, error) {
+	var t Tenancy
+	err := q.QueryRowContext(ctx, tenancyQuery).Scan(&t.Mode, &t.StaffOrg, &t.Region)
+	return t, err
 }

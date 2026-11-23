@@ -53,7 +53,7 @@ func lockUpload(id string) (unlock func()) {
 	}
 }
 
-func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.Config) {
+func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.Config) {
 	mux.Handle("GET /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		if ids.Validate("ups", r.PathValue("id")) != nil {

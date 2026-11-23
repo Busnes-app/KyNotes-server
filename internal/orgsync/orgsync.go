@@ -68,7 +68,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	seen := p.now().UTC().Format(time.RFC3339)
-	tenancy, err := storage.TenancyOf(tx)
+	tenancy, err := storage.TenancyOfContext(ctx, tx)
 	if err != nil {
 		return err
 	}

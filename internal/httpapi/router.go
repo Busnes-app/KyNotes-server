@@ -60,7 +60,7 @@ func NewRouter(log *logging.Logger, max int64, ready func() bool, extras ...any)
 func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config, *sql.DB) {
 	mux := &recordingMux{ServeMux: http.NewServeMux()}
 	var db *sql.DB
-	var blobs *blobstore.Store
+	var blobs blobstore.Backend
 	var cfg config.Config
 	var backups *backup.Service
 	var ssoStore *sso.Store
@@ -71,7 +71,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		switch v := extra.(type) {
 		case *sql.DB:
 			db = v
-		case *blobstore.Store:
+		case blobstore.Backend:
 			blobs = v
 		case *backup.Service:
 			backups = v

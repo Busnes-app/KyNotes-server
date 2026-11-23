@@ -4,6 +4,8 @@ Mirror immutable note-version and attachment ciphertext through the shared offsi
 
 # Contracts
 
+- Consume `blobstore.Backend` and opaque temporary streams; do not depend on volume handles.
+  Standalone callers retain the volume constructor; the offsite mirror remains off for multi mode.
 - No custom transport or plaintext payload; remote object names are `blobs/<sha256>`.
 - Use the immutable shared offsite version in go.mod. SFTP requires RSA-2048 or supported
   Ed25519/ECDSA keys and maintained negotiation; pins never exempt short keys. SMB remains

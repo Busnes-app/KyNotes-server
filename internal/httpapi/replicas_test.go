@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -243,5 +245,82 @@ func TestReplicaReadinessPingsAndDrainsWithoutChangingLiveness(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond) // expire the documented one-second ping cache
 	if probe("/readyz") != 503 || probe("/livez") != 200 {
 		t.Fatal("database loss did not remove readiness only")
+	}
+}
+
+// The shared directory is a test fixture for the blob seam, not a hosted-volume backend.
+// Both HTTP routers have independent pools and limiter state; PostgreSQL serializes retries.
+func TestReplicaUploadAlternatesPoolsAndSerializesDuplicateChunks(t *testing.T) {
+	if !storage.OnPostgresTest() {
+		t.Skip("needs KYNOTES_TEST_DATABASE_URL")
+	}
+	u := newUploadClient(t)
+	db2 := replicaDB(t, u.db)
+	cfg := config.Defaults()
+	cfg.Server.DevInsecureCookies = true
+	cfg.Limits.ChunkBytes = 4
+	cfg.Limits.AttachmentMaxBytes = 100
+	cfg.Limits.UserQuotaBytes = 1000000
+	srv := httptest.NewServer(NewRouter(logging.New(io.Discard, "info", "json"), cfg.Server.MaxRequestBytes, func() bool { return true }, db2, u.blobs, cfg))
+	defer srv.Close()
+	second := *u
+	second.url, second.db = srv.URL, db2
+	id := u.upload(t, 8, []byte("abcdefgh"))
+	toMultiMode(t, u.db, "org_staff")
+	type answer struct {
+		code int
+		body string
+	}
+	answers := make(chan answer, 2)
+	var wg sync.WaitGroup
+	for _, client := range []*uploadClient{u, &second} {
+		wg.Add(1)
+		go func(client *uploadClient) {
+			defer wg.Done()
+			res := client.chunk(t, id, 0, "abcd")
+			body, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			if err != nil {
+				t.Error(err)
+			}
+			answers <- answer{res.StatusCode, string(body)}
+		}(client)
+	}
+	wg.Wait()
+	close(answers)
+	for answer := range answers {
+		if answer.code != 200 {
+			t.Fatalf("duplicate chunk: %d %s", answer.code, answer.body)
+		}
+	}
+	var received, next int
+	if err := u.db.QueryRow(`SELECT received_bytes,next_chunk FROM upload_sessions WHERE id=?`, id).Scan(&received, &next); err != nil || received != 4 || next != 1 {
+		t.Fatalf("chunk counted twice: %d %d %v", received, next, err)
+	}
+	if res := second.chunk(t, id, 1, "efgh"); res.StatusCode != 200 {
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		t.Fatalf("second replica chunk: %d %s", res.StatusCode, body)
+	} else {
+		res.Body.Close()
+	}
+	res := second.do(t, http.MethodPost, "/api/v1/uploads/"+id+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(u.generation, 10)+`}`), true)
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("finalize after alternating replicas: %d %s", res.StatusCode, body)
+	}
+	var digest string
+	if err := u.db.QueryRow(`SELECT finalized_digest FROM upload_sessions WHERE id=? AND status='finalized'`, id).Scan(&digest); err != nil {
+		t.Fatal(err)
+	}
+	reader, n, err := u.blobs.Open(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	raw, err := io.ReadAll(reader)
+	if err != nil || n != 8 || string(raw) != "abcdefgh" {
+		t.Fatalf("shared upload changed bytes: %q %d %v", raw, n, err)
 	}
 }

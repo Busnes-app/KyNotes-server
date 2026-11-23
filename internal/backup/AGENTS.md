@@ -14,6 +14,8 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   warns at 80%. ky-primitives limits stay unchanged. Verify `TestLargeSnapshotIsSplitAndReassembled`.
   Sealing and drilling hold the snapshot several times in memory (measured peak 1.55 GB for 250 MiB of
   incompressible data with `GOMEMLIMIT=1536MiB`), so `docker-compose.yml` caps the container at 2g, not 512m.
+- Blob consumers use `blobstore.Backend`/`Temporary`; standalone collection still constructs
+  the unchanged volume backend. This adapter does not enable hosted object or PG backup paths.
 - Capsule restore revokes extracted-target credentials and turns deposits off even
   when cleanup-capacity migration refuses; a failed safety step forbids starting that
   target. Ordinary startup refusal preserves the original instance.

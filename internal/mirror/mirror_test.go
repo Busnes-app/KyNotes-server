@@ -16,7 +16,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
-func fixture(t *testing.T) (*storage.Store, *blobstore.Store, offsite.Target, string) {
+func fixture(t *testing.T) (*storage.Store, blobstore.Backend, offsite.Target, string) {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := storage.Open(filepath.Join(dir, "kynotes.sqlite"))
@@ -35,7 +35,7 @@ func fixture(t *testing.T) (*storage.Store, *blobstore.Store, offsite.Target, st
 	}
 	return st, blobs, target, TargetKey(cfg)
 }
-func addBlob(t *testing.T, st *storage.Store, blobs *blobstore.Store, id string, reader io.Reader) Object {
+func addBlob(t *testing.T, st *storage.Store, blobs blobstore.Backend, id string, reader io.Reader) Object {
 	t.Helper()
 	temp, err := blobs.NewTemp(id)
 	if err != nil {

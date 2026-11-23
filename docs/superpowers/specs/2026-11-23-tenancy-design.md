@@ -1489,3 +1489,33 @@ contract (#290, `docs/SUITE-DIRECTORY.md`, Storage pool; owner decision 14).
 - Still unbuilt: elected schedule adapters, shared key loading, complete fingerprint map/drain,
   blob seam/org prefixes/parts/store identity and primary object storage, erased-feed reconciliation
   and operational PG backup/restore. Startup continues refusing multi; no volume fallback/pruning.
+
+
+### PR 5a-2 as built: replica adapter and blob seam
+
+- `blobstore.Backend` has the six existing operations and `DeletePrefix`; `Temporary` keeps
+  backend stream details private. Volume paths and behavior are unchanged and prefix purge
+  returns unsupported. No shared-volume deployment path is added. Org/blob/part key builders
+  reject path components; same ciphertext in two orgs has distinct object keys.
+- `VerifySharedIdentity` implements the specified random store ID and create-exclusive marker,
+  prior-probe read, CAS advance and winner-probe check. Control-file callbacks are internal
+  protocol operations, not a new S3 client/interface. All I/O is outside N3; only a changed
+  pointer permits up to three re-reads. Database time stamps probe retirement. Tests use
+  atomic create semantics and cover fresh concurrent replicas, empty private stores, another
+  install, a crash before marker creation and a racing pointer. Runtime object binding waits5b.
+- `readReplicaInputs` requires environment pairing/server-salt/SSO/VAPID keys and HTTPS object
+  metadata, never local-key fallback/mint. VAPID is the existing file format: standard base64
+  of32 P-256 private-key bytes. `replicaFields` enumerates shared security/config/key identities;
+  object credentials and per-host bind/proxy/backup path/keep/log settings stay excluded.
+- `runReplicaSchedules` prepares one elected app pass: minute org/lifecycle/state/reminder/
+  backup attempts, configured GC and per-tick pool reporting. GC/PG-backup callbacks are bound
+  only when their real adapters exist. Failed attempts wait their cadence; cancelled jobs stop.
+- `drainReplica` follows the pattern's readiness/cancel, five-second proxy delay, five-second
+  HTTP drain and ten-second job drain. Single-mode loops and shutdown are unchanged.
+- Restore fencing retains permanent store identity and drops obsolete probe pointers as well
+  as grants/cursors/ephemeral security state. The PG backup/restore transport is still unbuilt.
+- Tests include deterministic schedule cadence, actual elected takeover, environment/fingerprint
+  boundaries, HTTP drain and chunks alternating independent routers/pools with concurrent
+  duplicate retries on a shared test directory. Actual bucket/part/purge evidence remains5b.
+- Multi startup is still refused. Shared S3 absence constrains5b, not this preparation. No
+  automatic version pruning or hosted-volume fallback. Phase6 runtime assembly remains gated.

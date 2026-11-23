@@ -33,7 +33,7 @@ func New(root string) (*Store, error) {
 	return &Store{root}, nil
 }
 func (s *Store) path(d string) string { return filepath.Join(s.root, "blobs", d[:2], d[2:4], d) }
-func (s *Store) NewTemp(id string) (*Temp, error) {
+func (s *Store) NewTemp(id string) (Temporary, error) {
 	if id == "" || filepath.Base(id) != id {
 		return nil, os.ErrInvalid
 	}
@@ -161,7 +161,7 @@ func (s *Store) Delete(d string) error {
 	}
 	return e
 }
-func (s *Store) Reopen(id string) (*Temp, error) {
+func (s *Store) Reopen(id string) (Temporary, error) {
 	p := filepath.Join(s.root, "tmp", id+".part")
 	f, e := os.OpenFile(p, os.O_RDWR, 0600)
 	if e != nil {
