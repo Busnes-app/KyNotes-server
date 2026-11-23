@@ -71,3 +71,11 @@ func TenancyOf(q interface {
 	err := q.QueryRow(`SELECT COALESCE(MAX(CASE WHEN key='tenancy_mode' THEN value END),'single'),COALESCE(MAX(CASE WHEN key='staff_org_id' THEN value END),''),COALESCE(MAX(CASE WHEN key='region' THEN value END),'') FROM server_settings WHERE key IN ('tenancy_mode','staff_org_id','region')`).Scan(&t.Mode, &t.StaffOrg, &t.Region)
 	return t, err
 }
+
+// OrgServes is SQL that is true when the org named by the column expression col may be served:
+// always in single mode; in multi mode only an active, enabled org in this install's region
+// (tenancy N9, N13). Credential checks and the workers carry it, so a stopped org is refused on
+// the next request and its reminders and blobs wait.
+func OrgServes(col string) string {
+	return `(COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR EXISTS(SELECT 1 FROM orgs so WHERE so.id=` + col + ` AND so.status='active' AND so.enabled=1 AND so.home_region=(SELECT value FROM server_settings WHERE key='region')))`
+}

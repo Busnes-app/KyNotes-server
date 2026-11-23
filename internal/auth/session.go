@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 const sessionCookie = "kynotes_session"
@@ -119,7 +120,7 @@ func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error)
 	var s Session
 	var created, expires, hard, revoked, status, stepup string
 	var adminKnown int
-	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash,u.account_kind,u.password_admin_known FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash, &s.AccountKind, &adminKnown)
+	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash,u.account_kind,u.password_admin_known FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND `+storage.OrgServes("u.org_id"), hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash, &s.AccountKind, &adminKnown)
 	if err != nil || revoked != "" || status != "active" {
 		return Session{}, errors.New("unauthenticated")
 	}

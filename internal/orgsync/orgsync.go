@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/suitedir"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // cursorKey is the server_settings row holding the revision to ask for next.
@@ -67,14 +68,40 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	seen := p.now().UTC().Format(time.RFC3339)
+	tenancy, err := storage.TenancyOf(tx)
+	if err != nil {
+		return err
+	}
+	serves := `SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?`
 	for _, o := range orgs {
 		enabled := 0
 		if o.Enabled {
 			enabled = 1
 		}
+		var before int
+		if err = tx.QueryRowContext(ctx, serves, o.ID, tenancy.Region).Scan(&before); err != nil {
+			return err
+		}
 		// A listing never moves an org back to an older revision; an equal one is the same state.
 		if _, err = tx.ExecContext(ctx, `INSERT INTO orgs(id,status,revision,enabled,home_region,seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,enabled=excluded.enabled,home_region=excluded.home_region,seen_at=excluded.seen_at WHERE excluded.revision>=orgs.revision`, o.ID, o.Status, o.Revision, enabled, o.HomeRegion, seen); err != nil {
 			return err
+		}
+		var after int
+		if err = tx.QueryRowContext(ctx, serves, o.ID, tenancy.Region).Scan(&after); err != nil {
+			return err
+		}
+		// An org that stops serving loses its sessions with the change, and the change is audited
+		// as a platform row. Devices, identities and envelopes stay, so a resume needs no
+		// re-linking (spec, Lifecycle, Suspended or deletion_scheduled).
+		if before == 1 && after == 0 {
+			res, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE org_id=?)`, o.ID)
+			if err != nil {
+				return err
+			}
+			n, _ := res.RowsAffected()
+			if err = storage.RecordAuditOutcomeTx(tx, "", "org.sessions_ended", "", o.ID, "success", "status="+o.Status+",sessions="+strconv.FormatInt(n, 10), "org-poll"); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, cursorKey, strconv.FormatInt(next, 10), seen); err != nil {

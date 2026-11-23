@@ -250,3 +250,31 @@ func TestGCRemovesFailedUploadsPartialFiles(t *testing.T) {
 		t.Fatalf("finalized preview row=%q %v, want kept", status, err)
 	}
 }
+
+// In multi mode GC leaves a stopped org's blobs alone until it serves again or is purged.
+func TestGCWaitsWhileTheBlobsOrgIsStopped(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	db, b, blob := blobFixture(t, now)
+	d := blob("orphan")
+	for _, q := range []string{
+		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`,
+		`UPDATE orgs SET status='suspended',home_region='eu' WHERE id='` + DefaultOrgID + `'`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if st, err := RunGC(db, b, now, time.Hour, true); err != nil || st.DeletedBlobs != 0 {
+		t.Fatalf("a suspended org's blob was swept: %+v %v", st, err)
+	}
+	if row, file := blobState(t, db, b, d); !row || !file {
+		t.Fatalf("suspended org's blob row=%v file=%v", row, file)
+	}
+	if _, err := db.Exec(`UPDATE orgs SET status='active' WHERE id=?`, DefaultOrgID); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := RunGC(db, b, now, time.Hour, true); err != nil || st.DeletedBlobs != 1 {
+		t.Fatalf("after the resume: %+v %v", st, err)
+	}
+}

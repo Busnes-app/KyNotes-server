@@ -149,3 +149,43 @@ func TestAwaitGivesUpAtItsDeadlineBehindASlowPoll(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A poll that stops an org deletes its sessions with the change and audits it once; a later
+// listing of the same state changes nothing more.
+func TestPollEndsTheSessionsOfAnOrgThatStops(t *testing.T) {
+	s := open(t)
+	for _, q := range []string{
+		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`,
+		`INSERT INTO orgs(id,status,revision,home_region) VALUES('org_a','active',1,'eu')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id) VALUES('usr_a','a','x','x',1,'t','t','org_a')`,
+		`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('ses_a','usr_a','h','c','t','2099-01-01T00:00:00Z','2099-01-01T00:00:00Z')`,
+	} {
+		if _, err := s.DB().Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	dir := &fakeDirectory{orgs: []suitedir.Org{{ID: "org_a", Status: "suspended", Revision: 2, HomeRegion: "eu", Enabled: true}}}
+	p := New(s.DB(), dir.list)
+	count := func(q string) int {
+		var n int
+		if err := s.DB().QueryRow(q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	for range 2 {
+		if _, err := s.DB().Exec(`DELETE FROM server_settings WHERE key='org_poll_revision'`); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := count(`SELECT count(*) FROM sessions WHERE user_id='usr_a'`); n != 0 {
+		t.Fatalf("%d sessions survived the suspension", n)
+	}
+	if n := count(`SELECT count(*) FROM audit_events WHERE event='org.sessions_ended' AND object_id='org_a' AND reason_code='status=suspended,sessions=1' AND org_id IS NULL`); n != 1 {
+		t.Fatalf("%d audit rows for the suspension, want exactly 1 platform row", n)
+	}
+}

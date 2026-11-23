@@ -1184,6 +1184,27 @@ Branch `feat/tenancy-build-4a`, stacked on PR 3c.
   poller is ready for it. `/api/suite/erased` has no `suitedir` method yet (the plan's
   prerequisite for PR 4d).
 
+### PR 4b as built
+
+Branch `feat/tenancy-build-4b`, stacked on PR 4a.
+
+- **`storage.OrgServes(col)`** (`internal/storage/orgs.go`): SQL true in single mode, and in multi
+  mode only for an org that is `active`, enabled and homed in `server_settings.region` (N9, N13).
+  It is a predicate on the recorded mode, not a join, so single mode's answers are unchanged (the
+  golden).
+- **Credentials:** `ResolveSession` and `resolveDevice` (`internal/auth`) carry it: a stopped org's
+  session and device answer 401, as for an inactive account. **Links:** the public share-link
+  read carries it for sealed links (`org_id`) and page links (the page's notebook's org): 404.
+  **Workers:** `webpush.Fire` and GC's sweep (candidates and the in-transaction recheck) carry
+  it, so reminders wait and blobs are not swept until a resume or a purge.
+- **Transition:** `orgsync.Poller.poll` compares each org's serving state before and after its
+  upsert; when it stops serving, the same transaction deletes the org's sessions and writes
+  `org.sessions_ended` (platform row, `status=...,sessions=N`). Devices, identities and envelopes
+  stay. The `export_only` exception waits for PR 4c.
+- Tests: `TestStoppedOrgIsRefusedOnEveryCredential` (suspended, disabled and another region, then
+  the resume), `TestStoppedOrgsRemindersWait`, `TestGCWaitsWhileTheBlobsOrgIsStopped`,
+  `TestPollEndsTheSessionsOfAnOrgThatStops` (one audit row over two polls).
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

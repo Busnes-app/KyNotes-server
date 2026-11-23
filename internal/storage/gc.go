@@ -58,7 +58,7 @@ func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Dur
 		return st, nil
 	}
 	cut := now.Add(-retention).UTC().Format(time.RFC3339)
-	rows, e = db.Query(`SELECT digest FROM blobs b WHERE unreferenced_since!='' AND unreferenced_since<? AND `+unreferenced, cut)
+	rows, e = db.Query(`SELECT digest FROM blobs b WHERE unreferenced_since!='' AND unreferenced_since<? AND `+OrgServes("b.org_id")+` AND `+unreferenced, cut)
 	if e != nil {
 		return st, e
 	}
@@ -103,7 +103,7 @@ func sweepBlob(db *sql.DB, blobs *blobstore.Store, d, cut string) (bool, error) 
 	}
 	defer tx.Rollback()
 	var n int
-	if e = tx.QueryRow(`SELECT COUNT(*) FROM blobs b WHERE digest=? AND unreferenced_since!='' AND unreferenced_since<? AND `+unreferenced, d, cut).Scan(&n); e != nil || n == 0 {
+	if e = tx.QueryRow(`SELECT COUNT(*) FROM blobs b WHERE digest=? AND unreferenced_since!='' AND unreferenced_since<? AND `+OrgServes("b.org_id")+` AND `+unreferenced, d, cut).Scan(&n); e != nil || n == 0 {
 		return false, e
 	}
 	// Tombstones older than the mark still hold the blob's foreign key.

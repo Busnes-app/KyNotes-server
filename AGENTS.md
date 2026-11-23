@@ -263,6 +263,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   extra and passes it to `SSORoutes`; `tenancyRefusal` waits for it only when the token's org is not
   mirrored. Never delete an `orgs` row: a deleted org stays as a tombstone. Verify
   `go test ./internal/orgsync` and `TestMultiModeSignInWaitsForOnePollOfAnUnmirroredOrg`.
+- Tenancy PR 4b, org status: `storage.OrgServes(col)` is the one SQL predicate for "this org may be
+  served" (always in single mode). `ResolveSession`, `resolveDevice`, the public share-link reads, GC's
+  sweep and `webpush.Fire` carry it; a new credential path or worker over customer rows must too.
+  `orgsync` deletes an org's sessions and audits `org.sessions_ended` (platform row) when a poll stops it.
+  Verify `TestStoppedOrgIsRefusedOnEveryCredential`, `TestStoppedOrgsRemindersWait`,
+  `TestGCWaitsWhileTheBlobsOrgIsStopped`, `TestPollEndsTheSessionsOfAnOrgThatStops`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
