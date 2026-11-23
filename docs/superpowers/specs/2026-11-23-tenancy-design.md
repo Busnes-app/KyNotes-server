@@ -652,9 +652,12 @@ whether that is acceptable.
 On the elected worker, in batches, as C "Deleted":
 
 1. Write `platform.org_purge_started` (org ID only). If it cannot be written, nothing is deleted.
-2. Delete containers in batches of at most 500 objects and versions each, under N3's lock. The
-   cascades take objects, versions, comments, attachments, memberships, envelopes and changes.
-   Unreferenced blobs then lose their rows in the same batch.
+2. Delete each container **bottom-up**, so no one statement cascades a whole history. Each
+   batch is one short write transaction under N3's lock that deletes at most 500 child rows, in
+   this order: versions, conflicts, comments and mentions, attachment refs and attachments,
+   objects, then envelopes and memberships. The container row goes last, once it has no
+   children, so its own cascade is empty. Unreferenced blobs then lose their rows in the same
+   way. This "batched container delete" is shared with erasure step 4.
 3. Delete the org's users. That cascades to sessions, devices, identities, reminders,
    subscriptions, uploads and link requests. Also delete its rows in the tables with no FK:
    `sealed_share_links`, `audit_events` (the org's own), `pairing_nonces`, `sso_directory_state`
@@ -691,9 +694,10 @@ between batches finishes on the next run.
 3. Remove the member from every team notebook through `removeMemberTx`
    (`AGENTS.md:667-670`). That revokes their envelopes and bumps the generation, so the remaining
    stewards re-key and the erased key opens nothing new.
-4. In batches of at most 500 objects and versions, under N3's lock: delete the containers they
-   still own. After step 2 these are exactly the ones with no other approved member: their
-   personal notebooks and any team they alone are in.
+4. Delete the containers they still own with the purge's batched container delete (bottom-up,
+   at most 500 child rows a transaction, the container row last). After step 2 these are exactly
+   the ones with no other approved member: their personal notebooks and any team they alone
+   are in.
 5. In batches: delete their comments and mentions in shared notebooks, reminders, push
    subscriptions, share links and sealed links. Sealed links have no FK
    (`0029_share_link_owner.sql:3`), so this step is needed.
@@ -763,10 +767,13 @@ what the customer stored plus encryption overhead, and it is the figure staff an
 - **Logical, not physical.** Two versions with identical ciphertext count twice, though N8 stores
   one blob in the org. Today's caps count that way too, so a member sees one number everywhere.
 - **Kept cheap.** Summing every version of a 100-seat org on each save, under N3's one write lock,
-  would stall every org. So `org_usage.bytes` holds the durable terms (versions, conflicts, live
-  comments, live attachments, kept previews), kept by insert, update and delete triggers on those
-  tables. The terms that lapse with time (pending uploads and sealed links past their expiry) are
-  summed at check time from their own indexed rows, which are few.
+  would stall every org. So `org_usage.bytes` holds the durable per-row terms (versions, conflicts,
+  live comments, live attachments), kept by insert, update and delete triggers on those tables.
+  Three terms are summed at check time instead, with the same SQL `usedBytes` uses, scoped by
+  `org_id` and indexed: pending uploads and sealed links, which lapse with time, and previews.
+  Previews count once per distinct digest, and only while their notebook is live
+  (`upload_routes.go:641-651`, `TestDuplicatePreviewsAreChargedOnce`), which a per-row trigger
+  cannot follow.
   `TestOrgUsageMatchesUsedBytes` builds an org with every term and compares the trigger figure
   with the full `usedBytes` query after each write, delete, GC sweep and purge batch.
 
