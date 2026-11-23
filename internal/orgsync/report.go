@@ -143,7 +143,9 @@ func (r *Reporter) prepare(ctx context.Context, org string) (storageReport, bool
 		if used >= reported && now.Before(tried.Add(time.Minute)) && !halfSpent {
 			return rep, false, nil
 		}
-		if serving && used == reported && now.Before(until.Add(-450*time.Second)) {
+		// Only usable headroom earns the unchanged-usage shortcut. Charged bytes include
+		// pending reservations, so a positive ceiling can still be exhausted.
+		if serving && ceiling > used && used == reported && now.Before(until.Add(-450*time.Second)) {
 			return rep, false, nil
 		}
 	}

@@ -293,7 +293,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   maintained by content triggers. Keep new charged content in both the counter and the full-sum
   regression. Pool checks run inside each growth transaction; upload finalization subtracts its
   live reservation. The reporter disables old headroom before sending, rejects redirects and
-  malformed replies, and treats stale responses as sequence resync only. Verify `TestOrgUsage*`,
+  malformed replies, and treats stale responses as sequence resync only. Unchanged usage skips
+  renewal until half TTL only while the ceiling exceeds all charged bytes (including pending
+  reservations); exhausted grants retry once per minute, including after an org resumes. Verify `TestOrgUsage*`,
   `TestPool*`, `TestReport*`, `TestOrgMemberWritesLandInItsOrg`, the golden and both backend suites.
 
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the

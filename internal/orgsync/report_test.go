@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/suitedir"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // fakePool is KyIdentity's POST /api/suite/storage: it records each request and answers with
@@ -236,6 +238,110 @@ func TestReportRejectsRedirectAndIncompleteGrant(t *testing.T) {
 			}
 			if _, ceiling, expiry := storedGrant(t, r, "org_a"); ceiling != 0 || expiry != "" {
 				t.Fatalf("untrusted grant=%d %q", ceiling, expiry)
+			}
+		})
+	}
+}
+
+// Unchanged charged usage is not a reason to retain an exhausted grant. Capacity freed in
+// another app, or a resumed org, must be observed on the next one-minute report attempt.
+func TestReportRenewsExhaustedGrantsEachMinute(t *testing.T) {
+	for _, mode := range []string{"zero", "reservation-exhausts-positive-ceiling", "resume", "usable-unchanged"} {
+		t.Run(mode, func(t *testing.T) {
+			r := poolStore(t)
+			if mode == "reservation-exhausts-positive-ceiling" {
+				for _, q := range []string{
+					`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id) VALUES('usr_reserved','reserved','x','x',1,'t','t','org_a')`,
+					`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at,org_id) VALUES('cnt_reserved','workbook','usr_reserved','t','t','org_a')`,
+					`INSERT INTO upload_sessions(id,user_id,container_id,declared_bytes,chunk_bytes,created_at,updated_at,expires_at,org_id) VALUES('ups_reserved','usr_reserved','cnt_reserved',64,64,'t','t','2099-01-01T00:00:00Z','org_a')`,
+				} {
+					if _, err := r.DB.Exec(q); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			now := time.Unix(1_800_000_000, 0)
+			r.now = func() time.Time { return now }
+			var free atomic.Int64
+			if mode == "usable-unchanged" || mode == "resume" {
+				free.Store(512)
+			}
+			pool := &fakePool{answer: func(rep map[string]any) map[string]any {
+				if _, ceiling, expiry := storedGrant(t, r, "org_a"); ceiling != 0 || expiry != "" {
+					t.Errorf("old grant remained usable in flight: %d %q", ceiling, expiry)
+				}
+				answer := okAnswer(rep)
+				ceiling := int64(rep["used_bytes"].(float64)) + free.Load()
+				if rep["want_bytes"] == float64(0) {
+					ceiling = 0
+				}
+				answer["ceiling_bytes"] = ceiling
+				return answer
+			}}
+			r.Dir = suitedir.Client{Issuer: pool.serve(t).URL, ClientID: "kynotes", ClientSecret: "suite-secret"}
+			attempts := func() int { pool.mu.Lock(); defer pool.mu.Unlock(); return len(pool.requests) }
+			report := func() {
+				t.Helper()
+				if err := r.Report(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			report()
+			if attempts() != 1 {
+				t.Fatalf("initial attempts=%d", attempts())
+			}
+			if mode == "usable-unchanged" {
+				for _, elapsed := range []time.Duration{time.Minute, 449 * time.Second} {
+					now = time.Unix(1_800_000_000, 0).Add(elapsed)
+					report()
+					if attempts() != 1 {
+						t.Fatalf("usable grant renewed early at %v", elapsed)
+					}
+				}
+				now = time.Unix(1_800_000_000, 0).Add(450 * time.Second)
+				report()
+				if attempts() != 2 {
+					t.Fatal("usable grant did not renew at half TTL")
+				}
+				return
+			}
+			if mode == "resume" {
+				if _, err := r.DB.Exec(`UPDATE orgs SET status='suspended' WHERE id='org_a'`); err != nil {
+					t.Fatal(err)
+				}
+				now = now.Add(time.Minute)
+				report()
+				if _, ceiling, _ := storedGrant(t, r, "org_a"); ceiling != 0 {
+					t.Fatalf("stopped org retained ceiling %d", ceiling)
+				}
+				if _, err := r.DB.Exec(`UPDATE orgs SET status='active' WHERE id='org_a'`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			charged, err := storage.OrgChargedBytes(r.DB, r.DB, "org_a", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ceiling, _ := storedGrant(t, r, "org_a"); ceiling != charged {
+				t.Fatalf("grant not exhausted: ceiling=%d charged=%d", ceiling, charged)
+			}
+			if refused, err := storage.PoolRefuses(r.DB, r.DB, "org_a", "", 1); err != nil || !refused {
+				t.Fatalf("exhausted grant admitted growth: %v %v", refused, err)
+			}
+			before := attempts()
+			free.Store(512) // another app frees space in the shared KyIdentity pool
+			now = now.Add(59 * time.Second)
+			report()
+			if attempts() != before {
+				t.Fatal("exhausted grant retried before one minute")
+			}
+			now = now.Add(time.Second)
+			report()
+			if attempts() != before+1 {
+				t.Fatalf("exhausted grant did not renew on next minute: attempts=%d want=%d", attempts(), before+1)
+			}
+			if refused, err := storage.PoolRefuses(r.DB, r.DB, "org_a", "", 1); err != nil || refused {
+				t.Fatalf("recovered grant unusable: %v %v", refused, err)
 			}
 		})
 	}
