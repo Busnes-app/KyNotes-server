@@ -312,7 +312,8 @@ schema. It follows C "`org_id` on every row":
    - one refuses any change to `org_id`;
    - one per O table requires agreement with its parent: a container with its owner, a child
      container with its team, `object_versions`, `conflicts` and `attachments` with their
-     container, `blob_containers` with its container;
+     container, `blob_containers` and `upload_sessions` with their container, `sealed_share_links`
+     with its owner;
    - N7's membership, invitation-accept and envelope triggers compare a user's org with a
      container's.
 5. On PostgreSQL, add the composite keys: `blobs(org_id, digest)` as the primary key, and
@@ -547,7 +548,9 @@ Operations in multi mode, on either backend:
 | Operation | Today | Multi mode |
 |---|---|---|
 | Write | rename into `blobs/aa/bb/<digest>` | `volume`: as today, under the org prefix. `object`: one `PUT` to `orgs/<org_id>/blobs/<digest>` conditional on the key not existing (`If-None-Match: *`). An existing object is checked for size and digest, as a present file is today (`blobstore.go:71-82`). |
-| Chunked upload | `tmp/<id>.part`, appended | one part per chunk, `orgs/<org_id>/uploads/<id>/<n>`, because chunk 2 can reach another replica. Finalize copies the parts in order into a private temp file on the replica, hashing as it copies, then writes the blob once. S3 multipart is not used: its parts must be at least 5 MiB, and a chunk is 4 MiB (`config.go:93`). |
+| Chunked upload | `tmp/<id>.part`, appended | one part per chunk, `orgs/<org_id>/uploads/<id>/<n>`, because chunk 2 can reach another replica. Finalize copies the parts in order into a private temp file on the replica, hashing as it copies, then writes the blob once. The part objects are deleted after the finalize commits, and on
+cancel and expiry, under the upload's session lock. The orphan sweep also removes `uploads/` keys
+with no live `upload_sessions` row. S3 multipart is not used: its parts must be at least 5 MiB, and a chunk is 4 MiB (`config.go:93`). |
 | Read | open, hash, rewind, serve | `object`: download to a private temp file on the replica, hash, then serve. Objects are at most 25 MiB (attachments) or 10 MiB (pages) (`config.go:93`). Unverified: the added latency. |
 | Delete | in GC's transaction | `volume` in single mode: as today. Multi mode: GC takes the session lock on the org and digest (N3), re-checks and deletes the rows in a short write transaction, commits, then deletes the object, then releases the lock. A save of the same digest takes the same lock around its existence check, `PUT` and claim, so it cannot interleave. A delete that fails after the commit leaves an object with no row. That costs storage only, and an age-gated orphan sweep (an hour old, no row, under the same lock, using `ListDigests`) removes it. GC sweeps in batches of at most 100 blobs a pass. |
 | Purge | n/a | delete rows in batches, then `DeletePrefix("orgs/<org_id>/")` |
