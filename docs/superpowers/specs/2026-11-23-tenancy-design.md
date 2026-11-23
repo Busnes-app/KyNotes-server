@@ -597,13 +597,17 @@ these routes:
   `GET /containers/{id}/objects`, `GET /objects/{id}`, `GET /objects/{id}/attachments`,
   `GET /attachments/{id}`.
 
-The browser export reads a notebook through `readContainerObjects` (`web/src/main.tsx:1475`), which
-pages `GET /containers/{id}/changes` (`web/src/api.ts:221-223`) and reads each page with
+The browser export reads a notebook through `readContainerObjects` (`web/src/main.tsx:1475`),
+which pages `GET /containers/{id}/changes` (`web/src/api.ts:221-223`) and reads each page with
 `GET /objects/{id}` (`api.ts:235-236`). `exportNotebook.ts` calls no route. `GET
 /containers/{id}/objects` (`api.ts:229`) is admitted too, as a read, so a later change to the
-loader does not break the only way out. Unverified: whether a fresh browser restoring its key
-with the recovery code also needs `PUT /me/identity` (`api.ts:178`). PR 4c freezes the list with
-an end-to-end export from a fresh browser under `export_only`.
+loader does not break the only way out. Unverified: whether a fresh browser restoring its key with
+the recovery code also needs `PUT /me/identity` (`api.ts:178`). `GET /attachments/{id}` serves the
+attachment's ciphertext bytes (`upload_routes.go:439`; the browser's `downloadAttachment`,
+`api.ts:267`). The preview route (`:459`) is not needed for export and stays refused. PR 4c
+freezes the list with an end-to-end export, from a fresh browser under `export_only`, of a
+notebook with a page that has an attachment. The zip must hold the attachment, and the export must
+report no unreadable item.
 
 The routes are an allowlist in code. Every other route answers `403 export_only`, and
 `TestExportOnlyAdmitsOnlyTheExportRoutes` drives every registered route with such a session. The
@@ -768,7 +772,7 @@ Every route that calls `quotaExceeded` or `userQuotaExceeded` today, and nothing
 | Write | Where it is checked today |
 |---|---|
 | Page save (new version, or a conflict) | `object_routes.go:303` before the blob, `:350` in the transaction |
-| Attachment and preview upload: create, then each chunk | `upload_routes.go:132`, `:320` |
+| Attachment and preview upload: create (`POST /containers/{id}/uploads`), then finalize (`POST /uploads/{id}/finalize`); chunks (`PATCH /uploads/{id}`) are not checked, since create reserved the declared size | `upload_routes.go:132`, `:320` (inside the finalize handler, `:280`) |
 | Comment | `collab_routes.go:331` |
 | Sealed share link | `share_link_routes.go:68` |
 
