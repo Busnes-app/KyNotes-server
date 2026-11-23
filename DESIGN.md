@@ -880,3 +880,11 @@ session and sign-out, its identity and recovery-code fetch, browser linking, and
 page and attachment reads); every other route answers `403 export_only`. When an org moves to
 `deletion_scheduled` its export-only sessions are kept and the others deleted. The server
 produces no plaintext: the export runs in the browser, as before.
+
+## Tenancy amendment, PR 4d (purging a deleted org)
+
+`storage.PurgeDeletedOrgs` deletes every row of an org KyIdentity reports `deleted`, in
+transactions of at most 500 rows, children before parents, behind a `platform.org_purge_started`
+audit row that must be written first; it then sets `orgs.purged_at` and records
+`platform.org_deleted` with the row counts. The org row stays as a tombstone. A purge killed
+between batches finishes on its next run. It runs in multi mode only, on the elected worker.
