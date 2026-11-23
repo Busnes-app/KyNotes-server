@@ -1235,6 +1235,29 @@ Branch `feat/tenancy-build-4c`, stacked on PR 4b.
 - **Not built here:** PR 4c's end-to-end browser export under `export_only` (Export, last
   paragraph). It needs a multi-mode server to sign in to, which PR 6 enables.
 
+### PR 4d as built
+
+Branch `feat/tenancy-build-4d`, stacked on PR 4c. This is the purge of Lifecycle, Deleted; member
+erasure follows in its own PR.
+
+- **`storage.PurgeOrg`** (`internal/storage/purge.go`): step 1 (the `platform.org_purge_started`
+  row, written before anything is deleted, so a failed write deletes nothing), steps 2 and 3 as
+  ordered batches (`purgeSteps`: the containers' children bottom-up, the containers, the org's
+  blob rows, then the rows with no foreign key, each user's rows bottom-up, the users), and step 5
+  (`purged_at` and `platform.org_deleted` with per-table counts, in one transaction). Each batch
+  deletes at most 500 rows by the table's own key, in its own transaction. `PurgeDeletedOrgs`
+  purges every `deleted` org not yet purged, in multi mode only; the default org never.
+- **Step 4 waits for PR 5a.** Until the per-org blob layout (N8), identical ciphertext in two orgs
+  shares one file, so deleting the purged org's files could delete another org's. The purge
+  deletes the blob rows; the orphan sweep removes files nothing references.
+- **Not built here:** running it on the elected worker (PR 5a), and the restore reset. A capsule
+  holds the SQLite file, while multi mode runs on PostgreSQL, whose backups are open question 3;
+  the reset belongs with that restore path.
+- Tests (both backends): `TestPurgeLeavesNoRowOfTheOrg` seeds two orgs with a row in every table
+  the purge reaches and checks that no value of the purged org remains anywhere, while the other
+  org's are all kept; `TestPurgeKilledBetweenBatchesFinishesNextRun` (batches of one, killed at
+  the 12th); `TestPurgeOrderCoversEveryCascade` (without the `reminders` step it fails).
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the
