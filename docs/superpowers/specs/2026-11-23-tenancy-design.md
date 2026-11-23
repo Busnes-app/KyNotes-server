@@ -460,7 +460,8 @@ Today:
 - A claim records it in the write transaction (`claimBlob`, `object_routes.go:430-441`). A
   refused save drops an unclaimed file (`dropUnclaimed`, `:421-427`).
 - A read re-hashes the whole file before it serves it (`blobstore.go:104-133`).
-- GC deletes the file, then the rows, in one transaction (`gc.go:99-125`).
+- GC, inside one transaction, deletes the rows, then the file, then commits (`sweepBlob`,
+  `gc.go:110-124`). The file goes before the rows are committed.
 - Callers hold a concrete `*blobstore.Store` (16 uses under `internal/`). Its methods are
   `NewTemp`, `Reopen`, `Open`, `Stat`, `Delete` and `ListDigests` (`blobstore.go:36-200`).
 
@@ -495,7 +496,10 @@ serving. It runs at startup, in two steps.
    started. The replica must read `probes/<that name>` from its store, or it refuses. Then it
    writes its own `probes/<random>` and points the row at it. A replica on a private disk cannot
    read the probe, even on a fresh install with no blobs yet. A replica that refuses never moves
-   the row. The elected worker deletes probes older than a day, but never the one the row names.
+   the row. If the probe cannot be read, the replica re-reads the row, and if it now names
+   another probe it tries that one, up to three times, so a restart racing another replica's
+   start is not refused. The elected worker deletes only probes the row stopped naming more than
+   an hour ago (`server_settings.blob_probe_prev` holds the last one with its time).
 
 A refusal names `KYNOTES_BLOB_BACKEND`. If the very first replica was the misconfigured one, every
 later replica refuses until staff fix its mount and clear `blob_probe`. That fails closed.
@@ -514,7 +518,7 @@ Operations in multi mode, on either backend:
 | Write | rename into `blobs/aa/bb/<digest>` | `volume`: as today, under the org prefix. `object`: one `PUT` to `orgs/<org_id>/blobs/<digest>` conditional on the key not existing (`If-None-Match: *`). An existing object is checked for size and digest, as a present file is today (`blobstore.go:71-82`). |
 | Chunked upload | `tmp/<id>.part`, appended | one part per chunk, `orgs/<org_id>/uploads/<id>/<n>`, because chunk 2 can reach another replica. Finalize copies the parts in order into a private temp file on the replica, hashing as it copies, then writes the blob once. S3 multipart is not used: its parts must be at least 5 MiB, and a chunk is 4 MiB (`config.go:93`). |
 | Read | open, hash, rewind, serve | `object`: download to a private temp file on the replica, hash, then serve. Objects are at most 25 MiB (attachments) or 10 MiB (pages) (`config.go:93`). Unverified: the added latency. |
-| Delete | in GC's transaction | the backend's delete inside GC's transaction, after the row deletes and before the commit, as today. A commit that fails after the delete leaves an unreferenced row with no object, which the next GC pass removes. |
+| Delete | in GC's transaction | the backend's delete inside GC's transaction, after the row deletes and before the commit, as today (`gc.go:110-124`). A commit that fails after the delete leaves an unreferenced row with no object, which the next GC pass removes. |
 | Purge | n/a | delete rows in batches, then `DeletePrefix("orgs/<org_id>/")` |
 
 **What the `object` backend needs from ky-primitives.** The S3 client KyNotes already ships is
@@ -629,7 +633,13 @@ C measured its own (500 rows, about 0.1 s a batch on PostgreSQL 17).
 
 T sends `user.erased` with `org_id` for a member who clicks Delete everything, and for every
 member of an org deleted by `holder_erased`. KyNotes today never deletes an account, so this is
-all new. In one transaction:
+all new. Steps 1 to 3 run in one short transaction, so access ends at once and nobody else's
+notebook is touched. Steps 4 to 6 run on the elected worker in resumable batches, as the purge
+does (N14), because one transaction for a member's whole history would hold N3's lock and stop
+every other org's writes. Step 3's transaction also sets the user's status to `erased` and adds
+the subject to `erased_subjects`, so the account cannot sign in or be recreated while the batches
+run. The worker finds unfinished erasures as `users` rows with status `erased`, so a worker killed
+between batches finishes on the next run.
 
 1. End access: sessions, devices and identity, with the same revocations as deactivation.
 2. **Transfer ownership first.** For each container they own that still has another approved
@@ -641,14 +651,16 @@ all new. In one transaction:
 3. Remove the member from every team notebook through `removeMemberTx`
    (`AGENTS.md:667-670`). That revokes their envelopes and bumps the generation, so the remaining
    stewards re-key and the erased key opens nothing new.
-4. Delete the containers they still own. After step 2 these are exactly the ones with no other
-   approved member: their personal notebooks and any team they alone are in.
-5. Delete their reminders, push subscriptions, share links and sealed links. Sealed links have
-   no FK (`0029_share_link_owner.sql:3`), so this step is needed.
-6. Delete the user row, and add the subject to `erased_subjects`. The cascades from `users` then
-   take their comments (`0003_collaboration.sql:2`), mentions (`:3`), memberships, and the
-   invitations they sent (`inviter_id`, `:1`). A pending invitation from an erased member cannot
-   be accepted any more, which is intended: the new owner re-invites.
+4. In batches of at most 500 objects and versions, under N3's lock: delete the containers they
+   still own. After step 2 these are exactly the ones with no other approved member: their
+   personal notebooks and any team they alone are in.
+5. In batches: delete their comments and mentions in shared notebooks, reminders, push
+   subscriptions, share links and sealed links. Sealed links have no FK
+   (`0029_share_link_owner.sql:3`), so this step is needed.
+6. Delete the user row. The cascades from `users` then take what is left: memberships, the
+   invitations they sent (`inviter_id`, `0003_collaboration.sql:1`), and any comment
+   (`0003_collaboration.sql:2`) or mention (`:3`) a batch missed. A pending invitation from an
+   erased member cannot be accepted any more, which is intended: the new owner re-invites.
 
 Pages they wrote in a shared notebook are the team's, and they stay.
 `object_versions.author_user_id` has no FK (`0022_team_keys.sql:2`), so it keeps the erased
@@ -658,7 +670,7 @@ Tests:
 
 - `TestEraseKeepsSharedNotebook`: an erased owner's team notebook with an admin and an editor
   passes to the admin, and both still read every page.
-- `TestEraseDeletesSoleNotebooks`.
+- `TestEraseDeletesSoleNotebooks`, including a worker killed between batches.
 - If the only other approved member is a viewer, the notebook passes to that viewer.
 - If the only other members are unapproved or pending, the notebook is deleted.
 
