@@ -2,6 +2,7 @@ package blobstore_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -36,6 +37,8 @@ type objectFixture struct {
 	failures         map[string]int
 	started, release chan struct{}
 	once             sync.Once
+	gzipKey          string
+	getEncoding      string
 }
 
 func newObjectFixture(t *testing.T) (*objectFixture, *shareds3.Client) {
@@ -137,6 +140,10 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.mu.Lock()
+	encoded := key == f.gzipKey
+	if r.Method == http.MethodGet {
+		f.getEncoding = r.Header.Get("Accept-Encoding")
+	}
 	body, ok := f.objects[key]
 	body = bytes.Clone(body)
 	if r.Method == http.MethodDelete {
@@ -150,6 +157,9 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		w.WriteHeader(404)
 		return
+	}
+	if encoded {
+		w.Header().Set("Content-Encoding", "gzip")
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.Header().Set("X-Amz-Version-Id", "null")
@@ -546,5 +556,48 @@ func TestObjectPartsRefuseGapsSizesDigestAndMalformedTailWithoutLeakingFiles(t *
 		t.Fatal("malformed tail allowed partial removal", err)
 	}
 	_ = remaining.Close()
+	noObjectFiles(t, dir)
+}
+
+func TestObjectsKeepOpaqueGzipBytesAndMetadata(t *testing.T) {
+	fixture, client := newObjectFixture(t)
+	dir := t.TempDir()
+	store := objectStore(t, client, "org_a", dir)
+	var encoded bytes.Buffer
+	compressor := gzip.NewWriter(&encoded)
+	if _, err := compressor.Write([]byte("opaque ciphertext")); err != nil {
+		t.Fatal(err)
+	}
+	if err := compressor.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wire := encoded.Bytes()
+	digest := objectDigest(wire)
+	if err := store.Put(t.Context(), digest, bytes.NewReader(wire), int64(len(wire))); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := blobstore.BlobKey("org_a", digest)
+	fixture.mu.Lock()
+	fixture.gzipKey = key
+	fixture.mu.Unlock()
+	head, exists, err := store.Stat(t.Context(), digest)
+	if err != nil || !exists || head != int64(len(wire)) {
+		t.Fatal("HEAD did not retain wire size", head, err)
+	}
+	reader, size, err := store.Open(t.Context(), digest)
+	if err != nil {
+		t.Fatal("GET changed encoded object bytes/metadata", err)
+	}
+	got, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil || size != head || !bytes.Equal(got, wire) {
+		t.Fatal("opaque wire bytes changed", readErr, closeErr)
+	}
+	fixture.mu.Lock()
+	accept := fixture.getEncoding
+	fixture.mu.Unlock()
+	if accept != "identity" {
+		t.Fatalf("GET encoding=%q", accept)
+	}
 	noObjectFiles(t, dir)
 }
