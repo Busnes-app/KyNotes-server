@@ -2126,3 +2126,14 @@ schema is `internal/storage/postgres/0032_schema.sql`, SQLite's after migration 
 `blobs(org_id, digest)` and without cleanup slots, row padding or `blob_replicas`. On
 PostgreSQL a comment delete or sealed-link revoke is a plain update with an ordinary audit row,
 and the database page budget admits every write (the org pool replaces it).
+
+## Tenancy amendment, PR 3a (isolation between orgs)
+
+Migration `0033_org_members.sql` (and its PostgreSQL counterpart) refuses a membership, an
+accepted invitation, or a key, device-selection or invitation envelope whose account is in
+another org than the container (N7). The handlers check first and answer as for a missing row:
+accepting an invitation addressed to another org's account finds no invitation, and another
+org's identity device is refused as an unknown device is. Every audit row names its org through
+one SQL fragment (`storage.AuditOrgSQL`): the default org in single mode, as before; in multi
+mode the actor's org, or none for staff and non-account actors. Single-tenant answers are
+unchanged (the upgrade golden).

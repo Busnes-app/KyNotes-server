@@ -28,6 +28,9 @@ type pairClient struct {
 	url, csrf, container, deviceID, deviceSecret, root string
 }
 
+// pairConfig, when set by a test (none run in parallel), adjusts the next routers' config.
+var pairConfig func(*config.Config)
+
 func newPairClient(t *testing.T, pairing string) *pairClient {
 	t.Helper()
 	return newPairClientIn(t, pairing, t.TempDir())
@@ -51,6 +54,9 @@ func newPairClientIn(t *testing.T, pairing, root string) *pairClient {
 	cfg.Server.DevInsecureCookies = true
 	cfg.Server.Bind = "127.0.0.1:0"
 	cfg.Secrets.PairingSecret = pairing
+	if pairConfig != nil {
+		pairConfig(&cfg)
+	}
 	srv := httptest.NewServer(NewRouter(logging.New(io.Discard, "info", "json"), cfg.Server.MaxRequestBytes, func() bool { return true }, s.DB(), b, cfg))
 	jar, _ := cookiejar.New(nil)
 	p := &pairClient{hc: &http.Client{Jar: jar}, db: s.DB(), url: srv.URL, root: root}

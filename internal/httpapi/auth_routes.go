@@ -736,7 +736,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			if e != nil {
 				return e
 			}
-			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, RequestID(r), "", storage.DefaultOrgID)
+			_, e = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,`+storage.AuditOrgSQL+`)`, auditID, uid, "account.recovery", "", "", now, now, "success", uid, RequestID(r), "", uid)
 			return e
 		})
 		if errors.Is(e, sql.ErrNoRows) {

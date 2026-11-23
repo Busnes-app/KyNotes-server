@@ -71,7 +71,6 @@ func (c Cleanup) Fill(tx *sql.Tx, kind, source, container, actor, request, now s
 	if err != nil {
 		return err
 	}
-	// ponytail: the default org, as every writer in this release; PR 3 names the actor's.
-	_, err = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,org_id) VALUES(?,?,?,?,?,?,?,'success',?,?,?)`, id, actor, event, container, source, now, now, actor, request, DefaultOrgID)
+	_, err = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,org_id) VALUES(?,?,?,?,?,?,?,'success',?,?,`+AuditOrgSQL+`)`, id, actor, event, container, source, now, now, actor, request, actor)
 	return err
 }

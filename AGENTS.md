@@ -229,6 +229,16 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   catalog with `testTables`/`columnsQuery` (`internal/httpapi/backend_test.go`). Verify
   `TestPostgresSchemaMatchesSQLite`, `TestPostgresWritersAreSerialised`,
   `TestTranslate*`, `TestObjectReadSelectsTheVersion`, and the `postgres` CI job.
+- Tenancy PR 3a, isolation between orgs (DESIGN.md "Tenancy amendment, PR 3a"). N7: migration 0033's
+  `*_org_match` triggers keep members, invitees and envelope devices in the container's org; they are a
+  backstop, and handlers compare the org in their own query first so another org's ID answers as a
+  missing one (`TestCrossOrgInviteeIsRefusedAsMissing`: without the handler check the trigger answers
+  500). Audit writers bind the actor to `storage.AuditOrgSQL`, never a constant. `TestCrossOrgMatrix`
+  (`internal/httpapi/cross_org_matrix_test.go`) seeds org B with one of everything and calls every route
+  that names a row in its path, as org A's owner, editor and viewer, with B's ID and with a random one:
+  answers must match bar `Date` and the request ID, and B's rows must not change. A new such route fails
+  `TestEveryRouteIsInTheCrossOrgMatrix` until `matrixIDs` maps its parameter or `crossOrgExempt` gives a
+  reason; a route that refuses `{}` before authorizing needs a valid body in `matrixBodies`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
