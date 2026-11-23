@@ -149,9 +149,9 @@ SQLite. There is no PostgreSQL schema yet. Multi mode needs one (PR 1).
 | `device_containers` | `0002_devices.sql:8` | D | Both FKs, same trigger as `key_envelopes` |
 | `conflicts` | `0002_devices.sql:9` | O | It references `blobs(digest)`, as `object_versions` does. |
 | `attachments` | `0002_devices.sql:10` | O | It references `blobs(digest)`. `idx_attachments_container_digest` (`0002_devices.sql:11`) stays. |
-| `upload_sessions` | `0002_devices.sql:12` | D | `user_id` and `container_id` FKs |
+| `upload_sessions` | `0002_devices.sql:12` | O | `user_id` and `container_id` FKs. It gets `org_id` (agreeing with its container, by trigger) so the pool check can sum the org's pending uploads and previews from an `(org_id, status, kind)` index with no join. |
 | `idempotency` | `0002_devices.sql:13` | P | `user_id` has no FK. The key is a hash that includes the user ID. Rows expire. |
-| `audit_events` | `0002_devices.sql:14` | O, with one exception | **Nullable** `org_id` with **no default**: NULL is a platform row (staff actions, backups, purges, `staff.read`), as T does for `audit_events`. Every writer names the org explicitly: a customer's action names the actor's org, and a platform writer passes NULL. The existence trigger checks only a non-NULL value. Migration 0032 backfills existing rows with the default org, and in single mode every new row names the default org, so single-tenant rows look as they do today. `user_id` has no FK. |
+| `audit_events` | `0002_devices.sql:14` | O, with one exception | **Nullable** `org_id` with **no default**: NULL is a platform row (staff actions, backups, purges, `staff.read`), as T does for `audit_events`. Every writer names the org explicitly: a customer's action names the actor's org, and a platform writer passes NULL. The existence trigger checks only a non-NULL value, and a second trigger refuses a NULL `org_id` when `user_id` names an account outside the staff org, so a writer that forgets the org fails instead of writing a platform row the purge would miss. `TestAuditWritersNameTheOrg` drives every audit writer in multi mode. Migration 0032 backfills existing rows with the default org, and in single mode every new row names the default org, so single-tenant rows look as they do today. `user_id` has no FK. |
 | `invitations` | `0003_collaboration.sql:1` | D | `container_id` and `inviter_id` FKs. `invitee_id` has no FK (N7). |
 | `comments` | `0003_collaboration.sql:2` | D | `container_id`, `object_id`, `author_user_id` FKs |
 | `mentions` | `0003_collaboration.sql:3` | D | Both FKs. Mentions already require current membership (`AGENTS.md:337-339`), so N7 keeps them in one org. |
@@ -326,7 +326,8 @@ schema. It follows C "`org_id` on every row":
 
 The `org_id` default stays on both backends, as C does. A multi install has no default-org row,
 so an insert that forgets `org_id` names a missing org and fails the existence trigger instead of
-landing in an org.
+landing in an org. `audit_events` is the one exception (no default), and its own trigger covers
+it (its Inventory row).
 
 **Single-tenant does not change.** With one org every query returns what it returns today. The
 browser, the API bodies, the probe and the MCP bridge see no new field. PR 1 proves it with an
@@ -653,11 +654,16 @@ On the elected worker, in batches, as C "Deleted":
 
 1. Write `platform.org_purge_started` (org ID only). If it cannot be written, nothing is deleted.
 2. Delete each container **bottom-up**, so no one statement cascades a whole history. Each
-   batch is one short write transaction under N3's lock that deletes at most 500 child rows, in
-   this order: versions, conflicts, comments and mentions, attachment refs and attachments,
-   objects, then envelopes and memberships. The container row goes last, once it has no
-   children, so its own cascade is empty. Unreferenced blobs then lose their rows in the same
-   way. This "batched container delete" is shared with erasure step 4.
+   batch is one short write transaction under N3's lock that deletes at most 500 child rows. The
+   order covers every table with a cascading FK to `containers` or `objects` in the migrations:
+   `activity`, `object_versions`, `conflicts`, `mentions` then `comments`, `attachment_refs`,
+   `share_links`, `attachments`, `upload_sessions`, `objects`, `invitation_envelopes` then
+   `invitations`, `key_envelopes`, `device_containers`, `blob_containers` and `memberships`, plus
+   the container's `cleanup_audit_slots` (no FK). The container row goes last, once it has no
+   children, so its own cascade is empty. `TestPurgeOrderCoversEveryCascade` reads the schema's
+   FKs and fails when a new cascading child is missing from the order.
+   Unreferenced blobs then lose their rows in the same way. This "batched container delete" is
+   shared with erasure step 4.
 3. Delete the org's users. That cascades to sessions, devices, identities, reminders,
    subscriptions, uploads and link requests. Also delete its rows in the tables with no FK:
    `sealed_share_links`, `audit_events` (the org's own), `pairing_nonces`, `sso_directory_state`
