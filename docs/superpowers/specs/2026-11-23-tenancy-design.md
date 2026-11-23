@@ -767,11 +767,18 @@ Not refused, at any usage: reads, export, deletes of pages, notebooks, attachmen
 links, membership and invitation changes, device linking, reminders, plain share links, and
 sign-in. A lower pool, a removed Business seat or a stale allowance never deletes data. Since
 every save adds a version, an org over its pool cannot edit pages until it deletes something. A
-delete frees bytes as it does today: a deleted attachment or comment stops counting at once. A
-deleted page's versions still count while their rows exist: `usedBytes` does not filter on
-`objects.deleted_at`, and GC sweeps unreferenced blobs (`gc.go:93`), not versions. Unverified:
-when, if ever, those version rows go. PR 4e finds out, and if they stay, a deleted page stops
-counting.
+delete frees bytes at once, as it does today:
+
+- a page delete removes that page's versions, conflicts and comments in the same transaction
+  (`object_routes.go:170-176`);
+- a notebook delete removes the versions and conflicts of every page in it and in its child
+  notebooks (`container_routes.go:214-222`);
+- a deleted attachment or comment stops counting at once, because `usedBytes` filters on
+  `deleted_at`.
+
+The blob files go later, when GC sweeps them (`gc.go:93`), but they are no longer counted.
+`TestOrgUsageMatchesUsedBytes` covers a page delete and a notebook delete, and a test fills an org
+past its pool with page history alone, deletes one page, and saves again.
 
 ### Safety limits
 
@@ -959,4 +966,5 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
     KyMessages, and moving to `object` before the first plan with large pools fills it.
 12. **Version history and the pool.** Every save adds a version that counts. Recommend no
     automatic pruning for launch, since it would delete customer data; an over-quota member
-    frees room by deleting pages or attachments. A history limit per plan is a later owner choice.
+    frees room by deleting pages, notebooks or attachments, which frees their bytes at once
+    ("What over-quota refuses"). A history limit per plan is a later owner choice.
