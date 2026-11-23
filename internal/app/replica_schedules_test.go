@@ -55,7 +55,7 @@ func scheduleReplicas(t *testing.T) (*sql.DB, *sql.DB) {
 	}
 	return st.DB(), second
 }
-func testSchedules(t *testing.T, db *sql.DB, polls, gcs, backups *atomic.Int32) replicaSchedules {
+func testSchedules(t *testing.T, db *sql.DB, polls, gcs, backups, erasures *atomic.Int32) replicaSchedules {
 	t.Helper()
 	key, err := webpush.LoadKey(t.TempDir())
 	if err != nil {
@@ -65,23 +65,28 @@ func testSchedules(t *testing.T, db *sql.DB, polls, gcs, backups *atomic.Int32) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return replicaSchedules{db: db, orgs: orgsync.New(db, func(context.Context, int64) ([]suitedir.Org, int64, error) { polls.Add(1); return nil, 0, nil }), reports: &orgsync.Reporter{DB: db}, push: push, gcInterval: time.Hour, gc: func(context.Context, time.Time) error { gcs.Add(1); return nil }, backup: func(context.Context, time.Time) error {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		erasures.Add(1)
+		_, _ = w.Write([]byte(`{"subjects":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return replicaSchedules{db: db, directory: suitedir.Client{Issuer: srv.URL, HTTP: srv.Client()}, orgs: orgsync.New(db, func(context.Context, int64) ([]suitedir.Org, int64, error) { polls.Add(1); return nil, 0, nil }), reports: &orgsync.Reporter{DB: db}, push: push, gcInterval: time.Hour, gc: func(context.Context, time.Time) error { gcs.Add(1); return nil }, backup: func(context.Context, time.Time) error {
 		backups.Add(1)
 		return errors.New("test destination unavailable")
 	}, log: logging.New(io.Discard, "info", "json")}
 }
 func TestReplicaScheduleCadenceCountsFailedAttempts(t *testing.T) {
 	a, _ := scheduleReplicas(t)
-	var polls, gcs, backups atomic.Int32
-	s := testSchedules(t, a, &polls, &gcs, &backups)
+	var polls, gcs, backups, erasures atomic.Int32
+	s := testSchedules(t, a, &polls, &gcs, &backups, &erasures)
 	now := time.Unix(1_800_000_000, 0)
 	s.tick(context.Background(), now)
 	s.tick(context.Background(), now.Add(59*time.Second))
-	if polls.Load() != 1 || gcs.Load() != 1 || backups.Load() != 1 {
+	if polls.Load() != 1 || gcs.Load() != 1 || backups.Load() != 1 || erasures.Load() != 1 {
 		t.Fatalf("failed attempt retried early: polls=%d gc=%d backups=%d", polls.Load(), gcs.Load(), backups.Load())
 	}
 	s.tick(context.Background(), now.Add(time.Minute))
-	if polls.Load() != 2 || gcs.Load() != 1 || backups.Load() != 2 {
+	if polls.Load() != 2 || gcs.Load() != 1 || backups.Load() != 2 || erasures.Load() != 2 {
 		t.Fatal("minute schedule did not retry once")
 	}
 	s.tick(context.Background(), now.Add(time.Hour))
@@ -91,14 +96,14 @@ func TestReplicaScheduleCadenceCountsFailedAttempts(t *testing.T) {
 	cancelled, stop := context.WithCancel(context.Background())
 	stop()
 	s.tick(cancelled, now.Add(2*time.Hour))
-	if polls.Load() != 3 || gcs.Load() != 2 || backups.Load() != 3 {
+	if polls.Load() != 3 || gcs.Load() != 2 || backups.Load() != 3 || erasures.Load() != 3 {
 		t.Fatal("cancelled owner ran a scheduled job")
 	}
 }
 func TestReplicaSchedulesHaveOneOwnerAndResumeOnStandby(t *testing.T) {
 	a, b := scheduleReplicas(t)
-	var polls, gcs, backups atomic.Int32
-	first, second := testSchedules(t, a, &polls, &gcs, &backups), testSchedules(t, b, &polls, &gcs, &backups)
+	var polls, gcs, backups, erasures atomic.Int32
+	first, second := testSchedules(t, a, &polls, &gcs, &backups, &erasures), testSchedules(t, b, &polls, &gcs, &backups, &erasures)
 	ctx, stop := context.WithTimeout(context.Background(), 12*time.Second)
 	defer stop()
 	owner, cancelOwner := context.WithCancel(ctx)
@@ -132,7 +137,7 @@ func TestReplicaSchedulesHaveOneOwnerAndResumeOnStandby(t *testing.T) {
 	waitCount(2)
 	stop()
 	<-standbyDone
-	if polls.Load() != 2 || backups.Load() != 2 {
+	if polls.Load() != 2 || backups.Load() != 2 || erasures.Load() != 2 {
 		t.Fatalf("takeover schedules: polls=%d backups=%d", polls.Load(), backups.Load())
 	}
 }

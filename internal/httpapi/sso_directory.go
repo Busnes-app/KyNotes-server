@@ -241,14 +241,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 			}
 		}
 		if err == nil && tenancy.Multi() && event.Type == "user.erased" && !mismatch && accountOrg != "" { // single mode refuses user.erased above
-			_, err = tx.Exec(`INSERT INTO erased_subjects(subject,org_id,revision) VALUES(?,?,?) ON CONFLICT(subject) DO NOTHING`, u.ID, accountOrg, revision)
-			var account string
-			if err == nil {
-				err = tx.QueryRow(`SELECT id FROM users WHERE sso_issuer=? AND sso_subject=?`, settings.IssuerURL, u.ID).Scan(&account)
-			}
-			if err == nil {
-				err = eraseMemberTx(tx, account)
-			}
+			err = eraseSubjectTx(r.Context(), tx, settings.IssuerURL, u.ID, accountOrg, revision)
 		}
 		if err == nil {
 			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,role=%s,event=%s", revision, *u.Active, role, event.ID)+note, RequestID(r))

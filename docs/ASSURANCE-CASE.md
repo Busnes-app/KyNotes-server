@@ -173,3 +173,10 @@ atomically. [Cleanup capacity](CLEANUP-CAPACITY.md) records the pinned SQLite
 physical boundary, explicit coverage limits, safe legacy upgrade refusal and
 executable before/after regressions. Restore verifies the new audit counts and
 pending slots; independent review and current-head CI remain separate evidence.
+
+
+Erasure replay preparation uses the shared KyIdentity suite client's authenticated, bounded
+`Erased` parser rather than a private HTTP contract. `TestErasedFeed*` checks wrong-org and
+malformed/refused responses, per-notice audit/cursor rollback, unknown-subject fences,
+independent PostgreSQL pools and restore replay from zero. Single mode performs no feed I/O.
+These tests do not establish an operational PostgreSQL backup transport or hosted readiness.
