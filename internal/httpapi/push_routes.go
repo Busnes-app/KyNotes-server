@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"strings"
 	"sync"
@@ -57,6 +58,34 @@ func PushRoutes(mux RouteMux, db *sql.DB) {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
+		shared, err := storage.SharedMode(db)
+		if err != nil {
+			WriteError(w, r, 503, "unavailable", "presence unavailable")
+			return
+		}
+		if shared {
+			rows, err := db.QueryContext(r.Context(), `SELECT p.user_id,p.state FROM replica_presence p JOIN memberships m ON m.user_id=p.user_id AND m.container_id=p.container_id WHERE p.container_id=? AND p.expires_at>extract(epoch FROM clock_timestamp()) AND m.revoked_at='' ORDER BY p.user_id`, cid)
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			defer rows.Close()
+			out := []map[string]string{}
+			for rows.Next() {
+				var user, state string
+				if err := rows.Scan(&user, &state); err != nil {
+					WriteError(w, r, 500, "internal", "internal server error")
+					return
+				}
+				out = append(out, map[string]string{"userId": user, "state": state})
+			}
+			if rows.Err() != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			writeJSON(w, out)
+			return
+		}
 		now := time.Now()
 		presenceMu.Lock()
 		out := []map[string]string{}
@@ -85,6 +114,29 @@ func PushRoutes(mux RouteMux, db *sql.DB) {
 		var member int
 		if db.QueryRow(`SELECT COUNT(*) FROM memberships WHERE container_id=? AND user_id=? AND revoked_at=''`, in.ContainerID, s.UserID).Scan(&member) != nil || member == 0 {
 			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		shared, err := storage.SharedMode(db)
+		if err != nil {
+			WriteError(w, r, 503, "unavailable", "presence unavailable")
+			return
+		}
+		if shared {
+			res, err := db.ExecContext(r.Context(), `INSERT INTO replica_presence(user_id,container_id,state,expires_at) SELECT ?,?,?,floor(extract(epoch FROM clock_timestamp()))::bigint+45 WHERE EXISTS(SELECT 1 FROM memberships WHERE user_id=? AND container_id=? AND revoked_at='') ON CONFLICT(user_id,container_id) DO UPDATE SET state=excluded.state,expires_at=excluded.expires_at`, s.UserID, in.ContainerID, in.State, s.UserID, in.ContainerID)
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			n, err := res.RowsAffected()
+			if err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			if n != 1 {
+				WriteError(w, r, 404, "not_found", "not found")
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		presenceMu.Lock()

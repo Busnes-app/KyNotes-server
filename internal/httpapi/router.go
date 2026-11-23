@@ -9,9 +9,11 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/backup"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/health"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"github.com/Busnes-app/kynotes-server/internal/web"
 	"github.com/Busnes-app/kynotes-server/internal/webpush"
 )
@@ -121,8 +123,12 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
+	replicaReady := ready
+	if db != nil && storage.IsPostgres(db) {
+		replicaReady = health.DatabaseReady(db, ready)
+	}
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		if !ready() {
+		if !replicaReady() {
 			WriteError(w, r, 503, "unavailable", "service is not ready")
 			return
 		}

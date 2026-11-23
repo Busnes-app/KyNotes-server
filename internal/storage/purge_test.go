@@ -56,6 +56,11 @@ func seedPurgeOrg(t *testing.T, s *Store, org, tag string) []string {
 			t.Fatalf("%.90s: %v", q, err)
 		}
 	}
+	if s.pg {
+		if _, err := s.db.Exec(`INSERT INTO replica_presence(user_id,container_id,state,expires_at) VALUES(?,?,?,9999999999)`, u, c, "editing"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return []string{u, u2, c, o, cm, a, d, ses, inv, digest, "sub-" + tag, "pool-" + tag}
 }
 
@@ -192,7 +197,7 @@ func TestPurgeKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 func TestPurgeOrderCoversEveryCascade(t *testing.T) {
 	s := openFresh(t)
 	purged := map[string]bool{}
-	for _, step := range purgeSteps {
+	for _, step := range purgeStepsFor(s.db) {
 		purged[step.table] = true
 	}
 	q := `SELECT m.name,f."table" FROM sqlite_schema m, pragma_foreign_key_list(m.name) f WHERE m.type='table'`
@@ -247,7 +252,7 @@ UNION ALL SELECT (SELECT group_concat(name,' ') FROM (SELECT name FROM pragma_in
 		}
 		return false
 	}
-	for _, step := range append(append([]purgeStep{}, purgeSteps...), eraseSteps...) {
+	for _, step := range append(append([]purgeStep{}, purgeStepsFor(s.db)...), eraseStepsFor(s.db)...) {
 		if !unique(step.table, step.key) {
 			t.Errorf("purge step %s: key (%s) is not a unique key", step.table, step.key)
 		}

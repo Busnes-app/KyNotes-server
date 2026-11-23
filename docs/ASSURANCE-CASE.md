@@ -144,6 +144,12 @@ deactivation until they expire. Each is in
   and RSA-2048/Ed25519 peers still mirror and recover the original ciphertext.
   CI runs `make test` a second time under `GODEBUG=fips140=on` and checks that the strong-key
   Compose overlay changes nothing but that variable ([STRONG-CRYPTO.md](STRONG-CRYPTO.md#verification)).
+- **Replica coordination preparation:** `TestReplica*` covers independent PostgreSQL pools,
+  atomic PKCE consumption and admission, wrong-org presence, generation-bound refunds,
+  reminder claims/reschedules, session-loss cancellation, saturated request pools and atomic
+  restore fencing. Shared-state failures deny admission. SQLite retains its memory paths and
+  golden fixtures. These mechanisms do not enable multi startup; scheduling/blob/restore
+  adapters and the full configuration boundary remain prerequisites.
 - **Static analysis:** CodeQL default setup (Go, JavaScript/TypeScript, Actions), `go vet`,
   `tsc` in strict mode, and `govulncheck`.
 - **Dynamic analysis:** the race detector, four Go fuzz targets in CI (pairing token, auth

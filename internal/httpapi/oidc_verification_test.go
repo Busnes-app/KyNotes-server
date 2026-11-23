@@ -198,7 +198,7 @@ func TestOIDCVerifiedLogin(t *testing.T) {
 func TestSSOTransactionExpiryAndCapacity(t *testing.T) {
 	pending := &ssoTransactions{pending: make(map[string]ssoTransaction)}
 	pending.add("expired", ssoTransaction{Expires: time.Now().Add(-time.Second)})
-	if _, ok := pending.take("expired"); ok {
+	if _, ok, _ := pending.take("expired"); ok {
 		t.Fatal("expired transaction")
 	}
 	oldest := time.Now().Add(time.Minute)
@@ -209,13 +209,13 @@ func TestSSOTransactionExpiryAndCapacity(t *testing.T) {
 	if len(pending.pending) != 1024 {
 		t.Fatal("unbounded pending logins")
 	}
-	if _, ok := pending.take("x"); ok {
+	if _, ok, _ := pending.take("x"); ok {
 		t.Fatal("oldest pending login retained")
 	}
-	if _, ok := pending.take("overflow"); !ok {
+	if _, ok, _ := pending.take("overflow"); !ok {
 		t.Fatal("new pending login missing")
 	}
-	if _, ok := pending.take("overflow"); ok {
+	if _, ok, _ := pending.take("overflow"); ok {
 		t.Fatal("consumed transaction reused")
 	}
 }

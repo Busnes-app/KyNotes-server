@@ -9,9 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"context"
 	"database/sql"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 type bucket struct {
@@ -20,13 +22,25 @@ type bucket struct {
 }
 
 type limiter struct {
-	mu      sync.Mutex
-	buckets map[string]bucket
+	db        *sql.DB
+	namespace string
+	mu        sync.Mutex
+	buckets   map[string]bucket
 }
 
 func newLimiter() *limiter { return &limiter{buckets: make(map[string]bucket)} }
 
 func (l *limiter) allow(key string, rate float64, burst int, now time.Time) bool {
+	shared, err := storage.SharedMode(l.db)
+	if err != nil {
+		return false
+	}
+	if shared {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		ok, err := storage.AllowRate(ctx, l.db, l.namespace, key, burst, rate)
+		return err == nil && ok
+	}
 	if rate <= 0 || burst <= 0 {
 		return true
 	}
@@ -66,6 +80,7 @@ func rateLimitMiddleware(cfg config.Config, db *sql.DB, next http.Handler) http.
 
 func rateLimitMiddlewareWith(cfg config.Config, db *sql.DB, exempt *exemptNetworks, next http.Handler) http.Handler {
 	l := newLimiter()
+	l.db, l.namespace = db, "http"
 	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit, rate, label := 0, 0, ""

@@ -909,3 +909,24 @@ response installs a new grant. Stopped orgs release headroom. Deletes and conver
 upload reservation do not need a fresh grant; single mode bypasses pool checks. The elected
 worker schedule and multi-mode startup belong to later phases. See the tenancy spec's PR 4e
 as-built section for the wire and accounting contracts and executable checks.
+
+
+## Tenancy amendment, PR 5a-1 (shared replica coordination)
+
+Recorded PostgreSQL multi mode uses durable, database-clock rate limits and generation-bound
+lockouts, one-use expiring PKCE rows and membership-filtered presence. Single-tenant SQLite
+keeps the memory implementations, blob paths and physical cleanup layout. Failed shared-state
+access denies admission and never creates a fresh memory allowance. Pending SSO rows bind
+settings by hash without copying the issuer client or directory secret.
+
+`worker.Run` elects through one pinned PostgreSQL session lock and cancels jobs when its
+one-second connection probe fails. Request/upload leases keep short SQL transactions on the
+same pinned connection as their session lock; they do not run worker heartbeat probes.
+Reminder sends additionally claim due rows for two minutes, with token-bound completion and
+claim reset on reschedule. A crash after delivery can cause one duplicate after expiry.
+
+PostgreSQL readiness adds a cached one-second database ping. Keyed configuration comparison
+and atomic restore fencing are prepared, but their startup/restore adapters are not enabled.
+Schedule wiring, environment-only shared keys, the full fingerprint field map, proxy drain,
+blob interface/org prefixes/store identity and the object backend remain further boundaries.
+`KYNOTES_TENANCY=multi` still refuses startup. No volume fallback or version pruning is added.

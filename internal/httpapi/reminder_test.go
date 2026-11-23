@@ -259,7 +259,11 @@ func TestReminderTablesHoldOnlyIDsAndTimes(t *testing.T) {
 		}
 		return out
 	}
-	if got := columns("reminders"); !slices.Equal(got, []string{"id", "user_id", "at", "created_at"}) {
+	wantReminderColumns := []string{"id", "user_id", "at", "created_at"}
+	if storage.IsPostgres(p.db) {
+		wantReminderColumns = append(wantReminderColumns, "claimed_until", "claim_token")
+	}
+	if got := columns("reminders"); !slices.Equal(got, wantReminderColumns) {
 		t.Fatalf("reminders columns %v", got)
 	}
 	if got := columns("web_push_subscriptions"); !slices.Equal(got, []string{"id", "user_id", "endpoint", "created_at", "last_ok_at"}) {

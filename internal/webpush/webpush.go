@@ -171,6 +171,13 @@ func (s *Sender) send(ctx context.Context, endpoint string, now time.Time) outco
 // subscription failed transiently are they kept, for retryFor after the oldest came due.
 // ponytail: one account at a time, each request up to Timeout. Upgrade path: a bounded worker pool.
 func (s *Sender) Fire(ctx context.Context, db *sql.DB, now time.Time) error {
+	shared, err := storage.SharedMode(db)
+	if err != nil {
+		return err
+	}
+	if shared {
+		return s.fireClaimed(ctx, db, now)
+	}
 	cutoff := now.UTC().Format(time.RFC3339)
 	rows, err := db.QueryContext(ctx, `SELECT r.user_id,MIN(r.at),u.status='active' FROM reminders r JOIN users u ON u.id=r.user_id WHERE r.at<=? AND `+storage.OrgServes("u.org_id")+` GROUP BY r.user_id,u.status`, cutoff)
 	if err != nil {
@@ -249,4 +256,89 @@ func (s *Sender) pushUser(ctx context.Context, db *sql.DB, user string, now time
 		}
 	}
 	return retry, nil
+}
+
+// fireClaimed reserves due rows before any network send. Completion deletes only the claim it
+// owns, so an expired old worker cannot delete a successor's claim or a rescheduled reminder.
+func (s *Sender) fireClaimed(ctx context.Context, db *sql.DB, now time.Time) error {
+	cutoff := now.UTC().Format(time.RFC3339)
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT r.user_id FROM reminders r JOIN users u ON u.id=r.user_id WHERE r.at<=? AND r.claimed_until<=extract(epoch FROM clock_timestamp()) AND `+storage.OrgServes("u.org_id"), cutoff)
+	if err != nil {
+		return err
+	}
+	var users []string
+	for rows.Next() {
+		var user string
+		if err := rows.Scan(&user); err != nil {
+			rows.Close()
+			return err
+		}
+		users = append(users, user)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, user := range users {
+		var raw [32]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			return err
+		}
+		token := base64.RawURLEncoding.EncodeToString(raw[:])
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		claimed, err := tx.QueryContext(ctx, `UPDATE reminders SET claimed_until=floor(extract(epoch FROM clock_timestamp()))::bigint+120,claim_token=? WHERE user_id=? AND at<=? AND claimed_until<=extract(epoch FROM clock_timestamp()) AND EXISTS(SELECT 1 FROM users u WHERE u.id=reminders.user_id AND `+storage.OrgServes("u.org_id")+`) RETURNING at`, token, user, cutoff)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		oldest := ""
+		for claimed.Next() {
+			var at string
+			if err := claimed.Scan(&at); err != nil {
+				claimed.Close()
+				tx.Rollback()
+				return err
+			}
+			if oldest == "" || at < oldest {
+				oldest = at
+			}
+		}
+		claimed.Close()
+		err = claimed.Err()
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		var active bool
+		if err := tx.QueryRowContext(ctx, `SELECT status='active' AND `+storage.OrgServes("org_id")+` FROM users WHERE id=?`, user).Scan(&active); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if oldest == "" {
+			continue
+		}
+		keep := false
+		if active {
+			keep, err = s.pushUser(ctx, db, user, now)
+			if err != nil {
+				return err
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if at, err := time.Parse(time.RFC3339, oldest); keep && err == nil && now.Sub(at) < retryFor {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, `DELETE FROM reminders WHERE user_id=? AND claim_token=?`, user, token); err != nil {
+			return err
+		}
+	}
+	return nil
 }

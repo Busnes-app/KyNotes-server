@@ -111,7 +111,8 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 		return err // nothing is deleted without the record that the purge began
 	}
 	progress := "purge_rows:" + org + ":"
-	for _, step := range purgeSteps {
+	steps := purgeStepsFor(db)
+	for _, step := range steps {
 		if _, err := purgeTable(ctx, db, step, org, progress+step.table); err != nil {
 			return fmt.Errorf("purge %s: %w", step.table, err)
 		}
@@ -128,8 +129,8 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 	}
 	// The counts of every run of this purge, kept with each batch, so a resumed purge's audit
 	// still describes all of it.
-	counts := make([]string, 0, len(purgeSteps))
-	for _, step := range purgeSteps {
+	counts := make([]string, 0, len(steps))
+	for _, step := range steps {
 		var n string
 		err := tx.QueryRowContext(ctx, `SELECT value FROM server_settings WHERE key=?`, progress+step.table).Scan(&n)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -270,7 +271,8 @@ func EraseMembers(ctx context.Context, db *sql.DB) error {
 	}
 	rows.Close()
 	for _, user := range users {
-		for _, step := range eraseSteps {
+		steps := eraseStepsFor(db)
+		for _, step := range steps {
 			if _, err := purgeTable(ctx, db, step, user, ""); err != nil {
 				return fmt.Errorf("erase %s: %w", step.table, err)
 			}
@@ -341,4 +343,17 @@ func tombstoneBatch(ctx context.Context, db *sql.DB, user, now string) (int, err
 		}
 	}
 	return len(batch), tx.Commit()
+}
+
+func purgeStepsFor(db *sql.DB) []purgeStep {
+	if !IsPostgres(db) {
+		return purgeSteps
+	}
+	return append([]purgeStep{{"replica_presence", "user_id,container_id", "user_id IN " + orgUsers + " OR container_id IN " + orgContainers}}, purgeSteps...)
+}
+func eraseStepsFor(db *sql.DB) []purgeStep {
+	if !IsPostgres(db) {
+		return eraseSteps
+	}
+	return append([]purgeStep{{"replica_presence", "user_id,container_id", "user_id=? OR container_id IN " + ownedContainers}}, eraseSteps...)
 }

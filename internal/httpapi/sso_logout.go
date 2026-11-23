@@ -18,6 +18,7 @@ import (
 
 func registerSSOLogout(mux RouteMux, db *sql.DB, store *sso.Store, cfg config.Config) {
 	failures := newLimiter()
+	failures.db, failures.namespace = db, "logout-failures"
 	proxies := parseTrustedProxies(cfg.Server.TrustedProxies)
 	reject := func(w http.ResponseWriter, r *http.Request, status int, message string) {
 		limit := cfg.RateLimit.LoginPerMinute
