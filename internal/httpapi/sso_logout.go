@@ -2,14 +2,18 @@ package httpapi
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 func registerSSOLogout(mux RouteMux, db *sql.DB, store *sso.Store, cfg config.Config) {
@@ -60,6 +64,33 @@ func registerSSOLogout(mux RouteMux, db *sql.DB, store *sso.Store, cfg config.Co
 			}
 			return
 		}
+		auditLogoutOrg(db, settings.IssuerURL, c.Subject, values[0], RequestID(r))
 		writeJSON(w, map[string]string{"status": "logged_out"})
 	})
+}
+
+// auditLogoutOrg: in multi mode a logout token whose org_id is missing or not the account's
+// still ends the sessions (logout only takes access away) and is audited auth.sso_org_mismatch
+// (tenancy spec, Back-channel logout). The token's signature is already verified; only its
+// org_id claim is read here.
+func auditLogoutOrg(db *sql.DB, issuer, subject, token, requestID string) {
+	tenancy, err := storage.TenancyOf(db)
+	if err != nil || !tenancy.Multi() || subject == "" {
+		return
+	}
+	var account string
+	if db.QueryRow(`SELECT org_id FROM users WHERE sso_issuer=? AND sso_subject=?`, issuer, subject).Scan(&account) != nil {
+		return
+	}
+	var claims struct {
+		OrgID string `json:"org_id"`
+	}
+	if parts := strings.Split(token, "."); len(parts) == 3 {
+		if payload, err := base64.RawURLEncoding.DecodeString(parts[1]); err == nil {
+			_ = json.Unmarshal(payload, &claims)
+		}
+	}
+	if claims.OrgID != account {
+		recordAuditOutcome(db, "", "auth.sso_org_mismatch", "", subject, "success", "logout_applied", requestID)
+	}
 }

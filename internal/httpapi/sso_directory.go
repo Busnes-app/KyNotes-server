@@ -33,6 +33,7 @@ type directoryUser struct {
 	ExternalID string          `json:"externalId"`
 	UserName   string          `json:"userName"`
 	Active     *bool           `json:"active"`
+	OrgID      string          `json:"org_id"` // multi mode: the account's org, inside the signed body
 	Meta       struct {
 		Version string `json:"version"`
 	} `json:"meta"`
@@ -95,6 +96,11 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		WriteError(w, r, 400, "invalid_request", "failed to read event")
 		return
 	}
+	tenancy, err := storage.TenancyOf(db)
+	if err != nil {
+		WriteError(w, r, 500, "sync_failed", "configuration lookup failed")
+		return
+	}
 	var u directoryUser
 	var revision int64
 	if readback {
@@ -112,7 +118,11 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 			WriteError(w, r, 400, "invalid_json", "invalid user resource")
 			return
 		}
-		revision, err = u.revision(event.Type)
+		kind := event.Type
+		if kind == "user.erased" && tenancy.Multi() {
+			kind = "user.deleted" // its body is the bare inactive user; single mode still refuses it
+		}
+		revision, err = u.revision(kind)
 		if err != nil {
 			WriteError(w, r, 400, "invalid_event", "expected a versioned SCIM User")
 			return
@@ -192,8 +202,27 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 	}
 	status := "already_applied"
 	var role, note string
-	if revision > prior {
+	// Multi mode (tenancy spec, Directory webhook): a body whose org is missing or not the
+	// account's applies removals only, and an unknown subject is never created here (sign-in
+	// provisions accounts). user.erased for the account's own org also records the subject, so it
+	// can never sign in or be created again; PR 4 deletes its data.
+	var accountOrg string
+	if err == nil && tenancy.Multi() && revision > prior {
+		if e := tx.QueryRow(`SELECT org_id FROM users WHERE sso_issuer=? AND sso_subject=?`, settings.IssuerURL, u.ID).Scan(&accountOrg); e != nil && !errors.Is(e, sql.ErrNoRows) {
+			err = e
+		}
+	}
+	mismatch := tenancy.Multi() && (u.OrgID == "" || accountOrg != "" && u.OrgID != accountOrg)
+	if err == nil && revision > prior && tenancy.Multi() && *u.Active && (mismatch || accountOrg == "") {
+		status = "ignored"
+		if mismatch {
+			err = storage.RecordAuditOutcomeTx(tx, "", "sso.webhook_org_mismatch", "", u.ID, "denied", "event="+event.ID, RequestID(r))
+		}
+	} else if err == nil && revision > prior {
 		status = "applied"
+		if mismatch {
+			err = storage.RecordAuditOutcomeTx(tx, "", "sso.webhook_org_mismatch", "", u.ID, "success", "removal_applied,event="+event.ID, RequestID(r))
+		}
 		var cutoff int64
 		if !*u.Active {
 			cutoff = time.Now().Unix()
@@ -210,6 +239,9 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 					break
 				}
 			}
+		}
+		if err == nil && event.Type == "user.erased" && !mismatch && accountOrg != "" {
+			_, err = tx.Exec(`INSERT INTO erased_subjects(subject,org_id,revision) VALUES(?,?,?) ON CONFLICT(subject) DO NOTHING`, u.ID, accountOrg, revision)
 		}
 		if err == nil {
 			err = storage.RecordAuditOutcomeTx(tx, "", "directory.apply", "", u.ID, "success", fmt.Sprintf("revision=%d,active=%t,role=%s,event=%s", revision, *u.Active, role, event.ID)+note, RequestID(r))

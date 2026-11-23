@@ -56,3 +56,18 @@ func storedTenancyMode(tx *sql.Tx) (string, error) {
 	}
 	return "single", nil
 }
+
+// Tenancy is the install's recorded mode (ensureOrgs), read where a rule differs by mode.
+type Tenancy struct{ Mode, StaffOrg, Region string }
+
+func (t Tenancy) Multi() bool { return t.Mode == "multi" }
+
+// TenancyOf reads the recorded mode, staff org and region; a database without the record is
+// single-tenant.
+func TenancyOf(q interface {
+	QueryRow(string, ...any) *sql.Row
+}) (Tenancy, error) {
+	var t Tenancy
+	err := q.QueryRow(`SELECT COALESCE(MAX(CASE WHEN key='tenancy_mode' THEN value END),'single'),COALESCE(MAX(CASE WHEN key='staff_org_id' THEN value END),''),COALESCE(MAX(CASE WHEN key='region' THEN value END),'') FROM server_settings WHERE key IN ('tenancy_mode','staff_org_id','region')`).Scan(&t.Mode, &t.StaffOrg, &t.Region)
+	return t, err
+}

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -55,5 +56,58 @@ func TestCrossOrgInviteeIsRefusedAsMissing(t *testing.T) {
 	var n int
 	if err := tm.owner.db.QueryRow(`SELECT count(*) FROM memberships WHERE user_id=?`, other.id).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("memberships=%d %v", n, err)
+	}
+}
+
+// toMultiMode records multi mode and a staff org, as ensureOrgs will in multi mode (spec N1);
+// handlers and SQL read the mode from these rows.
+func toMultiMode(t *testing.T, db *sql.DB, staffOrg string) {
+	t.Helper()
+	for _, q := range []string{
+		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','` + staffOrg + `','t')`,
+		`INSERT INTO orgs(id,status,home_region) VALUES('` + staffOrg + `','active','local') ON CONFLICT(id) DO NOTHING`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+}
+
+// addAdminInOrg creates an administrator account in org and signs it in.
+func (p *pairClient) addAdminInOrg(t *testing.T, username, org string) member {
+	t.Helper()
+	id := mint(t, "usr")
+	hash, _ := auth.HashAuthSecret(strings.Repeat("a", 64))
+	if _, err := p.db.Exec(`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,created_at,updated_at,org_id) VALUES(?,?,?,?,?,'admin','admin','now','now',?)`, id, username, hash, base64.StdEncoding.EncodeToString([]byte("0123456789abcdef")), 100000, org); err != nil {
+		t.Fatal(err)
+	}
+	jar, _ := cookiejar.New(nil)
+	q := &pairClient{hc: &http.Client{Jar: jar}, db: p.db, url: p.url, root: p.root}
+	if code, body := status(t, q.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":`+quote(username)+`,"authSecret":"`+strings.Repeat("a", 64)+`"}`), false, false)); code != http.StatusOK {
+		t.Fatalf("login %s=%d %s", username, code, body)
+	}
+	return member{q, id}
+}
+
+// N6: in multi mode an administrator account is an administrator only in the staff org, so a
+// customer given kynotes.admin, or an administrator account outside the staff org, is not one.
+func TestAdministratorsAreStaffOnlyInMultiMode(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("p", 32))
+	customerAdmin := p.addAdmin(t, "customer-org-admin") // the default org stands in for a customer org
+	toMultiMode(t, p.db, "org_staff")
+	staff := p.addAdminInOrg(t, "staff-admin", "org_staff")
+	if code, body := status(t, staff.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false)); code != http.StatusOK {
+		t.Fatalf("staff admin=%d %s", code, body)
+	}
+	if code, body := status(t, customerAdmin.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false)); code != http.StatusForbidden || errorCode(t, body) != "forbidden" {
+		t.Fatalf("customer-org admin=%d %s", code, body)
+	}
+	// Single mode is unchanged: the same account is an administrator there.
+	if _, err := p.db.Exec(`UPDATE server_settings SET value='single' WHERE key='tenancy_mode'`); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := status(t, customerAdmin.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false)); code != http.StatusOK {
+		t.Fatalf("single mode admin=%d %s", code, body)
 	}
 }

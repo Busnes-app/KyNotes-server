@@ -308,6 +308,10 @@ type Claims struct {
 	Name          string    `json:"name"`
 	Username      string    `json:"preferred_username"`
 	AppAdmin      bool      `json:"-"`
+	// Tenancy (T "Tokens"): the account's org, and true only while the org is being deleted and
+	// the token admits export alone. Read from the verified token only.
+	OrgID      string `json:"-"`
+	ExportOnly bool   `json:"-"`
 }
 
 // VerifyClaims accepts identity only from a signed ID token bound to this login.
@@ -336,6 +340,8 @@ func (s *Store) VerifyClaims(ctx context.Context, settings SSOSettings, doc *Dis
 	}
 	claims := &Claims{Subject: verified.Subject, IssuedAt: verified.IssuedAt, ValidUntil: verified.ExpiresAt.Add(time.Minute), Email: verified.String("email"), Name: verified.String("name"), Username: verified.String("preferred_username")}
 	claims.AppAdmin = HasAdminRole(verified.Raw["roles"])
+	claims.OrgID = verified.String("org_id")
+	_ = json.Unmarshal(verified.Raw["export_only"], &claims.ExportOnly) // anything but JSON true is false
 	var authTime int64
 	if json.Unmarshal(verified.Raw["auth_time"], &authTime) == nil && authTime > 0 {
 		claims.AuthTime = time.Unix(authTime, 0)

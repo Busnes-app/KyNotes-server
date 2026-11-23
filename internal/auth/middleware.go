@@ -112,7 +112,9 @@ func SessionRole(db interface {
 	QueryRow(string, ...any) *sql.Row
 }, s Session) (string, error) {
 	var role string
-	err := db.QueryRow(`SELECT CASE WHEN u.role='admin' AND u.account_kind='admin' AND (s.sso_issuer='' OR s.sso_app_admin=1) THEN 'admin' ELSE 'user' END
+	// N6 (tenancy): in multi mode an administrator account counts only in the staff org.
+	err := db.QueryRow(`SELECT CASE WHEN u.role='admin' AND u.account_kind='admin' AND (s.sso_issuer='' OR s.sso_app_admin=1)
+ AND (COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR u.org_id=(SELECT value FROM server_settings WHERE key='staff_org_id')) THEN 'admin' ELSE 'user' END
  FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.id=? AND u.id=? AND s.revoked_at='' AND u.status='active'`, s.ID, s.UserID).Scan(&role)
 	return role, err
 }
