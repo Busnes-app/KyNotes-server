@@ -173,7 +173,7 @@ SQLite. There is no PostgreSQL schema yet. Multi mode needs one (PR 1).
 | `link_requests` | `0024_device_linking.sql:8` | D | `user_id` and session FKs |
 | `reminders` | `0028_reminder_push.sql:3` | D | `user_id` FK. Gains a claim column (Replica work). |
 | `web_push_subscriptions` | `0028_reminder_push.sql:6` | D | `user_id` FK. `endpoint UNIQUE` stays global: an endpoint is one browser's push channel. |
-| `cleanup_audit_slots` | `0031_cleanup_slots.sql:10` | D | `container_id` has no FK, but every slot is written with its source row's container. On PostgreSQL the slot mechanism is replaced (Replica work, "SQLite-only mechanisms"). |
+| `cleanup_audit_slots` | `0031_cleanup_slots.sql:10` | D | `container_id` has no FK, but every slot is written with its source row's container. The table is not created on PostgreSQL (Replica work, "SQLite-only mechanisms"), so it never holds a multi-mode row. |
 
 Tables this spec adds:
 
@@ -300,11 +300,17 @@ schema. It follows C "`org_id` on every row":
    then works out the stored mode: the `tenancy_mode` row, or `single` when the default org
    exists, or none for a fresh database. If that differs from the configured mode, it refuses, and
    a refused start writes nothing. Only then does it insert, with `ON CONFLICT DO NOTHING` so
-   replicas starting together need no lock: the `tenancy_mode` row if missing, and the default
-   org (single mode) or the staff org from `KYNOTES_STAFF_ORG_ID` (multi mode, `active`,
-   `enabled`, region `KYNOTES_REGION`) if missing. Test: an existing single-tenant database
-   started with `KYNOTES_TENANCY=multi` is refused, and its `orgs` table and `server_settings` are
-   byte-identical afterwards.
+   replicas starting together need no lock. First it inserts the N1 rows in `server_settings`:
+   `tenancy_mode`, and in multi mode `staff_org_id` and `region`. Then it **reads them
+   back**, and refuses if any differs from its own configuration. So a replica that loses the
+   race refuses before it writes an org. Only then does it insert the default org (single mode),
+   or the staff org named by the stored `staff_org_id` (multi mode, `active`, `enabled`, region
+   `KYNOTES_REGION`), if missing. A second, stray staff org row cannot be created. Tests: an
+   existing single-tenant database started with `KYNOTES_TENANCY=multi` is refused, and its
+   `orgs` table and `server_settings` are byte-identical afterwards.
+   `TestEnsureOrgsRaceRefusesTheLoser` starts two replicas together on a fresh PostgreSQL
+   database, with different `KYNOTES_STAFF_ORG_ID` values (and, in a second case, different
+   modes). Exactly one starts, the other refuses, and `orgs` holds one staff org.
 3. Add `org_id`, defaulting to the default org, to every O table except `audit_events` (nullable,
    no default; see its row). Backfill `org_usage`.
 4. Add triggers, with the same names on both backends:
@@ -661,10 +667,12 @@ On the elected worker, in batches, as C "Deleted":
    order covers every table with a cascading FK to `containers` or `objects` in the migrations:
    `activity`, `object_versions`, `conflicts`, `mentions` then `comments`, `attachment_refs`,
    `share_links`, `attachments`, `upload_sessions`, `objects`, `invitation_envelopes` then
-   `invitations`, `key_envelopes`, `device_containers`, `blob_containers` and `memberships`, plus
-   the container's `cleanup_audit_slots` (no FK). The container row goes last, once it has no
-   children, so its own cascade is empty. `TestPurgeOrderCoversEveryCascade` reads the schema's
-   FKs and fails when a new cascading child is missing from the order.
+   `invitations`, `key_envelopes`, `device_containers`, `blob_containers` and `memberships`. The
+   container row goes last, once it has no children, so its own cascade is empty. The purge
+   runs only in multi mode, which is PostgreSQL only, and the PostgreSQL schema has no
+   `cleanup_audit_slots` (Replica work, item 6), so the order does not name it.
+   `TestPurgeOrderCoversEveryCascade` reads the FKs of the PostgreSQL schema the purge runs on,
+   and fails when a new cascading child is missing from the order.
    Unreferenced blobs then lose their rows in the same way. This "batched container delete" is
    shared with erasure step 4.
 3. Delete the org's users. That cascades to sessions, devices, identities, reminders,
@@ -735,7 +743,15 @@ in the same transaction as today's restore revocations, every customer org row g
 with revision 0. The next poll re-reads `/api/suite/orgs` and `/api/suite/erased` from 0. Every
 `deleted` org is purged again and every listed subject erased again. So Delete everything
 survives a restore, as the owner decided. An org absent from a full listing stays `stale` and
-unserved, and is never purged on that ground: KyIdentity is the only source of an org. There is
+unserved, and is never purged on that ground: KyIdentity is the only source of an org.
+**This rests on one KyIdentity contract:** a deleted org stays listed, forever, as `deleted`.
+Today it holds. T keeps a deleted org's `orgs` row as a tombstone so an ID is never reused (T
+"Data model", "New tables", and its appendix row for `orgs`). `suiteOrgVisibleSQL` lists every
+`deleted` org to every app (KyIdentity `internal/store/suite_orgs.go:20`, `origin/master`). No KyIdentity code
+deletes an `orgs` row (a search of `internal/` for `DELETE FROM orgs` finds none). No trigger
+enforces that yet, so KyNotes asks KyIdentity for one (Downstream contract). If the tombstone
+were ever pruned, a restored deleted org would stay `stale`, unserved and unpurged. Its data
+would then stay in the database and storage until staff act. There is
 no confirm action in KyNotes. If the org is real, staff fix it in KyIdentity, and the next poll
 that lists it serves it again. `GET /admin/orgs` shows such an org as `stale` with its last
 `seen_at`, so staff can find it. Test: after a restore, an org missing from the listing is
@@ -872,6 +888,7 @@ else.
 | 6 | Enforce its own quotas | install and per-user caps | The org pool: count, report, check (N10); today's caps stay as safety limits |
 | — | Admit only export routes under `export_only` | n/a | N11 |
 | — | Erase on `user.erased` and `/api/suite/erased` | `user.erased` is refused as unsupported (`sso_directory.go:54`) | Lifecycle |
+| — | Asked of KyIdentity: a deleted org stays listed as `deleted` forever | true in code, with no trigger (Lifecycle, Restore) | A trigger refusing `DELETE` on `orgs` (T already refuses any status change out of `deleted`), so a restored deleted org is always purged again |
 
 ## Threat model
 
