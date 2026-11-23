@@ -680,13 +680,22 @@ func userQuotaExceeded(q rowQuerier, limits config.Limits, owner string, userQuo
 	if userQuota <= 0 {
 		return false, nil
 	}
-	used, err := usedBytes(q, `SELECT id FROM containers WHERE owner_user_id=?1`, owner, skip)
+	used, err := userChargedBytes(q, owner, skip)
 	if err != nil {
 		return false, err
 	}
+	return used+n > userQuota, nil
+}
+
+// userChargedBytes is shared by quota admission and the staff metadata read.
+func userChargedBytes(q rowQuerier, owner, skip string) (int64, error) {
+	used, err := usedBytes(q, `SELECT id FROM containers WHERE owner_user_id=?1`, owner, skip)
+	if err != nil {
+		return 0, err
+	}
 	var links int64
 	err = q.QueryRow(`SELECT COALESCE(SUM(length(ciphertext)),0) FROM sealed_share_links WHERE owner_user_id=? AND revoked_at='' AND expires_at>?`, owner, time.Now().UTC().Format(time.RFC3339)).Scan(&links)
-	return used+links+n > userQuota, err
+	return used + links, err
 }
 
 // usedBytes sums what the containers in scope (a query of ?1=key) hold or have reserved

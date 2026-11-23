@@ -260,6 +260,11 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		if afterPasswordVerified != nil {
 			afterPasswordVerified()
 		}
+		tenancy, err := storage.TenancyOfContext(r.Context(), db)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "session metadata unavailable")
+			return
+		}
 		// Bound to the verified hash: a password changed since then mints nothing and returns no identity.
 		var identity map[string]string
 		s, err := auth.MintPasswordSession(db, w, id, stored, cfg.Server.DevInsecureCookies, time.Now().UTC(), func(tx *sql.Tx) (err error) {
@@ -278,7 +283,11 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		recordAudit(db, id, "auth.login", "", "", RequestID(r))
-		out := map[string]any{"user": map[string]string{"id": id, "role": role, "accountKind": kind}, "passwordChangeRequired": known != 0, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)}
+		user := map[string]string{"id": id, "role": role, "accountKind": kind}
+		if tenancy.Multi() {
+			user["tenancy"] = "multi"
+		}
+		out := map[string]any{"user": user, "passwordChangeRequired": known != 0, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)}
 		if identity != nil {
 			out["identity"] = identity
 		}
@@ -297,9 +306,18 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			WriteError(w, r, 401, "unauthenticated", "session no longer active")
 			return
 		}
+		tenancy, err := storage.TenancyOfContext(r.Context(), db)
+		if err != nil {
+			WriteError(w, r, 500, "internal", "session metadata unavailable")
+			return
+		}
+		user := map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}
+		if tenancy.Multi() {
+			user["tenancy"] = "multi"
+		}
 		auth.RefreshCSRFCookie(w, r, cfg.Server.DevInsecureCookies)
 		// The About window's version badge: signed-in callers only.
-		writeJSON(w, map[string]any{"version": appversion.String(), "sso": s.SSOIssuer != "", "user": map[string]string{"id": s.UserID, "role": role, "username": username, "accountKind": s.AccountKind}, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
+		writeJSON(w, map[string]any{"version": appversion.String(), "sso": s.SSOIssuer != "", "user": user, "passwordChangeRequired": s.PasswordChangeRequired, "expiresAt": s.ExpiresAt.UTC().Format(time.RFC3339), "hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339)})
 	}))
 	mux.Handle("GET /api/v1/auth/session", handleSession)
 	mux.Handle("GET /api/auth/session", handleSession)

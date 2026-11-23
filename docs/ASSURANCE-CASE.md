@@ -192,3 +192,11 @@ PG tests check credential revocation, retained encryption identities/pins/fences
 schedule-off and audit/reset atomicity under schedule failure, audit failure and cancellation.
 SQLite restore shares the same prior revocation operations. This is target-safety evidence,
 not proof of native PostgreSQL backup recovery, object coverage or hosted readiness.
+
+
+Staff metadata preparation scopes users/audit reads to an explicit org and audits before
+response publication. Tests recheck a concurrently revoked actor, refuse failed audits and
+customer web mutations/content access, and compare logical usage. The staff browser performs
+only read operations for accounts and SSO, validates returned metadata and suppresses stale
+scope responses. Single-mode golden/UI regressions remain required; no hosted readiness is
+claimed while startup is refused.

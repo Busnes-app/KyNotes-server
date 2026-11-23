@@ -2269,3 +2269,15 @@ identity. Dedicated PG CI tests exercise target/schema guards and full rollback 
 Existing SQLite capsule/cleanup restore and golden remain required regressions.
 Unbuilt: native large-PG backup-byte transport/retention/drill, primary object runtime and
 phase-6 final enablement; spec open question 3 has not selected a transport implementation.
+
+
+### Phase 6 staff surface preparation
+
+Built read-only org/pool listing, org-scoped users/usage, platform-default/scoped audit reads
+with fail-closed platform auditing and transactional staff recheck. Multi user/team web writes
+are absent. StaffConsole uses the existing shell/native selectors and validates metadata;
+server-owned multi user/session metadata selects it without changing single-mode answers.
+Tests cover org selection, audit failure, revoked actors, customer mutation/content refusal,
+usage agreement, response parsing and stale UI replies; run both backend races, the golden,
+frontend checks/build/dist diff and browser fixtures. Startup remains refused. Host staff CLI,
+replica config-accept maintenance and final hosted lifecycle acceptance remain separate work.

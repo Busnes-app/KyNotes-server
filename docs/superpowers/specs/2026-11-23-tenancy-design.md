@@ -1392,6 +1392,21 @@ Tests cover both schema-version refusals, explicit target/secret boundaries, ato
 and rollback, and single-mode no-change. The command does not recover PG backup bytes, choose
 open question 3's large-database transport or enable multi startup. Those remain prerequisites.
 
+### Staff surface as built (startup still refused)
+
+The prepared multi-mode admin surface requires one org for the users read, filters the audit
+read to platform rows by default or one selected org, and lists org mirror/pool/usage metadata.
+A writer transaction rechecks staff authority and commits the platform `staff.read` audit
+before response publication. User/team web writes and team listing refuse multi mode.
+
+Only multi-mode user/session metadata adds `user.tenancy="multi"`, selecting a read-only staff
+console within the existing shell. Native org/audit selectors, wire validation and scope-bound
+async state prevent stale replies appearing under a different org. Single-mode JSON and the
+original administration UI remain unchanged. Backend role/isolation checks stay authoritative.
+Tests cover both backends, logical usage, failed audit, revoked actors, missing/duplicate orgs,
+customer mutation/content refusal, parsing and real-browser late replies. This does not enable
+multi startup or complete the native backup/object/runtime prerequisites.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

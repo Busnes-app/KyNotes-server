@@ -293,6 +293,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   foreign key, as `pairing_nonces`, needs its own step; comments in kept notebooks are tombstoned and
   the user row is scrubbed and kept, owner decision 12). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
   `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+- Staff surface preparation in recorded multi mode: `GET /admin/users` requires one `org`
+  query value and returns only that org's accounts/usage; `/admin/audit` defaults to platform
+  rows and accepts one org. `staff.read` is a platform audit naming the selected org, committed
+  before disclosure with an in-transaction `SessionRole` recheck. `/admin/orgs` is read-only
+  mirror/pool/usage metadata. User/team web mutations and team listing are absent in multi mode;
+  staff accounts remain host-managed and customer lifecycle remains KyIdentity's.
+  Multi user/session responses alone add `user.tenancy="multi"`; single responses keep their
+  exact shape. The web StaffConsole keeps one AppFrame navigation, native org/scope selectors,
+  read-only account/SSO views and scope-bound asynchronous results. SingleAdminConsole remains
+  the original surface. No UI choice grants access or changes the startup refusal.
+  Verify `TestStaff*`, N6, route classification, quota regressions, cross-org matrix and golden;
+  `staffAPI.test.ts` and `staff-console.e2e.ts` exercise parsing, scope changes and late responses.
 - Native PostgreSQL restored-target preparation: `prepare-postgres-restore --confirm-restored`
   reads `KYNOTES_DB_DSN` only from the environment, opens the exact existing schema without
   migrating and refuses recorded single mode. Stop every replica before targeting a separately

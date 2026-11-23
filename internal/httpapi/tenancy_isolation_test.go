@@ -98,7 +98,7 @@ func TestAdministratorsAreStaffOnlyInMultiMode(t *testing.T) {
 	customerAdmin := p.addAdmin(t, "customer-org-admin") // the default org stands in for a customer org
 	toMultiMode(t, p.db, "org_staff")
 	staff := p.addAdminInOrg(t, "staff-admin", "org_staff")
-	if code, body := status(t, staff.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false)); code != http.StatusOK {
+	if code, body := status(t, staff.do(t, http.MethodGet, "/api/v1/admin/users?org="+storage.DefaultOrgID, nil, false, false)); code != http.StatusOK {
 		t.Fatalf("staff admin=%d %s", code, body)
 	}
 	if code, body := status(t, customerAdmin.do(t, http.MethodGet, "/api/v1/admin/users", nil, false, false)); code != http.StatusForbidden || errorCode(t, body) != "forbidden" {
