@@ -285,7 +285,10 @@ only actual proxy networks, not all Internet addresses. IPv6 identities retain /
 A self-hosted install is single-tenant: leave `KYNOTES_TENANCY` unset or set it to `single`.
 The value is recorded in the database at first start, and a start in another mode is refused.
 `multi` is refused at startup in this release, and so are `KYNOTES_STAFF_ORG_ID`,
-`KYNOTES_REGION` and `KYNOTES_DB_DSN` (a PostgreSQL database), which belong to it.
+`KYNOTES_REGION`, `KYNOTES_DB_DSN` (a PostgreSQL database) and `KYNOTES_SSO_ISSUER`,
+`KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET` (its fixed
+identity provider), which belong to it. A self-hosted install configures single sign-on under
+**Single sign-on** in the administrator console, as before.
 
 ## Trusted proxy addresses
 

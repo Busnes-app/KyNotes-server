@@ -46,6 +46,29 @@ func dummyVerifier() (string, error) {
 	return dummyHash, nil
 }
 
+// singleModeOnly answers 404 in multi mode (tenancy N5) for a route that sets up or configures a
+// single-tenant install: first-run setup, the admin SSO writes and apply-setup. A hosted install
+// takes its identity provider from the environment and its customers from KyIdentity.
+func singleModeOnly(db *sql.DB, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tenancy, err := storage.TenancyOf(db)
+		switch {
+		case err != nil:
+			WriteError(w, r, 500, "internal", "internal server error")
+		case tenancy.Multi():
+			WriteError(w, r, 404, "not_found", "not found")
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
+// passwordAccount limits the password paths (login parameters, login, recovery) to the accounts
+// that may use a password. In multi mode (tenancy N5) that is the staff org's administrator
+// accounts alone: any other account is not found, so it gets the unknown name's synthetic
+// salt, dummy verification and "invalid credentials", and reveals nothing. Single mode: all.
+const passwordAccount = ` AND (COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR (account_kind='admin' AND org_id=(SELECT value FROM server_settings WHERE key='staff_org_id')))`
+
 func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 	mux.HandleFunc("GET /api/v1/theme", func(w http.ResponseWriter, r *http.Request) {
 		var theme string
@@ -67,8 +90,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		_ = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count)
 		writeJSON(w, map[string]any{"setupRequired": count == 0})
 	}
-	mux.HandleFunc("GET /api/v1/setup", handleSetupCheck)
-	mux.HandleFunc("GET /api/setup", handleSetupCheck)
+	mux.Handle("GET /api/v1/setup", singleModeOnly(db, http.HandlerFunc(handleSetupCheck)))
+	mux.Handle("GET /api/setup", singleModeOnly(db, http.HandlerFunc(handleSetupCheck)))
 
 	type setupAccount struct {
 		Username   string `json:"username"`
@@ -164,8 +187,8 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			"hardExpiresAt": s.HardExpiresAt.UTC().Format(time.RFC3339),
 		})
 	}
-	mux.HandleFunc("POST /api/v1/setup", handleSetupInit)
-	mux.HandleFunc("POST /api/setup", handleSetupInit)
+	mux.Handle("POST /api/v1/setup", singleModeOnly(db, http.HandlerFunc(handleSetupInit)))
+	mux.Handle("POST /api/setup", singleModeOnly(db, http.HandlerFunc(handleSetupInit)))
 
 	handleLoginParams := func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -177,7 +200,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		var salt string
 		var iterations int
-		if err := db.QueryRow(`SELECT login_salt,login_iterations FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&salt, &iterations); err != nil {
+		if err := db.QueryRow(`SELECT login_salt,login_iterations FROM users WHERE username=?`+passwordAccount, strings.ToLower(in.Username)).Scan(&salt, &iterations); err != nil {
 			salt = auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, in.Username)
 			iterations = 600000
 		}
@@ -204,7 +227,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		var id, stored, status, role, kind string
 		var known int
-		err := db.QueryRow(`SELECT id,auth_secret_hash,status,role,account_kind,password_admin_known FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&id, &stored, &status, &role, &kind, &known)
+		err := db.QueryRow(`SELECT id,auth_secret_hash,status,role,account_kind,password_admin_known FROM users WHERE username=?`+passwordAccount, strings.ToLower(in.Username)).Scan(&id, &stored, &status, &role, &kind, &known)
 		if err != nil {
 			stored, err = dummyVerifier()
 			if err != nil {
@@ -681,7 +704,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		var uid, stored string
-		e := db.QueryRow(`SELECT id,recovery_hash FROM users WHERE username=?`, strings.ToLower(in.Username)).Scan(&uid, &stored)
+		e := db.QueryRow(`SELECT id,recovery_hash FROM users WHERE username=?`+passwordAccount, strings.ToLower(in.Username)).Scan(&uid, &stored)
 		if e != nil || stored == "" {
 			auth.DummyVerify()
 			WriteError(w, r, 401, "unauthenticated", "invalid recovery credentials")

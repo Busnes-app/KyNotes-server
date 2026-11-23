@@ -250,6 +250,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `erased_subjects`. Logout: `auditLogoutOrg` reads the verified token's `org_id`. Verify
   `TestMultiModeSignInNeedsAServingOrgInThisRegion`, `TestAdministratorsAreStaffOnlyInMultiMode`,
   `TestMultiModeDirectoryKeepsAccountsInTheirOrg`, `TestMultiModeLogoutWithAnotherOrgStillEndsSessions`.
+- Tenancy PR 3c, multi-mode refusals (N5). A password path's account lookup carries
+  `passwordAccount` (`auth_routes.go`): in multi mode it finds only the staff org's administrator
+  accounts, so any other account takes the unknown name's path (synthetic salt, dummy verification,
+  "invalid credentials"). A route that sets up or configures a single-tenant install is wrapped in
+  `singleModeOnly` (404 in multi mode): `/setup`, `POST /admin/sso`, `/admin/sso/pair`, apply-setup.
+  A new password path or setup route needs the same. Verify `TestMultiModePasswordSignInIsStaffOnly`,
+  `TestMultiModeRefusesSetupAndSSOConfiguration`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.

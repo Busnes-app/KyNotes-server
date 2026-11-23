@@ -1146,6 +1146,25 @@ the tests record the multi-mode rows (`tenancy_mode`, `staff_org_id`, `region`) 
   configuration surface multi mode needs to start, so it lands with the startup work. The org on
   `Session` and `Device` is not added: every rule that needs the org reads it in its own query.
 
+### PR 3c as built
+
+Branch `feat/tenancy-build-3c`, stacked on PR 3b.
+
+- **Password paths** (N5, "Local accounts"): the login-parameter, login and recovery lookups carry
+  `passwordAccount`, a predicate on the recorded mode. In multi mode it finds only administrator
+  accounts in the staff org, so any other account takes the unknown name's path: the synthetic
+  salt, the dummy verification, the lockout reservation and `401 invalid credentials`
+  (`TestMultiModePasswordSignInIsStaffOnly`: the right secret on a customer account answers as an
+  unknown name, and its stored salt is never returned).
+- **404 in multi mode** (`singleModeOnly`): `GET`/`POST /setup` on both paths, `POST /admin/sso`,
+  `POST /admin/sso/pair`, and `POST /v1/apply-setup` on the admin socket.
+- **Variables:** the four `KYNOTES_SSO_*` variables join the multi-only ones refused by
+  `tenancyEnv`.
+- **Left to PR 6**, which lets a start be multi-tenant: reading the identity provider from
+  `KYNOTES_SSO_*` into `sso.Store`, and `user add` refusing everyday accounts and creating
+  administrators in the staff org. Both run only in a multi-tenant start, which `ensureOrgs`
+  refuses in this release, so neither could be exercised here.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the
