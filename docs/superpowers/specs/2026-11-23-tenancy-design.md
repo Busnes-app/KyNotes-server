@@ -1165,6 +1165,25 @@ Branch `feat/tenancy-build-3c`, stacked on PR 3b.
   administrators in the staff org. Both run only in a multi-tenant start, which `ensureOrgs`
   refuses in this release, so neither could be exercised here.
 
+### PR 4a as built
+
+Branch `feat/tenancy-build-4a`, stacked on PR 3c.
+
+- **Dependency:** `ky-primitives` moves from `9f4bc58` to `90b0e58`, the revision this spec cites
+  for `suitedir.Client.Orgs`. Of the packages KyNotes imports, only `suitedir` changed between
+  them (`git diff --stat` per package); `offsite` is its own module and stays at v0.3.0.
+- **`internal/orgsync.Poller`:** `Poll` reads the cursor from `server_settings`
+  (`org_poll_revision`), calls `Orgs`, and in one transaction upserts each org `WHERE
+  excluded.revision>=orgs.revision`, then stores the next cursor. A failed call or transaction
+  changes nothing. `suitedir` already refuses a malformed entry, so a partial listing is never
+  applied. No row is ever deleted.
+- **Sign-in wait** (step 2): `tenancyRefusal` calls `Poller.Await` only when the token's org is
+  not mirrored, bounded by 5 s; `Await` shares the running poll and lets each unknown org ID
+  trigger one poll per 10 s. A failed or late poll refuses as unmirrored (`org_not_active`).
+- **Not built here:** the 60 s schedule. N9 runs it on the elected worker, which PR 5a adds; the
+  poller is ready for it. `/api/suite/erased` has no `suitedir` method yet (the plan's
+  prerequisite for PR 4d).
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

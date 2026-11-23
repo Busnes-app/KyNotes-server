@@ -1,0 +1,106 @@
+// Package orgsync mirrors KyIdentity's org directory (/api/suite/orgs) into the orgs table, so
+// every request reads its org's status from the database (tenancy spec N9).
+package orgsync
+
+import (
+	"context"
+	"database/sql"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/Busnes-app/ky-primitives/suitedir"
+)
+
+// cursorKey is the server_settings row holding the revision to ask for next.
+const cursorKey = "org_poll_revision"
+
+// ListFunc is suitedir.Client.Orgs.
+type ListFunc func(ctx context.Context, since int64) ([]suitedir.Org, int64, error)
+
+// Poller applies one poll at a time. A failed poll changes nothing.
+type Poller struct {
+	db    *sql.DB
+	list  ListFunc
+	mu    sync.Mutex // single flight: one poll at a time, waiters queue behind it
+	tried map[string]time.Time
+	now   func() time.Time
+}
+
+func New(db *sql.DB, list ListFunc) *Poller {
+	return &Poller{db: db, list: list, tried: map[string]time.Time{}, now: time.Now}
+}
+
+// Poll asks for the orgs changed since the stored cursor and applies them in one transaction.
+func (p *Poller) Poll(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.poll(ctx)
+}
+
+func (p *Poller) poll(ctx context.Context) error {
+	var since int64
+	if err := p.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(CAST(value AS BIGINT)),0) FROM server_settings WHERE key=?`, cursorKey).Scan(&since); err != nil {
+		return err
+	}
+	orgs, next, err := p.list(ctx, since)
+	if err != nil {
+		return err
+	}
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	seen := p.now().UTC().Format(time.RFC3339)
+	for _, o := range orgs {
+		enabled := 0
+		if o.Enabled {
+			enabled = 1
+		}
+		// A listing never moves an org back to an older revision; an equal one is the same state.
+		if _, err = tx.ExecContext(ctx, `INSERT INTO orgs(id,status,revision,enabled,home_region,seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,enabled=excluded.enabled,home_region=excluded.home_region,seen_at=excluded.seen_at WHERE excluded.revision>=orgs.revision`, o.ID, o.Status, o.Revision, enabled, o.HomeRegion, seen); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, cursorKey, strconv.FormatInt(next, 10), seen); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// unknownGate is how often one unmirrored org ID may trigger a poll (spec, Sign-in, step 2).
+const unknownGate = 10 * time.Second
+
+// Await makes an unmirrored org known if KyIdentity lists it: one poll, shared with any poll
+// already running, at most once every unknownGate per org ID. It reports whether org is now
+// mirrored. The caller bounds the wait with ctx (the sign-in waits 5 s).
+func (p *Poller) Await(ctx context.Context, org string) (bool, error) {
+	mirrored := func() (bool, error) {
+		var n int
+		err := p.db.QueryRowContext(ctx, `SELECT count(*) FROM orgs WHERE id=?`, org).Scan(&n)
+		return n > 0, err
+	}
+	if ok, err := mirrored(); ok || err != nil {
+		return ok, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if ok, err := mirrored(); ok || err != nil { // a poll ahead of us may have listed it
+		return ok, err
+	}
+	now := p.now()
+	if last, ok := p.tried[org]; ok && now.Sub(last) < unknownGate {
+		return false, nil
+	}
+	for id, at := range p.tried { // bounded: entries live unknownGate
+		if now.Sub(at) >= unknownGate {
+			delete(p.tried, id)
+		}
+	}
+	p.tried[org] = now
+	if err := p.poll(ctx); err != nil {
+		return false, err
+	}
+	return mirrored()
+}

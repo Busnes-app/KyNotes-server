@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
@@ -52,18 +54,30 @@ var tenancyMessages = map[string]string{
 // tenancyRefusal applies the multi-mode sign-in rules (tenancy spec, Identity binding,
 // Sign-in): the token names an org that is mirrored, active, enabled and in this region, and a
 // subject that was never erased. It returns the refusal code and audit reason, or "" to go on;
-// single mode always goes on. ponytail: an unmirrored org is refused at once; PR 4a waits for
-// one org poll, and PR 4c admits an export_only token while the org is deletion_scheduled.
-func tenancyRefusal(db *sql.DB, t storage.Tenancy, claims *sso.Claims) (code, reason string, err error) {
+// single mode always goes on. An org not yet mirrored waits for one poll (orgsync.Poller.Await,
+// at most 5 s, once per org every 10 s). ponytail: PR 4c admits an export_only token while the
+// org is deletion_scheduled.
+func tenancyRefusal(ctx context.Context, db *sql.DB, t storage.Tenancy, claims *sso.Claims, poller *orgsync.Poller) (code, reason string, err error) {
 	if !t.Multi() {
 		return "", "", nil
 	}
 	if claims.OrgID == "" {
 		return "org_required", "no_org", nil
 	}
-	var erased, serving int
-	if err = db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?)`, claims.Subject, claims.OrgID, t.Region).Scan(&erased, &serving); err != nil {
+	var erased, serving, mirrored int
+	read := func() error {
+		return db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?),(SELECT count(*) FROM orgs WHERE id=?)`, claims.Subject, claims.OrgID, t.Region, claims.OrgID).Scan(&erased, &serving, &mirrored)
+	}
+	if err = read(); err != nil {
 		return "", "", err
+	}
+	if mirrored == 0 && poller != nil {
+		wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, _ = poller.Await(wait, claims.OrgID) // a failed or late poll refuses below, as unmirrored
+		cancel()
+		if err = read(); err != nil {
+			return "", "", err
+		}
 	}
 	switch {
 	case erased > 0:
@@ -109,7 +123,12 @@ func requestHost(r *http.Request, viaProxy bool) string {
 }
 
 // SSORoutes registers OIDC SSO and directory sync endpoints.
-func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store) {
+// orgPoll, in multi mode, lets a sign-in for an org not yet mirrored wait for one poll.
+func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store, orgPoll ...*orgsync.Poller) {
+	var poller *orgsync.Poller
+	if len(orgPoll) > 0 {
+		poller = orgPoll[0]
+	}
 	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
 	viaProxy := forwardedFromProxy(cfg)
 	isRequestSecure := func(r *http.Request) bool { return requestScheme(r, viaProxy(r)) == "https" }
@@ -313,7 +332,7 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			writeInternal(w, r, "auth.sso_tenancy", err)
 			return
 		}
-		if code, reason, err := tenancyRefusal(db, tenancy, claims); err != nil {
+		if code, reason, err := tenancyRefusal(r.Context(), db, tenancy, claims, poller); err != nil {
 			writeInternal(w, r, "auth.sso_tenancy", err)
 			return
 		} else if code != "" {

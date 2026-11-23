@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,7 @@ import (
 const logoutPath = "/api/v1/auth/oidc/backchannel-logout"
 
 type logoutFixture struct {
+	orgPoll                 *orgsync.Poller // multi-mode sign-in's org poll, when a test sets one
 	t                       *testing.T
 	db                      *sql.DB
 	cfg                     config.Config
@@ -122,7 +124,7 @@ func newLogoutFixtureWithSessionSupport(t *testing.T, sessionSupport bool) *logo
 func (f *logoutFixture) restartRouter() {
 	f.settings = sso.NewStore(f.db)
 	mux := http.NewServeMux()
-	SSORoutes(mux, f.db, f.cfg, f.settings)
+	SSORoutes(mux, f.db, f.cfg, f.settings, f.orgPoll)
 	AuthRoutes(mux, f.db, f.cfg)
 	DeviceRoutes(mux, f.db, f.cfg)
 	IdentityRoutes(mux, f.db)

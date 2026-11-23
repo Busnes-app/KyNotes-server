@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `ky-primitives` moves to the revision whose `suitedir` lists organisations (`90b0e58`), for the multi-tenant mode's org mirror. No other package KyNotes uses changed; self-hosted installs need no change.
+
 - `KYNOTES_SSO_ISSUER`, `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET` are refused at startup: they belong to the multi-tenant mode. Self-hosted installs keep configuring single sign-on in the administrator console.
 
 - `KYNOTES_DB_DSN` is refused at startup: a PostgreSQL database serves only the multi-tenant mode, which this release does not run. Self-hosted installs keep SQLite and need no change. The release adds the PostgreSQL driver `github.com/jackc/pgx/v5` (v5.13.0, the version the other Ky servers ship) for that mode.

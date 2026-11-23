@@ -10,6 +10,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/web"
 	"github.com/Busnes-app/kynotes-server/internal/webpush"
@@ -63,6 +64,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 	var ssoStore *sso.Store
 	var push *webpush.Sender
 	var exempt *exemptNetworks
+	var orgPoll *orgsync.Poller
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case *sql.DB:
@@ -79,6 +81,8 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 			push = v
 		case *exemptNetworks:
 			exempt = v
+		case *orgsync.Poller:
+			orgPoll = v
 		}
 	}
 	if db != nil {
@@ -86,7 +90,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 			ssoStore = sso.NewStore(db)
 		}
 		AuthRoutes(mux, db, cfg)
-		SSORoutes(mux, db, cfg, ssoStore)
+		SSORoutes(mux, db, cfg, ssoStore, orgPoll)
 		SuiteRoutes(mux, db, ssoStore)
 		AdminRoutes(mux, db, ssoStore, cfg)
 		if exempt == nil {

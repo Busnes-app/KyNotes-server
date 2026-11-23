@@ -852,3 +852,12 @@ login parameters, login and recovery answer exactly as for an unknown name. Firs
 administrator SSO save and pairing, and apply-setup answer 404. `KYNOTES_SSO_ISSUER`,
 `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET`, which fix the
 identity provider in multi mode, are refused in single mode. Single mode is unchanged.
+
+## Tenancy amendment, PR 4a (the org mirror)
+
+`internal/orgsync.Poller` mirrors KyIdentity's org directory (`/api/suite/orgs`, through
+`ky-primitives/suitedir`) into `orgs`: one poll at a time, from a stored revision cursor, never
+moving an org back to an older revision, and a failed poll changes nothing. In multi mode a
+sign-in whose org is not yet mirrored waits up to 5 s for one poll; an org ID KyIdentity does not
+list triggers at most one poll every 10 s. The poll's schedule runs on the elected worker, which a
+later PR adds. Single mode never polls.
