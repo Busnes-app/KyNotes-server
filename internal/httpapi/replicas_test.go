@@ -16,7 +16,6 @@ import (
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
-	"github.com/Busnes-app/kynotes-server/internal/sso"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"github.com/Busnes-app/kynotes-server/internal/webpush"
 )
