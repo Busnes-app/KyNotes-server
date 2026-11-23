@@ -1606,3 +1606,14 @@ a failed audit leaves the old fingerprint. Ordinary startup/config loaders still
 Tests cover both backends where applicable, actual PG target/schema/audit/input boundaries,
 real password checks, concurrent bootstrap and unchanged single-account workflows. Maintenance
 preparation does not choose PG backup transport or enable object/runtime/hosted startup.
+
+
+### Phase 6 fixed environment SSO as built (startup still refused)
+
+`NewFixedStore` accepts the existing app-validated environment snapshot without a database
+handle. Reload preserves it and Save refuses; single mode retains its original mutable store.
+PG PKCE state remains route-owned. Actual signed TLS issuer/two-pool tests exercise callback,
+one-use, wrong-org and differing-environment refusal without persisting client/directory
+secrets. Unit/environment-input tests prove immutable copies and concurrent mutation refusal.
+This prepares N5's store adapter; final runtime construction still waits for primary object
+storage, native PG recovery and full lifecycle acceptance before startup can be enabled.

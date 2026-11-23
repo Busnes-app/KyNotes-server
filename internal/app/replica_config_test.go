@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/sso"
 )
 
 func replicaEnvironment(t *testing.T) {
@@ -34,6 +35,13 @@ func TestReplicaKeysRequireEnvironmentAndCreateNoLocalFiles(t *testing.T) {
 	}
 	if !in.Tenancy.Multi() || !in.SSO.AutoProvision || got.Secrets.PairingSecret != strings.Repeat("p", 32) || in.VAPID == nil {
 		t.Fatal("incomplete replica inputs")
+	}
+	fixed := sso.NewFixedStore(in.SSO)
+	if fixed.Load() != in.SSO {
+		t.Fatal("environment snapshot changed")
+	}
+	if err := fixed.Save(sso.SSOSettings{}); err != sso.ErrFixedSettings {
+		t.Fatal("environment snapshot was writable")
 	}
 	if _, err := os.Stat(c.DataDir); !os.IsNotExist(err) {
 		t.Fatalf("replica key input wrote a local directory: %v", err)

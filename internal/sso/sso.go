@@ -34,7 +34,7 @@ type SSOSettings struct {
 	HMACSecret    string `json:"hmacSecret,omitempty"`
 }
 
-// Store manages SSOSettings loaded and persisted to the SQLite server_settings table.
+// Store holds either persisted single-mode settings or a fixed, app-validated deployment snapshot.
 type Store struct {
 	mu                 sync.RWMutex
 	discoveryMu        sync.Mutex
@@ -42,18 +42,26 @@ type Store struct {
 	logoutDiscoveryKey string
 	db                 *sql.DB
 	cached             SSOSettings
-	inMemory           bool
+	fixed              bool
 	verifier           *oidcverify.Verifier
 }
 
-// NewStore initializes a new Store backed by the SQLite database.
+// NewStore initializes the mutable settings store backed by the database.
 func NewStore(db *sql.DB) *Store {
 	s := &Store{db: db}
 	_ = s.Reload()
 	return s
 }
 
-// Reload re-reads settings from the database.
+// NewFixedStore holds validated environment settings without a database handle. Shared login
+// transactions remain in the route's database; no client/directory secret is persisted here.
+func NewFixedStore(settings SSOSettings) *Store {
+	return &Store{cached: settings, fixed: true}
+}
+
+var ErrFixedSettings = errors.New("sso: deployment settings are fixed")
+
+// Reload re-reads persisted settings; fixed and legacy in-memory snapshots stay unchanged.
 func (s *Store) Reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -98,6 +106,10 @@ var ErrShortDirectorySecret = fmt.Errorf("sso: directory HMAC secret must be at 
 func (s *Store) Save(settings SSOSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.fixed {
+		return ErrFixedSettings
+	}
 
 	if settings.HMACSecret != "" && settings.HMACSecret != s.cached.HMACSecret && len(settings.HMACSecret) < syncauth.MinKeyBytes {
 		return ErrShortDirectorySecret
