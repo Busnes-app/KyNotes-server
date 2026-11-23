@@ -844,3 +844,11 @@ applies only removals from a body whose `org_id` is missing or not the account's
 account, and accepts `user.erased` for the account's own org (access ends, the subject can never
 sign in again; its data is deleted in a later PR). A logout token naming another org still ends
 the sessions and is audited. Single mode reads no org claim and answers as before.
+
+## Tenancy amendment, PR 3c (multi-mode refusals)
+
+In multi mode only the staff org's administrator accounts use a password: for any other account,
+login parameters, login and recovery answer exactly as for an unknown name. First-run setup, the
+administrator SSO save and pairing, and apply-setup answer 404. `KYNOTES_SSO_ISSUER`,
+`KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET`, which fix the
+identity provider in multi mode, are refused in single mode. Single mode is unchanged.

@@ -204,7 +204,7 @@ func SetupHandler(d SetupDeps) *Setup {
 		}
 		writeJSON(w, checkSetup(ctx, d, req))
 	}))
-	s.mux.HandleFunc("POST /v1/apply-setup", s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+	s.mux.Handle("POST /v1/apply-setup", singleModeOnly(d.DB, s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 		req, err := applysetup.DecodeRequest(http.MaxBytesReader(w, r.Body, 1<<20), d.Config.Backup.AllowPrivateRecovery)
 		if err != nil {
 			WriteError(w, r, http.StatusBadRequest, "invalid_bundle", err.Error())
@@ -213,7 +213,7 @@ func SetupHandler(d SetupDeps) *Setup {
 		report := applySetup(ctx, d, req)
 		d.Log.Info("apply_setup", "outcome", report.ExitCode(), "count", len(report.Results))
 		writeJSON(w, report)
-	}))
+	})))
 	operation := func(name string, run func(ctx context.Context) (any, error)) {
 		s.mux.HandleFunc("POST /v1/"+name, s.exclusive(func(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 			var out SocketResult

@@ -427,7 +427,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			recordAudit(db, s.UserID, "admin.sso_update", "", "", r.Header.Get("X-Request-Id"))
 			writeJSON(w, ssoView(in))
 		}))
-		mux.Handle("POST /api/v1/admin/sso", handlePostSSO)
+		mux.Handle("POST /api/v1/admin/sso", singleModeOnly(db, handlePostSSO))
 		mux.Handle("POST /api/admin/sso", handlePostSSO)
 
 		handlePairSSO := auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +488,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 				"settings": ssoView(newSettings),
 			})
 		}))
-		mux.Handle("POST /api/v1/admin/sso/pair", handlePairSSO)
+		mux.Handle("POST /api/v1/admin/sso/pair", singleModeOnly(db, handlePairSSO))
 		mux.Handle("POST /api/admin/sso/pair", handlePairSSO)
 	}
 }

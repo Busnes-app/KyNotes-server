@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `KYNOTES_SSO_ISSUER`, `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET` are refused at startup: they belong to the multi-tenant mode. Self-hosted installs keep configuring single sign-on in the administrator console.
+
 - `KYNOTES_DB_DSN` is refused at startup: a PostgreSQL database serves only the multi-tenant mode, which this release does not run. Self-hosted installs keep SQLite and need no change. The release adds the PostgreSQL driver `github.com/jackc/pgx/v5` (v5.13.0, the version the other Ky servers ship) for that mode.
 
 - Groundwork for a multi-tenant hosted mode, with no change to self-hosted behaviour. Starting this release migrates the database (migration 0032): every account, notebook, page version, attachment, upload and share link is recorded in the install's one organisation, and existing audit history is kept. `KYNOTES_TENANCY` may be left unset or set to `single`; `multi` is refused at startup because that mode is not complete, and `KYNOTES_STAFF_ORG_ID` and `KYNOTES_REGION` are refused because they apply only to it. Once migrated, the database cannot be opened by an older release: keep a `copy-data-dir` copy from before the upgrade if you may need to go back.

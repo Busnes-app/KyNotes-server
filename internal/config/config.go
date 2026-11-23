@@ -341,7 +341,7 @@ func tenancyEnv() error {
 	default:
 		return errors.New("KYNOTES_TENANCY: must be single or multi")
 	}
-	for _, name := range []string{"KYNOTES_STAFF_ORG_ID", "KYNOTES_REGION", "KYNOTES_DB_DSN"} {
+	for _, name := range []string{"KYNOTES_STAFF_ORG_ID", "KYNOTES_REGION", "KYNOTES_DB_DSN", "KYNOTES_SSO_ISSUER", "KYNOTES_SSO_CLIENT_ID", "KYNOTES_SSO_CLIENT_SECRET", "KYNOTES_SSO_HMAC_SECRET"} {
 		if os.Getenv(name) != "" {
 			return fmt.Errorf("%s: set only in multi-tenant mode", name)
 		}
