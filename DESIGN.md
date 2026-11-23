@@ -898,3 +898,14 @@ admin, else editor, else any approved member, and it leaves every other notebook
 key rotation a removal makes. `storage.EraseMembers` then deletes, in resumable batches, the
 notebooks it still owned alone, its comments, reminders, push subscriptions, sealed links and
 pending uploads, and the account. Pages it wrote in notebooks others keep stay.
+
+## Tenancy amendment, PR 4e (the org storage pool)
+
+In multi mode the storage a customer buys is its org's pool, held by KyIdentity (owner decisions 10
+and 14). KyNotes reports each serving org's charged bytes to `POST /api/suite/storage` and stores
+the grant it answers (a ceiling, valid 900 s from the send) in `org_pool` (migration 0035). Every
+write that adds bytes, after today's per-account and per-team caps, passes only while the org's
+charged bytes plus the write fit under an unexpired grant; otherwise it answers `413
+quota_exceeded`, as the caps do. Reads, deletes and writes that add nothing always pass. Every
+org-owned row a handler inserts names its parent's org in the insert itself. Single mode never
+reports and never checks a grant.

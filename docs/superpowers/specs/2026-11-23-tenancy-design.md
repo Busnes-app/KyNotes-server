@@ -1324,6 +1324,37 @@ Branch `feat/tenancy-build-4d-erase`, stacked on PR 4d. "A member erases", built
   both comment tombstones), `TestEraseSuccessorIsAnyApprovedMember` (a viewer inherits; a notebook
   with only an unapproved member is deleted), `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
 
+### PR 4e as built
+
+Branch `feat/tenancy-build-4e`, stacked on PR 4d-2. Built to KyIdentity's merged contract (#290,
+`docs/SUITE-DIRECTORY.md` "Storage pool"), as owner decision 14 records in the pending spec PR.
+
+- **Found while building (a PR 1 and 3a gap):** handler inserts into org-owned tables named no
+  `org_id`, so they took the default org, and the parent triggers refused every write by a member
+  of any other org (fail closed: 500, no leak). The cross-org matrix seeds org B in SQL, so it did
+  not see it. Every insert now names the parent's org in the statement: notebooks from the
+  owner, versions, conflicts, attachments, uploads and blob rows and links from the container,
+  sealed links from the owner. Single mode names the default org, as before (the golden).
+  `TestOrgMemberWritesLandInItsOrg` writes through the API as an org-B member.
+- **`org_pool`** (migration 0035, both backends; written only in multi mode): `seq`,
+  `reported_bytes`, `ceiling_bytes`, `expires_at`, `pool_bytes`. `seq` rises by
+  `UPDATE ... RETURNING` in the shared database under the writer lock, so replicas never
+  collide and no clock is used; a `stale` answer moves it up to KyIdentity's.
+- **The check** (`storage.PoolRefuses`), inside the write's transaction where today's caps run
+  there: the org's charged bytes (`OrgChargedBytes`: today's `usedBytes` over the org's
+  notebooks, plus its live sealed links; previews now matched by org and digest) plus the
+  write, against an unexpired ceiling. No grant or an expired one refuses growth (`413
+  quota_exceeded`). **Not built: `org_usage` and its triggers** ("Kept cheap"). The check sums
+  the org's rows per write, as today's per-account and per-team caps already sum theirs; the
+  trigger-kept figure is the measured fix if write capacity needs it (open question 5).
+- **The report** (`orgsync.Reporter`): every serving customer org (never the staff org) never
+  reported, whose usage changed, whose grant is half spent or half way to its expiry; up to 500
+  per request; `want_bytes` the larger of 256 MiB and a tenth of the last known pool. The whole
+  answer must match (one result per report, in order, `ok` echoing the `seq`), or nothing of it
+  is stored. `unknown_org` stores a ceiling of 0. The expiry counts from the send.
+- **Not built here:** running the reporter every 60 s on the elected worker (PR 5a), and reading
+  `over_since` for `GET /admin/orgs` (PR 6).
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the
