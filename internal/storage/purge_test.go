@@ -168,6 +168,17 @@ func TestPurgeKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPurged(t, s, bIDs, before)
+	// The completion audit counts the rows of both runs, and no progress row is left.
+	var counts string
+	var left int
+	if err := s.db.QueryRow(`SELECT reason_code,(SELECT count(*) FROM server_settings WHERE key LIKE 'purge_rows:%') FROM audit_events WHERE event='platform.org_deleted' AND object_id='org_b'`).Scan(&counts, &left); err != nil || left != 0 {
+		t.Fatalf("counts %q, %d progress rows left (%v)", counts, left, err)
+	}
+	for _, want := range []string{"activity=1", "comments=1", "containers=1", "users=2", "audit_events=1"} {
+		if !strings.Contains(","+counts+",", ","+want+",") {
+			t.Errorf("the completion audit %q lacks %s", counts, want)
+		}
+	}
 }
 
 // Every table with a foreign key to a purged table is in the purge order, so a new child table

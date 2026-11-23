@@ -3,7 +3,9 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -107,14 +109,10 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 	if err := RecordAuditOutcome(db, "", "platform.org_purge_started", "", org, "success", "", "org-purge"); err != nil {
 		return err // nothing is deleted without the record that the purge began
 	}
-	counts := make([]string, 0, len(purgeSteps))
+	progress := "purge_rows:" + org + ":"
 	for _, step := range purgeSteps {
-		total, err := purgeTable(ctx, db, step, org)
-		if err != nil {
+		if _, err := purgeTable(ctx, db, step, org, progress+step.table); err != nil {
 			return fmt.Errorf("purge %s: %w", step.table, err)
-		}
-		if total > 0 {
-			counts = append(counts, fmt.Sprintf("%s=%d", step.table, total))
 		}
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -122,6 +120,23 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 		return err
 	}
 	defer tx.Rollback()
+	// The counts of every run of this purge, kept with each batch, so a resumed purge's audit
+	// still describes all of it.
+	counts := make([]string, 0, len(purgeSteps))
+	for _, step := range purgeSteps {
+		var n string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM server_settings WHERE key=?`, progress+step.table).Scan(&n)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		counts = append(counts, step.table+"="+n)
+		if _, err = tx.ExecContext(ctx, `DELETE FROM server_settings WHERE key=?`, progress+step.table); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, `UPDATE orgs SET purged_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), org); err != nil {
 		return err
 	}
@@ -131,7 +146,9 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 	return tx.Commit()
 }
 
-func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org string) (int64, error) {
+// purgeTable deletes the step's rows in batches. When progress names a server_settings row, each
+// batch adds its count there in its own transaction.
+func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org, progress string) (int64, error) {
 	key := step.key
 	if strings.Contains(key, ",") {
 		key = "(" + key + ")"
@@ -148,6 +165,13 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org string) (in
 			return total, err
 		}
 		res, err := tx.ExecContext(ctx, q, args...)
+		var n int64
+		if err == nil {
+			n, _ = res.RowsAffected()
+			if progress != "" && n > 0 {
+				_, err = tx.ExecContext(ctx, `INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(server_settings.value AS BIGINT)+? AS TEXT)`, progress, strconv.FormatInt(n, 10), time.Now().UTC().Format(time.RFC3339), n)
+			}
+		}
 		if err == nil {
 			err = purgeBatchHook(step.table)
 		}
@@ -158,7 +182,6 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org string) (in
 			tx.Rollback()
 			return total, err
 		}
-		n, _ := res.RowsAffected()
 		total += n
 		if n < int64(purgeBatch) {
 			return total, nil
