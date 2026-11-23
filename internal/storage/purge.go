@@ -121,6 +121,11 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if IsPostgres(db) {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM org_usage WHERE org_id=?`, org); err != nil {
+			return err
+		}
+	}
 	// The counts of every run of this purge, kept with each batch, so a resumed purge's audit
 	// still describes all of it.
 	counts := make([]string, 0, len(purgeSteps))

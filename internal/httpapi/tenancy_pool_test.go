@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -59,8 +61,14 @@ func TestOrgMemberWritesLandInItsOrg(t *testing.T) {
 			req.Header.Set("X-CSRF-Token", c.Value)
 		}
 	}
-	if res, err := b.hc.Do(req); err != nil || res.StatusCode != http.StatusOK {
-		t.Fatalf("chunk: %v", err)
+	res, err := b.hc.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusCode := res.StatusCode
+	res.Body.Close()
+	if statusCode != http.StatusOK {
+		t.Fatalf("chunk: %d", statusCode)
 	}
 	if code, body := status(t, b.do(t, http.MethodPost, "/api/v1/uploads/"+up.UploadID+"/finalize", []byte(`{"metadataCiphertext":"","keyGeneration":`+strconv.FormatInt(generation, 10)+`}`), true, false)); code != http.StatusOK {
 		t.Fatalf("finalize: %d %s", code, body)
@@ -114,5 +122,67 @@ func TestPoolGrantGatesGrowthOnly(t *testing.T) {
 	grant(t, p, "org_b", 1<<30, time.Now().Add(time.Hour))
 	if _, code = b.save(t, cid, "", generation); code != http.StatusOK {
 		t.Fatalf("a save within the grant: %d", code)
+	}
+}
+
+// Both requests may pass their optimistic read, but the reservation is checked again under N3.
+func TestPoolSerializesLastUploadReservation(t *testing.T) {
+	p, b, cid, _ := orgBWriter(t)
+	grant(t, p, "org_b", 64, time.Now().Add(time.Hour))
+	start := make(chan struct{})
+	codes := make(chan int, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			code, _ := status(t, b.do(t, http.MethodPost, "/api/v1/containers/"+cid+"/uploads", []byte(`{"declaredBytes":64,"kind":"attachment"}`), true, false))
+			codes <- code
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(codes)
+	passed, refused := 0, 0
+	for code := range codes {
+		switch code {
+		case http.StatusOK:
+			passed++
+		case http.StatusRequestEntityTooLarge:
+			refused++
+		default:
+			t.Errorf("unexpected status %d", code)
+		}
+	}
+	if passed != 1 || refused != 1 {
+		t.Fatalf("passed=%d refused=%d", passed, refused)
+	}
+	used, err := storage.OrgChargedBytes(p.db, p.db, "org_b", "")
+	if err != nil || used != 64 {
+		t.Fatalf("reservation=%d: %v", used, err)
+	}
+}
+
+func TestPoolHistoryCountsAndDeleteFreesIt(t *testing.T) {
+	p, b, cid, generation := orgBWriter(t)
+	grant(t, p, "org_b", 1<<30, time.Now().Add(time.Hour))
+	oid, code := b.save(t, cid, "", generation)
+	if code != http.StatusOK {
+		t.Fatalf("first save=%d", code)
+	}
+	used, err := storage.OrgChargedBytes(p.db, p.db, "org_b", "")
+	if err != nil || used == 0 {
+		t.Fatalf("usage=%d: %v", used, err)
+	}
+	grant(t, p, "org_b", used, time.Now().Add(time.Hour))
+	if _, code := b.save(t, cid, oid, generation); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("history over ceiling=%d", code)
+	}
+	if code, _ := status(t, b.do(t, http.MethodDelete, "/api/v1/objects/"+oid, nil, true, false)); code != http.StatusNoContent {
+		t.Fatalf("delete=%d", code)
+	}
+	if _, code := b.save(t, cid, "", generation); code != http.StatusOK {
+		t.Fatalf("save after freeing history=%d", code)
 	}
 }

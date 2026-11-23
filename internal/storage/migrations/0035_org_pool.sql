@@ -6,5 +6,8 @@ CREATE TABLE org_pool (
  reported_bytes INTEGER NOT NULL DEFAULT 0,
  ceiling_bytes INTEGER NOT NULL DEFAULT 0,
  expires_at TEXT NOT NULL DEFAULT '',
- pool_bytes INTEGER NOT NULL DEFAULT 0
+ attempted_at TEXT NOT NULL DEFAULT '',
+ pool_bytes INTEGER NOT NULL DEFAULT 0,
+ org_used_bytes INTEGER NOT NULL DEFAULT 0,
+ over_since INTEGER
 );

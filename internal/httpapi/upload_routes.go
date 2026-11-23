@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
@@ -130,7 +131,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 413, "payload_too_large", "payload too large")
 			return
 		}
-		if over, err := quotaExceeded(db, cfg.Limits, cid, "", in.DeclaredBytes); err != nil {
+		if over, err := quotaExceeded(db, db, cfg.Limits, cid, "", in.DeclaredBytes); err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		} else if over {
@@ -149,9 +150,16 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
+			if e := checkUploadPool(db, tx, cid, "", in.DeclaredBytes); e != nil {
+				return e
+			}
 			_, e := tx.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,(SELECT org_id FROM containers WHERE id=?))`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339), cid)
 			return e
 		})
+		if errors.Is(e, errQuota) {
+			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			return
+		}
 		if writeTeamKeyError(w, r, e) {
 			return
 		}
@@ -318,7 +326,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 422, "digest_mismatch", "ciphertext size mismatch")
 			return
 		}
-		over, err := quotaExceeded(db, cfg.Limits, cid, id, received)
+		over, err := quotaExceeded(db, db, cfg.Limits, cid, id, received)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -381,12 +389,20 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 					dropUnclaimed(tx, blobs, digest)
 					return e
 				}
+				if e := checkUploadPool(db, tx, cid, id, size); e != nil {
+					dropUnclaimed(tx, blobs, digest)
+					return e
+				}
 				if e := claimBlob(tx, blobs, digest, cid, size, now); e != nil {
 					return e
 				}
 				_, e := tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
 				return e
 			})
+			if errors.Is(e, errQuota) {
+				WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+				return
+			}
 			if writeTeamKeyError(w, r, e) {
 				return
 			}
@@ -410,6 +426,10 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 				return e
 			}
 			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
+				dropUnclaimed(tx, blobs, digest)
+				return e
+			}
+			if e := checkUploadPool(db, tx, cid, id, size); e != nil {
 				dropUnclaimed(tx, blobs, digest)
 				return e
 			}
@@ -438,6 +458,10 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			_, e = tx.Exec(`UPDATE upload_sessions SET status='finalized',finalized_at=?,finalized_digest=?,updated_at=? WHERE id=?`, now, digest, now, id)
 			return e
 		})
+		if errors.Is(e, errQuota) {
+			WriteError(w, r, 413, "quota_exceeded", "quota exceeded")
+			return
+		}
 		if writeTeamKeyError(w, r, e) {
 			return
 		}
@@ -608,7 +632,7 @@ func uploadLive(status, created, expires string) bool {
 // quotaExceeded reports whether n more bytes in cid would exceed its owner's quota or, in a team,
 // the team's (IMPLEMENTATION_PLAN.md 1.14). Live pending uploads other than skip count at their
 // declared size, and each finalized preview's blob (cancelled or not) for as long as it is kept.
-func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64) (bool, error) {
+func quotaExceeded(db *sql.DB, q rowQuerier, limits config.Limits, cid, skip string, n int64) (bool, error) {
 	var owner, kind, team, org string
 	var userQuota int64
 	if err := q.QueryRow(`SELECT c.owner_user_id,c.kind,c.team_id,u.quota_bytes,c.org_id FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.id=?`, cid).Scan(&owner, &kind, &team, &userQuota, &org); err != nil {
@@ -626,7 +650,7 @@ func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64
 			return err == nil, err
 		}
 	}
-	return storage.PoolRefuses(q, org, skip, n) // the org's pool, after today's safety caps
+	return storage.PoolRefuses(db, q, org, skip, n) // the org's pool, after today's safety caps
 }
 
 // userQuotaExceeded charges n more bytes to one account: its notebooks plus its live sealed share
@@ -659,4 +683,17 @@ func uploadTTL(cfg config.Config) time.Duration {
 		return 15 * time.Minute
 	}
 	return ttl
+}
+
+// checkUploadPool runs inside the upload's commit transaction; streamed bytes stay outside it.
+func checkUploadPool(db *sql.DB, q rowQuerier, cid, skip string, n int64) error {
+	var org string
+	if err := q.QueryRow(`SELECT org_id FROM containers WHERE id=?`, cid).Scan(&org); err != nil {
+		return err
+	}
+	over, err := storage.PoolRefuses(db, q, org, skip, n)
+	if err == nil && over {
+		return errQuota
+	}
+	return err
 }

@@ -18,16 +18,16 @@ import (
 )
 
 const (
-	reportBatch = 500       // the contract's most reports per request
-	minWant     = 256 << 20 // the smallest grant asked for: 256 MiB
+	reportBatch  = 250 // below both the 500-report and 64 KiB wire limits, even at maximum integers
+	minWant      = 256 << 20
+	maxPoolBytes = 1 << 53
 )
 
-// Reporter sends each serving org's charged bytes to KyIdentity's storage pool (POST
-// /api/suite/storage, report-and-grant) and stores the grant it answers (tenancy N10, owner
-// decision 14). It runs on the elected worker in multi mode.
+// Reporter renews org grants on the elected worker. Call each second: ordinary changes report
+// at most once per minute; half-consumed grants and lower usage report at the next call.
 type Reporter struct {
 	DB  *sql.DB
-	Dir suitedir.Client // Issuer, ClientID, ClientSecret and HTTP, as for the org poll
+	Dir suitedir.Client
 	now func() time.Time
 }
 
@@ -41,126 +41,207 @@ type storageReport struct {
 type storageResult struct {
 	OrgID        string `json:"org_id"`
 	Result       string `json:"result"`
-	Seq          int64  `json:"seq"`
-	CeilingBytes int64  `json:"ceiling_bytes"`
-	TTLSeconds   int64  `json:"ttl_seconds"`
-	PoolBytes    int64  `json:"pool_bytes"`
+	Seq          *int64 `json:"seq"`
+	CeilingBytes *int64 `json:"ceiling_bytes"`
+	TTLSeconds   *int64 `json:"ttl_seconds"`
+	PoolBytes    *int64 `json:"pool_bytes"`
+	OrgUsedBytes *int64 `json:"org_used_bytes"`
+	OverSince    *int64 `json:"over_since"`
 }
 
-// Report sends every report that is due: an org never reported, whose usage changed, whose grant
-// is half spent or half way to expiring, or that has none. A whole answer is applied or nothing.
+func (r *Reporter) clock() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
+}
+
 func (r *Reporter) Report(ctx context.Context) error {
 	tenancy, err := storage.TenancyOf(r.DB)
 	if err != nil || !tenancy.Multi() {
 		return err
 	}
-	now := time.Now
-	if r.now != nil {
-		now = r.now
-	}
-	rows, err := r.DB.QueryContext(ctx, `SELECT o.id,COALESCE(p.reported_bytes,-1),COALESCE(p.ceiling_bytes,0),COALESCE(p.expires_at,''),COALESCE(p.pool_bytes,0) FROM orgs o LEFT JOIN org_pool p ON p.org_id=o.id WHERE o.status='active' AND o.enabled=1 AND o.home_region=? AND o.id<>? ORDER BY o.id`, tenancy.Region, tenancy.StaffOrg)
+	// Keep stopped orgs with an old grant so their next report releases it. No customer data is
+	// served here; suspended orgs' retained bytes still count in KyIdentity.
+	rows, err := r.DB.QueryContext(ctx, `SELECT o.id FROM orgs o LEFT JOIN org_pool p ON p.org_id=o.id WHERE o.home_region=? AND o.id<>? AND ((o.status='active' AND o.enabled=1) OR p.org_id IS NOT NULL) ORDER BY o.id`, tenancy.Region, tenancy.StaffOrg)
 	if err != nil {
 		return err
 	}
-	type due struct {
-		org            string
-		reported, ceil int64
-		expires        string
-		pool           int64
-	}
-	var orgs []due
+	var orgs []string
 	for rows.Next() {
-		var d due
-		if err := rows.Scan(&d.org, &d.reported, &d.ceil, &d.expires, &d.pool); err != nil {
+		var org string
+		if err := rows.Scan(&org); err != nil {
 			rows.Close()
 			return err
 		}
-		orgs = append(orgs, d)
+		orgs = append(orgs, org)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	var batch []storageReport
-	for _, d := range orgs {
-		used, err := storage.OrgChargedBytes(r.DB, d.org, "")
+	for _, org := range orgs {
+		report, due, err := r.prepare(ctx, org)
 		if err != nil {
 			return err
 		}
-		until, perr := time.Parse(time.RFC3339Nano, d.expires)
-		halfTime := perr != nil || now().After(until.Add(-450*time.Second)) // half the 900 s grant
-		halfSpent := d.ceil > d.reported && used-d.reported >= (d.ceil-d.reported)/2
-		if d.reported >= 0 && used == d.reported && !halfTime && !halfSpent {
+		if !due {
 			continue
 		}
-		var seq int64
-		if err := r.DB.QueryRowContext(ctx, `INSERT INTO org_pool(org_id,seq) VALUES(?,1) ON CONFLICT(org_id) DO UPDATE SET seq=org_pool.seq+1 RETURNING seq`, d.org).Scan(&seq); err != nil {
-			return err
-		}
-		batch = append(batch, storageReport{OrgID: d.org, UsedBytes: used, Seq: seq, WantBytes: max(minWant, d.pool/10)})
+		batch = append(batch, report)
 		if len(batch) == reportBatch {
-			if err := r.send(ctx, batch, now); err != nil {
+			if err := r.send(ctx, batch); err != nil {
 				return err
 			}
-			batch = batch[:0]
+			batch = nil
 		}
 	}
-	if len(batch) == 0 {
-		return nil
+	if len(batch) > 0 {
+		return r.send(ctx, batch)
 	}
-	return r.send(ctx, batch, now)
+	return nil
 }
 
-// errAnswer: KyIdentity's answer does not match the reports; nothing of it is applied.
+// prepare snapshots usage and stops growth in one short writer transaction. KyIdentity replaces
+// the old grant on receipt: allowing writes against it while the request is in flight would
+// let this app spend headroom KyIdentity has already made available to another app.
+func (r *Reporter) prepare(ctx context.Context, org string) (storageReport, bool, error) {
+	rep := storageReport{OrgID: org}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return rep, false, err
+	}
+	defer tx.Rollback()
+	var reported, ceiling, pool int64
+	var expires, attempted string
+	err = tx.QueryRowContext(ctx, `SELECT reported_bytes,ceiling_bytes,pool_bytes,expires_at,attempted_at FROM org_pool WHERE org_id=?`, org).Scan(&reported, &ceiling, &pool, &expires, &attempted)
+	fresh := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !fresh {
+		return rep, false, err
+	}
+	var serving bool
+	if err := tx.QueryRowContext(ctx, `SELECT status='active' AND enabled=1 FROM orgs WHERE id=?`, org).Scan(&serving); err != nil {
+		return rep, false, err
+	}
+	used, err := storage.OrgChargedBytes(r.DB, tx, org, "")
+	if err != nil {
+		return rep, false, err
+	}
+	if used < 0 || used > maxPoolBytes {
+		return rep, false, errors.New("storage pool: usage outside wire limit")
+	}
+	now := r.clock()
+	until, _ := time.Parse(time.RFC3339Nano, expires)
+	tried, _ := time.Parse(time.RFC3339Nano, attempted)
+	halfSpent := ceiling > reported && used > reported && used-reported >= (ceiling-reported+1)/2
+	if !fresh {
+		if !serving && used == reported && ceiling == 0 {
+			return rep, false, nil
+		}
+		// Retry failures and zero grants once per minute. A lower figure is reported immediately.
+		if used >= reported && now.Before(tried.Add(time.Minute)) && !halfSpent {
+			return rep, false, nil
+		}
+		if serving && used == reported && now.Before(until.Add(-450*time.Second)) {
+			return rep, false, nil
+		}
+	}
+	if storage.IsPostgres(r.DB) {
+		// Nontransactional sequence survives rollback. N3 serializes allocation and resync, including
+		// after a restored database has received a higher seq in a stale response.
+		if err := tx.QueryRowContext(ctx, `SELECT nextval('org_storage_report_seq')`).Scan(&rep.Seq); err != nil {
+			return rep, false, err
+		}
+		var last int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM org_pool`).Scan(&last); err != nil {
+			return rep, false, err
+		}
+		if rep.Seq <= last {
+			if last == int64(^uint64(0)>>1) {
+				return rep, false, errors.New("storage pool: sequence exhausted")
+			}
+			if err := tx.QueryRowContext(ctx, `SELECT setval('org_storage_report_seq',?)`, last+1).Scan(&rep.Seq); err != nil {
+				return rep, false, err
+			}
+		}
+	} else {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM org_pool`).Scan(&rep.Seq); err != nil {
+			return rep, false, err
+		}
+	}
+	rep.UsedBytes = used
+	if serving {
+		rep.WantBytes = max(minWant, pool/10)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO org_pool(org_id,seq,attempted_at) VALUES(?,?,?) ON CONFLICT(org_id) DO UPDATE SET seq=excluded.seq,attempted_at=excluded.attempted_at,ceiling_bytes=0,expires_at=''`, org, rep.Seq, now.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return rep, false, err
+	}
+	return rep, true, tx.Commit()
+}
+
 var errAnswer = errors.New("storage pool: the answer does not match the reports")
 
-func (r *Reporter) send(ctx context.Context, reports []storageReport, now func() time.Time) error {
+func (r *Reporter) send(ctx context.Context, reports []storageReport) error {
 	u, err := url.Parse(r.Dir.Issuer)
-	if err != nil || u.Host == "" || (u.Scheme != "https" && !loopback(u.Hostname())) {
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
+		(u.Scheme != "https" && !(u.Scheme == "http" && loopback(u.Hostname()))) {
 		return errors.New("storage pool: the issuer must be an HTTPS URL")
 	}
 	body, err := json.Marshal(map[string]any{"reports": reports})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.JoinPath("/api/suite/storage").String(), bytes.NewReader(body))
+	if len(body) > 64<<10 {
+		return errors.New("storage pool: report exceeds wire limit")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.JoinPath("api", "suite", "storage").String(), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.SetBasicAuth(r.Dir.ClientID, r.Dir.ClientSecret)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	client := r.Dir.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+	client := http.Client{Timeout: 15 * time.Second}
+	if r.Dir.HTTP != nil {
+		client = *r.Dir.HTTP
 	}
-	sent := now() // a grant expires ttl_seconds after the request was sent
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("redirects are refused") }
+	sent := r.clock()
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return fmt.Errorf("storage pool: request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("storage pool: KyIdentity answered %d", resp.StatusCode)
 	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if err != nil {
+		return err
+	}
 	var answer struct {
 		Results []storageResult `json:"results"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&answer); err != nil || len(answer.Results) != len(reports) {
+	if len(raw) > 1<<20 || json.Unmarshal(raw, &answer) != nil || len(answer.Results) != len(reports) {
 		return errAnswer
 	}
 	for i, res := range answer.Results {
-		ok := res.OrgID == reports[i].OrgID
-		switch res.Result {
-		case "ok":
-			ok = ok && res.Seq == reports[i].Seq && res.TTLSeconds > 0 && res.CeilingBytes >= 0
-		case "stale":
-			ok = ok && res.Seq > 0 && res.TTLSeconds > 0 && res.CeilingBytes >= 0
-		case "unknown_org":
-		default:
-			ok = false
+		if res.OrgID != reports[i].OrgID {
+			return errAnswer
 		}
-		if !ok {
+		if res.Result == "unknown_org" {
+			continue
+		}
+		if (res.Result != "ok" && res.Result != "stale") || res.Seq == nil || res.CeilingBytes == nil || res.TTLSeconds == nil || res.PoolBytes == nil || res.OrgUsedBytes == nil {
+			return errAnswer
+		}
+		if *res.Seq < reports[i].Seq || (res.Result == "ok" && *res.Seq != reports[i].Seq) || *res.TTLSeconds != 900 || *res.CeilingBytes < 0 || *res.CeilingBytes > maxPoolBytes || *res.PoolBytes < 0 || *res.PoolBytes > maxPoolBytes || *res.OrgUsedBytes < 0 || *res.OrgUsedBytes > maxPoolBytes {
 			return errAnswer
 		}
 	}
@@ -170,21 +251,20 @@ func (r *Reporter) send(ctx context.Context, reports []storageReport, now func()
 	}
 	defer tx.Rollback()
 	for i, res := range answer.Results {
-		ceiling, expires, seq := int64(0), "", reports[i].Seq
-		if res.Result != "unknown_org" {
-			ceiling, expires = res.CeilingBytes, sent.Add(time.Duration(res.TTLSeconds)*time.Second).UTC().Format(time.RFC3339Nano)
+		seq, used, ceiling, expiry, pool, orgUsed := reports[i].Seq, reports[i].UsedBytes, int64(0), "", int64(0), int64(0)
+		if res.Result == "ok" {
+			ceiling, expiry = *res.CeilingBytes, sent.Add(time.Duration(*res.TTLSeconds)*time.Second).UTC().Format(time.RFC3339Nano)
+			pool, orgUsed = *res.PoolBytes, *res.OrgUsedBytes
 		}
 		if res.Result == "stale" {
-			seq = res.Seq // KyIdentity's stored seq: the next report goes above it (after a restore)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE org_pool SET seq=CASE WHEN seq>? THEN seq ELSE ? END,reported_bytes=?,ceiling_bytes=?,expires_at=?,pool_bytes=? WHERE org_id=?`, seq, seq, reports[i].UsedBytes, ceiling, expires, res.PoolBytes, res.OrgID); err != nil {
+			seq = *res.Seq
+			used = -1
+		} // resync, then send a fresh report; never extend an old grant
+		if _, err := tx.ExecContext(ctx, `UPDATE org_pool SET seq=?,reported_bytes=?,ceiling_bytes=?,expires_at=?,pool_bytes=?,org_used_bytes=?,over_since=? WHERE org_id=? AND seq=?`, seq, used, ceiling, expiry, pool, orgUsed, res.OverSince, res.OrgID, reports[i].Seq); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-func loopback(host string) bool {
-	ip := net.ParseIP(host)
-	return host == "localhost" || ip != nil && ip.IsLoopback()
-}
+func loopback(host string) bool { ip := net.ParseIP(host); return ip != nil && ip.IsLoopback() }

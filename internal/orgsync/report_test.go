@@ -67,7 +67,9 @@ func poolStore(t *testing.T) *Reporter {
 
 func storedGrant(t *testing.T, r *Reporter, org string) (seq, ceiling int64, expires string) {
 	t.Helper()
-	_ = r.DB.QueryRow(`SELECT seq,ceiling_bytes,expires_at FROM org_pool WHERE org_id=?`, org).Scan(&seq, &ceiling, &expires)
+	if err := r.DB.QueryRow(`SELECT seq,ceiling_bytes,expires_at FROM org_pool WHERE org_id=?`, org).Scan(&seq, &ceiling, &expires); err != nil {
+		t.Fatal(err)
+	}
 	return
 }
 
@@ -108,6 +110,8 @@ func TestReportStoresTheGrant(t *testing.T) {
 // unknown_org answer stores no headroom; single mode reports nothing.
 func TestReportRefusesAMismatchedAnswer(t *testing.T) {
 	r := poolStore(t)
+	now := time.Unix(1_800_000_000, 0)
+	r.now = func() time.Time { return now }
 	pool := &fakePool{answer: func(rep map[string]any) map[string]any {
 		a := okAnswer(rep)
 		a["seq"] = 99
@@ -120,7 +124,10 @@ func TestReportRefusesAMismatchedAnswer(t *testing.T) {
 	if _, ceiling, expires := storedGrant(t, r, "org_a"); ceiling != 0 || expires != "" {
 		t.Fatalf("a refused answer stored a grant: %d %q", ceiling, expires)
 	}
-	pool.answer = func(rep map[string]any) map[string]any { return map[string]any{"org_id": rep["org_id"], "result": "unknown_org"} }
+	pool.answer = func(rep map[string]any) map[string]any {
+		return map[string]any{"org_id": rep["org_id"], "result": "unknown_org"}
+	}
+	now = now.Add(time.Minute)
 	if err := r.Report(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -133,5 +140,103 @@ func TestReportRefusesAMismatchedAnswer(t *testing.T) {
 	before := len(pool.requests)
 	if err := r.Report(context.Background()); err != nil || len(pool.requests) != before {
 		t.Fatalf("single mode reported: %d requests %v", len(pool.requests)-before, err)
+	}
+}
+
+// A stale grant cannot be made fresh by the request time. Resync to the remote seq, then ask
+// again above it (also exercising PostgreSQL sequence resync after a restored database).
+func TestReportResyncsStaleWithoutRenewingIt(t *testing.T) {
+	r := poolStore(t)
+	now := time.Unix(1_800_000_000, 0)
+	r.now = func() time.Time { return now }
+	pool := &fakePool{answer: func(rep map[string]any) map[string]any {
+		a := okAnswer(rep)
+		a["result"] = "stale"
+		a["seq"] = int64(100)
+		return a
+	}}
+	r.Dir = suitedir.Client{Issuer: pool.serve(t).URL, ClientID: "kynotes", ClientSecret: "suite-secret"}
+	if err := r.Report(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seq, ceiling, expiry := storedGrant(t, r, "org_a"); seq != 100 || ceiling != 0 || expiry != "" {
+		t.Fatalf("stale grant stored: %d %d %q", seq, ceiling, expiry)
+	}
+	now = now.Add(time.Minute)
+	pool.answer = okAnswer
+	if err := r.Report(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seq, ceiling, _ := storedGrant(t, r, "org_a"); seq <= 100 || ceiling != 5000 {
+		t.Fatalf("resync: seq=%d ceiling=%d", seq, ceiling)
+	}
+}
+
+func TestReportPausesOldGrantAndReleasesStoppedOrg(t *testing.T) {
+	r := poolStore(t)
+	now := time.Unix(1_800_000_000, 0)
+	r.now = func() time.Time { return now }
+	pool := &fakePool{answer: okAnswer}
+	r.Dir = suitedir.Client{Issuer: pool.serve(t).URL, ClientID: "kynotes", ClientSecret: "suite-secret"}
+	if err := r.Report(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(451 * time.Second)
+	pool.answer = func(rep map[string]any) map[string]any {
+		if _, ceiling, expiry := storedGrant(t, r, "org_a"); ceiling != 0 || expiry != "" {
+			t.Errorf("old headroom usable in flight: %d %q", ceiling, expiry)
+		}
+		return okAnswer(rep)
+	}
+	if err := r.Report(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.DB.Exec(`UPDATE orgs SET status='suspended' WHERE id='org_a'`); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	pool.answer = func(rep map[string]any) map[string]any {
+		if rep["want_bytes"] != float64(0) {
+			t.Errorf("stopped org requested headroom: %v", rep)
+		}
+		a := okAnswer(rep)
+		a["ceiling_bytes"] = int64(0)
+		return a
+	}
+	if err := r.Report(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ceiling, _ := storedGrant(t, r, "org_a"); ceiling != 0 {
+		t.Fatalf("stopped grant=%d", ceiling)
+	}
+}
+
+// Authentication/transport and response-shape failures cannot create a grant.
+func TestReportRejectsRedirectAndIncompleteGrant(t *testing.T) {
+	for _, mode := range []string{"redirect", "incomplete", "unauthorized"} {
+		t.Run(mode, func(t *testing.T) {
+			r := poolStore(t)
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { t.Error("followed an issuer redirect") }))
+			defer target.Close()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if mode == "redirect" {
+					http.Redirect(w, req, target.URL, http.StatusTemporaryRedirect)
+					return
+				}
+				if mode == "unauthorized" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{{"org_id": "org_a", "result": "ok", "seq": 1, "ceiling_bytes": 5000, "ttl_seconds": 900}}})
+			}))
+			defer srv.Close()
+			r.Dir = suitedir.Client{Issuer: srv.URL, ClientID: "kynotes", ClientSecret: "suite-secret"}
+			if err := r.Report(context.Background()); err == nil {
+				t.Fatal("untrusted answer accepted")
+			}
+			if _, ceiling, expiry := storedGrant(t, r, "org_a"); ceiling != 0 || expiry != "" {
+				t.Fatalf("untrusted grant=%d %q", ceiling, expiry)
+			}
+		})
 	}
 }

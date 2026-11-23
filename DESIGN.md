@@ -901,11 +901,11 @@ pending uploads, and the account. Pages it wrote in notebooks others keep stay.
 
 ## Tenancy amendment, PR 4e (the org storage pool)
 
-In multi mode the storage a customer buys is its org's pool, held by KyIdentity (owner decisions 10
-and 14). KyNotes reports each serving org's charged bytes to `POST /api/suite/storage` and stores
-the grant it answers (a ceiling, valid 900 s from the send) in `org_pool` (migration 0035). Every
-write that adds bytes, after today's per-account and per-team caps, passes only while the org's
-charged bytes plus the write fit under an unexpired grant; otherwise it answers `413
-quota_exceeded`, as the caps do. Reads, deletes and writes that add nothing always pass. Every
-org-owned row a handler inserts names its parent's org in the insert itself. Single mode never
-reports and never checks a grant.
+Multi mode checks net byte growth against a cached KyIdentity report-and-grant ceiling under the
+writer lock. PostgreSQL-only `org_usage` triggers keep durable content totals; reservations,
+previews and live sealed links are summed at admission. `org_pool` holds grant/report state and
+uses a PostgreSQL sequence. A renewal pauses growth before sending, and only a matching validated
+response installs a new grant. Stopped orgs release headroom. Deletes and converting an existing
+upload reservation do not need a fresh grant; single mode bypasses pool checks. The elected
+worker schedule and multi-mode startup belong to later phases. See the tenancy spec's PR 4e
+as-built section for the wire and accounting contracts and executable checks.

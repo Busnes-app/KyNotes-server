@@ -308,7 +308,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			}
 			return
 		}
-		if over, err := quotaExceeded(db, limits, cid, "", tmp.Size()); err != nil || over {
+		if over, err := quotaExceeded(db, db, limits, cid, "", tmp.Size()); err != nil || over {
 			_ = tmp.Abort()
 			if err != nil {
 				WriteError(w, r, 500, "internal", "internal server error")
@@ -355,7 +355,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			refuse()
 			return
 		}
-		if over, err := quotaExceeded(tx, limits, cid, "", size); err != nil || over {
+		if over, err := quotaExceeded(db, tx, limits, cid, "", size); err != nil || over {
 			refuse()
 			if err != nil {
 				WriteError(w, r, 500, "internal", "internal server error")

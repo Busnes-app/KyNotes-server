@@ -289,14 +289,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   foreign key, as `pairing_nonces`, needs its own step; comments in kept notebooks are tombstoned and
   the user row is scrubbed and kept, owner decision 12). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
   `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
-- Tenancy PR 4e, the pool: `storage.PoolRefuses` runs at the end of `quotaExceeded` and beside
-  `userQuotaExceeded` for sealed links; `storage.OrgChargedBytes` is `ChargedBytes` (today's `usedBytes`,
-  moved to storage) over the org's notebooks plus its live sealed links. `orgsync.Reporter` sends due
-  reports (never reported, changed, half spent, half expired) with `seq` from `org_pool` and applies a whole
-  answer or none. Every handler insert into an org-owned table names the parent's org in the statement
-  (`org_id` from the owner or the container); a new one must too, or the parent trigger refuses it for
-  every org but the default one (`TestOrgMemberWritesLandInItsOrg`). Verify `TestPoolGrantGatesGrowthOnly`,
-  `TestReportStoresTheGrant`, `TestReportRefusesAMismatchedAnswer`.
+- Tenancy PR 4e: `org_pool` is report/grant state; PostgreSQL-only `org_usage.bytes` is
+  maintained by content triggers. Keep new charged content in both the counter and the full-sum
+  regression. Pool checks run inside each growth transaction; upload finalization subtracts its
+  live reservation. The reporter disables old headroom before sending, rejects redirects and
+  malformed replies, and treats stale responses as sequence resync only. Verify `TestOrgUsage*`,
+  `TestPool*`, `TestReport*`, `TestOrgMemberWritesLandInItsOrg`, the golden and both backend suites.
+
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.

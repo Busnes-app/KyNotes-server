@@ -29,8 +29,17 @@ func ChargedBytes(q rowQuerier, scope, key, skip string) (int64, error) {
 
 // OrgChargedBytes is the org's figure for its storage pool (tenancy N10): its notebooks'
 // charged bytes plus its live sealed share links.
-func OrgChargedBytes(q rowQuerier, org, skip string) (int64, error) {
-	used, err := ChargedBytes(q, `SELECT id FROM containers WHERE org_id=?1`, org, skip)
+func OrgChargedBytes(db *sql.DB, q rowQuerier, org, skip string) (int64, error) {
+	var used int64
+	var err error
+	if IsPostgres(db) {
+		err = q.QueryRow(`SELECT COALESCE((SELECT bytes FROM org_usage WHERE org_id=?1),0)
+ +(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE org_id=?1 AND status='pending' AND expires_at>?2 AND id<>?3)
+ +(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.org_id=?1 AND b.digest IN
+   (SELECT s.finalized_digest FROM upload_sessions s JOIN containers c ON c.id=s.container_id WHERE s.org_id=?1 AND s.kind='preview' AND s.finalized_digest<>'' AND c.deleted_at=''))`, org, time.Now().UTC().Format(time.RFC3339), skip).Scan(&used)
+	} else {
+		used, err = ChargedBytes(q, `SELECT id FROM containers WHERE org_id=?1`, org, skip)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -43,10 +52,21 @@ func OrgChargedBytes(q rowQuerier, org, skip string) (int64, error) {
 // decision 14): in multi mode a write that adds bytes passes only while the org's charged bytes
 // plus n are at most its grant's ceiling and the grant has not expired. No grant refuses growth.
 // Single mode, and a write that adds nothing, always pass.
-func PoolRefuses(q rowQuerier, org, skip string, n int64) (bool, error) {
+func PoolRefuses(db *sql.DB, q rowQuerier, org, skip string, n int64) (bool, error) {
 	tenancy, err := TenancyOf(q)
 	if err != nil || !tenancy.Multi() || n <= 0 {
 		return false, err
+	}
+	// Finalization replaces a live reservation. It adds no bytes up to that reservation,
+	// even if the grant expired while chunks were being sent.
+	if skip != "" {
+		var reserved int64
+		if err := q.QueryRow(`SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE id=? AND org_id=? AND status='pending' AND expires_at>?`, skip, org, time.Now().UTC().Format(time.RFC3339)).Scan(&reserved); err != nil {
+			return false, err
+		}
+		if n <= reserved {
+			return false, nil
+		}
 	}
 	var ceiling int64
 	var expires string
@@ -60,6 +80,6 @@ func PoolRefuses(q rowQuerier, org, skip string, n int64) (bool, error) {
 	if until, perr := time.Parse(time.RFC3339Nano, expires); perr != nil || !time.Now().Before(until) {
 		return true, nil
 	}
-	used, err := OrgChargedBytes(q, org, skip)
-	return used+n > ceiling, err
+	used, err := OrgChargedBytes(db, q, org, skip)
+	return n > ceiling || used > ceiling-n, err
 }

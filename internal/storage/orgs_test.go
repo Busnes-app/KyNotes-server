@@ -13,7 +13,7 @@ import (
 // until it is listed here.
 var (
 	orgOwned = map[string]string{ // table -> the parent its org must equal ("" for none)
-		"users": "", "containers": "users", "blobs": "", "blob_containers": "containers",
+		"org_usage": "", "users": "", "containers": "users", "blobs": "", "blob_containers": "containers",
 		"object_versions": "objects", "conflicts": "containers", "attachments": "containers",
 		"upload_sessions": "containers", "audit_events": "", "sealed_share_links": "users",
 	}
@@ -34,6 +34,7 @@ var (
 	}
 	offInMulti = map[string]bool{"blob_replicas": true}
 	// Tables the PostgreSQL schema leaves out (tenancy spec, Replica work, item 6).
+	sqliteOmits   = map[string]bool{"org_usage": true}
 	postgresOmits = map[string]bool{"cleanup_audit_slots": true, "blob_replicas": true}
 )
 
@@ -66,7 +67,7 @@ func TestEveryTableIsClassified(t *testing.T) {
 	}
 	for _, m := range []map[string]string{orgOwned, derived} {
 		for name := range m {
-			if !seen[name] && !(s.pg && postgresOmits[name]) {
+			if !seen[name] && !(s.pg && postgresOmits[name]) && !(!s.pg && sqliteOmits[name]) {
 				t.Errorf("%s is classified but does not exist", name)
 			}
 		}
@@ -76,6 +77,9 @@ func TestEveryTableIsClassified(t *testing.T) {
 func TestOrgOwnedTablesHaveOrgID(t *testing.T) {
 	s := openFresh(t)
 	for table, parent := range orgOwned {
+		if !s.pg && sqliteOmits[table] {
+			continue
+		}
 		notNull, def, err := catalogColumn(s, table, "org_id")
 		if err != nil {
 			t.Errorf("%s: no org_id: %v", table, err)
@@ -151,6 +155,9 @@ func TestUpgradePutsEveryRowInTheDefaultOrg(t *testing.T) {
 	}
 	defer s.Close()
 	for table := range orgOwned {
+		if !s.pg && sqliteOmits[table] {
+			continue
+		}
 		var total, inDefault int
 		if err = s.db.QueryRow(`SELECT count(*),count(*) FILTER (WHERE org_id=?) FROM `+table, DefaultOrgID).Scan(&total, &inDefault); err != nil || total == 0 || total != inDefault {
 			t.Errorf("%s: %d rows, %d in the default org: %v", table, total, inDefault, err)

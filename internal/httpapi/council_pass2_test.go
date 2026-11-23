@@ -32,7 +32,7 @@ func TestDeletingANotebookReleasesItsStorage(t *testing.T) {
 		t.Fatalf("nothing stored: %d %v", used, err)
 	}
 	limits := config.Limits{UserQuotaBytes: used}
-	if over, err := quotaExceeded(tm.owner.db, limits, tm.id, "", 1); err != nil || !over {
+	if over, err := quotaExceeded(tm.owner.db, tm.owner.db, limits, tm.id, "", 1); err != nil || !over {
 		t.Fatalf("quota before delete over=%v %v", over, err)
 	}
 	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/containers/"+tm.id, nil, true, false)); code != http.StatusNoContent {
@@ -45,7 +45,7 @@ func TestDeletingANotebookReleasesItsStorage(t *testing.T) {
 	if live != 0 || versions != 0 || pages != 0 {
 		t.Fatalf("after delete: %d live notebooks, %d versions, %d live pages", live, versions, pages)
 	}
-	if over, err := quotaExceeded(tm.owner.db, limits, tm.id, "", 1); err != nil || over {
+	if over, err := quotaExceeded(tm.owner.db, tm.owner.db, limits, tm.id, "", 1); err != nil || over {
 		t.Fatalf("quota after delete over=%v %v", over, err)
 	}
 }
@@ -135,7 +135,7 @@ func TestSealedShareLinksAreOwnedCappedChargedAndRevocable(t *testing.T) {
 	if code, out := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/share-links", body(time.Now().Add(time.Hour), 16), true, false)); code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("link over quota=%d %s", code, out)
 	}
-	if over, err := quotaExceeded(tm.owner.db, config.Limits{}, tm.id, "", 9); err != nil || !over {
+	if over, err := quotaExceeded(tm.owner.db, tm.owner.db, config.Limits{}, tm.id, "", 9); err != nil || !over {
 		t.Fatalf("link bytes not charged to the owner's notebooks: %v %v", over, err)
 	}
 	if code, out := status(t, tm.editor.do(t, http.MethodDelete, "/api/v1/share-links/"+link.ID, nil, true, false)); code != http.StatusNotFound {

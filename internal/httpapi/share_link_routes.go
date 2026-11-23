@@ -68,7 +68,7 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 			}
 			over, e := userQuotaExceeded(tx, limits, s.UserID, quota, "", int64(len(sealed)))
 			if e == nil && !over {
-				over, e = storage.PoolRefuses(tx, org, "", int64(len(sealed))) // the org's pool (N10)
+				over, e = storage.PoolRefuses(db, tx, org, "", int64(len(sealed))) // the org's pool (N10)
 			}
 			if e != nil || over {
 				if e == nil {
