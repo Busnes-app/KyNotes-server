@@ -295,11 +295,16 @@ schema. It follows C "`org_id` on every row":
    `users` already holds rows. That is an existing install, which is always single-tenant. A
    fresh database gets no `orgs` row from the migration.
 2. `storage.Open` then runs `ensureOrgs`, right after the migrations and before
-   `EnsureBootstrapAdmin` (`serve.go:43`). Its inserts are `ON CONFLICT DO NOTHING`, so replicas
-   starting together need no lock. It inserts the default org (single mode) or the staff org
-   from `KYNOTES_STAFF_ORG_ID` (multi mode, `active`, `enabled`, region `KYNOTES_REGION`) if it
-   is missing. It records `tenancy_mode` when no row exists: `single` if the default org exists,
-   otherwise the configured mode. N1's mismatch check runs right after.
+   `EnsureBootstrapAdmin` (`serve.go:43`). **It checks before it writes.** First it validates the
+   variables (N1: the multi-only ones are refused in single mode and required in multi mode). It
+   then works out the stored mode: the `tenancy_mode` row, or `single` when the default org
+   exists, or none for a fresh database. If that differs from the configured mode, it refuses, and
+   a refused start writes nothing. Only then does it insert, with `ON CONFLICT DO NOTHING` so
+   replicas starting together need no lock: the `tenancy_mode` row if missing, and the default
+   org (single mode) or the staff org from `KYNOTES_STAFF_ORG_ID` (multi mode, `active`,
+   `enabled`, region `KYNOTES_REGION`) if missing. Test: an existing single-tenant database
+   started with `KYNOTES_TENANCY=multi` is refused, and its `orgs` table and `server_settings` are
+   byte-identical afterwards.
 3. Add `org_id`, defaulting to the default org, to every O table except `audit_events` (nullable,
    no default; see its row). Backfill `org_usage`.
 4. Add triggers, with the same names on both backends:
@@ -402,7 +407,10 @@ Tests:
   handler checks are the same code on both backends, so the SQLite leg builds org B with a test
   helper that inserts a second `orgs` row straight into the store. Startup's mode rules (N1, N2)
   do not apply to a test store. A real single-mode install never has a second org, and the
-  single-tenant golden (PR 1) proves its answers are unchanged.
+  single-tenant golden (PR 1) proves its answers are unchanged. **Exception:** the N8 tests (the
+  same ciphertext in two orgs) run on PostgreSQL only. SQLite keeps `digest` as the `blobs` key
+  (Isolation, step 5), which is sound only with one org, so on SQLite the second org's upload of a
+  shared digest is out of scope by design.
 
 ## Identity binding
 
