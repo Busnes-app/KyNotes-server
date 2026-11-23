@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/suitedir"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
@@ -96,7 +97,7 @@ func TestErasedFeedTransfersSharedContentAndIsReplaySafe(t *testing.T) {
 	if err := PollErased(t.Context(), tm.owner.db, dir); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 2 || erasedCount(t, tm.owner.db, `SELECT count(*) FROM erased_subjects WHERE subject='erased-person'`) != 1 || erasedCount(t, tm.owner.db, `SELECT count(*) FROM audit_events WHERE action='directory.erase_reconcile'`) != 1 {
+	if calls.Load() != 2 || erasedCount(t, tm.owner.db, `SELECT count(*) FROM erased_subjects WHERE subject='erased-person'`) != 1 || erasedCount(t, tm.owner.db, `SELECT count(*) FROM audit_events WHERE event='directory.erase_reconcile'`) != 1 {
 		t.Fatal("replay changed erasure state")
 	}
 }
@@ -126,7 +127,7 @@ func TestErasedFeedAtomicFailureWrongOrgAndUnknownSubject(t *testing.T) {
 			bindErasedSubject(t, p.db, dir.Issuer)
 			toMultiMode(t, p.db, "org_staff")
 			if kind == "audit" {
-				refuseTrigger(t, p.db, "deny_erased_audit", "BEFORE INSERT", "audit_events", "NEW.action='directory.erase_reconcile'", "test audit unavailable")
+				refuseTrigger(t, p.db, "deny_erased_audit", "BEFORE INSERT", "audit_events", "NEW.event='directory.erase_reconcile'", "test audit unavailable")
 			}
 			err := PollErased(t.Context(), p.db, dir)
 			if kind == "unknown" {
@@ -187,7 +188,7 @@ func TestErasedFeedConcurrentPoolsCommitOnce(t *testing.T) {
 		}(db)
 	}
 	wg.Wait()
-	if fetched.Load() != 2 || erasedCount(t, p.db, `SELECT count(*) FROM audit_events WHERE action='directory.erase_reconcile'`) != 1 {
+	if fetched.Load() != 2 || erasedCount(t, p.db, `SELECT count(*) FROM audit_events WHERE event='directory.erase_reconcile'`) != 1 {
 		t.Fatal("stale worker applied erasure twice")
 	}
 }
@@ -256,5 +257,30 @@ func TestErasedFeedSingleModeDoesNothing(t *testing.T) {
 	}
 	if erasedCount(t, p.db, `SELECT count(*) FROM server_settings WHERE key=?`, erasedCursor) != 0 || erasedCount(t, p.db, `SELECT count(*) FROM audit_events`) != before {
 		t.Fatal("single mode changed durable state")
+	}
+}
+
+// A callback whose initial org/fence lookup already ran must still respect a newer erasure.
+func TestErasedFeedFenceRejectsRacingSessionMint(t *testing.T) {
+	f := newLogoutFixture(t)
+	req := f.beginLogin("late-erased", "sid", time.Now())
+	if res := f.send(req); res.Code != 302 {
+		t.Fatalf("initial login: %d %s", res.Code, res.Body.String())
+	}
+	toMultiMode(t, f.db, "org_staff")
+	var user string
+	if err := f.db.QueryRow(`SELECT id FROM users WHERE sso_subject='late-erased'`).Scan(&user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`INSERT INTO erased_subjects(subject,org_id,revision) VALUES('late-erased',?,1)`, storage.DefaultOrgID); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	_, err := auth.MintSSOSession(t.Context(), f.db, w, user, auth.SSOIdentity{Issuer: f.settings.Load().IssuerURL, ClientID: f.settings.Load().ClientID, Subject: "late-erased", SessionID: "later", IssuedAt: time.Now(), LoginExpires: time.Now().Add(time.Minute)}, true, "erased-race")
+	if err != auth.ErrSSOLoginRejected {
+		t.Fatalf("new session ignored durable erasure: %v", err)
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal("rejected session set a cookie")
 	}
 }

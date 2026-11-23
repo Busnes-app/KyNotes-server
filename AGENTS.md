@@ -299,7 +299,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   and cursor together. Compare the cursor inside the transaction so a stale replica cannot
   replay or skip another worker's work. A mismatched account/fence org refuses that notice
   without advancing past it; unknown subjects retain a fence without a placeholder account.
-  Webhook and feed share `eraseSubjectTx`. Single mode does not fetch or write anything.
+  Webhook and feed share `eraseSubjectTx`. SSO provisioning and final session/step-up
+  identity checks re-read erasure fences under the writer lock, closing a late-callback race.
+  Single mode does not fetch or write anything.
   Restore clears both feed cursors; replay re-erases restored members before batched cleanup.
   Verify `TestErasedFeed*`, scheduler cadence/takeover, both backend suites and the golden.
 - Tenancy PR 4e: `org_pool` is report/grant state; PostgreSQL-only `org_usage.bytes` is

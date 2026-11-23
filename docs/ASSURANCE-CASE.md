@@ -180,3 +180,7 @@ Erasure replay preparation uses the shared KyIdentity suite client's authenticat
 malformed/refused responses, per-notice audit/cursor rollback, unknown-subject fences,
 independent PostgreSQL pools and restore replay from zero. Single mode performs no feed I/O.
 These tests do not establish an operational PostgreSQL backup transport or hosted readiness.
+
+SSO account insertion and final session/step-up identity admission re-check the erasure fence
+in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
+whose earlier lookup already ran cannot mint a session past a newer durable fence.

@@ -974,3 +974,7 @@ finishes content cleanup in batches. Single mode bypasses the entire feed.
 Restore retains erasure fences and clears both suite cursors. PostgreSQL reset/replay tests
 exercise re-erasure and an unlisted restored org staying stale. This prepares reconciliation;
 it does not enable PostgreSQL backup transport or multi startup.
+
+SSO account insertion and final session/step-up identity admission re-check the erasure fence
+in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
+whose earlier lookup already ran cannot mint a session past a newer durable fence.

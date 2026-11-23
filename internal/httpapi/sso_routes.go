@@ -439,10 +439,21 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 			if tenancy.Multi() {
 				org = claims.OrgID
 			}
-			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at, org_id) VALUES(?, ?, ?, ?, 600000, ?, 'user', 'active', ?, ?, ?, ?, ?)`,
-				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, settings.IssuerURL, now, now, org)
+			res, insertErr := db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at, org_id) SELECT ?, ?, ?, ?, 600000, ?, 'user', 'active', ?, ?, ?, ?, ? WHERE COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR NOT EXISTS(SELECT 1 FROM erased_subjects WHERE subject=?)`,
+				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, settings.IssuerURL, now, now, org, claims.Subject)
+			err = insertErr
 			if err != nil {
 				writeInternal(w, r, "user.auto_provision", err)
+				return
+			}
+			inserted, err := res.RowsAffected()
+			if err != nil {
+				writeInternal(w, r, "user.auto_provision", err)
+				return
+			}
+			if inserted != 1 {
+				recordAuditOutcome(db, "", "auth.sso_refused", "", claims.Subject, "denied", "reason=account_erased", RequestID(r))
+				WriteError(w, r, 403, "account_erased", tenancyMessages["account_erased"])
 				return
 			}
 			recordAudit(db, userID, "user.auto_provision", "", "", RequestID(r))

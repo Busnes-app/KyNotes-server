@@ -2254,3 +2254,7 @@ Tests cover authenticated fetch, malformed/refused responses, unknown subjects, 
 refusal, atomic audit failure, independent-pool concurrency, shared-notebook survival,
 restore replay from zero and single-mode no-op. Run both backend race suites and the golden.
 Operational PostgreSQL backup/restore, primary object storage and phase-6 startup remain gated.
+
+SSO account insertion and final session/step-up identity admission re-check the erasure fence
+in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
+whose earlier lookup already ran cannot mint a session past a newer durable fence.
