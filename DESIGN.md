@@ -1009,3 +1009,8 @@ counter/claim transaction on the same connection; I/O occurs before N3. The prep
 is not the full Backend/Temporary or route/worker adapter. Shared create-exclusive control PUT
 and provider-age metadata, GC/orphan policy binding, provider proof and multi startup remain
 unbuilt. It consumes the published shared library, never a private S3 implementation.
+
+Object/part reads preserve exact stored wire bytes, including when the provider labels an
+object with gzip metadata. The shared client's identity-encoding GET prevents transparent
+HTTP decoding from changing ciphertext, lengths or hashes; an actual compressed-byte fixture
+pins product-level GET/HEAD agreement. No provider metadata authorizes content transformation.

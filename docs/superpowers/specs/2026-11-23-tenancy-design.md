@@ -1566,3 +1566,8 @@ qualify a provider. The complete Backend/Temporary, route/GC/purge binding and s
 remain unbuilt. Shared-client #77 also lacks N15 create-exclusive marker PUT and provider age
 metadata at the initial consumed head; requirements are with its existing owner. No private
 client, volume fallback, automatic pruning or hosted/native-backup readiness is claimed.
+
+The object preparation consumes the shared client's encoded-byte GET correction: identity
+encoding preserves opaque gzip-labelled bytes and GET/HEAD size agreement. A regression fails
+against the earlier published client and passes after the upstream correction. This does not
+make the separately prepared/unpublished conditional-PUT/timestamp follow-up available.

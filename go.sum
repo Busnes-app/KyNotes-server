@@ -4,6 +4,8 @@ github.com/Busnes-app/ky-primitives v0.10.2-0.20261123144426-9185e49e0370 h1:iA9
 github.com/Busnes-app/ky-primitives v0.10.2-0.20261123144426-9185e49e0370/go.mod h1:xYUuDP23Ey2tnBVVIbrOz0qjGsZ0bBBpSraG0qWm1O8=
 github.com/Busnes-app/ky-primitives v0.10.2-0.20261123230226-12e1963e8dc8 h1:blG5fPxQFJ4k/K/PCaC5abe1hF/cWYjUJ0RsmGELCKw=
 github.com/Busnes-app/ky-primitives v0.10.2-0.20261123230226-12e1963e8dc8/go.mod h1:xYUuDP23Ey2tnBVVIbrOz0qjGsZ0bBBpSraG0qWm1O8=
+github.com/Busnes-app/ky-primitives v0.10.2-0.20261123231137-3242eb82f4b9 h1:F1P9sjVAF4rVl2lbVOaMmF2Z8BI0zVci+96Frn7HdYg=
+github.com/Busnes-app/ky-primitives v0.10.2-0.20261123231137-3242eb82f4b9/go.mod h1:xYUuDP23Ey2tnBVVIbrOz0qjGsZ0bBBpSraG0qWm1O8=
 github.com/Busnes-app/ky-primitives/offsite v0.3.0 h1:E0ycngO0BHAooTDRvDagmrJlkZlTeRqBNX5pLwQMlg0=
 github.com/Busnes-app/ky-primitives/offsite v0.3.0/go.mod h1:UYfgJk5VJ/Z4Dff5wvSPeOn4dwS1qLGDeNPTTkEguKI=
 github.com/aws/aws-sdk-go-v2 v1.48.0 h1:tFU7EJVm7MfyaXLsXdYTZ0Vd6vwt9OljCyqq0gqk0Mc=

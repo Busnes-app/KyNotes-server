@@ -30,6 +30,8 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
 - `Objects` callers authorize/bind the org before construction. Hold the org/digest session
   lock through PUT/claim or reference-drop/DELETE, and the upload lock through part/counter
   updates. Object I/O never holds N3; one pinned connection serves each short claim transaction.
+- Treat object/part GET bytes as opaque even with provider Content-Encoding metadata. The
+  shared client must request identity encoding so GET/HEAD lengths and ciphertext hashes agree.
 - Bound transfers by configured maximum and declared size. Hash permanent ciphertext before
   publishing seekable bytes; every private file is 0600 and removed on Close/error. No persistent
   content cache or storage fallback. Identical writes reuse verified bytes; parts remain live
