@@ -17,6 +17,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/sso"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 const ssoCookieName = "kynotes_sso_state"
@@ -39,6 +40,38 @@ var ssoKindMessages = map[string]string{
 	"admin_account_not_provisioned":  "administrator identities sign in only to an administrator account set up by apply-setup, directory sync or an administrator",
 	"admin_role_on_everyday_account": "this identity carries the KyNotes administrator role, but its account is an everyday account; ask your identity administrator to move the role to a separate administrator identity",
 	"admin_role_required":            "this administrator account needs the KyNotes administrator role at sign-in",
+}
+
+var tenancyMessages = map[string]string{
+	"org_required":   "this sign-in carries no organisation",
+	"org_not_active": "this organisation is not active here",
+	"org_mismatch":   "this account belongs to another organisation",
+	"account_erased": "this account was deleted",
+}
+
+// tenancyRefusal applies the multi-mode sign-in rules (tenancy spec, Identity binding,
+// Sign-in): the token names an org that is mirrored, active, enabled and in this region, and a
+// subject that was never erased. It returns the refusal code and audit reason, or "" to go on;
+// single mode always goes on. ponytail: an unmirrored org is refused at once; PR 4a waits for
+// one org poll, and PR 4c admits an export_only token while the org is deletion_scheduled.
+func tenancyRefusal(db *sql.DB, t storage.Tenancy, claims *sso.Claims) (code, reason string, err error) {
+	if !t.Multi() {
+		return "", "", nil
+	}
+	if claims.OrgID == "" {
+		return "org_required", "no_org", nil
+	}
+	var erased, serving int
+	if err = db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?)`, claims.Subject, claims.OrgID, t.Region).Scan(&erased, &serving); err != nil {
+		return "", "", err
+	}
+	switch {
+	case erased > 0:
+		return "account_erased", "erased", nil
+	case serving == 0:
+		return "org_not_active", "org_not_active", nil
+	}
+	return "", "", nil
 }
 
 // forwardedFromProxy reports whether r's forwarded headers come from a trusted proxy,
@@ -275,6 +308,22 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			WriteError(w, r, http.StatusBadGateway, "invalid_claims", "ID token verification failed")
 			return
 		}
+		tenancy, err := storage.TenancyOf(db)
+		if err != nil {
+			writeInternal(w, r, "auth.sso_tenancy", err)
+			return
+		}
+		if code, reason, err := tenancyRefusal(db, tenancy, claims); err != nil {
+			writeInternal(w, r, "auth.sso_tenancy", err)
+			return
+		} else if code != "" {
+			recordAuditOutcome(db, "", "auth.sso_refused", "", claims.Subject, "denied", "reason="+reason, RequestID(r))
+			WriteError(w, r, http.StatusForbidden, code, tenancyMessages[code])
+			return
+		}
+		if tenancy.Multi() {
+			claims.AppAdmin = claims.AppAdmin && claims.OrgID == tenancy.StaffOrg // N6
+		}
 
 		if transaction.Challenge != "" {
 			now := time.Now().UTC()
@@ -301,11 +350,17 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			return
 		}
 
-		var userID, userStatus, kind string
+		var userID, userStatus, kind, userOrg string
 		// 1. Try finding user by sso_subject
-		err = db.QueryRow(`SELECT id, status, account_kind FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus, &kind)
+		err = db.QueryRow(`SELECT id, status, account_kind, org_id FROM users WHERE sso_subject=? AND sso_issuer=?`, claims.Subject, settings.IssuerURL).Scan(&userID, &userStatus, &kind, &userOrg)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			WriteError(w, r, 500, "internal", "account lookup failed")
+			return
+		}
+		// A known subject keeps its org; a token naming another is refused and changes nothing.
+		if tenancy.Multi() && userID != "" && userOrg != claims.OrgID {
+			recordAuditOutcome(db, userID, "auth.sso_refused", "", claims.Subject, "denied", "reason=org_mismatch", RequestID(r))
+			WriteError(w, r, http.StatusForbidden, "org_mismatch", tenancyMessages["org_mismatch"])
 			return
 		}
 		if refused := ssoKindRefusal(kind, claims.AppAdmin); refused != "" {
@@ -350,8 +405,12 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store)
 			loginSalt := auth.SyntheticLoginSalt(cfg.Secrets.ServerSaltKey, claims.Username)
 			now := time.Now().UTC().Format(time.RFC3339)
 
-			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at) VALUES(?, ?, ?, ?, 600000, ?, 'user', 'active', ?, ?, ?, ?)`,
-				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, settings.IssuerURL, now, now)
+			org := storage.DefaultOrgID
+			if tenancy.Multi() {
+				org = claims.OrgID
+			}
+			_, err = db.Exec(`INSERT INTO users(id, username, auth_secret_hash, login_salt, login_iterations, role, account_kind, status, sso_subject, sso_issuer, created_at, updated_at, org_id) VALUES(?, ?, ?, ?, 600000, ?, 'user', 'active', ?, ?, ?, ?, ?)`,
+				userID, strings.ToLower(claims.Username), dummyHash, loginSalt, role, claims.Subject, settings.IssuerURL, now, now, org)
 			if err != nil {
 				writeInternal(w, r, "user.auto_provision", err)
 				return

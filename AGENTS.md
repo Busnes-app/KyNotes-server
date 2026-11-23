@@ -239,6 +239,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   answers must match bar `Date` and the request ID, and B's rows must not change. A new such route fails
   `TestEveryRouteIsInTheCrossOrgMatrix` until `matrixIDs` maps its parameter or `crossOrgExempt` gives a
   reason; a route that refuses `{}` before authorizing needs a valid body in `matrixBodies`.
+- Tenancy PR 3b, identity binding (DESIGN.md "Tenancy amendment, PR 3b"). A rule that differs by mode
+  reads the recorded mode in SQL (`server_settings` `tenancy_mode`, `staff_org_id`, `region`;
+  `storage.TenancyOf` in Go); single mode must answer as before. Sign-in: `tenancyRefusal` in
+  `sso_routes.go` (403 `org_required`, `org_not_active`, `account_erased`, and `org_mismatch` at the
+  account lookup, each audited `auth.sso_refused reason=...`); N6 in `auth.SessionRole`'s SQL and in
+  the callback (`claims.AppAdmin` only from the staff org). Directory webhook: `org_id` is read from the
+  signed user body; in multi mode a body not naming the account's org applies removals only
+  (`sso.webhook_org_mismatch`), no account is created, and `user.erased` for the account's org records
+  `erased_subjects`. Logout: `auditLogoutOrg` reads the verified token's `org_id`. Verify
+  `TestMultiModeSignInNeedsAServingOrgInThisRegion`, `TestAdministratorsAreStaffOnlyInMultiMode`,
+  `TestMultiModeDirectoryKeepsAccountsInTheirOrg`, `TestMultiModeLogoutWithAnotherOrgStillEndsSessions`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.

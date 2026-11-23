@@ -1119,6 +1119,33 @@ between orgs, 3b the identity binding (ID token, webhook, logout token, N5, N6, 
   own rows or are staff routes; the matrix does not drive them.
 - **The org on `Session` and `Device`** is left to PR 3b, whose N6 check is its first reader.
 
+### PR 3b as built
+
+Branch `feat/tenancy-build-3b`, stacked on PR 3a. Multi mode is still refused at startup, so
+the tests record the multi-mode rows (`tenancy_mode`, `staff_org_id`, `region`) themselves.
+
+- **Mode at run time.** Rules read the mode `ensureOrgs` recorded, in SQL or through
+  `storage.TenancyOf`, so every replica decides alike without configuration in each handler.
+- **Sign-in** (`internal/httpapi/sso_routes.go`, `tenancyRefusal`): steps 1, 2 (no poll yet; an
+  unmirrored org is refused at once, and PR 4a adds the 5 s wait), 3, 4, 5 and 6 of "Sign-in".
+  The `export_only` exception waits for PR 4c. `org_id` and `export_only` are read from the
+  verified token only (`internal/sso/sso.go`); `export_only` counts only as JSON `true`.
+- **N6** in `auth.SessionRole`, which every admin guard and the session answer use: in multi mode
+  an administrator account counts only in the staff org.
+- **Directory webhook** (`internal/httpapi/sso_directory.go`): `org_id` is a field of the signed
+  user body, as KyIdentity sends it (`internal/sync/sync.go`, `OrgID`). A body naming another org
+  or none applies a removal (with its revocations) and ignores anything else, audited
+  `sso.webhook_org_mismatch`; an unknown subject is never created (answer `ignored`).
+  `user.erased`, the bare inactive user, is accepted for the account's own org: access ends as on
+  deactivation and the subject goes into `erased_subjects`, so sign-in refuses it. Deleting its
+  data is PR 4d. Single mode still refuses `user.erased` as unsupported.
+- **Back-channel logout:** KyNotes' `ky-primitives` returns no raw logout claims, so
+  `auditLogoutOrg` reads `org_id` from the already verified token's payload.
+- **Not built here, moved to PR 3c:** N5 (SSO fixed by `KYNOTES_SSO_*`, the admin SSO writes,
+  customer password sign-in, `/setup`, `user add` and `apply-setup` refused). It is the
+  configuration surface multi mode needs to start, so it lands with the startup work. The org on
+  `Session` and `Device` is not added: every rule that needs the org reads it in its own query.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

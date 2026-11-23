@@ -833,3 +833,14 @@ org's identity device is refused as an unknown device is. Every audit row names 
 one SQL fragment (`storage.AuditOrgSQL`): the default org in single mode, as before; in multi
 mode the actor's org, or none for staff and non-account actors. Single-tenant answers are
 unchanged (the upgrade golden).
+
+## Tenancy amendment, PR 3b (identity binding)
+
+In multi mode only, sign-in requires the ID token's `org_id` to name an org that is mirrored,
+active, enabled and in this region, refuses an erased subject and a known subject from another
+org, creates a new account in the token's org, and grants `kynotes.admin` only from the staff org
+(N6); an administrator account outside the staff org is no administrator. The directory webhook
+applies only removals from a body whose `org_id` is missing or not the account's, creates no
+account, and accepts `user.erased` for the account's own org (access ends, the subject can never
+sign in again; its data is deleted in a later PR). A logout token naming another org still ends
+the sessions and is audited. Single mode reads no org claim and answers as before.
