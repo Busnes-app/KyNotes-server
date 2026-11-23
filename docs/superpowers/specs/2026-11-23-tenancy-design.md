@@ -107,7 +107,7 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | N4 | Isolation is enforced in the application: every org-owned row carries `org_id`, an org-bound store handle binds it, and triggers check existence, immutability and agreement with the parent row. | T D3 and C D3. The store has one SQL text for both backends, and single-tenant SQLite runs the same handlers. |
 | N5 | In multi mode the sign-in provider is fixed by environment: `KYNOTES_SSO_ISSUER`, `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET`, `KYNOTES_SSO_HMAC_SECRET`. The admin SSO save and pairing routes answer `404`. Auto-provisioning is always on. Customer password sign-in, `/setup`, `user add` for everyday accounts and `apply-setup` are refused. | Today SSO settings live in `server_settings` and are cached per process (`internal/sso/sso.go:27-98`), so a save on one replica leaves the others stale. One issuer (owner decision 2) means the binding never changes. Customers then always get device-only identities with a recovery code, which already works (`AGENTS.md:830-873`). |
 | N6 | In multi mode an account is an administrator only when it is an administrator account (`account_kind='admin'`) **and** its `org_id` is the staff org. Staff accounts are created only by `kynotes-server user add --admin` and the bootstrap variables, into the staff org. | Owner decision 3. Administrator accounts already open no notes (`AGENTS.md:179-196`), so staff never hold content keys. This is defence in depth against a staff mistake that sends `kynotes.admin` for a customer. |
-| N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, invitation or envelope whose user is in another org than the container. An invitation to another org's user ID is accepted at creation and can never be accepted, so creation answers exactly as it does for an unknown ID today. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
+| N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, an invitation acceptance, or a key or invitation envelope (`key_envelopes`, `invitation_envelopes`) whose user is in another org than the container. **No trigger runs on invitation insert:** an invitation to another org's user ID is created like one to an unknown ID, so creation answers the same for both, and it can never be accepted. An invitation envelope for another org's identity device is refused by its trigger with the same answer as an unknown device gets today (`teamkeys_routes.go:473-477`), so that path reveals nothing either. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
 | N8 | **Blobs become org-owned.** `blobs` gains `org_id`, and on PostgreSQL its key is `(org_id, digest)`. The object key in multi mode is `orgs/<org_id>/blobs/<digest>`. Single-tenant keeps `<data>/blobs/aa/bb/<digest>` and the digest key. | Fact 3. A shared digest across orgs would let one org's upload, purge or quota interact with another's file. Per-org keys make a purge a prefix delete and quota exact. KyDrive refused content addressing for the same reason (D "Blob storage"). |
 | N9 | KyNotes keeps a local mirror of `/api/suite/orgs` (`orgs` table), polled about every 60 s by the elected worker (`suitedir.Client.Orgs`, `suitedir/client.go:241`). Every authenticated read joins the account's org row in the same query as the account. | T D6 and downstream contract 5. C D6. A suspension then takes effect at the next request on every replica. |
 | N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the org's allowance (the pool less what every other app reports). The allowance is cached in the `orgs` mirror, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
@@ -482,15 +482,30 @@ are unchanged.
   `orgs/<org_id>/uploads/<id>/<n>`, the same keys as `object`. Unverified: that `rename` is
   atomic on the filesystem chosen; PR 5a's two-replica test runs on it.
 
-**The store-ID check.** At startup each replica mints a random 32-byte ID and inserts it into
-`server_settings` with `ON CONFLICT DO NOTHING ... RETURNING`. Exactly one replica's insert
-returns a row: that replica is the winner, and only it creates `store-id` at the root of the
-store, create-exclusive (`O_EXCL` on `volume`, `If-None-Match: *` on `object`). Every other
-replica reads the row back, then waits up to 30 s for `store-id` to appear. Each replica refuses
-to start, naming `KYNOTES_BLOB_BACKEND`, if the file is still missing or differs from the row.
-So replicas starting together on a fresh store all start, and a replica that mounted a private
-disk or another bucket finds no file and never serves. Tests: two replicas starting together on
-a fresh store both start; a third replica pointed at an empty second store refuses.
+**The store-ID check** stops a replica that is on a private disk, or in another bucket, from
+serving. It runs at startup, in two steps.
+
+1. **Same store.** The replica mints a random 32-byte ID and inserts it into `server_settings`
+   with `ON CONFLICT DO NOTHING`, then reads the row back. It then creates `store-id` at the root
+   of the store holding the row's ID. The write is create-exclusive (`O_EXCL` on `volume`,
+   `If-None-Match: *` on `object`). If the file exists, the replica reads it instead. It refuses
+   to start if the file differs from the row. Any replica may create the file, so a replica that
+   crashed between the insert and the file leaves nothing stuck: the next start writes it.
+2. **Shared store.** `server_settings.blob_probe` names the probe object of the last replica that
+   started. The replica must read `probes/<that name>` from its store, or it refuses. Then it
+   writes its own `probes/<random>` and points the row at it. A replica on a private disk cannot
+   read the probe, even on a fresh install with no blobs yet. A replica that refuses never moves
+   the row. The elected worker deletes probes older than a day, but never the one the row names.
+
+A refusal names `KYNOTES_BLOB_BACKEND`. If the very first replica was the misconfigured one, every
+later replica refuses until staff fix its mount and clear `blob_probe`. That fails closed.
+
+Tests:
+
+- Two replicas starting together on a fresh store both start.
+- A replica killed between the insert and the file write: the next start succeeds.
+- A replica on an empty second store refuses, on a fresh install and on one with blobs.
+- A replica in another install's bucket (another `store-id`) refuses.
 
 Operations in multi mode, on either backend:
 
@@ -791,7 +806,7 @@ else.
 | Holder of one replica's disk | Read customer data | In multi mode the data directory holds no key, blob or database |
 | Object storage provider | Read notes | It holds only ciphertext and digests (fact 1) |
 | Anyone who reads a log, an error or the admin settings | Get the bucket keys | Keys come only from the environment or a key file, and are never logged, returned or fingerprinted (N15). A test greps every log line and answer for them. |
-| A replica on the wrong disk or bucket | Serve or lose blobs the others cannot see | The store-ID check refuses to start it (N15) |
+| A replica on the wrong disk or bucket | Serve or lose blobs the others cannot see | The store-ID and probe checks refuse to start it (N15) |
 | Member of org A | Use B's pool, or make B look full | The allowance is per `org_id`, from KyIdentity over the suite client's authentication. KyNotes reports only its own count, which it computes; no request can set it. |
 | Any member, or a KyIdentity outage | Write past the pool | The check runs in the write's transaction under N3's lock. An allowance older than 15 minutes, or none, refuses growth. |
 | Staff, or a stolen staff account | Read notes | Staff hold no content keys. Staff reads of an org's directory write a platform audit row. |
