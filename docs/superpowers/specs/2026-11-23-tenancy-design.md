@@ -334,6 +334,10 @@ authorization is a join on `memberships` with the caller's user ID (for example
 - **`ResolveSession`** (`internal/auth/session.go:109-122`) and **`resolveDevice`**
   (`internal/auth/middleware.go:239-248`) join `orgs` on the user's `org_id` and refuse a
   non-serving org: a session is deleted, as for an inactive account; a device answers `401`.
+  **One exception:** a session marked `export_only` is admitted while its org is
+  `deletion_scheduled` (and in no other non-serving state), and then only on the N11 allowlist.
+  Devices get no exception. `TestExportOnlySessionSurvives` makes ten allowed requests with such a
+  session and checks it still exists; the same session in a `suspended` org is deleted.
   The `Session` and `Device` carry `OrgID`. Every route already passes through one of them
   (`AGENTS.md:185-196`: every served route is classified, `TestEveryServedRouteIsClassified`).
 - **Request-chosen IDs** are the cross-org surface. A handler that takes a user, container,
@@ -478,10 +482,15 @@ are unchanged.
   `orgs/<org_id>/uploads/<id>/<n>`, the same keys as `object`. Unverified: that `rename` is
   atomic on the filesystem chosen; PR 5a's two-replica test runs on it.
 
-**The store-ID check.** The first replica writes a random 32-byte ID to `store-id` at the root of
-the store and to `server_settings`. Every replica reads both at startup and refuses to start, naming
-`KYNOTES_BLOB_BACKEND`, if they differ or `store-id` is missing while `server_settings` has one.
-So a replica that mounted a private disk, or another bucket, never serves.
+**The store-ID check.** At startup each replica mints a random 32-byte ID and inserts it into
+`server_settings` with `ON CONFLICT DO NOTHING ... RETURNING`. Exactly one replica's insert
+returns a row: that replica is the winner, and only it creates `store-id` at the root of the
+store, create-exclusive (`O_EXCL` on `volume`, `If-None-Match: *` on `object`). Every other
+replica reads the row back, then waits up to 30 s for `store-id` to appear. Each replica refuses
+to start, naming `KYNOTES_BLOB_BACKEND`, if the file is still missing or differs from the row.
+So replicas starting together on a fresh store all start, and a replica that mounted a private
+disk or another bucket finds no file and never serves. Tests: two replicas starting together on
+a fresh store both start; a third replica pointed at an empty second store refuses.
 
 Operations in multi mode, on either backend:
 
@@ -610,14 +619,15 @@ all new. In one transaction:
 1. End access: sessions, devices and identity, with the same revocations as deactivation.
 2. **Transfer ownership first.** For each container they own that still has another approved
    member, set `owner_user_id` and the owner membership to the successor of open question 4 (a):
-   the longest-standing approved admin, else the longest-standing editor. This must come before
+   the longest-standing approved admin, else the longest-standing editor, else the
+   longest-standing approved member of any role (commenter or viewer). This must come before
    step 6, because `containers.owner_user_id` is `ON DELETE CASCADE` (`0001_init.sql:4`): without
    it, deleting the user row would delete the shared notebook for every member.
 3. Remove the member from every team notebook through `removeMemberTx`
    (`AGENTS.md:667-670`). That revokes their envelopes and bumps the generation, so the remaining
    stewards re-key and the erased key opens nothing new.
-4. Delete the containers they still own, which now have no other approved member: their personal
-   notebooks and any team they alone are in.
+4. Delete the containers they still own. After step 2 these are exactly the ones with no other
+   approved member: their personal notebooks and any team they alone are in.
 5. Delete their reminders, push subscriptions, share links and sealed links. Sealed links have
    no FK (`0029_share_link_owner.sql:3`), so this step is needed.
 6. Delete the user row, and add the subject to `erased_subjects`. The cascades from `users` then
@@ -626,10 +636,16 @@ all new. In one transaction:
    be accepted any more, which is intended: the new owner re-invites.
 
 Pages they wrote in a shared notebook are the team's, and they stay.
-`object_versions.author_user_id` has no FK (`0022_team_keys.sql:2`), so it keeps the erased member's random ID and names nobody.
-Tests: `TestEraseKeepsSharedNotebook` (an erased owner's team notebook with an admin and an editor
-passes to the admin, and both still read every page), `TestEraseDeletesSoleNotebooks`, and an
-erase whose step 2 finds no successor deletes the notebook as step 4 says.
+`object_versions.author_user_id` has no FK (`0022_team_keys.sql:2`), so it keeps the erased
+member's random ID and names nobody.
+
+Tests:
+
+- `TestEraseKeepsSharedNotebook`: an erased owner's team notebook with an admin and an editor
+  passes to the admin, and both still read every page.
+- `TestEraseDeletesSoleNotebooks`.
+- If the only other approved member is a viewer, the notebook passes to that viewer.
+- If the only other members are unapproved or pending, the notebook is deleted.
 
 ### Restore
 
@@ -886,7 +902,8 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
 4. **An erased owner's team notebooks with other members.** Delete everything deletes the
    clicker's data, and a team notebook is shared.
    - (a) Ownership passes to the longest-standing approved admin, else the longest-standing
-     editor. The notebook and the pages the erased member wrote stay.
+     editor, else the longest-standing approved member of any role. The notebook and the pages
+     the erased member wrote stay. A commenter or viewer who becomes owner gains owner rights.
    - (b) The notebook is deleted for everyone.
    - **Recommend (a)**, the default this spec builds to: it deletes nobody else's work.
      Owner question.
