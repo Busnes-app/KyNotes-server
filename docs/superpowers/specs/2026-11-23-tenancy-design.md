@@ -1295,6 +1295,35 @@ erasure follows in its own PR.
   org's are all kept; `TestPurgeKilledBetweenBatchesFinishesNextRun` (batches of one, killed at
   the 12th); `TestPurgeOrderCoversEveryCascade` (without the `reminders` step it fails).
 
+### PR 4d-2 as built
+
+Branch `feat/tenancy-build-4d-erase`, stacked on PR 4d. "A member erases", built to open question
+4's default (a).
+
+- **Steps 1 to 3** (`eraseMemberTx`, `internal/httpapi/erase.go`), in the `user.erased` event's
+  transaction after deactivation: status `erased`; pending invitations sent or received deleted;
+  each owned notebook with another approved member passes to the successor (approved admin, else
+  editor, else any approved member, longest-standing first), the erased owner becoming a viewer
+  so it can leave; then `removeMemberTx` for every notebook it does not own (top-level ones; it
+  covers their child notebooks), which revokes its envelopes and bumps the key generation.
+- **Steps 4 to 6** (`storage.EraseMembers`, `eraseSteps`, `eraseMember`), to owner decision 12
+  (KyNotes #176, 2026-11-23 afternoon): the notebooks it still owns alone (bottom-up, as the
+  purge's container steps); its mentions, reminders, push subscriptions, sealed links, pending
+  uploads, pairing nonces (no foreign key: found by the test's every-table scan), directory
+  fences, link requests, sessions, devices, identity and memberships; its **comments in kept
+  notebooks become tombstones** (ciphertext cleared, `deleted_at` set, each at its own fresh
+  notebook change sequence through the cleanup backend so paginated sync delivers it); and its **user row is
+  scrubbed and kept**, holding only its random ID, because `comments.author_user_id` cascades
+  and deleting it would delete the tombstones. `erased_subjects` still refuses the subject. A
+  scrubbed account (username equal to its ID) is done; anything else resumes after a crash.
+  Audit rows keep its random ID, which names nobody. Multi mode only; it runs on the elected
+  worker (PR 5a).
+- Tests: `TestEraseKeepsSharedNotebookAndDeletesSoleOnes` (the team passes to the admin; the admin
+  and editor still read the page; the erased member's invitation answers 404; its sole notebook
+  is gone, its account is scrubbed and kept, and incremental sync paged one row at a time delivers
+  both comment tombstones), `TestEraseSuccessorIsAnyApprovedMember` (a viewer inherits; a notebook
+  with only an unapproved member is deleted), `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

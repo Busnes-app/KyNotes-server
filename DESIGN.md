@@ -888,3 +888,13 @@ transactions of at most 500 rows, children before parents, behind a `platform.or
 audit row that must be written first; it then sets `orgs.purged_at` and records
 `platform.org_deleted` with the row counts. The org row stays as a tombstone. A purge killed
 between batches finishes on its next run. It runs in multi mode only, on the elected worker.
+
+## Tenancy amendment, PR 4d-2 (Delete everything for a member)
+
+In multi mode a `user.erased` event for the account's own org runs, in its transaction, the
+account's erasure: access ends, the account is marked `erased`, its pending invitations go, each
+notebook it owns that has another approved member passes to the longest-standing approved
+admin, else editor, else any approved member, and it leaves every other notebook with the same
+key rotation a removal makes. `storage.EraseMembers` then deletes, in resumable batches, the
+notebooks it still owned alone, its comments, reminders, push subscriptions, sealed links and
+pending uploads, and the account. Pages it wrote in notebooks others keep stay.

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -17,7 +18,7 @@ func seedPurgeOrg(t *testing.T, s *Store, org, tag string) []string {
 	digest := strings.Repeat(tag[:1], 64)
 	for _, q := range []string{
 		`INSERT INTO orgs(id,status,home_region) VALUES('` + org + `','active','eu') ON CONFLICT(id) DO NOTHING`,
-		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id,sso_issuer,sso_subject) VALUES('` + u + `','` + u + `','x','x',1,'t','t','` + org + `','iss','sub-` + tag + `'),('` + u2 + `','` + u2 + `','x','x',1,'t','t','` + org + `','','')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id,sso_issuer,sso_subject) VALUES('` + u + `','name-` + u + `','x','x',1,'t','t','` + org + `','iss','sub-` + tag + `'),('` + u2 + `','name-` + u2 + `','x','x',1,'t','t','` + org + `','','')`,
 		`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at,org_id) VALUES('` + c + `','team','` + u + `','t','t','` + org + `')`,
 		`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('` + id("mem") + `','` + c + `','` + u + `','owner','t'),('` + id("mem2") + `','` + c + `','` + u2 + `','editor','t')`,
 		`INSERT INTO objects(id,container_id,kind,current_version,change_seq,created_at,updated_at) VALUES('` + o + `','` + c + `','note',1,1,'t','t')`,
@@ -59,12 +60,15 @@ func seedPurgeOrg(t *testing.T, s *Store, org, tag string) []string {
 
 // everyValue is every table's values, bar the rows a purge keeps on purpose (the tombstone, the
 // erased subjects, platform audit rows and the install's own settings).
-func everyValue(t *testing.T, s *Store) map[string]string {
+func everyValue(t *testing.T, s *Store, skip ...string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	for _, table := range catalogTables(t, s) {
 		switch table {
 		case "orgs", "erased_subjects", "schema_migrations", "server_settings":
+			continue
+		}
+		if slices.Contains(skip, table) {
 			continue
 		}
 		q := `SELECT * FROM ` + table
@@ -242,9 +246,58 @@ UNION ALL SELECT (SELECT group_concat(name,' ') FROM (SELECT name FROM pragma_in
 		}
 		return false
 	}
-	for _, step := range purgeSteps {
+	for _, step := range append(append([]purgeStep{}, purgeSteps...), eraseSteps...) {
 		if !unique(step.table, step.key) {
 			t.Errorf("purge step %s: key (%s) is not a unique key", step.table, step.key)
+		}
+	}
+}
+
+// A member's erasure killed between batches finishes on its next run, and leaves no row of its
+// account; another org is untouched.
+func TestEraseMembersKilledBetweenBatchesFinishesNextRun(t *testing.T) {
+	s, _, _ := purgeFixture(t)
+	before := everyValue(t, s, "audit_events")
+	if _, err := s.db.Exec(`UPDATE orgs SET status='active' WHERE id='org_b'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE users SET status='erased' WHERE id='usr_bbb'`); err != nil {
+		t.Fatal(err)
+	}
+	purgeBatch = 1
+	calls := 0
+	purgeBatchHook = func(string) error {
+		if calls++; calls == 6 {
+			return errors.New("killed")
+		}
+		return nil
+	}
+	t.Cleanup(func() { purgeBatch, purgeBatchHook = 500, func(string) error { return nil } })
+	if err := EraseMembers(context.Background(), s.db); err == nil {
+		t.Fatal("the killed erasure reported success")
+	}
+	purgeBatchHook = func(string) error { return nil }
+	if err := EraseMembers(context.Background(), s.db); err != nil {
+		t.Fatal(err)
+	}
+	// Audit rows keep the random ID, which names nobody once the account is deleted (as
+	// object_versions.author_user_id does; spec, A member erases).
+	after := everyValue(t, s, "audit_events")
+	for _, gone := range []string{"cnt_bbb", "obj_bbb", "cmt_bbb", "sub-bbb", "dev_bbb", "ses_bbb"} {
+		if table, ok := after[gone]; ok {
+			t.Errorf("%s survived the erasure in %s", gone, table)
+		}
+	}
+	// The account row stays, scrubbed to its random ID (owner decision 12).
+	var username, subject string
+	if err := s.db.QueryRow(`SELECT username,sso_subject FROM users WHERE id='usr_bbb'`).Scan(&username, &subject); err != nil || username != "usr_bbb" || subject != "" {
+		t.Fatalf("the erased account: %q %q (%v)", username, subject, err)
+	}
+	for v := range before {
+		if strings.Contains(v, "aaa") {
+			if _, ok := after[v]; !ok {
+				t.Errorf("erasing org_b's member removed org_a's %q", v)
+			}
 		}
 	}
 }
