@@ -139,7 +139,7 @@ SQLite. There is no PostgreSQL schema yet. Multi mode needs one (PR 1).
 | `sessions` | `0001_init.sql:3` | D | `user_id` FK, cascade. Gains `export_only` (N11). |
 | `containers` | `0001_init.sql:4` | O | Notebooks, teams and projects. `owner_user_id` FK. A trigger ties `org_id` to the owner's. `team_id` has no FK, so a trigger also requires a child's org to equal its team's. |
 | `blobs` | `0001_init.sql:5` | O | N8. Today `digest` is the primary key and other tables reference it. |
-| `blob_containers` | `0001_init.sql:6` | D | Both FKs. The pair must be one org: a trigger compares `blobs.org_id` with the container's. |
+| `blob_containers` | `0001_init.sql:6` | O | It references `blobs(digest)`, so on PostgreSQL that FK becomes `(org_id, digest)`, which needs the column. A trigger requires it to equal the container's org. |
 | `objects` | `0001_init.sql:7` | D | `container_id` FK, cascade |
 | `object_versions` | `0001_init.sql:8` | O | It is reachable through `objects`, but it references `blobs(digest)`. On PostgreSQL that FK becomes `(org_id, blob_digest)`, which needs the column. A trigger requires it to equal the object's container's org. `author_device_id` and `author_user_id` (`0022_team_keys.sql:2`) have no FK. |
 | `devices` | `0002_devices.sql:1` | D | `user_id` FK, cascade. Includes the identity row (`platform='identity'`, `0021_identity_keys.sql`). |
@@ -163,7 +163,7 @@ SQLite. There is no PostgreSQL schema yet. Multi mode needs one (PR 1).
 | `share_links` | `0010_share_links.sql:1` | D | `object_id` FK. `token_hash UNIQUE` stays global: 32 random bytes (`share_link_routes.go:229-232`). |
 | `sealed_share_links` | `0011_sealed_share_links.sql:2` | O | `owner_user_id` (`0029_share_link_owner.sql:3`) has no FK, and the row names no container. The org column lets a suspension and the purge find it. |
 | `sso_sync_events` | `0014_sso_sync_events.sql:1` | P | Replay ledger keyed by event ID. Rows expire. |
-| `blob_replicas` | `0015_blob_replicas.sql:1` | Off | The offsite mirror. Off in multi mode (open question 2). |
+| `blob_replicas` | `0015_blob_replicas.sql:1` | Off | The offsite mirror. Off in multi mode (open question 2). Its key is a FK to `blobs(digest)`, which PostgreSQL cannot declare once the key is `(org_id, digest)`, and multi mode is PostgreSQL only, so the PostgreSQL schema does not create it. |
 | `sso_logout_events` | `0016_sso_logout.sql:19` | P | Replay ledger keyed by issuer, client and JWT ID |
 | `sso_directory_state` | `0017_sso_directory.sql:2` | P | Revision fence keyed by `(issuer, subject)`. The purge deletes the org's subjects' rows. |
 | `sso_stepup` | `0019_sso_stepup.sql:1` | D | `session_id` FK |
@@ -312,11 +312,15 @@ schema. It follows C "`org_id` on every row":
    - one refuses any change to `org_id`;
    - one per O table requires agreement with its parent: a container with its owner, a child
      container with its team, `object_versions`, `conflicts` and `attachments` with their
-     container, `blobs` with each `blob_containers` container;
+     container, `blob_containers` with its container;
    - N7's membership, invitation-accept and envelope triggers compare a user's org with a
      container's.
 5. On PostgreSQL, add the composite keys: `blobs(org_id, digest)` as the primary key, and
-   `(org_id, blob_digest)` FKs from `object_versions`, `conflicts` and `attachments`. SQLite
+   `(org_id, blob_digest)` FKs from `object_versions`, `conflicts` and `attachments`, and
+   `(org_id, digest)` from `blob_containers`. Those four and `blob_replicas` are every
+   `REFERENCES blobs` in the migrations (`0001_init.sql:6`, `:8`, `0002_devices.sql:9`, `:10`,
+   `0015_blob_replicas.sql:2`). `attachments.preview_digest` and `upload_sessions.finalized_digest`
+   name blobs with no FK, and their lookups add `org_id` on PostgreSQL. SQLite
    keeps `digest` as the key. A unique digest there implies a unique pair, and SQLite cannot
    alter a key without rebuilding the table, which migrations avoid (T D2).
 
