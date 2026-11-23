@@ -215,6 +215,7 @@ that lands on another replica sees none of it.
 | Presence (TTL only) | `internal/httpapi/push_routes.go:13-21` | A table with an expiry, read through membership as today. On one replica, a member on another replica would look absent. |
 | Suite apps cache, 60 s per account | `internal/httpapi/suite_routes.go:19`, `:48` | Stays per process. Keys are user IDs, which are random and global. |
 | SSO settings and discovery cache | `internal/sso/sso.go:38-98` | Settings come from the environment (N5). The discovery cache stays per process. |
+| Per-upload chunk lock (`lockUpload`) | `internal/httpapi/upload_routes.go:33-34`, taken by the chunk handler at `:198` | Retries of one chunk can reach two replicas at once. The chunk handler takes a PostgreSQL transaction advisory lock on the upload ID instead, held until the chunk's `received_bytes` update commits. The chunk object for a given index is written whole, so a retry replaces it with the same bytes. The two-replica test sends one chunk to both replicas at once. |
 | Migration mutex | `internal/storage/store.go:30`, `:91` | A PostgreSQL advisory lock around migrations, as the replica pattern serialises them |
 
 ## Replica work
@@ -681,7 +682,11 @@ in the same transaction as today's restore revocations, every customer org row g
 with revision 0. The next poll re-reads `/api/suite/orgs` and `/api/suite/erased` from 0. Every
 `deleted` org is purged again and every listed subject erased again. So Delete everything
 survives a restore, as the owner decided. An org absent from a full listing stays `stale` and
-unserved until staff confirm it (C "Restore").
+unserved, and is never purged on that ground: KyIdentity is the only source of an org. There is
+no confirm action in KyNotes. If the org is real, staff fix it in KyIdentity, and the next poll
+that lists it serves it again. `GET /admin/orgs` shows such an org as `stale` with its last
+`seen_at`, so staff can find it. Test: after a restore, an org missing from the listing is
+refused, and it serves again at the first poll that lists it.
 
 ## The org storage pool (owner decision 10)
 
@@ -736,8 +741,12 @@ KyIdentity (`suitedir`).
 
 ### Check
 
-- The answer to the report (or the org poll) gives the org's **allowance**: the pool less what every
-  other app reports. The worker stores it in `orgs.pool_allowance_bytes` with `pool_checked_at`.
+- KyIdentity gives the org's **allowance**: the pool less what every other app reports. The worker
+  fetches it for **every** serving org on every org poll (about 60 s), whether or not KyNotes'
+  figure changed, and stores it in `orgs.pool_allowance_bytes` with `pool_checked_at`. So an idle
+  org's allowance is never older than one poll while KyIdentity answers. KyNotes needs the
+  allowance in the bulk poll (`/api/suite/orgs`, or a bulk call beside it), as KyCalendar and
+  KyDrive ask too. An answer to a report alone would not be enough.
 - Every write that adds bytes runs today's checks, then one more inside its own transaction
   under N3's lock: refuse if the org's charged bytes after the write exceed the allowance.
   No write calls KyIdentity, so a save never waits on the network, and two replicas check the
