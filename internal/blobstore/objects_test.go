@@ -22,6 +22,7 @@ import (
 
 	shareds3 "github.com/Busnes-app/ky-primitives/s3"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
+	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -49,6 +50,9 @@ func newObjectFixture(t *testing.T) (*objectFixture, *shareds3.Client) {
 }
 func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, "/bucket/")
+	if r.URL.Path == "/bucket" {
+		key = ""
+	}
 	f.mu.Lock()
 	if r.Method == http.MethodPut {
 		f.puts[key]++
@@ -401,4 +405,142 @@ func TestObjectsPutAcrossSingleConnectionPoolsHoldsOnlyTheKeyLock(t *testing.T) 
 	if err := db.QueryRow(`SELECT count(*) FROM blobs WHERE org_id=? AND digest=?`, storage.DefaultOrgID, digest).Scan(&claims); err != nil || claims != 1 {
 		t.Fatal("claim mismatch", claims, err)
 	}
+}
+
+func TestObjectPartsCrossReplicasRetriesRollbackAndFinalize(t *testing.T) {
+	fixture, client := newObjectFixture(t)
+	dirA, dirB := t.TempDir(), t.TempDir()
+	a, b := objectStore(t, client, "org_a", dirA), objectStore(t, client, "org_a", dirB)
+	other := objectStore(t, client, "org_b", t.TempDir())
+	id, err := ids.Mint("ups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	neighbor, err := ids.Mint("ups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := [][]byte{[]byte("abcd"), []byte("efgh"), []byte("i")}
+	for index, chunk := range chunks {
+		store := a
+		if index%2 != 0 {
+			store = b
+		}
+		if err := store.PutPart(t.Context(), id, int64(index), bytes.NewReader(chunk), int64(len(chunk))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.PutPart(t.Context(), id, 1, bytes.NewReader(chunks[1]), 4); err != nil {
+		t.Fatal("identical chunk retry", err)
+	}
+	key, _ := blobstore.UploadPartKey("org_a", id, 1)
+	fixture.mu.Lock()
+	puts := fixture.puts[key]
+	fixture.mu.Unlock()
+	if puts != 1 {
+		t.Fatal("retry wrote another physical version", puts)
+	}
+	if err := b.PutPart(t.Context(), id, 1, strings.NewReader("EFGH"), 4); !errors.Is(err, blobstore.ErrCorruptBlob) {
+		t.Fatal("different retry replaced a committed part", err)
+	}
+	if _, _, err := other.OpenPart(t.Context(), id, 0); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("part read crossed org", err)
+	}
+	// The DB counter retained only chunk0: explicitly discard uncommitted remote tail.
+	if err := b.DeletePartsFrom(t.Context(), id, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.OpenPart(t.Context(), id, 1); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("uncommitted tail retained", err)
+	}
+	if err := a.PutPart(t.Context(), id, 1, strings.NewReader("EFGH"), 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PutPart(t.Context(), id, 2, strings.NewReader("i"), 1); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("abcdEFGHi")
+	digest := objectDigest(want)
+	stream, gotDigest, err := b.AssembleParts(t.Context(), id, 9, 4, digest)
+	if err != nil || gotDigest != digest {
+		t.Fatal("ordered bounded assembly", gotDigest, err)
+	}
+	if err := b.Put(t.Context(), digest, stream, 9); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Permanent PUT does not remove live parts before the caller's DB commit.
+	live, _, err := a.OpenPart(t.Context(), id, 0)
+	if err != nil {
+		t.Fatal("parts removed before explicit commit cleanup", err)
+	}
+	_ = live.Close()
+	if err := a.PutPart(t.Context(), neighbor, 0, strings.NewReader("neighbor"), 8); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.DeleteParts(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.OpenPart(t.Context(), id, 0); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("parts remained after cleanup", err)
+	}
+	kept, _, err := a.OpenPart(t.Context(), neighbor, 0)
+	if err != nil {
+		t.Fatal("cleanup crossed upload id", err)
+	}
+	_ = kept.Close()
+	permanent, _, err := a.Open(t.Context(), digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(permanent)
+	_ = permanent.Close()
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatal("final ciphertext changed", err)
+	}
+	noObjectFiles(t, dirA)
+	noObjectFiles(t, dirB)
+}
+
+func TestObjectPartsRefuseGapsSizesDigestAndMalformedTailWithoutLeakingFiles(t *testing.T) {
+	fixture, client := newObjectFixture(t)
+	dir := t.TempDir()
+	store := objectStore(t, client, "org_a", dir)
+	id, err := ids.Mint("ups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutPart(t.Context(), id, 0, strings.NewReader("abcd"), 4); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AssembleParts(t.Context(), id, 8, 4, ""); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing chunk admitted", err)
+	}
+	noObjectFiles(t, dir)
+	if err := store.PutPart(t.Context(), id, 1, strings.NewReader("efgh"), 4); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AssembleParts(t.Context(), id, 7, 4, ""); !errors.Is(err, blobstore.ErrCorruptBlob) {
+		t.Fatal("part size mismatch admitted", err)
+	}
+	noObjectFiles(t, dir)
+	if _, _, err := store.AssembleParts(t.Context(), id, 8, 4, strings.Repeat("0", 64)); !errors.Is(err, blobstore.ErrDigestMismatch) {
+		t.Fatal("wrong final digest admitted", err)
+	}
+	noObjectFiles(t, dir)
+	key, _ := blobstore.UploadPartKey("org_a", id, 0)
+	fixture.mu.Lock()
+	fixture.objects[strings.TrimSuffix(key, "0")+"not-an-index"] = []byte("bad")
+	fixture.mu.Unlock()
+	if err := store.DeletePartsFrom(t.Context(), id, 0); !errors.Is(err, blobstore.ErrCorruptBlob) {
+		t.Fatal("malformed tail admitted", err)
+	}
+	remaining, _, err := store.OpenPart(t.Context(), id, 0)
+	if err != nil {
+		t.Fatal("malformed tail allowed partial removal", err)
+	}
+	_ = remaining.Close()
+	noObjectFiles(t, dir)
 }

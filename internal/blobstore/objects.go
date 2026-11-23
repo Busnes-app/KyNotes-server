@@ -75,6 +75,10 @@ func (s *Objects) Open(ctx context.Context, digest string) (io.ReadSeekCloser, i
 	if err != nil {
 		return nil, 0, err
 	}
+	return s.openKey(ctx, key, digest)
+}
+
+func (s *Objects) openKey(ctx context.Context, key, digest string) (*privateObject, int64, error) {
 	body, meta, err := s.client.Get(ctx, key, "")
 	if err != nil {
 		return nil, 0, err
@@ -131,7 +135,27 @@ func (s *Objects) Purge(ctx context.Context) error {
 func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
 	prefix, _ := OrgPrefix(s.org)
 	prefix += "blobs/"
-	var out []string
+	keys, err := s.listKeys(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		_, digest, ok := strings.Cut(key[len(prefix):], "/")
+		if ok {
+			_, digest, ok = strings.Cut(digest, "/")
+		}
+		canonical, keyErr := BlobKey(s.org, digest)
+		if !ok || keyErr != nil || key != canonical {
+			return nil, ErrCorruptBlob
+		}
+		out = append(out, digest)
+	}
+	return out, nil
+}
+
+func (s *Objects) listKeys(ctx context.Context, prefix string) ([]string, error) {
+	var keys []string
 	seenKeys, seenTokens := map[string]bool{}, map[string]bool{}
 	token := ""
 	for {
@@ -140,19 +164,14 @@ func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		for _, object := range page.Objects {
-			_, digest, ok := strings.Cut(object.Key[len(prefix):], "/")
-			if ok {
-				_, digest, ok = strings.Cut(digest, "/")
-			}
-			canonical, keyErr := BlobKey(s.org, digest)
-			if !ok || keyErr != nil || object.Key != canonical || seenKeys[object.Key] {
+			if seenKeys[object.Key] {
 				return nil, ErrCorruptBlob
 			}
 			seenKeys[object.Key] = true
-			out = append(out, digest)
+			keys = append(keys, object.Key)
 		}
 		if page.Next == "" {
-			return out, nil
+			return keys, nil
 		}
 		if seenTokens[page.Next] {
 			return nil, ErrCorruptBlob
@@ -163,8 +182,9 @@ func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
 }
 
 type privateObject struct {
-	file *os.File
-	path string
+	file   *os.File
+	path   string
+	digest string
 }
 
 func (p *privateObject) Read(body []byte) (int, error) { return p.file.Read(body) }
@@ -196,7 +216,8 @@ func (s *Objects) snapshot(ctx context.Context, body io.Reader, size int64, dige
 	if err != nil {
 		return nil, err
 	}
-	if n != size || hex.EncodeToString(hash.Sum(nil)) != digest {
+	private.digest = hex.EncodeToString(hash.Sum(nil))
+	if n != size || (digest != "" && private.digest != digest) {
 		return nil, ErrDigestMismatch
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
