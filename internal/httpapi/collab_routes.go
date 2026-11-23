@@ -341,7 +341,7 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 			if _, e := tx.Exec(`INSERT INTO comments(id,container_id,object_id,author_user_id,body_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?)`, id, cid, oid, s.UserID, body, in.KeyGeneration, seq, now); e != nil {
 				return e
 			}
-			if e := storage.ReserveCleanupAuditTx(tx, "comment", id, cid); e != nil {
+			if e := storage.CleanupFor(db).Reserve(tx, "comment", id, cid); e != nil {
 				return e
 			}
 			// Only a current member of the notebook can be mentioned; anyone else refuses the comment.
@@ -354,7 +354,7 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 					return errMentionNotMember
 				}
 			}
-			return checkDatabaseBudget(tx)
+			return checkDatabaseBudget(db, tx)
 		})
 		if writeStorageFull(w, r, e) {
 			return
@@ -398,19 +398,20 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 				return nil
 			} // An authorized retry releases nothing twice and adds no audit.
 			now := time.Now().UTC().Format(time.RFC3339)
-			seq, err := storage.AdvanceCleanupSeqTx(tx, cid, now)
+			cleanup := storage.CleanupFor(db)
+			seq, err := cleanup.AdvanceSeq(tx, cid, now)
 			if err != nil {
 				return err
 			}
 			// Keep the tombstone for authorized retries, but drop ciphertext to free backup
 			// capacity as well as quota. Mentions must stop producing notifications too.
-			if err := storage.TombstoneCommentTx(tx, id, now, seq); err != nil {
+			if err := cleanup.TombstoneComment(tx, id, now, seq); err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`DELETE FROM mentions WHERE comment_id=?`, id); err != nil {
 				return err
 			}
-			return storage.FillCleanupAuditTx(tx, "comment", id, s.UserID, RequestID(r), now)
+			return cleanup.Fill(tx, "comment", id, cid, s.UserID, RequestID(r), now)
 		})
 		if writeTeamKeyError(w, r, err) {
 			return

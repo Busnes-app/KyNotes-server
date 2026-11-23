@@ -14,6 +14,7 @@ import (
 )
 
 func TestCommentDeletionDoesNotGrowAtSQLiteOverflowCliff(t *testing.T) {
+	storage.SkipOnPostgres(t, "SQLite cleanup capacity (docs/CLEANUP-CAPACITY.md)")
 	p := newPairClient(t, strings.Repeat("p", 32))
 	db := p.db
 	var err error
@@ -93,6 +94,7 @@ func TestCommentDeletionDoesNotGrowAtSQLiteOverflowCliff(t *testing.T) {
 }
 
 func TestNativeUTF16CleanupIsAuthorizedAuditedAndSizeStable(t *testing.T) {
+	storage.SkipOnPostgres(t, "SQLite cleanup capacity (docs/CLEANUP-CAPACITY.md)")
 	for _, encoding := range []string{"UTF-16le", "UTF-16be"} {
 		t.Run(encoding, func(t *testing.T) {
 			root := t.TempDir()

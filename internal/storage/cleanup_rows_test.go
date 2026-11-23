@@ -11,6 +11,7 @@ import (
 )
 
 func TestCleanupRecordSizeMatchesSQLite(t *testing.T) {
+	SkipOnPostgres(t, "SQLite record layout")
 	for _, encoding := range []string{"UTF-8", "UTF-16le", "UTF-16be"} {
 		t.Run(encoding, func(t *testing.T) {
 			db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "db.sqlite"))
@@ -79,6 +80,7 @@ func createCleanupDatabaseFile(t *testing.T, path string, pageSize int, encoding
 // Keep the physical database deliberately crowded. Exercise overflow cliffs,
 // record-header and payload-varint boundaries, and large bodies, in three orders.
 func TestCleanupRowsReleaseOverflowWithoutGrowingLeafCells(t *testing.T) {
+	SkipOnPostgres(t, "SQLite page layout")
 	for _, scenario := range []struct {
 		pageSize int
 		encoding string

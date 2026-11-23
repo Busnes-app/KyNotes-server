@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"strings"
 	"testing"
@@ -49,6 +50,7 @@ func TestTeamCanCreateMultipleChildWorkspaces(t *testing.T) {
 // A row the list cannot read fails the request: a 200 is always the complete list, which the
 // browser relies on before it offers to discard edits for notebooks missing from it.
 func TestContainerListFailsRatherThanReturningPartialList(t *testing.T) {
+	storage.SkipOnPostgres(t, "it stores text in an INTEGER column, which only SQLite allows")
 	f := newShareFixture(t)
 	if _, err := f.db.Exec(`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at,key_generation) VALUES('cnt_bad','workbook','usr_share','now','now','not a number')`); err != nil {
 		t.Fatal(err)

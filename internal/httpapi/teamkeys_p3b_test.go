@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"slices"
 	"testing"
@@ -179,7 +180,7 @@ func TestRefusedAcceptAndAdminAddAreAuditedWithTheResponseCodeOnly(t *testing.T)
 	type row struct{ actor, container, object, outcome, reason string }
 	refusals := func(event string) []row {
 		t.Helper()
-		rows, err := tm.owner.db.Query(`SELECT actor_user_id,container_id,object_id,outcome,reason_code FROM audit_events WHERE event=? AND outcome<>'success' ORDER BY rowid`, event)
+		rows, err := tm.owner.db.Query(`SELECT actor_user_id,container_id,object_id,outcome,reason_code FROM audit_events WHERE event=? AND outcome<>'success' ORDER BY `+rowOrder(tm.owner.db), event)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -255,7 +256,11 @@ func TestAdminAddMapsOnlyConflictsTo409(t *testing.T) {
 	if code := post("bad", tm.editor.id); code != http.StatusBadRequest {
 		t.Fatalf("malformed team=%d", code)
 	}
-	if _, err := tm.owner.db.Exec(`DROP TABLE audit_events`); err != nil {
+	drop := `DROP TABLE audit_events`
+	if storage.IsPostgres(tm.owner.db) {
+		drop += ` CASCADE` // audit_history reads it
+	}
+	if _, err := tm.owner.db.Exec(drop); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tm.owner.db.Exec(`UPDATE memberships SET revoked_at='x' WHERE user_id=?`, tm.viewer.id); err != nil {

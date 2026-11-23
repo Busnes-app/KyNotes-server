@@ -22,6 +22,7 @@ import (
 // Real compact snapshots, with live liabilities and repeated cleanup at the full admission
 // budget. A private pre-correction probe measured the original audit-growth escape.
 func TestCleanupReservationKeepsCompactSnapshotsWithinBudget(t *testing.T) {
+	storage.SkipOnPostgres(t, "SQLite cleanup capacity (docs/CLEANUP-CAPACITY.md)")
 	tm := newTeam(t)
 	tm.rotate(t, tm.id, 1)
 	oid, code := tm.owner.save(t, tm.id, "", 2)

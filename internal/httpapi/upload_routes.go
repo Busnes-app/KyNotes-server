@@ -419,8 +419,14 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&changeSeq); e != nil {
 				return e
 			}
-			if _, e := tx.Exec(`INSERT INTO attachments(id,container_id,blob_digest,preview_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, att, cid, digest, previewDigest, size, meta, in.KeyGeneration, changeSeq, now); e != nil {
-				if scanErr := tx.QueryRow(`SELECT id FROM attachments WHERE container_id=? AND blob_digest=?`, cid, digest).Scan(&att); scanErr != nil {
+			// The pair is unique; on a conflict (no error, so no aborted transaction on
+			// PostgreSQL) the existing row is found below.
+			res, e := tx.Exec(`INSERT INTO attachments(id,container_id,blob_digest,preview_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(container_id,blob_digest) DO NOTHING`, att, cid, digest, previewDigest, size, meta, in.KeyGeneration, changeSeq, now)
+			if e != nil {
+				return e
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				if e := tx.QueryRow(`SELECT id FROM attachments WHERE container_id=? AND blob_digest=?`, cid, digest).Scan(&att); e != nil {
 					return e
 				}
 				// Re-uploading the bytes of a deleted attachment revives it; linking refuses tombstones.

@@ -166,9 +166,7 @@ func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *test
 		}
 	}
 	// Audit failure must also roll back status, credential revocation, revision and replay.
-	if _, err := f.db.Exec(`CREATE TRIGGER fail_directory_audit BEFORE INSERT ON audit_events WHEN NEW.event='directory.apply' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "fail_directory_audit", "BEFORE INSERT", "audit_events", `NEW.event='directory.apply'`, "fixture")
 	send("disable", 1, false, 500)
 	if f.protected(cookies) != 204 || f.protected(local.Result().Cookies()) != 204 {
 		t.Fatal("failed transaction revoked credentials")
@@ -177,9 +175,7 @@ func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *test
 	if err := f.db.QueryRow(`SELECT count(*) FROM sso_directory_state`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("failed transaction advanced revision %d %v", n, err)
 	}
-	if _, err := f.db.Exec(`DROP TRIGGER fail_directory_audit`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, f.db, "fail_directory_audit", "audit_events")
 	oldCallback := f.beginLogin("alice", "pending-before-disable", time.Now().Add(-time.Second))
 	send("disable", 1, false, 200)
 	// Share links are independent bearer access to ciphertext, not account sessions.
@@ -198,7 +194,7 @@ func TestDirectoryDisablePreservesDataAndRevokesSessionDeviceCredentials(t *test
 	}
 	send("enable", 2, true, 200)
 	var subject, reason string
-	if err := f.db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.apply' ORDER BY rowid LIMIT 1`).Scan(&subject, &reason); err != nil || subject != "alice" || reason != "revision=1,active=false,role=user,event=disable" {
+	if err := f.db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.apply' ORDER BY `+rowOrder(f.db)+` LIMIT 1`).Scan(&subject, &reason); err != nil || subject != "alice" || reason != "revision=1,active=false,role=user,event=disable" {
 		t.Fatalf("deactivation attribution lost after re-enable: subject=%q reason=%q err=%v", subject, reason, err)
 	}
 
@@ -322,9 +318,7 @@ func TestDirectoryReadbackAuthenticationAndAudit(t *testing.T) {
 	if err := db.QueryRow(`SELECT object_id,reason_code FROM audit_events WHERE event='directory.readback'`).Scan(&subject, &eventID); err != nil || subject != "alice" || eventID != "probe-event" {
 		t.Fatalf("unidentifiable readback: %q %q %v", subject, eventID, err)
 	}
-	if _, err := db.Exec(`CREATE TRIGGER fail_readback_audit BEFORE INSERT ON audit_events WHEN NEW.event='directory.readback' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, db, "fail_readback_audit", "BEFORE INSERT", "audit_events", `NEW.event='directory.readback'`, "fixture")
 	res := sendDirectory(t, router, "/api/v1/sync/readback", secret, "read", "user.readback", map[string]string{"subject": "alice"})
 	if res.Code != 500 || strings.Contains(res.Body.String(), `"present"`) {
 		t.Fatalf("unaudited observation %d %s", res.Code, res.Body.String())

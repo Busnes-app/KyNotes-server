@@ -18,13 +18,8 @@ import (
 // blobFiles counts the content-addressed files beside the test database.
 func blobFiles(t *testing.T, p *pairClient) int {
 	t.Helper()
-	var seq int
-	var name, file string
-	if err := p.db.QueryRow(`PRAGMA database_list`).Scan(&seq, &name, &file); err != nil {
-		t.Fatal(err)
-	}
 	n := 0
-	_ = filepath.WalkDir(filepath.Join(filepath.Dir(file), "blobs"), func(_ string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(filepath.Join(p.root, "blobs"), func(_ string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			n++
 		}

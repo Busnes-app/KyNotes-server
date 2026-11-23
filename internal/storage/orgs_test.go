@@ -32,6 +32,8 @@ var (
 		"sso_directory_state": true, "sso_login_cutoffs": true, "orgs": true, "erased_subjects": true,
 	}
 	offInMulti = map[string]bool{"blob_replicas": true}
+	// Tables the PostgreSQL schema leaves out (tenancy spec, Replica work, item 6).
+	postgresOmits = map[string]bool{"cleanup_audit_slots": true, "blob_replicas": true}
 )
 
 func openFresh(t *testing.T) *Store {
@@ -46,17 +48,8 @@ func openFresh(t *testing.T) *Store {
 
 func TestEveryTableIsClassified(t *testing.T) {
 	s := openFresh(t)
-	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
 	seen := map[string]bool{}
-	for rows.Next() {
-		var name string
-		if err = rows.Scan(&name); err != nil {
-			t.Fatal(err)
-		}
+	for _, name := range catalogTables(t, s) {
 		seen[name] = true
 		_, o := orgOwned[name]
 		_, d := derived[name]
@@ -72,7 +65,7 @@ func TestEveryTableIsClassified(t *testing.T) {
 	}
 	for _, m := range []map[string]string{orgOwned, derived} {
 		for name := range m {
-			if !seen[name] {
+			if !seen[name] && !(s.pg && postgresOmits[name]) {
 				t.Errorf("%s is classified but does not exist", name)
 			}
 		}
@@ -82,26 +75,24 @@ func TestEveryTableIsClassified(t *testing.T) {
 func TestOrgOwnedTablesHaveOrgID(t *testing.T) {
 	s := openFresh(t)
 	for table, parent := range orgOwned {
-		var notNull int
-		var def sql.NullString
-		if err := s.db.QueryRow(`SELECT "notnull",dflt_value FROM pragma_table_info(?) WHERE name='org_id'`, table).Scan(&notNull, &def); err != nil {
+		notNull, def, err := catalogColumn(s, table, "org_id")
+		if err != nil {
 			t.Errorf("%s: no org_id: %v", table, err)
 			continue
 		}
 		if table == "audit_events" {
-			if notNull != 0 || def.Valid {
+			if notNull || def != "" {
 				t.Errorf("audit_events.org_id must be nullable with no default")
 			}
-		} else if notNull != 1 || def.String != "'"+DefaultOrgID+"'" {
-			t.Errorf("%s.org_id: notnull=%d default=%q", table, notNull, def.String)
+		} else if !notNull || def != "'"+DefaultOrgID+"'" {
+			t.Errorf("%s.org_id: notnull=%v default=%q", table, notNull, def)
 		}
 		want := []string{table + "_org_exists", table + "_org_fixed"}
 		if parent != "" {
 			want = append(want, table+"_org_parent", table+"_org_parent_move")
 		}
 		for _, trigger := range want {
-			var n int
-			if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name=? AND tbl_name=?`, trigger, table).Scan(&n); err != nil || n != 1 {
+			if !catalogTrigger(s, trigger, table) {
 				t.Errorf("%s: trigger %s missing", table, trigger)
 			}
 		}
@@ -150,6 +141,7 @@ func legacyOrgDatabase(t *testing.T, path string) {
 }
 
 func TestUpgradePutsEveryRowInTheDefaultOrg(t *testing.T) {
+	SkipOnPostgres(t, "a SQLite install's upgrade")
 	path := filepath.Join(t.TempDir(), "db.sqlite")
 	legacyOrgDatabase(t, path)
 	s, err := Open(path)

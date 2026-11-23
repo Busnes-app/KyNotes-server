@@ -1034,6 +1034,62 @@ Branch `feat/tenancy-build-1`. Files are cited at that branch's head.
   placeholders, and the audit list compares as a set, since it orders rows of one second by a random
   ID. The run is stable under `-race` and `GODEBUG=fips140=on`.
 
+### PR 2 as built
+
+Branch `feat/tenancy-build-2`, stacked on PR 1.
+
+- **Driver.** `internal/storage/pgdialect` is KyIdentity's (`internal/store/pgdialect` at
+  `886c9d7`) with KyNotes' lock key, plus rules KyNotes' SQL needs: `?NNN` placeholders; the
+  placeholders a statement uses renumbered `$1..$k` with only those arguments bound (SQLite lets
+  code pass one argument list to several statements that each use part of it; PostgreSQL refuses
+  an unused argument and an untyped placeholder); `X'..'`; `zeroblob(n)`;
+  `lower(hex(randomblob(N)))` for N up to 16; Go bools bound as 0/1. N3 is its writer lock:
+  `pg_advisory_xact_lock` after `BEGIN` in every read-write transaction, and every write outside a
+  transaction runs in its own. `TestPostgresWritersAreSerialised` runs 16 read-modify-write
+  transactions at once; with the lock disabled it ends at 1, not 16.
+- **New dependency, justified:** `github.com/jackc/pgx/v5` v5.13.0, the version KyIdentity,
+  KyCalendar and KyDrive ship (their `go.mod`), with `puddle` at their v2.2.4. database/sql has
+  no PostgreSQL driver of its own.
+- **Schema.** `internal/storage/postgres/0032_schema.sql` is SQLite's after 0032 with BIGINT and
+  BYTEA, `blobs` keyed `(org_id, digest)` with the four composite FKs of Isolation step 5, the
+  triggers as plpgsql functions (PostgreSQL allows no subquery in a trigger's WHEN), and no
+  `cleanup_audit_slots`, `cleanup_padding` or `blob_replicas`. `audit_history` reads
+  `audit_events` only. It records version 32 in `schema_migrations`; a later SQLite migration
+  needs a file of the same number, or the PostgreSQL open fails and
+  `TestPostgresSchemaMatchesSQLite` (every table and column, bar the omissions) fails.
+- **Migration lock.** `migratePostgres` holds `pg_advisory_lock` on one pinned connection, so
+  replicas starting together migrate once (`TestConcurrentOpenDoesNotRaceMigrations` runs on
+  PostgreSQL too).
+- **SQLite-only mechanisms off on PostgreSQL** (Replica work, item 6): `storage.CleanupFor(db)`
+  makes a comment delete or sealed-link revoke a plain update and writes an ordinary
+  `comment.delete` or `share_link.revoke` audit row, the row `audit_history` shows for a filled
+  slot on SQLite; `checkDatabaseBudget` admits every write; `IntegrityCheck` pings.
+  `WithTx` uses the driver's READ COMMITTED under the writer lock, not SERIALIZABLE.
+- **Portable SQL at call sites**, each keeping SQLite's answers: two-argument `max`/`min` as
+  `CASE` (`sso_directory.go`, `sso_stepup.go`); the attachment insert as
+  `ON CONFLICT(container_id,blob_digest) DO NOTHING` with `RowsAffected` (it caught a unique
+  error inside the transaction, which aborts a PostgreSQL transaction); the page read's version
+  as `COALESCE(CAST(NULLIF(?,'') AS BIGINT), o.current_version)` (`TestObjectReadSelectsTheVersion`
+  runs seven forms on both backends, and on PR 1's query).
+- **No PostgreSQL install is enabled.** `KYNOTES_DB_DSN` fails config like the other multi-only
+  variables until PR 6, which wires `storage.OpenPostgres` into `serve`.
+- **The CI leg.** With `KYNOTES_TEST_DATABASE_URL` set, every `storage.Open(path)` in a test opens
+  a schema named after the path (dropped by a later run once its directory is gone). ci.yml
+  `postgres` runs `internal/storage`, `internal/httpapi`, `internal/auth`, `internal/app`,
+  `internal/sso`, `internal/mirror` and `cmd/kynotes-mcp` that way, on PostgreSQL 17 with the C
+  locale, and `test` needs it. Left out: `internal/backup` and `cmd/kynotes-server`, whose capsules
+  and offline data-directory commands work on the SQLite file (items 2 and 7, open question 3).
+  Tests about SQLite itself skip there with their reason (cleanup capacity, journal mode, SQLite
+  upgrades, capsules, an INTEGER column holding text, the Q12 page budget). Every other fixture
+  goes through `storage.Open`, so it runs on PostgreSQL; tests that inject a failure write their
+  trigger in the backend's syntax (`refuseTrigger`, `afterInsertRun` in
+  `internal/httpapi/backend_test.go`). Only the golden and the cleanup-cliff seed open SQLite
+  directly, and both skip there.
+- **Found while building:** the reminder push query selected `u.status` without grouping by it
+  (`internal/webpush/webpush.go`, `Fire`), which PostgreSQL refuses: multi mode would never have
+  sent a reminder. It now groups by `r.user_id, u.status` (one status per user, so SQLite's rows
+  are the same).
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

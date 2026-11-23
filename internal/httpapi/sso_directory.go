@@ -198,7 +198,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 		if !*u.Active {
 			cutoff = time.Now().Unix()
 		}
-		_, err = tx.Exec(`INSERT INTO sso_directory_state(issuer,subject,revision,digest,active,event_id,revoked_before) VALUES(?,?,?,?,?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revision=excluded.revision,digest=excluded.digest,active=excluded.active,event_id=excluded.event_id,revoked_before=max(sso_directory_state.revoked_before,excluded.revoked_before)`, settings.IssuerURL, u.ID, revision, incoming, *u.Active, event.ID, cutoff)
+		_, err = tx.Exec(`INSERT INTO sso_directory_state(issuer,subject,revision,digest,active,event_id,revoked_before) VALUES(?,?,?,?,?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revision=excluded.revision,digest=excluded.digest,active=excluded.active,event_id=excluded.event_id,revoked_before=CASE WHEN sso_directory_state.revoked_before>excluded.revoked_before THEN sso_directory_state.revoked_before ELSE excluded.revoked_before END`, settings.IssuerURL, u.ID, revision, incoming, *u.Active, event.ID, cutoff)
 		if err == nil {
 			role, note, err = syncSingleUser(tx, cfg, settings.IssuerURL, &u)
 		}
@@ -315,7 +315,7 @@ func syncSingleUser(db *sql.Tx, cfg config.Config, issuer string, u *directoryUs
 // revokeForRoleChange: promotion and demotion both require fresh sessions, device pairing
 // and login proofs.
 func revokeForRoleChange(tx *sql.Tx, issuer, subject, userID, now string) error {
-	if _, err := tx.Exec(`INSERT INTO sso_login_cutoffs(issuer,subject,revoked_before) VALUES(?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revoked_before=max(revoked_before,excluded.revoked_before)`, issuer, subject, time.Now().Unix()); err != nil {
+	if _, err := tx.Exec(`INSERT INTO sso_login_cutoffs(issuer,subject,revoked_before) VALUES(?,?,?) ON CONFLICT(issuer,subject) DO UPDATE SET revoked_before=CASE WHEN sso_login_cutoffs.revoked_before>excluded.revoked_before THEN sso_login_cutoffs.revoked_before ELSE excluded.revoked_before END`, issuer, subject, time.Now().Unix()); err != nil {
 		return err
 	}
 	for _, q := range []string{`UPDATE sessions SET revoked_at=? WHERE`, `UPDATE devices SET revoked_at=? WHERE platform<>'identity' AND`} {

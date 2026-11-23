@@ -70,9 +70,7 @@ func TestSyncSignaturesAndAtomicReplay(t *testing.T) {
 		})
 	}
 	// A database failure must roll back both admission and user creation.
-	if _, err := db.Exec(`CREATE TRIGGER fail_sync BEFORE INSERT ON users BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, db, "fail_sync", "BEFORE INSERT", "users", "", "fixture")
 	if res := send(router, "/api/v1/sync/events", body, headers); res.Code != 500 {
 		t.Fatalf("want failed apply, got %d", res.Code)
 	}
@@ -80,9 +78,7 @@ func TestSyncSignaturesAndAtomicReplay(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM sso_sync_events`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("failed event consumed: %d %v", count, err)
 	}
-	if _, err := db.Exec(`DROP TRIGGER fail_sync`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, db, "fail_sync", "users")
 	// Race aliases: one mutation commits; all identical deliveries acknowledge it.
 	codes := make(chan int, 3)
 	var wg sync.WaitGroup

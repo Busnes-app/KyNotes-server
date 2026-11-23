@@ -74,6 +74,7 @@ func legacyCleanupDatabase(t *testing.T, path string, comments, actorBytes int) 
 }
 
 func TestCleanupUpgradeFundsAllLegacyRowsAndPreservesHistory(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	path := filepath.Join(t.TempDir(), "db.sqlite")
 	legacyCleanupDatabase(t, path, 4, 30)
 	s, err := Open(path)
@@ -103,6 +104,7 @@ func TestCleanupUpgradeFundsAllLegacyRowsAndPreservesHistory(t *testing.T) {
 }
 
 func TestCleanupUpgradeRefusesBeforeChangingTheLegacyDatabase(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	path := filepath.Join(t.TempDir(), "db.sqlite")
 	legacyCleanupDatabase(t, path, 300, 256<<10)
 	if s, err := Open(path); !errors.Is(err, ErrCleanupCapacity) {
@@ -123,6 +125,7 @@ func TestCleanupUpgradeRefusesBeforeChangingTheLegacyDatabase(t *testing.T) {
 }
 
 func TestCleanupSlotFixedOverwriteIsImmutableAfterCommit(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	s, err := Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +173,7 @@ func TestCleanupSlotFixedOverwriteIsImmutableAfterCommit(t *testing.T) {
 }
 
 func TestCleanupPaddingCoversCounterAndTimestampWidths(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	for _, initial := range []int64{0, 1, 127, 32767, 8388607, 2147483647, 140737488355327} {
 		t.Run(fmt.Sprint(initial), func(t *testing.T) {
 			s, err := Open(filepath.Join(t.TempDir(), "db.sqlite"))
@@ -215,12 +219,14 @@ func compactCleanupBytes(t *testing.T, db *sql.DB) int64 {
 }
 
 func TestCleanupTimestampIsExactlyFundedWidth(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	if got := CleanupTime(time.Date(2026, 11, 5, 1, 2, 3, 0, time.FixedZone("x", 3600))); len(got) != 20 {
 		t.Fatal(got)
 	}
 }
 
 func TestCleanupHistoryUsesOperationTimeAndSurvivesSourceRemoval(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	s, err := Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -270,6 +276,7 @@ func TestCleanupHistoryUsesOperationTimeAndSurvivesSourceRemoval(t *testing.T) {
 }
 
 func TestCleanupUpgradeAndHistoryUseTheActualDatabaseEncoding(t *testing.T) {
+	SkipOnPostgres(t, "cleanup slots and padding exist only on SQLite")
 	for _, encoding := range []string{"UTF-16le", "UTF-16be"} {
 		t.Run(encoding, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "db.sqlite")

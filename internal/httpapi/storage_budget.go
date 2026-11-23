@@ -19,7 +19,13 @@ const databaseWriteBudget = storage.CleanupDatabaseBudget
 func databaseBudgetBytes(tx *sql.Tx) (int64, error) {
 	return storage.DatabaseBytes(tx)
 }
-func checkDatabaseBudget(tx *sql.Tx) error {
+
+// On PostgreSQL the org pool and a platform alarm replace this budget (tenancy spec, Replica
+// work, item 6), so it admits every write.
+func checkDatabaseBudget(db *sql.DB, tx *sql.Tx) error {
+	if storage.IsPostgres(db) {
+		return nil
+	}
 	used, err := databaseBudgetBytes(tx)
 	if err != nil {
 		return err

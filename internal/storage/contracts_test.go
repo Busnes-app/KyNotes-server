@@ -28,8 +28,13 @@ func TestOpenAppliesMigrationsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// PostgreSQL starts at the schema of the latest SQLite migration, recorded once.
+	q := `SELECT COUNT(*) FROM schema_migrations`
+	if s.Postgres() {
+		q = `SELECT MAX(version) FROM schema_migrations`
+	}
 	var n int
-	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil || n != len(entries) {
+	if err := s.DB().QueryRow(q).Scan(&n); err != nil || n != len(entries) {
 		t.Fatalf("migration count=%d expected=%d err=%v", n, len(entries), err)
 	}
 }
@@ -155,6 +160,7 @@ func TestForeignKeysAreEnforced(t *testing.T) {
 }
 
 func TestWALModeIsActive(t *testing.T) {
+	SkipOnPostgres(t, "journal mode")
 	s := openContract(t)
 	var mode string
 	if err := s.DB().QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil || mode != "wal" {

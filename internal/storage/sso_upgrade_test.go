@@ -8,6 +8,7 @@ import (
 )
 
 func TestSSOUpgradeRevokesOnlyUntraceableCredentials(t *testing.T) {
+	SkipOnPostgres(t, "a SQLite install's upgrade")
 	path := filepath.Join(t.TempDir(), "upgrade.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {

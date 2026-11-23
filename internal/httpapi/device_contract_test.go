@@ -23,9 +23,9 @@ import (
 )
 
 type pairClient struct {
-	hc                                           *http.Client
-	db                                           *sql.DB
-	url, csrf, container, deviceID, deviceSecret string
+	hc                                                 *http.Client
+	db                                                 *sql.DB
+	url, csrf, container, deviceID, deviceSecret, root string
 }
 
 func newPairClient(t *testing.T, pairing string) *pairClient {
@@ -53,7 +53,7 @@ func newPairClientIn(t *testing.T, pairing, root string) *pairClient {
 	cfg.Secrets.PairingSecret = pairing
 	srv := httptest.NewServer(NewRouter(logging.New(io.Discard, "info", "json"), cfg.Server.MaxRequestBytes, func() bool { return true }, s.DB(), b, cfg))
 	jar, _ := cookiejar.New(nil)
-	p := &pairClient{hc: &http.Client{Jar: jar}, db: s.DB(), url: srv.URL}
+	p := &pairClient{hc: &http.Client{Jar: jar}, db: s.DB(), url: srv.URL, root: root}
 	t.Cleanup(func() { srv.Close(); s.Close() })
 	res := p.do(t, http.MethodPost, "/api/v1/auth/login", []byte(`{"username":"pair","authSecret":"`+secret+`"}`), false, false)
 	if res.StatusCode != http.StatusOK {

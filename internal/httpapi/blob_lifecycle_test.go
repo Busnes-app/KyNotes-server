@@ -142,9 +142,7 @@ func TestUnlinkReportsAFailedWrite(t *testing.T) {
 	if _, err := tm.owner.db.Exec(`INSERT INTO attachment_refs(attachment_id,object_id,object_version,created_at) VALUES(?,?,1,'now')`, att, oid); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tm.owner.db.Exec(`CREATE TRIGGER refs_stuck BEFORE DELETE ON attachment_refs BEGIN SELECT RAISE(ABORT,'stuck'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, tm.owner.db, "refs_stuck", "BEFORE DELETE", "attachment_refs", "", "stuck")
 	if code, out := status(t, tm.owner.do(t, http.MethodDelete, "/api/v1/objects/"+oid+"/attachments/"+att, nil, true, false)); code != http.StatusInternalServerError {
 		t.Fatalf("unlink=%d %s, want 500", code, out)
 	}

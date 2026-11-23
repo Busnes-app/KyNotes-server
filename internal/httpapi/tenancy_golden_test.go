@@ -366,6 +366,7 @@ func loadLegacy(t *testing.T, root string) (string, goldenFixture) {
 // Every answer must match testdata/tenancy-golden/upgrade.txt, which that release recorded.
 // -update-golden rewrites it; use it only when a single-tenant answer is meant to change.
 func TestSingleTenantUpgradeGolden(t *testing.T) {
+	storage.SkipOnPostgres(t, "it upgrades a SQLite install")
 	if *updateLegacy {
 		writeLegacy(t)
 	}

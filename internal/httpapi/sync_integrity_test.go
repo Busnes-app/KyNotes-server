@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ func changes(t *testing.T, p *pairClient, cid, query string) (int, changesPage) 
 
 // The cursor moves past every row of a page, so a page may not leave one out.
 func TestChangesNeverSkipAnUnreadableRow(t *testing.T) {
+	storage.SkipOnPostgres(t, "it stores text in an INTEGER column, which only SQLite allows")
 	p := newPairClient(t, strings.Repeat("p", 32))
 	cid := seedContainer(t, p, "workbook", "", map[string]string{pairUser: "owner"})
 	for i, seq := range []any{1, 2, "unreadable"} {
@@ -94,18 +96,19 @@ func TestConflictSaveThatFailsToCommitIsNotAConflict(t *testing.T) {
 	for _, stmt := range []string{
 		`CREATE TABLE fail_parent(id INTEGER PRIMARY KEY)`,
 		`CREATE TABLE fail_child(p INTEGER REFERENCES fail_parent(id) DEFERRABLE INITIALLY DEFERRED)`,
-		`CREATE TRIGGER fail_commit AFTER INSERT ON conflicts BEGIN INSERT INTO fail_child VALUES(1); END`,
 	} {
 		if _, err := tm.owner.db.Exec(stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
+	afterInsertRun(t, tm.owner.db, "fail_commit", "conflicts", "", `INSERT INTO fail_child VALUES(1)`)
 	if _, code, body := staleConflict(t, tm); code != http.StatusInternalServerError {
 		t.Fatalf("uncommitted conflict=%d %s", code, body)
 	}
 }
 
 func TestListingsFailRatherThanDropARow(t *testing.T) {
+	storage.SkipOnPostgres(t, "it stores text in an INTEGER column, which only SQLite allows")
 	tm := newTeam(t)
 	oid, _, _ := staleConflict(t, tm)
 	if _, err := tm.owner.db.Exec(`UPDATE conflicts SET base_version='unreadable' WHERE object_id=?`, oid); err != nil {

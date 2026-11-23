@@ -190,7 +190,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		}
 		var cid, digest, savedAt string
 		var version, gen, containerSeq int64
-		if e := db.QueryRow(`SELECT o.container_id,v.blob_digest,v.version,v.key_generation,c.change_seq,v.created_at FROM objects o JOIN containers c ON c.id=o.container_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? JOIN object_versions v ON v.object_id=o.id AND v.version=CASE WHEN ?='' THEN o.current_version ELSE ? END WHERE o.id=? AND m.revoked_at=''`, uid, r.URL.Query().Get("version"), r.URL.Query().Get("version"), oid).Scan(&cid, &digest, &version, &gen, &containerSeq, &savedAt); e != nil {
+		if e := db.QueryRow(`SELECT o.container_id,v.blob_digest,v.version,v.key_generation,c.change_seq,v.created_at FROM objects o JOIN containers c ON c.id=o.container_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? JOIN object_versions v ON v.object_id=o.id AND v.version=COALESCE(CAST(NULLIF(?,'') AS BIGINT),o.current_version) WHERE o.id=? AND m.revoked_at=''`, uid, r.URL.Query().Get("version"), oid).Scan(&cid, &digest, &version, &gen, &containerSeq, &savedAt); e != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}

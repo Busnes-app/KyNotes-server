@@ -269,10 +269,8 @@ func TestAdminAccountsCannotPairDevices(t *testing.T) {
 func TestKindGatesHoldWithoutTheTriggers(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	admin := p.addAdmin(t, "server-admin")
-	for _, q := range []string{`DROP TRIGGER users_admin_role_update`, `DROP TRIGGER devices_everyday_only`, `DROP TRIGGER user_identities_everyday_only`} {
-		if _, err := p.db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
+	for name, table := range map[string]string{"users_admin_role_update": "users", "devices_everyday_only": "devices", "user_identities_everyday_only": "user_identities"} {
+		dropTrigger(t, p.db, name, table)
 	}
 	if _, err := p.db.Exec(`UPDATE users SET role='admin' WHERE id=?`, pairUser); err != nil {
 		t.Fatal(err)

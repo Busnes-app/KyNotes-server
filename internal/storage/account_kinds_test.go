@@ -10,7 +10,10 @@ import (
 
 func mustFail(t *testing.T, db *sql.DB, want, q string, args ...any) {
 	t.Helper()
-	if _, err := db.Exec(q, args...); err == nil || !strings.Contains(err.Error(), want) {
+	_, err := db.Exec(q, args...)
+	// PostgreSQL words the two built-in constraint errors its own way.
+	pg := map[string]string{"CHECK": "check constraint", "UNIQUE": "unique constraint"}[want]
+	if err == nil || !strings.Contains(err.Error(), want) && (pg == "" || !strings.Contains(err.Error(), pg)) {
 		t.Fatalf("%s: want %q, got %v", q, want, err)
 	}
 }
@@ -109,6 +112,7 @@ func openBefore(t *testing.T, version int) (*sql.DB, string) {
 }
 
 func TestMixedAdminsKeepTheirNotesAndDropAdmin(t *testing.T) {
+	SkipOnPostgres(t, "a SQLite install's upgrade")
 	db, path := openBefore(t, 26)
 	exec := func(q string, args ...any) {
 		t.Helper()

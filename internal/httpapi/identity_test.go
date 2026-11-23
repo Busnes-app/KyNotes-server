@@ -378,9 +378,7 @@ func TestAdminResetRevokesSessionsInItsTransaction(t *testing.T) {
 	id := p.createIdentity(t)
 	admin := p.addAdmin(t, "server-admin")
 	admin.stepUp(t)
-	if _, err := p.db.Exec(`CREATE TRIGGER no_revoke BEFORE UPDATE OF revoked_at ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, p.db, "no_revoke", "BEFORE UPDATE OF revoked_at", "sessions", "", "refused")
 	salt := base64.StdEncoding.EncodeToString([]byte("fedcba9876543210"))
 	body := `{"newAuthSecret":"` + strings.Repeat("d", 64) + `","newLoginSalt":"` + salt + `","iterations":600000}`
 	if code, b := status(t, admin.do(t, http.MethodPost, "/api/v1/admin/users/"+pairUser+"/password", []byte(body), true, false)); code != http.StatusInternalServerError {

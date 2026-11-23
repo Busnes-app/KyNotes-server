@@ -24,8 +24,9 @@ func TestTenancyEnvRefusesWhatThisReleaseCannotRun(t *testing.T) {
 		{map[string]string{"KYNOTES_TENANCY": "Multi"}, "KYNOTES_TENANCY: must be single or multi"},
 		{map[string]string{"KYNOTES_STAFF_ORG_ID": "staff"}, "KYNOTES_STAFF_ORG_ID: set only in multi-tenant mode"},
 		{map[string]string{"KYNOTES_TENANCY": "single", "KYNOTES_REGION": "eu"}, "KYNOTES_REGION: set only in multi-tenant mode"},
+		{map[string]string{"KYNOTES_DB_DSN": "postgres://db/kynotes"}, "KYNOTES_DB_DSN: set only in multi-tenant mode"},
 	} {
-		for _, name := range []string{"KYNOTES_TENANCY", "KYNOTES_STAFF_ORG_ID", "KYNOTES_REGION"} {
+		for _, name := range []string{"KYNOTES_TENANCY", "KYNOTES_STAFF_ORG_ID", "KYNOTES_REGION", "KYNOTES_DB_DSN"} {
 			t.Setenv(name, tc.env[name])
 		}
 		_, err := Load(path)

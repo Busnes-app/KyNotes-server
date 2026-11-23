@@ -209,6 +209,26 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   answer that is meant to change. Verify `TestEveryTableIsClassified`, `TestOrgOwnedTablesHaveOrgID`,
   `TestUpgradePutsEveryRowInTheDefaultOrg`, `TestOpenRefusesAnotherTenancyModeAndWritesNothing`,
   `TestOrgTriggersRefuseCrossOrgRows`, `TestTenancyEnvRefusesWhatThisReleaseCannotRun` and the golden.
+- Tenancy PR 2, the PostgreSQL store (DESIGN.md "Tenancy amendment, PR 2"). Handlers keep writing
+  SQLite-dialect SQL; `internal/storage/pgdialect` (ported from KyIdentity's, keep the two in step)
+  translates it: `?`/`?NNN` placeholders, renumbered so only the arguments a statement uses are
+  bound, `INSERT OR IGNORE`, `X'..'`, `zeroblob`, `lower(hex(randomblob(N)))`, `LIKE`, and Go bools
+  as 0/1. Anything else that differs is written portably at the call site: two-argument
+  `max`/`min` as `CASE`, an `ON CONFLICT` target that is a key on both backends, no error caught
+  and recovered inside a transaction (PostgreSQL aborts the transaction; use `ON CONFLICT DO
+  NOTHING` and `RowsAffected`), and no placeholder compared both as text and as a number. Every
+  SQLite migration needs `internal/storage/postgres/<same number>_*.sql`
+  (`TestPostgresSchemaMatchesSQLite`). Mechanisms that exist only on SQLite branch on
+  `storage.IsPostgres(db)`: `storage.CleanupFor(db)` for comment and sealed-link cleanup,
+  `checkDatabaseBudget`. With `KYNOTES_TEST_DATABASE_URL` set (a UTF8, C-locale PostgreSQL),
+  every `storage.Open(path)` in a test opens a schema named after the path; ci.yml `postgres` runs
+  the store-using suites that way, without `internal/backup` and `cmd/kynotes-server` (capsules and
+  offline commands work on the SQLite file). A test about SQLite itself calls
+  `storage.SkipOnPostgres` with the reason; httpapi tests write failure triggers with
+  `refuseTrigger`/`dropTrigger`/`afterInsertRun`, order by insertion with `rowOrder` and read the
+  catalog with `testTables`/`columnsQuery` (`internal/httpapi/backend_test.go`). Verify
+  `TestPostgresSchemaMatchesSQLite`, `TestPostgresWritersAreSerialised`,
+  `TestTranslate*`, `TestObjectReadSelectsTheVersion`, and the `postgres` CI job.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
