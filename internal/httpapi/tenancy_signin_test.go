@@ -159,8 +159,8 @@ func TestMultiModeDirectoryKeepsAccountsInTheirOrg(t *testing.T) {
 	if got := event("evt-4", "user.erased", "bob", 2, false, "org_a"); got != "applied" {
 		t.Fatalf("user.erased: %s", got)
 	}
-	if st, live := state("bob"); st != "disabled" || live != 0 {
-		t.Fatalf("erasure kept bob %s with %d live sessions", st, live)
+	if st, live := state("bob"); st != "erased" || live != 0 {
+		t.Fatalf("erasure left bob %s with %d live sessions", st, live)
 	}
 	var erased string
 	if err := f.db.QueryRow(`SELECT org_id FROM erased_subjects WHERE subject='bob'`).Scan(&erased); err != nil || erased != "org_a" {

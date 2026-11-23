@@ -191,3 +191,74 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org, progress s
 
 // purgeBatchHook lets a test kill a purge between batches.
 var purgeBatchHook = func(string) error { return nil }
+
+const (
+	ownedContainers = `(SELECT id FROM containers WHERE owner_user_id=?)`
+	ownedObjects    = `(SELECT o.id FROM objects o JOIN containers c ON c.id=o.container_id WHERE c.owner_user_id=?)`
+)
+
+// eraseSteps are steps 4 and 5 of a member's Delete everything, by the member's ID: the
+// notebooks it still owns (no other approved member took them over), children first, then its
+// rows in notebooks others keep. The user row goes last (step 6), so its cascade is small.
+var eraseSteps = []purgeStep{
+	{"activity", "id", "container_id IN " + ownedContainers},
+	{"share_links", "id", "object_id IN " + ownedObjects},
+	{"attachment_refs", "attachment_id,object_id,object_version", "object_id IN " + ownedObjects},
+	{"mentions", "comment_id,mentioned_user_id", "comment_id IN (SELECT id FROM comments WHERE container_id IN " + ownedContainers + ")"},
+	{"comments", "id", "container_id IN " + ownedContainers},
+	{"conflicts", "id", "container_id IN " + ownedContainers},
+	{"object_versions", "object_id,version", "object_id IN " + ownedObjects},
+	{"attachments", "id", "container_id IN " + ownedContainers},
+	{"upload_sessions", "id", "container_id IN " + ownedContainers},
+	{"objects", "id", "container_id IN " + ownedContainers},
+	{"invitation_envelopes", "invitation_id,container_id", "container_id IN " + ownedContainers},
+	{"invitations", "id", "container_id IN " + ownedContainers},
+	{"key_envelopes", "id", "container_id IN " + ownedContainers},
+	{"device_containers", "device_id,container_id", "container_id IN " + ownedContainers},
+	{"blob_containers", "digest,container_id", "container_id IN " + ownedContainers},
+	{"memberships", "id", "container_id IN " + ownedContainers},
+	{"containers", "id", "owner_user_id=?"},
+	{"mentions", "comment_id,mentioned_user_id", "mentioned_user_id=? OR comment_id IN (SELECT id FROM comments WHERE author_user_id=?)"},
+	{"comments", "id", "author_user_id=?"},
+	{"reminders", "id", "user_id=?"},
+	{"web_push_subscriptions", "id", "user_id=?"},
+	{"sealed_share_links", "id", "owner_user_id=?"},
+	{"upload_sessions", "id", "user_id=?"},
+	{"pairing_nonces", "nonce", "user_id=?"}, // no foreign key, so not in the user's cascade
+	{"users", "id", "id=?"},
+}
+
+// EraseMembers finishes every Delete everything begun by a user.erased event (users with status
+// erased), in batches, resumably: a worker killed between batches finishes on its next run.
+// Multi mode only. Pages the member wrote in notebooks others keep stay: they are the team's.
+func EraseMembers(ctx context.Context, db *sql.DB) error {
+	tenancy, err := TenancyOf(db)
+	if err != nil || !tenancy.Multi() {
+		return err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id FROM users WHERE status='erased'`)
+	if err != nil {
+		return err
+	}
+	var users []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		users = append(users, id)
+	}
+	rows.Close()
+	for _, user := range users {
+		for _, step := range eraseSteps {
+			if _, err := purgeTable(ctx, db, step, user); err != nil {
+				return fmt.Errorf("erase %s: %w", step.table, err)
+			}
+		}
+		if err := RecordAuditOutcome(db, "", "platform.member_erased", "", "", "success", "", "member-erase"); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}

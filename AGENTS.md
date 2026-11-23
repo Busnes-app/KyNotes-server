@@ -280,6 +280,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   A new table with a foreign key to a purged table must join it (`TestPurgeOrderCoversEveryCascade` reads
   the backend's foreign keys). Verify `TestPurgeLeavesNoRowOfTheOrg` (no value of the deleted org left
   in any table, the other org untouched) and `TestPurgeKilledBetweenBatchesFinishesNextRun`.
+- Tenancy PR 4d-2, member erasure: `eraseMemberTx` (`internal/httpapi/erase.go`, in the `user.erased`
+  transaction: status `erased`, pending invitations, ownership transfer, `removeMemberTx`) then
+  `storage.EraseMembers` (`eraseSteps`, batched by member ID; a table holding a user ID with no
+  foreign key, as `pairing_nonces`, needs its own step). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
+  `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.

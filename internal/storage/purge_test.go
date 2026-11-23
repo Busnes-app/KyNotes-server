@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,12 +60,15 @@ func seedPurgeOrg(t *testing.T, s *Store, org, tag string) []string {
 
 // everyValue is every table's values, bar the rows a purge keeps on purpose (the tombstone, the
 // erased subjects, platform audit rows and the install's own settings).
-func everyValue(t *testing.T, s *Store) map[string]string {
+func everyValue(t *testing.T, s *Store, skip ...string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	for _, table := range catalogTables(t, s) {
 		switch table {
 		case "orgs", "erased_subjects", "schema_migrations", "server_settings":
+			continue
+		}
+		if slices.Contains(skip, table) {
 			continue
 		}
 		q := `SELECT * FROM ` + table
@@ -245,6 +249,50 @@ UNION ALL SELECT (SELECT group_concat(name,' ') FROM (SELECT name FROM pragma_in
 	for _, step := range purgeSteps {
 		if !unique(step.table, step.key) {
 			t.Errorf("purge step %s: key (%s) is not a unique key", step.table, step.key)
+		}
+	}
+}
+
+// A member's erasure killed between batches finishes on its next run, and leaves no row of its
+// account; another org is untouched.
+func TestEraseMembersKilledBetweenBatchesFinishesNextRun(t *testing.T) {
+	s, _, _ := purgeFixture(t)
+	before := everyValue(t, s, "audit_events")
+	if _, err := s.db.Exec(`UPDATE orgs SET status='active' WHERE id='org_b'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE users SET status='erased' WHERE id='usr_bbb'`); err != nil {
+		t.Fatal(err)
+	}
+	purgeBatch = 1
+	calls := 0
+	purgeBatchHook = func(string) error {
+		if calls++; calls == 6 {
+			return errors.New("killed")
+		}
+		return nil
+	}
+	t.Cleanup(func() { purgeBatch, purgeBatchHook = 500, func(string) error { return nil } })
+	if err := EraseMembers(context.Background(), s.db); err == nil {
+		t.Fatal("the killed erasure reported success")
+	}
+	purgeBatchHook = func(string) error { return nil }
+	if err := EraseMembers(context.Background(), s.db); err != nil {
+		t.Fatal(err)
+	}
+	// Audit rows keep the random ID, which names nobody once the account is deleted (as
+	// object_versions.author_user_id does; spec, A member erases).
+	after := everyValue(t, s, "audit_events")
+	for _, gone := range []string{"usr_bbb", "cnt_bbb", "obj_bbb", "cmt_bbb"} {
+		if table, ok := after[gone]; ok {
+			t.Errorf("%s survived the erasure in %s", gone, table)
+		}
+	}
+	for v := range before {
+		if strings.Contains(v, "aaa") {
+			if _, ok := after[v]; !ok {
+				t.Errorf("erasing org_b's member removed org_a's %q", v)
+			}
 		}
 	}
 }
