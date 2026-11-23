@@ -1548,3 +1548,21 @@ open question 3's large-database transport or enable multi startup. Those remain
   duplicate retries on a shared test directory. Actual bucket/part/purge evidence remains5b.
 - Multi startup is still refused. Shared S3 absence constrains5b, not this preparation. No
   automatic version pruning or hosted-volume fallback. Phase6 runtime assembly remains gated.
+
+
+### Phase 6 host maintenance as built (startup still refused)
+
+Multi-mode `user add --admin` uses bounded stdin derived credentials and an exact existing PG
+schema, refusing customer/everyday creation and password/DSN argv. Recorded staff-org/region
+checks and an in-transaction binding recheck precede atomic account/platform-audit creation;
+the recovery code is emitted only after commit. Staff bootstrap preparation is staff-only,
+audited and serialized across independent pools, with password work outside N3. Everyday
+bootstrap variables refuse; single-mode paths remain unchanged.
+
+`accept-replica-config --confirm-stopped` reads deployment configuration without local-key
+fallback/minting and uses the full existing app field map. The retained salt/encryption key
+and fixed mode/staff/region cannot change. Fingerprint and changed-name audit commit together;
+a failed audit leaves the old fingerprint. Ordinary startup/config loaders still refuse multi.
+Tests cover both backends where applicable, actual PG target/schema/audit/input boundaries,
+real password checks, concurrent bootstrap and unchanged single-account workflows. Maintenance
+preparation does not choose PG backup transport or enable object/runtime/hosted startup.

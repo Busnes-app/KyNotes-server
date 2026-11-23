@@ -28,6 +28,7 @@ delete accounts. Nothing in this guide rewrites a stored key.
 | Device linking | X25519, HKDF-SHA256, ChaCha20-Poly1305, SHA-256 commitments | Fixed suite. |
 | Browser vault key | Non-extractable AES-256-GCM generated in the browser | Not imported. |
 | Passwords and recovery codes on the server | Argon2id (`ky-primitives/password`) over a 256-bit derived login secret | scrypt verifiers are refused. |
+| Hosted maintenance credentials and fingerprint | Same Argon2id and HMAC-SHA256 mechanisms as account creation and replica startup | Bounded stdin accepts exactly a 256-bit derived proof, standard-base64 salt of 16–64 bytes and 600000–1000000 iterations. Environment pairing/salt keys remain at least 32 bytes; configuration acceptance refuses a changed retained encryption key. |
 | Deployment secrets (`pairing.key`, `serversalt.key`) | 32 random bytes | A file that does not decode to exactly 32 bytes is a startup error and is never replaced; `KYNOTES_SECRETS_*` values below 32 bytes are refused. |
 | Web push (VAPID) | P-256 ES256 key in `secrets/vapid.key` | Fixed curve. Pushes carry no payload, so subscription keys are neither used nor kept. |
 | OIDC ID tokens and back-channel logout tokens | RS256 only, verified by `ky-primitives/oidcverify` against the provider's JWKS | Login and logout use the same verifier type: a JWKS RSA key below 2048 bits is never used, so a token it signed is refused. Issuer, authorization, token and JWKS URLs must be HTTPS without credentials; discovery, token and JWKS redirects are refused. |

@@ -294,6 +294,18 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   foreign key, as `pairing_nonces`, needs its own step; comments in kept notebooks are tombstoned and
   the user row is scrubbed and kept, owner decision 12). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
   `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+- Host-only tenancy maintenance uses the exact existing PG schema without migrations.
+  `user add --admin --username` in multi mode accepts bounded derived credentials on stdin,
+  validates the recorded staff org/region from environment and commits the account/audit together.
+  No customer/everyday account or password/DSN argv path exists there. Startup bootstrap
+  preparation seeds only staff accounts, rechecks under N3, refuses everyday variables and
+  audits; the single bootstrap/CLI paths retain their original behavior.
+  `accept-replica-config --confirm-stopped` loads the complete app-owned field map through a
+  separate read-only maintenance loader, requires the retained salt key and fixed mode/staff/
+  region, and atomically audits changed names only. Stop every replica first. Normal config
+  loaders and multi startup remain refused; maintenance never mints local keys or recovers bytes.
+  Verify `TestStaffUserCommand*`, `TestStaffBootstrap*`, `TestReplicaMaintenance*`,
+  `TestReplicaAccept*`, existing bootstrap/user/golden tests and both backend race profiles.
 - Native PostgreSQL restored-target preparation: `prepare-postgres-restore --confirm-restored`
   reads `KYNOTES_DB_DSN` only from the environment, opens the exact existing schema without
   migrating and refuses recorded single mode. Stop every replica before targeting a separately

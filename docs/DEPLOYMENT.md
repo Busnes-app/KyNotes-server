@@ -335,3 +335,47 @@ longer to the per-address rate.
 `X-Forwarded-Proto` and `X-Forwarded-Host` follow the same rule: KyNotes reads them, last value
 first, only from a trusted proxy. They shape the SSO callback and KySignOn pairing URL when none
 is configured, and the SSO state cookie's `Secure` flag.
+
+
+## Offline host maintenance preparation
+
+Hosted startup remains unavailable. These commands operate only on an already initialized,
+exact-release PostgreSQL schema for tenancy rehearsals; they do not initialize a hosted install,
+recover backup bytes or make it ready to serve. Keep every deployment/recovery key unchanged.
+Standalone commands and startup retain their existing behavior.
+
+### Create a dedicated staff administrator
+
+Set `KYNOTES_TENANCY=multi`, `KYNOTES_DB_DSN`, `KYNOTES_STAFF_ORG_ID` and `KYNOTES_REGION`
+in the host environment, matching the database record. Run `kynotes-server user add --admin
+--username <name>` and supply one JSON object on stdin with `authSecret` (64 lowercase hex
+characters), `loginSalt` (16–64 bytes in standard base64), and `iterations` (600000–1000000,
+or omitted for 600000). Use the same password derivation as the existing single-mode stdin
+workflow. Do not put the proof, DSN or password in argv or shell history. Multi mode refuses
+`--password`, `--everyday` and customer creation. Save the recovery code printed after the
+account and platform audit commit. On an output failure the account already exists; retain
+the input credentials rather than blindly repeating creation. A dedicated administrator
+cannot open notes and must change the operator-known password at first sign-in.
+
+Bootstrap preparation likewise places only an administrator in the recorded staff org; two
+replicas seed at most one account. Multi bootstrap refuses both everyday-account variables.
+This routine remains behind the unavailable hosted startup path.
+
+### Accept deliberate shared-setting changes
+
+1. Stop every replica and keep PostgreSQL running. This acknowledgement is the operator's
+   responsibility; the command cannot prove that no replica is serving.
+2. Preserve the server-salt key that encrypts the sealed recovery token. Mode, staff org and
+   region cannot change. Distribute the intended new settings to every replica.
+3. With the same deployment file and all shared replica environment settings, run
+   `kynotes-server accept-replica-config --confirm-stopped --config <path>` once. The command
+   requires environment pairing/salt/SSO/VAPID keys and object-store metadata, loads the full
+   app-owned field map without minting keys, and refuses the single-mode append-only mirror.
+   Object credentials are outside the fingerprint; no object request is made here.
+4. Check success and the platform `admin.replica_config_accepted` event (changed names only).
+   An audit failure leaves the fingerprint unchanged. A replica retaining old settings will
+   refuse the next startup comparison. Normal hosted startup is still refused until every
+   object-store, native-recovery and end-to-end launch prerequisite is satisfied.
+
+No maintenance command selects the unresolved native PostgreSQL backup transport or changes
+its retention/drill readiness. See the [restore runbook](RESTORE.md) for restored-target safety.

@@ -991,3 +991,21 @@ records a platform audit. Identity keys, recovery pairing, erasure fences and pe
 store ID remain. Failed schedule/audit/reset/cancellation rolls back the target. SQLite
 capsule restore retains its behavior through the shared credential-revocation helper.
 Native backup-byte transport, blob recovery and hosted startup remain separate prerequisites.
+
+
+### Host staff and replica maintenance preparation
+
+Recorded multi-mode host account creation targets only the retained staff org on an exact
+existing PostgreSQL schema. Derived proof/salt/iterations enter through bounded stdin JSON;
+DSN and install identity enter through environment. The account and platform audit commit
+before emitting a recovery code. Customer/everyday creation and raw password argv are refused.
+The future startup bootstrap adapter creates one dedicated staff administrator across replicas,
+with password work before N3 and an in-lock emptiness/binding recheck; it refuses everyday
+bootstrap variables. Single-mode account creation remains unchanged.
+
+Explicit `accept-replica-config --confirm-stopped` reads deployment settings without local
+key reads/minting, then derives the complete existing application fingerprint map. Normal
+config loading still refuses multi. Acceptance requires the retained server salt (also the
+sealed recovery-token key) and immutable mode/staff/region; changed field names and the new
+fingerprint commit together. The operator stops every replica before this offline command.
+No automatic mismatch acceptance, schema migration, backup transport or startup enablement.

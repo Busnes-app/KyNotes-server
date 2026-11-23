@@ -192,3 +192,12 @@ PG tests check credential revocation, retained encryption identities/pins/fences
 schedule-off and audit/reset atomicity under schedule failure, audit failure and cancellation.
 SQLite restore shares the same prior revocation operations. This is target-safety evidence,
 not proof of native PostgreSQL backup recovery, object coverage or hosted readiness.
+
+
+Host maintenance uses the exact existing PG schema and recorded staff org/region, with no
+migration or local-key fallback. Tests require atomic account/audit creation, real password
+verification and wrong-proof refusal, bounded secret input and redacted errors, and one-create
+bootstrap across independent pools. Explicit config acceptance derives the complete application
+field map; tests preserve the retained encryption key and fixed install bindings, roll back on
+audit failure and verify the ordinary multi startup gate remains closed. Operator acknowledgement
+that every replica is stopped is a maintenance precondition, not an automatic liveness proof.
