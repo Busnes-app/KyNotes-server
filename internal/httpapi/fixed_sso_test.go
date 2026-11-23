@@ -84,7 +84,48 @@ func TestFixedSSOSettingsAuthenticateAcrossPoolsWithoutDatabaseSecrets(t *testin
 	if strings.Contains(string(payload), settings.ClientSecret) || strings.Contains(string(payload), settings.HMACSecret) {
 		t.Fatal("pending state contains deployment secrets")
 	}
+	readback := sendDirectory(t, first.router, "/api/v1/sync/readback", settings.HMACSecret, "fixed-readback", "user.readback", map[string]string{"subject": "fixed-user"})
+	if readback.Code != 200 {
+		t.Fatalf("fixed directory: %d %s", readback.Code, readback.Body.String())
+	}
+	refused := sendDirectory(t, first.router, "/api/v1/sync/readback", strings.Repeat("q", 32), "fixed-wrong-key", "user.readback", map[string]string{"subject": "fixed-user"})
+	if refused.Code == 200 {
+		t.Fatal("wrong directory signature accepted")
+	}
+	logout := first.sign("logout+jwt", first.logoutClaims("fixed-logout", "fixed-user", "sid"))
+	if res := first.logout(logout); res.Code != 200 {
+		t.Fatalf("fixed logout: %d %s", res.Code, res.Body.String())
+	}
+	if res := first.logout(logout); res.Code != 400 {
+		t.Fatalf("logout replay: %d", res.Code)
+	}
+	if res := first.send(req); res.Code != 403 || errorCode(t, res.Body.String()) != "sso_login_rejected" {
+		t.Fatalf("logout failed to fence an in-flight login: %d %s", res.Code, res.Body.String())
+	}
+	if err := first.db.QueryRow(`SELECT count(*) FROM sessions WHERE revoked_at='' AND sso_subject='fixed-user'`).Scan(&n); err != nil || n != 0 {
+		t.Fatal("logout left a live session", n, err)
+	}
 	if err := first.settings.Save(changed); err != sso.ErrFixedSettings {
 		t.Fatal("fixed settings save succeeded", err)
+	}
+}
+
+func TestFixedSSOStoreRetainsSingleModeConfigurationFences(t *testing.T) {
+	f := newLogoutFixture(t)
+	settings := f.settings.Load()
+	settings.HMACSecret = strings.Repeat("h", 32)
+	fixed := sso.NewFixedStore(settings)
+	router := http.NewServeMux()
+	SSORoutes(router, f.db, f.cfg, fixed)
+	f.router = router
+	req := f.beginLogin("single-fixed", "sid", time.Now())
+	if _, err := f.db.Exec(`UPDATE server_settings SET value='false' WHERE key='sso_enabled'`); err != nil {
+		t.Fatal(err)
+	}
+	if res := f.send(req); res.Code != 403 || errorCode(t, res.Body.String()) != "sso_login_rejected" {
+		t.Fatalf("fixed flag bypassed single-mode configuration: %d %s", res.Code, res.Body.String())
+	}
+	if res := sendDirectory(t, router, "/api/v1/sync/readback", settings.HMACSecret, "single-fixed-read", "user.readback", map[string]string{"subject": "single-fixed"}); res.Code != 422 {
+		t.Fatalf("fixed flag bypassed single directory fence: %d %s", res.Code, res.Body.String())
 	}
 }

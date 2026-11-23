@@ -304,7 +304,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - Fixed multi-mode SSO preparation: pass `readReplicaInputs`' validated `SSO` snapshot to
   `sso.NewFixedStore`; it has no DB handle, never reloads persisted settings and rejects Save.
-  Shared PKCE state still belongs to the route's PG database. No environment client/directory
+  Shared PKCE state still belongs to the route's PG database. Only recorded multi mode
+  plus this fixed-store marker uses the immutable snapshot at final login/step-up/logout/
+  directory admission; single and mutable stores retain their SQL configuration recheck. No environment client/directory
   secret enters settings or pending-state rows. The original `NewStore` stays mutable in single
   mode. Verify `TestFixed*`, signed two-pool callback/one-use/wrong-org/settings-mismatch cases,
   existing SSO/strong-key tests and golden. Runtime construction/startup remain gated.

@@ -2362,3 +2362,9 @@ pools without persisted environment secrets, prove one-use/wrong-org/settings-mi
 and inspect pending-state bytes. Environment-input and concurrent reload/save tests cover the
 adapter contract. Runtime selection of this adapter belongs to final gated multi assembly;
 this preparation does not enable startup or complete object/native-PG backup prerequisites.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.

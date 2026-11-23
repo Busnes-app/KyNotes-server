@@ -57,7 +57,7 @@ func registerSSOLogout(mux RouteMux, db *sql.DB, store *sso.Store, cfg config.Co
 			reject(w, r, 400, "invalid logout token")
 			return
 		}
-		if err = auth.ApplySSOLogout(r.Context(), db, c, settings.ClientID, RequestID(r)); err != nil {
+		if err = auth.ApplySSOLogout(r.Context(), db, c, settings.ClientID, RequestID(r), store.Fixed()); err != nil {
 			if errors.Is(err, auth.ErrSSOLogoutRejected) {
 				WriteError(w, r, 400, "invalid_logout", "invalid logout token")
 			} else {

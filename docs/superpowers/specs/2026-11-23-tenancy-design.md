@@ -1617,3 +1617,9 @@ one-use, wrong-org and differing-environment refusal without persisting client/d
 secrets. Unit/environment-input tests prove immutable copies and concurrent mutation refusal.
 This prepares N5's store adapter; final runtime construction still waits for primary object
 storage, native PG recovery and full lifecycle acceptance before startup can be enabled.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.

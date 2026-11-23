@@ -59,6 +59,10 @@ func NewFixedStore(settings SSOSettings) *Store {
 	return &Store{cached: settings, fixed: true}
 }
 
+// Fixed reports whether configuration can change during this process. Only the fixed
+// constructor sets it; ordinary database-backed stores retain their commit-time SQL checks.
+func (s *Store) Fixed() bool { return s.fixed }
+
 var ErrFixedSettings = errors.New("sso: deployment settings are fixed")
 
 // Reload re-reads persisted settings; fixed and legacy in-memory snapshots stay unchanged.
