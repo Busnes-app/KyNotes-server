@@ -265,7 +265,7 @@ func EraseMembers(ctx context.Context, db *sql.DB) error {
 	rows.Close()
 	for _, user := range users {
 		for _, step := range eraseSteps {
-			if _, err := purgeTable(ctx, db, step, user); err != nil {
+			if _, err := purgeTable(ctx, db, step, user, ""); err != nil {
 				return fmt.Errorf("erase %s: %w", step.table, err)
 			}
 		}
