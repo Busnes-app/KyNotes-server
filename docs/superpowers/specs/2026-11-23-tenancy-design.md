@@ -565,7 +565,16 @@ these routes:
 - `GET /me/identity`, `POST /me/identity/recovery/fetch` (a fresh browser restores its key with
   the recovery code), and the link-request routes (to approve from another browser);
 - `GET /containers`, `GET /containers/{id}/envelopes`, `GET /containers/{id}/changes`,
-  `GET /objects/{id}`, `GET /objects/{id}/attachments`, `GET /attachments/{id}`.
+  `GET /containers/{id}/objects`, `GET /objects/{id}`, `GET /objects/{id}/attachments`,
+  `GET /attachments/{id}`.
+
+The browser export reads a notebook through `readContainerObjects` (`web/src/main.tsx:1475`), which
+pages `GET /containers/{id}/changes` (`web/src/api.ts:221-223`) and reads each page with
+`GET /objects/{id}` (`api.ts:235-236`). `exportNotebook.ts` calls no route. `GET
+/containers/{id}/objects` (`api.ts:229`) is admitted too, as a read, so a later change to the
+loader does not break the only way out. Unverified: whether a fresh browser restoring its key
+with the recovery code also needs `PUT /me/identity` (`api.ts:178`). PR 4c freezes the list with
+an end-to-end export from a fresh browser under `export_only`.
 
 The routes are an allowlist in code. Every other route answers `403 export_only`, and
 `TestExportOnlyAdmitsOnlyTheExportRoutes` drives every registered route with such a session. The
@@ -599,16 +608,28 @@ member of an org deleted by `holder_erased`. KyNotes today never deletes an acco
 all new. In one transaction:
 
 1. End access: sessions, devices and identity, with the same revocations as deactivation.
-2. Remove the member from every team notebook through `removeMemberTx`
+2. **Transfer ownership first.** For each container they own that still has another approved
+   member, set `owner_user_id` and the owner membership to the successor of open question 4 (a):
+   the longest-standing approved admin, else the longest-standing editor. This must come before
+   step 6, because `containers.owner_user_id` is `ON DELETE CASCADE` (`0001_init.sql:4`): without
+   it, deleting the user row would delete the shared notebook for every member.
+3. Remove the member from every team notebook through `removeMemberTx`
    (`AGENTS.md:667-670`). That revokes their envelopes and bumps the generation, so the remaining
    stewards re-key and the erased key opens nothing new.
-3. Delete the containers they own that have no other approved member: their personal notebooks
-   and any team they alone are in.
-4. Delete their comments, mentions, reminders, push subscriptions, share links and sealed links.
-5. Delete the user row, and add the subject to `erased_subjects`.
+4. Delete the containers they still own, which now have no other approved member: their personal
+   notebooks and any team they alone are in.
+5. Delete their reminders, push subscriptions, share links and sealed links. Sealed links have
+   no FK (`0029_share_link_owner.sql:3`), so this step is needed.
+6. Delete the user row, and add the subject to `erased_subjects`. The cascades from `users` then
+   take their comments (`0003_collaboration.sql:2`), mentions (`:3`), memberships, and the
+   invitations they sent (`inviter_id`, `:1`). A pending invitation from an erased member cannot
+   be accepted any more, which is intended: the new owner re-invites.
 
-Team notebooks they own that still have other members raise open question 4. Pages they wrote
-there are the team's, and they stay.
+Pages they wrote in a shared notebook are the team's, and they stay.
+`object_versions.author_user_id` has no FK (`0022_team_keys.sql:2`), so it keeps the erased member's random ID and names nobody.
+Tests: `TestEraseKeepsSharedNotebook` (an erased owner's team notebook with an admin and an editor
+passes to the admin, and both still read every page), `TestEraseDeletesSoleNotebooks`, and an
+erase whose step 2 finds no successor deletes the notebook as step 4 says.
 
 ### Restore
 
