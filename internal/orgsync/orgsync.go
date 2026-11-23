@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/Busnes-app/ky-primitives/suitedir"
@@ -22,19 +21,34 @@ type ListFunc func(ctx context.Context, since int64) ([]suitedir.Org, int64, err
 type Poller struct {
 	db    *sql.DB
 	list  ListFunc
-	mu    sync.Mutex // single flight: one poll at a time, waiters queue behind it
+	turn  chan struct{} // single flight: holding its one slot is running a poll
 	tried map[string]time.Time
 	now   func() time.Time
 }
 
 func New(db *sql.DB, list ListFunc) *Poller {
-	return &Poller{db: db, list: list, tried: map[string]time.Time{}, now: time.Now}
+	return &Poller{db: db, list: list, turn: make(chan struct{}, 1), tried: map[string]time.Time{}, now: time.Now}
 }
+
+// acquire waits for the poll slot, or gives up when ctx ends, so no caller waits past its own
+// bound behind a slow poll.
+func (p *Poller) acquire(ctx context.Context) error {
+	select {
+	case p.turn <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *Poller) release() { <-p.turn }
 
 // Poll asks for the orgs changed since the stored cursor and applies them in one transaction.
 func (p *Poller) Poll(ctx context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	if err := p.acquire(ctx); err != nil {
+		return err
+	}
+	defer p.release()
 	return p.poll(ctx)
 }
 
@@ -84,8 +98,10 @@ func (p *Poller) Await(ctx context.Context, org string) (bool, error) {
 	if ok, err := mirrored(); ok || err != nil {
 		return ok, err
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	if err := p.acquire(ctx); err != nil {
+		return false, nil // the caller's wait ended behind a running poll: still unmirrored
+	}
+	defer p.release()
 	if ok, err := mirrored(); ok || err != nil { // a poll ahead of us may have listed it
 		return ok, err
 	}

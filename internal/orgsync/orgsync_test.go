@@ -123,3 +123,29 @@ func TestAwaitPollsOnceForAnUnknownOrg(t *testing.T) {
 		t.Fatalf("after ten seconds: %d polls, want 3", len(dir.calls))
 	}
 }
+
+// A sign-in's wait ends at its own deadline even while another poll holds the slot.
+func TestAwaitGivesUpAtItsDeadlineBehindASlowPoll(t *testing.T) {
+	s := open(t)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	p := New(s.DB(), func(ctx context.Context, since int64) ([]suitedir.Org, int64, error) {
+		close(started)
+		<-release
+		return nil, since, nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- p.Poll(context.Background()) }()
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	begun := time.Now()
+	ok, err := p.Await(ctx, "org_new")
+	if ok || err != nil || time.Since(begun) > time.Second {
+		t.Fatalf("Await behind a held poll: %v %v after %s", ok, err, time.Since(begun))
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

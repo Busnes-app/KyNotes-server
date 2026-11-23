@@ -259,7 +259,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestMultiModeRefusesSetupAndSSOConfiguration`.
 - Tenancy PR 4a, the org mirror: `internal/orgsync` (`Poller.Poll` applies `suitedir.Client.Orgs` from the
   `server_settings` cursor `org_poll_revision` in one transaction, `WHERE excluded.revision>=orgs.revision`;
-  `Poller.Await` is sign-in's single-flight wait, gated per org ID). The router takes a `*orgsync.Poller`
+  `Poller.Await` is sign-in's single-flight wait, gated per org ID; the poll slot is a one-slot channel taken in a `select` on the caller's context, so no wait outlives its deadline). The router takes a `*orgsync.Poller`
   extra and passes it to `SSORoutes`; `tenancyRefusal` waits for it only when the token's org is not
   mirrored. Never delete an `orgs` row: a deleted org stays as a tombstone. Verify
   `go test ./internal/orgsync` and `TestMultiModeSignInWaitsForOnePollOfAnUnmirroredOrg`.
