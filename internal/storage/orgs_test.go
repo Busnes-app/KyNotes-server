@@ -283,6 +283,30 @@ func TestOrgTriggersRefuseCrossOrgRows(t *testing.T) {
 			t.Errorf("%s: %v, want an org trigger refusal", name, err)
 		}
 	}
+	// N7: members, invitees and the devices behind envelopes are in the container's org.
+	for _, q := range []string{
+		`INSERT INTO devices(id,user_id,public_key,fingerprint,secret_hash,platform,created_at) VALUES('dev_b','usr_b','k','f','h','identity','t')`,
+		`INSERT INTO invitations(id,container_id,inviter_id,invitee_id,token_hash,role,created_at,expires_at) VALUES('inv_x','cnt_a','usr_a','usr_b','th','viewer','t','t')`,
+	} {
+		if err := exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	for name, q := range map[string]string{
+		"member in another org":           `INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('mem_x','cnt_a','usr_b','viewer','t')`,
+		"invitation accepted across orgs": `UPDATE invitations SET status='accepted' WHERE id='inv_x'`,
+		"key envelope for another org":    `INSERT INTO key_envelopes(id,container_id,device_id,key_generation,alg,envelope,created_at) VALUES('env_x','cnt_a','dev_b',1,'a',X'00','t')`,
+		"device selection across orgs":    `INSERT INTO device_containers(device_id,container_id,selected_at) VALUES('dev_b','cnt_a','t')`,
+		"invitation envelope across orgs": `INSERT INTO invitation_envelopes(invitation_id,container_id,device_id,key_generation,alg,envelope) VALUES('inv_x','cnt_a','dev_b',1,'a',X'00')`,
+	} {
+		if err := exec(q); err == nil || !strings.Contains(err.Error(), "member in another org") {
+			t.Errorf("%s: %v, want the N7 trigger", name, err)
+		}
+	}
+	// The same rows inside one org pass.
+	if err := exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('mem_b','cnt_b','usr_b','viewer','t')`); err != nil {
+		t.Fatalf("same-org member: %v", err)
+	}
 	// A blob claim names its key as PostgreSQL does: (org_id, digest).
 	if err := exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES('d1',2,'t') ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`); err != nil {
 		t.Fatalf("claim by (org_id,digest): %v", err)
@@ -297,5 +321,44 @@ func TestOrgTriggersRefuseCrossOrgRows(t *testing.T) {
 	}
 	if err := exec(`UPDATE containers SET team_id='' WHERE id='cnt_a'`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Every audit writer names the org through AuditOrgSQL: the default org in single mode, the
+// actor's org in multi mode, and NULL there for staff and for actors that are no account.
+func TestAuditWritersNameTheOrg(t *testing.T) {
+	s := openFresh(t)
+	orgOf := func(actor string) string {
+		t.Helper()
+		if err := RecordAuditOutcome(s.db, actor, "test.event", "", "", "success", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		var org sql.NullString
+		if err := s.db.QueryRow(`SELECT org_id FROM audit_events WHERE actor_user_id=? ORDER BY at DESC LIMIT 1`, actor).Scan(&org); err != nil {
+			t.Fatal(err)
+		}
+		if !org.Valid {
+			return "NULL"
+		}
+		return org.String
+	}
+	if got := orgOf("system"); got != DefaultOrgID {
+		t.Fatalf("single mode, system: %s", got)
+	}
+	for _, q := range []string{
+		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t')`,
+		`INSERT INTO orgs(id,status,home_region) VALUES('org_staff','active','eu'),('org_b','active','eu')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id) VALUES('usr_cust','c','x','x',1,'t','t','org_b')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,role,account_kind,created_at,updated_at,org_id) VALUES('usr_staff','s','x','x',1,'admin','admin','t','t','org_staff')`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	for actor, want := range map[string]string{"usr_cust": "org_b", "usr_staff": "NULL", "system": "NULL"} {
+		if got := orgOf(actor); got != want {
+			t.Errorf("multi mode, %s: org %s, want %s", actor, got, want)
+		}
 	}
 }

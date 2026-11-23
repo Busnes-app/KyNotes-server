@@ -1094,6 +1094,31 @@ Branch `feat/tenancy-build-2`, stacked on PR 1.
   sent a reminder. It now groups by `r.user_id, u.status` (one status per user, so SQLite's rows
   are the same).
 
+### PR 3a as built
+
+Branch `feat/tenancy-build-3`, stacked on PR 2. The plan's PR 3 is split: 3a is isolation
+between orgs, 3b the identity binding (ID token, webhook, logout token, N5, N6, `user.erased`).
+
+- **N7.** Migration `0033_org_members.sql` and `postgres/0033_org_members.sql`: `*_org_match` and
+  `*_org_match_move` triggers on `memberships`, `key_envelopes`, `device_containers` and
+  `invitation_envelopes`, and `invitations_org_match` on an invitation set to `accepted`. The
+  accept handler joins the invitee's org to the container's in the query that reads the invitation
+  (`collab_routes.go`), so a cross-org accept answers the not-found of a missing invitation;
+  `insertInvitationEnvelopeTx` adds the same join to its identity-device check
+  (`teamkeys_routes.go`). Key envelopes need no handler change: their recipients must be members,
+  and membership is per org.
+- **Audit org.** `storage.AuditOrgSQL`, bound to the actor, is every writer's `org_id`:
+  `recordAuditOutcome`, the device revoke, account recovery and PostgreSQL's cleanup audit. It reads
+  `tenancy_mode` and `staff_org_id` from `server_settings`, which `ensureOrgs` recorded, so every
+  replica decides alike (`TestAuditWritersNameTheOrg`).
+- **The matrix.** `TestCrossOrgMatrix` covers the 50 served routes (of 52) with a row ID in their path;
+  `GET /share-links/{token}` (public) and `PUT /reminders/{id}` (Residual risks, "Reminder ID
+  oracle", found by this test) are exempt with their reasons. Bodies are `{}`, or a valid body
+  where `{}` would be refused before authorization (link-request steps, page share links,
+  attachment links, key rotations). The routes that name rows only in a body act on the caller's
+  own rows or are staff routes; the matrix does not drive them.
+- **The org on `Session` and `Device`** is left to PR 3b, whose N6 check is its first reader.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the
@@ -1111,6 +1136,13 @@ Branch `feat/tenancy-build-2`, stacked on PR 1.
 - **One member can fill the pool.** The pool is shared by every member, so one member's uploads
   can leave the others no room. The per-user safety cap bounds it. That is the plan as sold.
 - **The shared volume is a single point of failure** while launch runs on `volume`, until PR 5b.
+- **Reminder ID oracle** (found by the cross-org matrix, PR 3). `PUT /reminders/{id}` with an ID
+  another account holds answers 404 where an unused ID creates a reminder, so it reveals that
+  the ID exists, across orgs as across users of a single-tenant install today. Using it needs the
+  other account's reminder ID, an HMAC under a key only that account's browser holds
+  (`reminderPush.ts`), which the server never returns to anyone else. Closing it means keying
+  `reminders` by `(user_id, id)`, a SQLite table rebuild that also changes a single-tenant
+  answer; owner question 13.
 - **Operator access.** The operator holds the database and the bucket, which are ciphertext and
   metadata (who is in which notebook, sizes, times). That metadata is not encrypted.
 
@@ -1173,3 +1205,7 @@ Branch `feat/tenancy-build-2`, stacked on PR 1.
     automatic pruning for launch, since it would delete customer data; an over-quota member
     frees room by deleting pages, notebooks or attachments, which frees their bytes at once
     ("What over-quota refuses"). A history limit per plan is a later owner choice.
+13. **The reminder ID oracle** (Residual risks). Recommend leaving it for launch: it needs a
+    secret the server never discloses. If the owner wants it closed, key `reminders` by
+    `(user_id, id)` in one migration, accepting that another account's ID then creates a
+    reminder instead of answering 404 on single-tenant installs too.

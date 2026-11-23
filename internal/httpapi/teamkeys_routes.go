@@ -470,7 +470,8 @@ func insertInvitationEnvelopeTx(tx *sql.Tx, invitationID, cid, inviter, invitee 
 		return errGenerationMoved
 	}
 	var identity int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices WHERE id=? AND user_id=? AND platform='identity' AND revoked_at=''`, v.DeviceID, invitee).Scan(&identity); err != nil {
+	// N7: another org's identity is refused as an unknown device is.
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices d JOIN users u ON u.id=d.user_id JOIN containers c ON c.id=? AND c.org_id=u.org_id WHERE d.id=? AND d.user_id=? AND d.platform='identity' AND d.revoked_at=''`, v.ContainerID, v.DeviceID, invitee).Scan(&identity); err != nil {
 		return err
 	}
 	if identity == 0 {

@@ -232,7 +232,8 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 			now := time.Now().UTC().Format(time.RFC3339)
 			// One read, in the transaction that consumes it: invitee, status and expiry cannot change before the update.
 			var cid, inviter, role string
-			if e := tx.QueryRow(`SELECT container_id,inviter_id,role FROM invitations WHERE id=? AND token_hash=? AND invitee_id=? AND status='pending' AND expires_at>?`, id, tokenHash, s.UserID, now).Scan(&cid, &inviter, &role); e != nil {
+			// N7: an invitee in another org than the notebook finds no invitation, as for a missing one.
+			if e := tx.QueryRow(`SELECT i.container_id,i.inviter_id,i.role FROM invitations i JOIN containers c ON c.id=i.container_id JOIN users u ON u.id=i.invitee_id AND u.org_id=c.org_id WHERE i.id=? AND i.token_hash=? AND i.invitee_id=? AND i.status='pending' AND i.expires_at>?`, id, tokenHash, s.UserID, now).Scan(&cid, &inviter, &role); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`UPDATE invitations SET status='accepted',responded_at=? WHERE id=?`, now, id); e != nil {

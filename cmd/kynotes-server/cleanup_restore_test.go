@@ -30,10 +30,11 @@ func TestCapacityRefusedRestoreStillRevokesCredentialsAndStopsDeposits(t *testin
 		t.Fatal(err)
 	}
 	defer st.Close()
-	// Remove 0032 (tenancy) first: its triggers, index, columns, tables and records. Only
-	// audit_events.org_id stays, because this release's backup export below writes audit rows
-	// that name an org. The restore refuses at 0031's slot allocation, before 0032 would add
-	// that column again; were it to get that far, the duplicate column would fail loudly.
+	// Remove 0032 and later (tenancy) first: its triggers, index, columns, tables and records.
+	// audit_events.org_id and users.org_id stay, because this release's backup export below
+	// writes audit rows whose org SQL (storage.AuditOrgSQL) names them. The restore refuses at
+	// 0031's slot allocation, before 0032 would add them again; were it to get that far, the
+	// duplicate columns would fail loudly.
 	rows, err := st.DB().Query(`SELECT name FROM sqlite_schema WHERE type='trigger' AND (name LIKE '%\_org\_%' ESCAPE '\' OR name='audit_events_org_named')`)
 	if err != nil {
 		t.Fatal(err)
@@ -46,10 +47,10 @@ func TestCapacityRefusedRestoreStillRevokesCredentialsAndStopsDeposits(t *testin
 	}
 	rows.Close()
 	undo = append(undo, `DROP INDEX blobs_org_digest`)
-	for _, table := range []string{"users", "containers", "blobs", "blob_containers", "object_versions", "conflicts", "attachments", "upload_sessions", "sealed_share_links"} {
+	for _, table := range []string{"containers", "blobs", "blob_containers", "object_versions", "conflicts", "attachments", "upload_sessions", "sealed_share_links"} {
 		undo = append(undo, `ALTER TABLE `+table+` DROP COLUMN org_id`)
 	}
-	undo = append(undo, `DROP TABLE orgs`, `DROP TABLE erased_subjects`, `DELETE FROM schema_migrations WHERE version=32`, `DELETE FROM server_settings WHERE key='tenancy_mode'`)
+	undo = append(undo, `DROP TABLE orgs`, `DROP TABLE erased_subjects`, `DELETE FROM schema_migrations WHERE version>=32`, `DELETE FROM server_settings WHERE key='tenancy_mode'`)
 	for _, q := range undo {
 		if _, err = st.DB().Exec(q); err != nil {
 			t.Fatal(q, err)
