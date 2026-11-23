@@ -1068,9 +1068,12 @@ Branch `feat/tenancy-build-2`, stacked on PR 1.
 - **Portable SQL at call sites**, each keeping SQLite's answers: two-argument `max`/`min` as
   `CASE` (`sso_directory.go`, `sso_stepup.go`); the attachment insert as
   `ON CONFLICT(container_id,blob_digest) DO NOTHING` with `RowsAffected` (it caught a unique
-  error inside the transaction, which aborts a PostgreSQL transaction); the page read's version
-  as `COALESCE(CAST(NULLIF(?,'') AS BIGINT), o.current_version)` (`TestObjectReadSelectsTheVersion`
-  runs seven forms on both backends, and on PR 1's query).
+  error inside the transaction, which aborts a PostgreSQL transaction); the page read's
+  `?version=` decided in Go exactly as SQLite's INTEGER-affinity comparison read it
+  (`versionSelector`: numeric text equal to an integer selects that version, anything else none)
+  and bound as an integer, or NULL for the current version (`TestObjectReadSelectsTheVersion`
+  runs 16 forms on both backends and on PR 1's query; a first `CAST` version selected version 1
+  for `1abc` and `1.9`, caught in review).
 - **No PostgreSQL install is enabled.** `KYNOTES_DB_DSN` fails config like the other multi-only
   variables until PR 6, which wires `storage.OpenPostgres` into `serve`.
 - **The CI leg.** With `KYNOTES_TEST_DATABASE_URL` set, every `storage.Open(path)` in a test opens
