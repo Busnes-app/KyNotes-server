@@ -341,8 +341,11 @@ browser, the API bodies, the probe and the MCP bridge see no new field. PR 1 pro
 upgrade golden test (Tests).
 
 `orgs.status` takes KyIdentity's values (`active`, `suspended`, `deletion_scheduled`, `deleted`)
-plus `stale`, which means KyNotes has no current answer for the org (C). Only `active`, `enabled`,
-in this region, serves. A failed poll changes nothing.
+plus `stale`, which means KyNotes has no current answer for the org (C). In multi mode only
+`active`, `enabled`, in this region (`KYNOTES_REGION`), serves. A failed poll changes nothing.
+**Single mode runs no org check.** Its one org always serves. Its `local` region is never
+compared, and `ResolveSession` and `resolveDevice` keep today's queries, with no join on
+`orgs`. The single-tenant golden pins that.
 
 ### The org-bound store
 
@@ -351,7 +354,7 @@ authorization is a join on `memberships` with the caller's user ID (for example
 `upload_routes.go:98`, `:466`). So the org binding goes where the caller is resolved:
 
 - **`ResolveSession`** (`internal/auth/session.go:109-122`) and **`resolveDevice`**
-  (`internal/auth/middleware.go:239-248`) join `orgs` on the user's `org_id` and refuse a
+  (`internal/auth/middleware.go:239-248`), in multi mode, join `orgs` on the user's `org_id` and refuse a
   non-serving org: a session is deleted, as for an inactive account; a device answers `401`.
   **One exception:** a session marked `export_only` is admitted while its org is
   `deletion_scheduled` (and in no other non-serving state), and then only on the N11 allowlist.
@@ -676,10 +679,14 @@ On the elected worker, in batches, as C "Deleted":
    and fails when a new cascading child is missing from the order.
    Unreferenced blobs then lose their rows in the same way. This "batched container delete" is
    shared with erasure step 4.
-3. Delete the org's users. That cascades to sessions, devices, identities, reminders,
-   subscriptions, uploads and link requests. Also delete its rows in the tables with no FK:
-   `sealed_share_links`, `audit_events` (the org's own), `pairing_nonces`, `sso_directory_state`
-   and `sso_login_cutoffs` for its subjects.
+3. Delete the org's users and their rows, in the same batches as step 2 (at most 500 rows a
+   transaction under N3's lock). First the rows in the tables with no FK, by `org_id` or by
+   the org's subjects: `audit_events` (the org's own), `sealed_share_links`, `pairing_nonces`,
+   `sso_directory_state` and `sso_login_cutoffs`. Then each user **bottom-up**: its sessions,
+   devices, identities, reminders, subscriptions, uploads and link requests. The `users` row
+   goes last, once its own cascade is empty. `TestPurgeOrderCoversEveryCascade` also covers the
+   cascading FKs to `users`, and the "killed between batches" test kills the worker in step 3
+   too.
 4. Delete the `orgs/<org_id>/` prefix in object storage. A listing that is not empty is retried
    on the next run.
 5. Set `orgs.purged_at` and write `platform.org_deleted` with row counts per table.
