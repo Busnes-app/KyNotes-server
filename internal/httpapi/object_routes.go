@@ -12,9 +12,12 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"io"
+	"math"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -190,7 +193,12 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		}
 		var cid, digest, savedAt string
 		var version, gen, containerSeq int64
-		if e := db.QueryRow(`SELECT o.container_id,v.blob_digest,v.version,v.key_generation,c.change_seq,v.created_at FROM objects o JOIN containers c ON c.id=o.container_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? JOIN object_versions v ON v.object_id=o.id AND v.version=CASE WHEN ?='' THEN o.current_version ELSE ? END WHERE o.id=? AND m.revoked_at=''`, uid, r.URL.Query().Get("version"), r.URL.Query().Get("version"), oid).Scan(&cid, &digest, &version, &gen, &containerSeq, &savedAt); e != nil {
+		selected, ok := versionSelector(r.URL.Query().Get("version"))
+		if !ok {
+			WriteError(w, r, 404, "not_found", "not found")
+			return
+		}
+		if e := db.QueryRow(`SELECT o.container_id,v.blob_digest,v.version,v.key_generation,c.change_seq,v.created_at FROM objects o JOIN containers c ON c.id=o.container_id JOIN memberships m ON m.container_id=o.container_id AND m.user_id=? JOIN object_versions v ON v.object_id=o.id AND v.version=COALESCE(?,o.current_version) WHERE o.id=? AND m.revoked_at=''`, uid, selected, oid).Scan(&cid, &digest, &version, &gen, &containerSeq, &savedAt); e != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
@@ -469,4 +477,25 @@ func replayObjectSave(w http.ResponseWriter, r *http.Request, q rowQuerier, oid,
 	}
 	writeJSON(w, map[string]any{"version": version, "resourceId": resource, "commitReceipt": currentCommitReceipt(q, oid, version)})
 	return true
+}
+
+// sqliteNumber is the text SQLite's numeric affinity reads as a number.
+var sqliteNumber = regexp.MustCompile(`^\s*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s*$`)
+
+// versionSelector reads ?version= as the page read always compared it, on SQLite, with the
+// INTEGER column: "" is the current version (nil); text SQLite reads as a number equal to an
+// integer selects that version; anything else matches no version (ok false). Deciding here
+// and binding an integer gives PostgreSQL the same answers.
+func versionSelector(raw string) (any, bool) {
+	if raw == "" {
+		return nil, true
+	}
+	if !sqliteNumber.MatchString(raw) {
+		return nil, false
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || f != math.Trunc(f) || f < math.MinInt64 || f >= math.MaxInt64 {
+		return nil, false
+	}
+	return int64(f), true
 }

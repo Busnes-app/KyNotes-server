@@ -322,9 +322,7 @@ func TestSSOStewardSharesKeysAfterActionStepUp(t *testing.T) {
 func TestSSOGrantIsRecheckedInTheWriteTransaction(t *testing.T) {
 	f, cookies, bob, device, cid := ssoTeam(t)
 	// The session dies in the very transaction that consumes the grant.
-	if _, err := f.db.Exec(`CREATE TRIGGER revoke_on_consume AFTER INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.consume' BEGIN UPDATE sessions SET revoked_at='revoked' WHERE user_id='` + bob + `'; END`); err != nil {
-		t.Fatal(err)
-	}
+	afterInsertRun(t, f.db, "revoke_on_consume", "audit_events", `NEW.event='auth.sso_step_up.consume'`, `UPDATE sessions SET revoked_at='revoked' WHERE user_id='`+bob+`'`)
 	if r := ssoDo(f, cookies, "bob", "POST", "/api/v1/containers/"+cid+"/key-rotations", string(rotationBody(1, envJSON(device, 2, 1)))); r.Code == 200 {
 		t.Fatal("a session revoked after its grant still rotated")
 	}

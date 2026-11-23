@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -311,9 +312,7 @@ func TestSSOLogoutAtomicAuditReplayAndRestart(t *testing.T) {
 	f := newLogoutFixture(t)
 	cookies := f.login("alice", "sid-a")
 	token := f.sign("logout+jwt", f.logoutClaims("replay", "alice", "sid-a"))
-	if _, err := f.db.Exec(`CREATE TRIGGER fail_logout BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_logout' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "fail_logout", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_logout'`, "fixture")
 	if res := f.logout(token); res.Code != 500 {
 		t.Fatalf("audit failure: %d", res.Code)
 	}
@@ -324,9 +323,7 @@ func TestSSOLogoutAtomicAuditReplayAndRestart(t *testing.T) {
 	if err := f.db.QueryRow(`SELECT count(*) FROM sso_logout_events`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("replay admission not rolled back: %d %v", n, err)
 	}
-	if _, err := f.db.Exec(`DROP TRIGGER fail_logout`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, f.db, "fail_logout", "audit_events")
 	var wg sync.WaitGroup
 	codes := make(chan int, 3)
 	for i := 0; i < 3; i++ {
@@ -346,24 +343,9 @@ func TestSSOLogoutAtomicAuditReplayAndRestart(t *testing.T) {
 	if success != 1 || f.protected(cookies) != 401 {
 		t.Fatal("logout did not commit exactly once")
 	}
-	// Open another connection to the same on-disk database, not an in-memory replay cache.
-	var path string
-	rows, err := f.db.Query(`PRAGMA database_list`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var seq int
-		var name string
-		if err := rows.Scan(&seq, &name, &path); err != nil {
-			t.Fatal(err)
-		}
-		if name == "main" {
-			break
-		}
-	}
-	rows.Close()
-	reopened, err := storage.Open(path)
+	// Open another connection to the same database (setupTestDB's file), not an in-memory
+	// replay cache.
+	reopened, err := storage.Open(filepath.Join(f.cfg.DataDir, "kynotes_test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,9 +487,7 @@ func TestSSOLoginRequiresAtomicAuditAndSessionIdentity(t *testing.T) {
 	if res := f.send(f.beginLogin("alice", "", time.Now())); res.Code == 302 {
 		t.Fatal("missing sid accepted")
 	}
-	if _, err := f.db.Exec(`CREATE TRIGGER fail_login_audit BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_login' BEGIN SELECT RAISE(ABORT,'test audit failure'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "fail_login_audit", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_login'`, "test audit failure")
 	res := f.send(f.beginLogin("alice", "audited", time.Now()))
 	if res.Code != 500 {
 		t.Fatalf("callback: %d %s", res.Code, res.Body.String())
@@ -528,18 +508,14 @@ func TestSSOConfigurationRevocationIsAtomic(t *testing.T) {
 	cookies := f.login("alice", "configuration")
 	settings := f.settings.Load()
 	settings.Enabled = false
-	if _, err := f.db.Exec(`CREATE TRIGGER fail_config_audit BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_configuration' BEGIN SELECT RAISE(ABORT,'test audit failure'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "fail_config_audit", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_configuration'`, "test audit failure")
 	if err := f.settings.Save(settings); err == nil {
 		t.Fatal("configuration committed without audit")
 	}
 	if !f.settings.Load().Enabled || f.protected(cookies) != 204 {
 		t.Fatal("failed configuration changed authorization")
 	}
-	if _, err := f.db.Exec(`DROP TRIGGER fail_config_audit`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, f.db, "fail_config_audit", "audit_events")
 	if err := f.settings.Save(settings); err != nil {
 		t.Fatal(err)
 	}

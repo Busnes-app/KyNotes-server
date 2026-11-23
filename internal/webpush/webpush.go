@@ -171,7 +171,7 @@ func (s *Sender) send(ctx context.Context, endpoint string, now time.Time) outco
 // ponytail: one account at a time, each request up to Timeout. Upgrade path: a bounded worker pool.
 func (s *Sender) Fire(ctx context.Context, db *sql.DB, now time.Time) error {
 	cutoff := now.UTC().Format(time.RFC3339)
-	rows, err := db.QueryContext(ctx, `SELECT r.user_id,MIN(r.at),u.status='active' FROM reminders r JOIN users u ON u.id=r.user_id WHERE r.at<=? GROUP BY r.user_id`, cutoff)
+	rows, err := db.QueryContext(ctx, `SELECT r.user_id,MIN(r.at),u.status='active' FROM reminders r JOIN users u ON u.id=r.user_id WHERE r.at<=? GROUP BY r.user_id,u.status`, cutoff)
 	if err != nil {
 		return err
 	}

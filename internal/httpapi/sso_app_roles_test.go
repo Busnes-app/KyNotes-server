@@ -118,16 +118,12 @@ func TestSSOAppRolesRequireExplicitTokenAndAccountPermission(t *testing.T) {
 	}
 
 	// Failed audit cannot partially demote or consume a role revision.
-	if _, err := f.db.Exec(`CREATE TRIGGER fail_role_audit BEFORE INSERT ON audit_events WHEN NEW.event='directory.apply' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "fail_role_audit", "BEFORE INSERT", "audit_events", `NEW.event='directory.apply'`, "fixture")
 	provision(3, []any{}, 500)
 	if admin(elevated.Result().Cookies()) != 204 {
 		t.Fatal("failed role mutation changed access")
 	}
-	if _, err := f.db.Exec(`DROP TRIGGER fail_role_audit`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, f.db, "fail_role_audit", "audit_events")
 	pending := f.beginLogin("alice", "old-admin-proof", time.Now().Add(-time.Second))
 	f.mu.Lock()
 	f.proofs[pending.URL.Query().Get("state")]["roles"] = []string{sso.AdminAppRole}

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -446,7 +447,12 @@ func TestIdentityResetWithoutAnIdentityAuditsRevocations(t *testing.T) {
 func TestIdentityRecoverySetChecksRowsAffected(t *testing.T) {
 	p := newPairClient(t, strings.Repeat("p", 32))
 	id := p.createIdentity(t)
-	if _, err := p.db.Exec(`CREATE TRIGGER skip_recovery BEFORE UPDATE OF recovery_id ON user_identities BEGIN SELECT RAISE(IGNORE); END`); err != nil {
+	// The update is skipped silently: RAISE(IGNORE) on SQLite, a NULL row on PostgreSQL.
+	skip := `CREATE TRIGGER skip_recovery BEFORE UPDATE OF recovery_id ON user_identities BEGIN SELECT RAISE(IGNORE); END`
+	if storage.IsPostgres(p.db) {
+		skip = `CREATE FUNCTION skip_recovery() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NULL; END $$; CREATE TRIGGER skip_recovery BEFORE UPDATE OF recovery_id ON user_identities FOR EACH ROW EXECUTE FUNCTION skip_recovery()`
+	}
+	if _, err := p.db.Exec(skip); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := p.setRecovery(t, id, "", recoveryCopy); code != http.StatusConflict {

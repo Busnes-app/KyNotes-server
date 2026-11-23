@@ -20,8 +20,10 @@ import (
 var migrationFS embed.FS
 
 type Store struct {
-	db   *sql.DB
-	path string
+	db           *sql.DB
+	path         string
+	pg           bool
+	migrationKey int64
 }
 
 // ErrSchemaNewer: the database was migrated by a newer release than this binary.
@@ -67,6 +69,13 @@ func OpenCurrent(path string) (*Store, error) {
 }
 
 func open(path string, migrate bool) (*Store, error) {
+	if testDatabaseURL() != "" {
+		return openTestPostgres(path, migrate)
+	}
+	return openSQLite(path, migrate)
+}
+
+func openSQLite(path string, migrate bool) (*Store, error) {
 	// synchronous(FULL): a commit the server acknowledged survives power loss; clients drop their
 	// queued copy on that acknowledgement.
 	d, err := sql.Open("sqlite", fmt.Sprintf("file:%s?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(FULL)", path))
@@ -161,7 +170,11 @@ func (s *Store) migratePending(preflight bool) error {
 	return tx.Commit()
 }
 func (s *Store) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	opts := &sql.TxOptions{Isolation: sql.LevelSerializable}
+	if s.pg {
+		opts = nil // READ COMMITTED under the writer lock (N3): one writer, as on SQLite
+	}
+	tx, err := s.db.BeginTx(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -172,6 +185,9 @@ func (s *Store) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return tx.Commit()
 }
 func (s *Store) IntegrityCheck(ctx context.Context) error {
+	if s.pg {
+		return s.db.PingContext(ctx)
+	}
 	var result string
 	if err := s.db.QueryRowContext(ctx, "PRAGMA quick_check").Scan(&result); err != nil {
 		return err

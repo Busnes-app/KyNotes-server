@@ -29,22 +29,17 @@ func TestDatabaseErrorsNeverReachTheClient(t *testing.T) {
 		}
 		logged.Reset()
 	}
-	failInsert := `CREATE TRIGGER fail_user_insert BEFORE INSERT ON users BEGIN SELECT RAISE(ABORT,'` + detail + `'); END`
 
 	db, cfg := setupTestDB(t)
 	mux := http.NewServeMux()
 	AuthRoutes(mux, db, cfg)
-	if _, err := db.Exec(failInsert); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, db, "fail_user_insert", "BEFORE INSERT", "users", "", detail)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/setup", bytes.NewReader(setupBody("admin", "owner"))))
 	check("setup", rec)
 
 	f := newLogoutFixture(t)
-	if _, err := f.db.Exec(failInsert); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "fail_user_insert", "BEFORE INSERT", "users", "", detail)
 	check("auto-provision", roleCallback(f, "newcomer", nil, ""))
 }
 

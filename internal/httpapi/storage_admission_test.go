@@ -22,6 +22,7 @@ import (
 // A legacy database can be large while its owner's ordinary quota still has room.
 // No real instance is touched: SQLite makes the padding in this fixture's temporary directory.
 func TestDatabaseHeldWritesStopBeforeCapsuleCeiling(t *testing.T) {
+	storage.SkipOnPostgres(t, "the Q12 database budget is SQLite pages; PostgreSQL has the org pool")
 	tm := newTeam(t)
 	tm.rotate(t, tm.id, 1)
 	oid, code := tm.owner.save(t, tm.id, "", 2)
@@ -170,9 +171,12 @@ func TestCommentDeletionAuthorityAuditAndRollback(t *testing.T) {
 	if err := tm.owner.db.QueryRow(`SELECT change_seq FROM containers WHERE id=?`, tm.id).Scan(&seq); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tm.owner.db.Exec(`CREATE TRIGGER reject_comment_audit BEFORE UPDATE ON cleanup_audit_slots WHEN OLD.kind='comment' BEGIN SELECT RAISE(ABORT,'test audit failure'); END`); err != nil {
-		t.Fatal(err)
+	// The deletion's audit fails: SQLite fills its slot, PostgreSQL inserts an audit row.
+	timing, table, cond := "BEFORE UPDATE", "cleanup_audit_slots", `OLD.kind='comment'`
+	if storage.IsPostgres(tm.owner.db) {
+		timing, table, cond = "BEFORE INSERT", "audit_events", `NEW.event='comment.delete'`
 	}
+	refuseTrigger(t, tm.owner.db, "reject_comment_audit", timing, table, cond, "test audit failure")
 	if code := remove(tm.owner, id, true); code != 500 {
 		t.Fatalf("failed audit=%d", code)
 	}
@@ -181,9 +185,7 @@ func TestCommentDeletionAuthorityAuditAndRollback(t *testing.T) {
 	if err := tm.owner.db.QueryRow(`SELECT length(body_ciphertext),(SELECT COUNT(*) FROM mentions WHERE comment_id=?1),(SELECT change_seq FROM containers WHERE id=?2) FROM comments WHERE id=?1 AND deleted_at=''`, id, tm.id).Scan(&bytes, &mentions, &afterSeq); err != nil || bytes != 2 || mentions != 1 || seq != afterSeq {
 		t.Fatalf("rollback=%d %d %d/%d %v", bytes, mentions, seq, afterSeq, err)
 	}
-	if _, err := tm.owner.db.Exec(`DROP TRIGGER reject_comment_audit`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, tm.owner.db, "reject_comment_audit", table)
 	scope := `SELECT id FROM containers WHERE owner_user_id=?1`
 	before, err := usedBytes(tm.owner.db, scope, pairUser, "")
 	if err != nil {

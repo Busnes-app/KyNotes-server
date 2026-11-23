@@ -18,6 +18,7 @@ import (
 )
 
 func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
+	storage.SkipOnPostgres(t, "capsule backups snapshot the SQLite file (tenancy spec, open question 3)")
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
 	cfg.Backup.Dir = t.TempDir()
@@ -104,6 +105,7 @@ func TestBackupRoutesRequireAdminStepUpAndCSRF(t *testing.T) {
 
 // Deposit is admin plus CSRF only (suite parity); every other backup mutation keeps step-up.
 func TestBackupDepositNeedsAdminNotStepUp(t *testing.T) {
+	storage.SkipOnPostgres(t, "capsule backups snapshot the SQLite file (tenancy spec, open question 3)")
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
 	cfg.Backup.Dir = t.TempDir()

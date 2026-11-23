@@ -223,7 +223,7 @@ func TestAdminSetsExemptNetworks(t *testing.T) {
 		t.Fatalf("exempted = %v, want 8", n)
 	}
 	var reason, actor string
-	if err := db.QueryRow(`SELECT reason_code,actor_user_id FROM audit_events WHERE event='admin.rate_limit_networks' ORDER BY rowid DESC LIMIT 1`).Scan(&reason, &actor); err != nil || actor != adminID || reason != `from="" to="203.0.113.0/24,2001:db8:1::/48"` {
+	if err := db.QueryRow(`SELECT reason_code,actor_user_id FROM audit_events WHERE event='admin.rate_limit_networks' ORDER BY at DESC,id DESC LIMIT 1`).Scan(&reason, &actor); err != nil || actor != adminID || reason != `from="" to="203.0.113.0/24,2001:db8:1::/48"` {
 		t.Fatalf("audit: %v %q %q", err, actor, reason)
 	}
 

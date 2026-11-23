@@ -78,8 +78,9 @@ func TestGCDeletesExpiredLinkRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	var left string
-	if err := db.QueryRow(`SELECT group_concat(id) FROM link_requests`).Scan(&left); err != nil || left != "lnk_live" {
-		t.Fatalf("left=%q %v, want lnk_live", left, err)
+	var n int
+	if err := db.QueryRow(`SELECT MIN(id),COUNT(*) FROM link_requests`).Scan(&left, &n); err != nil || left != "lnk_live" || n != 1 {
+		t.Fatalf("left=%q (%d rows) %v, want lnk_live", left, n, err)
 	}
 }
 

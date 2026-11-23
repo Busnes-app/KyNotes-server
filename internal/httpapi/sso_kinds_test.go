@@ -85,7 +85,7 @@ func TestDirectoryNeverGrantsAdminToEverydayAccounts(t *testing.T) {
 		}
 	}
 	var reason string
-	if err := f.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='directory.apply' AND object_id='alice' ORDER BY at DESC, rowid DESC LIMIT 1`).Scan(&reason); err != nil || !strings.Contains(reason, "role=user") || !strings.HasSuffix(reason, ",role_refused=everyday_account") {
+	if err := f.db.QueryRow(`SELECT reason_code FROM audit_events WHERE event='directory.apply' AND object_id='alice' ORDER BY at DESC, ` + rowOrder(f.db) + ` DESC LIMIT 1`).Scan(&reason); err != nil || !strings.Contains(reason, "role=user") || !strings.HasSuffix(reason, ",role_refused=everyday_account") {
 		t.Fatalf("audit %q %v", reason, err)
 	}
 	// Another active administrator, so revoking ops's grant is not the last-admin retention case.

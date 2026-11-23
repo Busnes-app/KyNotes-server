@@ -31,19 +31,7 @@ func TestFrozenAuditAndIdempotencySchema(t *testing.T) {
 		"audit_events":     {"at", "event", "outcome", "actor_user_id", "actor_device_id", "container_id", "object_id", "request_id", "reason_code"},
 		"idempotency_keys": {"key", "response_id", "status_code", "created_at"},
 	} {
-		rows, err := s.DB().Query("SELECT name FROM pragma_table_info(?)", table)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := map[string]bool{}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				t.Fatal(err)
-			}
-			got[name] = true
-		}
-		rows.Close()
+		got := catalogColumns(t, s, table)
 		for _, name := range want {
 			if !got[name] {
 				t.Errorf("%s missing frozen column %s", table, name)

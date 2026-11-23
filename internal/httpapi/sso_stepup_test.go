@@ -166,9 +166,7 @@ func TestSSOStepUpCancellationRevocationAndAudit(t *testing.T) {
 			f, cookies := reauthFixture(t)
 			id, callback := reauthStart(f, cookies)
 			if mode == "verify-audit" {
-				if _, err := f.db.Exec(`CREATE TRIGGER reject_reauth BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.verify' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-					t.Fatal(err)
-				}
+				refuseTrigger(t, f.db, "reject_reauth", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_step_up.verify'`, "fixture")
 			}
 			if mode == "cancel" {
 				r := f.send(withCookies(httptest.NewRequest("DELETE", "/api/v1/auth/oidc/step-up/"+id, nil), cookies))
@@ -226,9 +224,7 @@ func TestSSOStepUpCancellationRevocationAndAudit(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "consume-audit":
-				if _, err := f.db.Exec(`CREATE TRIGGER reject_reauth BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.consume' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-					t.Fatal(err)
-				}
+				refuseTrigger(t, f.db, "reject_reauth", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_step_up.consume'`, "fixture")
 			}
 			if res := reauthAction(f, cookies, id, "/action", `{"target":1}`); res.Code == 204 {
 				t.Fatal("revocation bypassed", mode)
@@ -286,9 +282,7 @@ func TestSSOStepUpAdmissionFailures(t *testing.T) {
 				return
 			}
 			if mode == "audit" {
-				if _, err := f.db.Exec(`CREATE TRIGGER reject_start BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.start' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-					t.Fatal(err)
-				}
+				refuseTrigger(t, f.db, "reject_start", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_step_up.start'`, "fixture")
 				if r := reauthAction(f, cookies, "", "/action", ""); r.Code != 500 {
 					t.Fatal("unaudited challenge", r.Code)
 				}
@@ -398,16 +392,12 @@ func TestSSOStepUpCancellationAuditsOnlyOwnedDeletion(t *testing.T) {
 		t.Errorf("foreign session: %d", code)
 	}
 	assertCounts(0, 1)
-	if _, err := f.db.Exec(`CREATE TRIGGER reject_cancel BEFORE INSERT ON audit_events WHEN NEW.event='auth.sso_step_up.cancel' BEGIN SELECT RAISE(ABORT,'fixture'); END`); err != nil {
-		t.Fatal(err)
-	}
+	refuseTrigger(t, f.db, "reject_cancel", "BEFORE INSERT", "audit_events", `NEW.event='auth.sso_step_up.cancel'`, "fixture")
 	if code := cancel(id, cookies); code != 500 {
 		t.Errorf("failed audit: %d", code)
 	}
 	assertCounts(0, 1)
-	if _, err := f.db.Exec(`DROP TRIGGER reject_cancel`); err != nil {
-		t.Fatal(err)
-	}
+	dropTrigger(t, f.db, "reject_cancel", "audit_events")
 	if code := cancel(id, cookies); code != 204 {
 		t.Errorf("owned cancellation: %d", code)
 	}

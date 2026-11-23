@@ -187,7 +187,7 @@ func CompleteSSOStepUp(ctx context.Context, db *sql.DB, s Session, id string, id
 	if err = checkSSOIdentityTx(tx, s.UserID, identity, now); err != nil {
 		return err
 	}
-	result, err := tx.Exec(`UPDATE sso_stepup SET verified=1,auth_time=?,proof_sid=?,proof_iat=?,expires_at=min(expires_at,?) WHERE id=? AND session_id=? AND started=1 AND verified=0 AND expires_at>? AND created_at<=?`, authTime.Unix(), identity.SessionID, identity.IssuedAt.Unix(), now.Add(time.Minute).Unix(), id, s.ID, now.Unix(), authTime.Unix())
+	result, err := tx.Exec(`UPDATE sso_stepup SET verified=1,auth_time=?,proof_sid=?,proof_iat=?,expires_at=CASE WHEN expires_at<? THEN expires_at ELSE ? END WHERE id=? AND session_id=? AND started=1 AND verified=0 AND expires_at>? AND created_at<=?`, authTime.Unix(), identity.SessionID, identity.IssuedAt.Unix(), now.Add(time.Minute).Unix(), now.Add(time.Minute).Unix(), id, s.ID, now.Unix(), authTime.Unix())
 	if err != nil {
 		return err
 	}

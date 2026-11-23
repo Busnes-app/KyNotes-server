@@ -2113,3 +2113,16 @@ database recorded in another mode is refused before anything is written. `KYNOTE
 accepts only `single` (multi is refused until the spec's PR 6), and `KYNOTES_STAFF_ORG_ID` and
 `KYNOTES_REGION` are refused in single mode. The single-tenant upgrade golden
 (`internal/httpapi/testdata/tenancy-golden`) proves the API answers are unchanged.
+
+## Tenancy amendment, PR 2 (PostgreSQL store)
+
+Multi-tenant mode runs on PostgreSQL (tenancy spec N2); single-tenant stays on SQLite, and
+this PR enables no PostgreSQL install (`KYNOTES_DB_DSN` is refused like the other multi-only
+variables until the spec's PR 6). `storage.OpenPostgres` opens it through
+`internal/storage/pgdialect`, a database/sql driver over pgx that translates the store's
+SQLite-dialect SQL token by token and takes one transaction advisory lock in every write
+transaction (N3), so writes are serialised as under SQLite's immediate transactions. Its
+schema is `internal/storage/postgres/0032_schema.sql`, SQLite's after migration 0032, keyed
+`blobs(org_id, digest)` and without cleanup slots, row padding or `blob_replicas`. On
+PostgreSQL a comment delete or sealed-link revoke is a plain update with an ordinary audit row,
+and the database page budget admits every write (the org pool replaces it).

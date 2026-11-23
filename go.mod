@@ -8,11 +8,21 @@ require (
 	github.com/Busnes-app/ky-primitives v0.10.2-0.20261113220457-9f4bc5875e04
 	github.com/Busnes-app/ky-primitives/offsite v0.3.0
 	github.com/cloudflare/circl v1.6.5
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pkg/sftp v1.13.12
 	golang.org/x/crypto v0.59.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.62.0
+)
+
+require (
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.4 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/rogpeppe/go-internal v1.16.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )
 
 require (

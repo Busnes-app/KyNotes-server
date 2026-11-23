@@ -9,6 +9,7 @@ import (
 )
 
 func TestSSOAppRoleUpgradeDoesNotPreserveGlobalAdmin(t *testing.T) {
+	SkipOnPostgres(t, "a SQLite install's upgrade")
 	for _, withLocal := range []bool{true, false} {
 		t.Run(fmt.Sprint(withLocal), func(t *testing.T) {
 			names := []string{"linked"}

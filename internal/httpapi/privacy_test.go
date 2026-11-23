@@ -142,14 +142,7 @@ func TestMarkerAbsentFromEveryHTTPResponse(t *testing.T) {
 }
 func TestMarkerAbsentFromEverySQLiteColumn(t *testing.T) {
 	r := runPrivacy(t)
-	rows, e := r.db.Query(`SELECT name FROM sqlite_master WHERE type='table'`)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var table string
-		_ = rows.Scan(&table)
+	for _, table := range testTables(t, r.db) {
 		if table == "schema_migrations" {
 			continue
 		}
@@ -239,10 +232,7 @@ func TestMarkerAbsentFromBackupArchive(t *testing.T) {
 func TestNoPrivateKeyOrTokenMaterialInAnyTable(t *testing.T) {
 	r := runPrivacy(t)
 	for _, secret := range append(r.secrets, r.marker) {
-		rows, _ := r.db.Query(`SELECT name FROM sqlite_master WHERE type='table'`)
-		for rows.Next() {
-			var table string
-			_ = rows.Scan(&table)
+		for _, table := range testTables(t, r.db) {
 			rs, e := r.db.Query(`SELECT * FROM "` + strings.ReplaceAll(table, "\"", "\"\"") + `"`)
 			if e != nil {
 				continue
@@ -263,7 +253,6 @@ func TestNoPrivateKeyOrTokenMaterialInAnyTable(t *testing.T) {
 			}
 			rs.Close()
 		}
-		rows.Close()
 	}
 }
 func stringify(v any) string {

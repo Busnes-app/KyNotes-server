@@ -191,7 +191,7 @@ func TestSubscriptionsRefuseAnythingButPushServices(t *testing.T) {
 		}
 	}
 	var events []string
-	rows, err := p.db.Query(`SELECT event,object_id,reason_code FROM audit_events WHERE event LIKE 'push.%' ORDER BY rowid`)
+	rows, err := p.db.Query(`SELECT event,object_id,reason_code FROM audit_events WHERE event LIKE 'push.%' ORDER BY ` + rowOrder(p.db))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestSubscriptionsRefuseAnythingButPushServices(t *testing.T) {
 func TestReminderTablesHoldOnlyIDsAndTimes(t *testing.T) {
 	p, _, _ := reminderServer(t)
 	columns := func(table string) []string {
-		rows, err := p.db.Query(`SELECT name FROM pragma_table_info(?) ORDER BY cid`, table)
+		rows, err := p.db.Query(columnsQuery(p.db), table)
 		if err != nil {
 			t.Fatal(err)
 		}

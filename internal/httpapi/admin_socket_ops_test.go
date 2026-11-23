@@ -20,6 +20,7 @@ import (
 )
 
 func TestSetupHandlerDepositAndDrill(t *testing.T) {
+	storage.SkipOnPostgres(t, "capsule backups snapshot the SQLite file (tenancy spec, open question 3)")
 	cfg := config.Defaults()
 	cfg.DataDir = t.TempDir()
 	cfg.Backup.Dir = t.TempDir()
