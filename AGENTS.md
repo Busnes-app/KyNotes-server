@@ -315,6 +315,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   field map and startup invocation remain in the next 5a boundary. `ResetTenancyAfterRestore`
   is PG restore preparation: use the credential-revocation transaction, retain erased-subject
   fences, make customer orgs stale at revision zero, clear grants/cursors/ephemeral state.
+  Single mode bypasses this helper; qualified outer aliases are required in `OrgServes` correlations.
   It does not enable a PG restore transport. Verify `TestReplica*`, `TestPostgresSchemaMatchesSQLite`,
   purge/erasure coverage, both backend suites and the unchanged single-tenant golden.
   Elected schedule wiring, environment-only key loading, drain, blob seam/store identity and

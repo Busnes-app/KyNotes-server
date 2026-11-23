@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -69,10 +70,58 @@ func TestReplicaRestoreResetIsAtomicAndKeepsDeletionFences(t *testing.T) {
 	if err := a.QueryRow(`SELECT count(*) FROM orgs WHERE id='org_staff' AND status='active' AND revision=9`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("staff org changed: %d %v", n, err)
 	}
-	if err := a.QueryRow(`SELECT count(*) FROM orgs WHERE id='org_customer' AND status='stale' AND revision=0 AND NOT ` + OrgServes("id")).Scan(&n); err != nil || n != 1 {
+	var status string
+	var revision int64
+	if err := a.QueryRow(`SELECT status,revision FROM orgs WHERE id='org_customer'`).Scan(&status, &revision); err != nil || status != "stale" || revision != 0 {
+		t.Fatalf("restored customer not fenced: status=%q revision=%d err=%v", status, revision, err)
+	}
+	if err := a.QueryRow(`SELECT count(*) FROM orgs restored WHERE restored.id='org_customer' AND NOT ` + OrgServes("restored.id")).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("unlisted restored org can serve: %d %v", n, err)
 	}
 	if err := a.QueryRow(`SELECT count(*) FROM server_settings WHERE key IN ('org_poll_revision','erased_poll_revision','replica_config_fingerprint')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("restore retained old cursors/fingerprint: %d %v", n, err)
+	}
+}
+
+func TestReplicaRestorePreparationLeavesSingleSQLiteUnchanged(t *testing.T) {
+	s, err := openSQLite(filepath.Join(t.TempDir(), "single.db"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, q := range []string{
+		`INSERT INTO orgs(id,status,home_region,revision) VALUES('org_single_restore','active','local',7)`,
+		`INSERT INTO org_pool(org_id,seq,ceiling_bytes,expires_at) VALUES('org_single_restore',9,17,'2099')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('org_poll_revision','15','t'),('replica_config_fingerprint','retained','t')`,
+	} {
+		if _, err := s.DB().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	tx, err := s.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ResetTenancyAfterRestore(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	for _, q := range []string{
+		`SELECT count(*) FROM orgs WHERE id='org_single_restore' AND status='active' AND revision=7`,
+		`SELECT count(*) FROM org_pool WHERE org_id='org_single_restore' AND seq=9 AND ceiling_bytes=17`,
+		`SELECT count(*) FROM server_settings WHERE key='org_poll_revision' AND value='15'`,
+		`SELECT count(*) FROM server_settings WHERE key='replica_config_fingerprint' AND value='retained'`,
+	} {
+		if err := s.DB().QueryRow(q).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("single-mode restore state changed: count=%d err=%v", n, err)
+		}
+	}
+	if err := s.DB().QueryRow(`SELECT count(*) FROM sqlite_master WHERE name LIKE 'replica_%'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("shared tables created on SQLite: %d %v", n, err)
 	}
 }

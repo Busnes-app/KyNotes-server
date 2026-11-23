@@ -9,6 +9,11 @@ import (
 // it in the same transaction as credential revocation, before any restored server is served.
 // The PostgreSQL backup/restore transport is not enabled by this preparation helper.
 func ResetTenancyAfterRestore(ctx context.Context, tx *sql.Tx) error {
+	tenancy, err := TenancyOf(tx)
+	if err != nil || !tenancy.Multi() {
+		return err
+	} // Single mode retains its existing restore behavior.
+
 	for _, q := range []string{
 		`UPDATE orgs SET status='stale',revision=0 WHERE id<>COALESCE((SELECT value FROM server_settings WHERE key='staff_org_id'),'')`,
 		`DELETE FROM org_pool`,
