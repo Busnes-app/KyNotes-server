@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -211,5 +212,39 @@ func TestPurgeOrderCoversEveryCascade(t *testing.T) {
 	}
 	if checked < 20 {
 		t.Fatalf("read only %d foreign keys", checked)
+	}
+}
+
+// Each purge step deletes by a key that names one row (the table's primary key or a unique
+// index), so a batch of purgeBatch keys deletes at most purgeBatch rows.
+func TestPurgeStepKeysAreUnique(t *testing.T) {
+	s := openFresh(t)
+	unique := func(table, key string) bool {
+		want := strings.ReplaceAll(key, ",", " ")
+		q := `SELECT group_concat(name,' ') FROM (SELECT name FROM pragma_table_info(?) WHERE pk>0 ORDER BY pk)
+UNION ALL SELECT (SELECT group_concat(name,' ') FROM (SELECT name FROM pragma_index_info(il.name) ORDER BY seqno)) FROM pragma_index_list(?) il WHERE il."unique"=1`
+		if s.pg {
+			q = `SELECT string_agg(a.attname,' ' ORDER BY k.ord) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum,ord) JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.attnum WHERE c.relname=? AND c.relnamespace=current_schema()::regnamespace AND i.indisunique AND i.indexprs IS NULL AND i.indpred IS NULL AND ?<>'' GROUP BY i.indexrelid`
+		}
+		rows, err := s.db.Query(q, table, table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cols sql.NullString
+			if err := rows.Scan(&cols); err != nil {
+				t.Fatal(err)
+			}
+			if cols.String == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, step := range purgeSteps {
+		if !unique(step.table, step.key) {
+			t.Errorf("purge step %s: key (%s) is not a unique key", step.table, step.key)
+		}
 	}
 }
