@@ -2038,6 +2038,26 @@ Do not implement, do not stub, do not leave TODOs for:
 
 ---
 
+## Suite scope constraint (2026-11-23)
+
+Approved suite direction follows the User Preferences in the suite workspace
+`/home/yoshi/git/busnes.app/AGENTS.md`. First-party competitor sources are in
+`/home/yoshi/git/busnes.app/zentrimail-site/docs/research/competitor-product-gaps-2026-11-23.md`;
+its password-manager product/integration recommendation is superseded by the owner.
+There is no first-party password manager, builder or parity task. Compatibility with
+existing managers is sufficient; no new integration is mandatory. VPN and AI remain
+optional and authorize no work.
+
+Complete current tenancy, isolation, reliability, security and launch/startup gates first.
+Later suite priorities belong to their existing product owners: masked email; hosted
+qualification of the existing Euro-Office integration; guest-ready meetings; Calendar
+booking; and the planned Drive Android photo backup. Implemented office integration is
+not hosted qualification, and planned work is not shipped. These priorities add no
+KyNotes feature and do not create another owner or implementation contract. Each
+product's distinct workflow, policy and release choices still require its product
+decision. KyNotes continues the staff/host/tenancy plan, with owner interface approval,
+shared-client and native-PG recovery prerequisites intact; no deployment or readiness claim.
+
 ## 15. Open items requiring a human decision
 
 None block Phases 1 and 2. Raise these before the phase that needs them.

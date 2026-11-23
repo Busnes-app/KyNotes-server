@@ -41,6 +41,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
+- Zentri suite direction (owner, 2026-11-23): tenancy/isolation/reliability/security and launch gates stay first. Competitor research adds no KyNotes feature. No first-party password manager or parity builder/task; compatibility with existing managers is sufficient and no new integration is mandatory. VPN/AI are optional and create no work here. The scope/order pointer is IMPLEMENTATION_PLAN.md, "Suite scope constraint (2026-11-23)"; product-specific choices remain with their existing owners.
 
 ## Design
 
