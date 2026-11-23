@@ -22,6 +22,9 @@ type Objects struct {
 	maxBytes     int64
 }
 
+func (Objects) String() string   { return "blobstore.Objects" }
+func (Objects) GoString() string { return "blobstore.Objects" }
+
 func NewObjects(client *shareds3.Client, org, scratch string, maxBytes int64) (*Objects, error) {
 	if _, err := OrgPrefix(org); err != nil {
 		return nil, err

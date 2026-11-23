@@ -2289,3 +2289,22 @@ identity. Dedicated PG CI tests exercise target/schema guards and full rollback 
 Existing SQLite capsule/cleanup restore and golden remain required regressions.
 Unbuilt: native large-PG backup-byte transport/retention/drill, primary object runtime and
 phase-6 final enablement; spec open question 3 has not selected a transport implementation.
+
+
+### Tenancy PR 5b-1: shared object and upload-part I/O preparation
+
+Built per-org permanent ciphertext/numbered-part operations over the actual exported shared
+S3 client, pinned to its published upstream implementation. Private bounded spools enforce
+size/digest before PUT or seekable download; identical keys/parts reuse verified bytes.
+Listing rejects malformed namespaces/cursor cycles, explicit cleanup removes physical versions
+and markers, rollback trims only uncommitted part indices, and final assembly keeps parts until
+explicit post-commit cleanup. Single volume construction remains untouched. Native PG tests
+hold a key lock across network I/O then claim on the same single-connection pool, while another
+writer acquires N3; competing replicas produce one PUT/claim.
+
+Not the full Backend/Temporary or route/GC adapter. Upstream #77 must be reviewed/merged at the
+consumed implementation; N15 additionally needs create-exclusive marker PUT and provider object
+age metadata, requested from the existing shared-client owner. Parts/finalization/purge route
+binding, age-gated orphans/probe cleanup, provider/latency/erasure evidence, native-PG recovery
+and final mode-binding/runtime/lifecycle assembly remain prerequisites. Startup stays refused;
+no volume fallback, private client, unselected provider/transport or version pruning.

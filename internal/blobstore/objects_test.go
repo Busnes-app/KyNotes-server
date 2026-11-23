@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -178,6 +179,9 @@ func TestObjectsVerifyPrivateStreamsDeduplicateAndKeepOrgsSeparate(t *testing.T)
 	dir := t.TempDir()
 	a := objectStore(t, client, "org_a", dir)
 	b := objectStore(t, client, "org_b", dir)
+	if got := fmt.Sprintf("%#v", a); got != "blobstore.Objects" {
+		t.Fatal("object adapter formatting is not redacted")
+	}
 	body := []byte("opaque ciphertext")
 	digest := objectDigest(body)
 	for _, store := range []*blobstore.Objects{a, a, b} {
