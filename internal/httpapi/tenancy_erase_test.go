@@ -31,6 +31,10 @@ func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("save=%d", code)
 	}
+	comment, code := tm.owner.comment(t, page, 2)
+	if code != http.StatusOK {
+		t.Fatalf("comment=%d", code)
+	}
 	sole := seedContainer(t, tm.owner, "workbook", "", map[string]string{pairUser: "owner"})
 	outsider := tm.owner.addUser(t, "outsider")
 	_, body := status(t, tm.owner.do(t, http.MethodPost, "/api/v1/containers/"+tm.id+"/invitations", []byte(`{"inviteeID":`+quote(outsider.id)+`,"role":"viewer"}`), true, false))
@@ -53,9 +57,20 @@ func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	if code, _ := status(t, outsider.do(t, http.MethodPost, "/api/v1/invitations/"+inv.ID+"/accept", []byte(`{"token":`+quote(inv.Token)+`}`), true, false)); code != http.StatusNotFound {
 		t.Fatalf("the erased member's invitation: %d, want 404", code)
 	}
-	var users, soles int
-	if err := tm.owner.db.QueryRow(`SELECT (SELECT count(*) FROM users WHERE id=?),(SELECT count(*) FROM containers WHERE id=?)`, pairUser, sole).Scan(&users, &soles); err != nil || users != 0 || soles != 0 {
-		t.Fatalf("after the erase: %d accounts, %d sole notebooks (%v)", users, soles, err)
+	var soles int
+	if err := tm.owner.db.QueryRow(`SELECT count(*) FROM containers WHERE id=?`, sole).Scan(&soles); err != nil || soles != 0 {
+		t.Fatalf("after the erase: %d sole notebooks (%v)", soles, err)
+	}
+	// Owner decision 12: its comment in the kept notebook is a tombstone, and its account row is
+	// kept with nothing but its random ID.
+	var deleted string
+	var ciphertext []byte
+	if err := tm.owner.db.QueryRow(`SELECT deleted_at,body_ciphertext FROM comments WHERE id=?`, comment).Scan(&deleted, &ciphertext); err != nil || deleted == "" || len(ciphertext) != 0 {
+		t.Fatalf("the erased member's comment: deleted_at=%q body=%d bytes (%v)", deleted, len(ciphertext), err)
+	}
+	var username, secret, salt string
+	if err := tm.owner.db.QueryRow(`SELECT username,auth_secret_hash,login_salt FROM users WHERE id=?`, pairUser).Scan(&username, &secret, &salt); err != nil || username != pairUser || secret != "" || salt != "" {
+		t.Fatalf("the erased account was not scrubbed: %q %q %q (%v)", username, secret, salt, err)
 	}
 }
 

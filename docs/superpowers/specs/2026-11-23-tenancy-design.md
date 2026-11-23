@@ -1306,12 +1306,17 @@ Branch `feat/tenancy-build-4d-erase`, stacked on PR 4d. "A member erases", built
   editor, else any approved member, longest-standing first), the erased owner becoming a viewer
   so it can leave; then `removeMemberTx` for every notebook it does not own (top-level ones; it
   covers their child notebooks), which revokes its envelopes and bumps the key generation.
-- **Steps 4 to 6** (`storage.EraseMembers`, `eraseSteps`): the notebooks it still owns alone
-  (bottom-up, as the purge's container steps), then its mentions and comments in kept
-  notebooks, reminders, push subscriptions, sealed links, pending uploads and pairing nonces
-  (no foreign key: found by the test's every-table scan), then the account. Audit rows keep its
-  random ID, which then names nobody, as `object_versions.author_user_id` does. Multi mode only;
-  it runs on the elected worker (PR 5a) and resumes after a crash.
+- **Steps 4 to 6** (`storage.EraseMembers`, `eraseSteps`, `eraseMember`), to owner decision 12
+  (KyNotes #176, 2026-11-23 afternoon): the notebooks it still owns alone (bottom-up, as the
+  purge's container steps); its mentions, reminders, push subscriptions, sealed links, pending
+  uploads, pairing nonces (no foreign key: found by the test's every-table scan), directory
+  fences, link requests, sessions, devices, identity and memberships; its **comments in kept
+  notebooks become tombstones** (ciphertext cleared, `deleted_at` set); and its **user row is
+  scrubbed and kept**, holding only its random ID, because `comments.author_user_id` cascades
+  and deleting it would delete the tombstones. `erased_subjects` still refuses the subject. A
+  scrubbed account (username equal to its ID) is done; anything else resumes after a crash.
+  Audit rows keep its random ID, which names nobody. Multi mode only; it runs on the elected
+  worker (PR 5a).
 - Tests: `TestEraseKeepsSharedNotebookAndDeletesSoleOnes` (the team passes to the admin; the admin
   and editor still read the page; the erased member's invitation answers 404; its sole notebook
   and account are gone), `TestEraseSuccessorIsAnyApprovedMember` (a viewer inherits; a notebook

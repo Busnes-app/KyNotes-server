@@ -18,7 +18,7 @@ func seedPurgeOrg(t *testing.T, s *Store, org, tag string) []string {
 	digest := strings.Repeat(tag[:1], 64)
 	for _, q := range []string{
 		`INSERT INTO orgs(id,status,home_region) VALUES('` + org + `','active','eu') ON CONFLICT(id) DO NOTHING`,
-		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id,sso_issuer,sso_subject) VALUES('` + u + `','` + u + `','x','x',1,'t','t','` + org + `','iss','sub-` + tag + `'),('` + u2 + `','` + u2 + `','x','x',1,'t','t','` + org + `','','')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id,sso_issuer,sso_subject) VALUES('` + u + `','name-` + u + `','x','x',1,'t','t','` + org + `','iss','sub-` + tag + `'),('` + u2 + `','name-` + u2 + `','x','x',1,'t','t','` + org + `','','')`,
 		`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at,org_id) VALUES('` + c + `','team','` + u + `','t','t','` + org + `')`,
 		`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES('` + id("mem") + `','` + c + `','` + u + `','owner','t'),('` + id("mem2") + `','` + c + `','` + u2 + `','editor','t')`,
 		`INSERT INTO objects(id,container_id,kind,current_version,change_seq,created_at,updated_at) VALUES('` + o + `','` + c + `','note',1,1,'t','t')`,
@@ -283,10 +283,15 @@ func TestEraseMembersKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 	// Audit rows keep the random ID, which names nobody once the account is deleted (as
 	// object_versions.author_user_id does; spec, A member erases).
 	after := everyValue(t, s, "audit_events")
-	for _, gone := range []string{"usr_bbb", "cnt_bbb", "obj_bbb", "cmt_bbb"} {
+	for _, gone := range []string{"cnt_bbb", "obj_bbb", "cmt_bbb", "sub-bbb", "dev_bbb", "ses_bbb"} {
 		if table, ok := after[gone]; ok {
 			t.Errorf("%s survived the erasure in %s", gone, table)
 		}
+	}
+	// The account row stays, scrubbed to its random ID (owner decision 12).
+	var username, subject string
+	if err := s.db.QueryRow(`SELECT username,sso_subject FROM users WHERE id='usr_bbb'`).Scan(&username, &subject); err != nil || username != "usr_bbb" || subject != "" {
+		t.Fatalf("the erased account: %q %q (%v)", username, subject, err)
 	}
 	for v := range before {
 		if strings.Contains(v, "aaa") {

@@ -199,7 +199,8 @@ const (
 
 // eraseSteps are steps 4 and 5 of a member's Delete everything, by the member's ID: the
 // notebooks it still owns (no other approved member took them over), children first, then its
-// rows in notebooks others keep. The user row goes last (step 6), so its cascade is small.
+// rows elsewhere. Its comments in notebooks others keep become tombstones, and its user row is
+// scrubbed and kept (owner decision 12, eraseMember), since comments cascade from it.
 var eraseSteps = []purgeStep{
 	{"activity", "id", "container_id IN " + ownedContainers},
 	{"share_links", "id", "object_id IN " + ownedObjects},
@@ -219,13 +220,24 @@ var eraseSteps = []purgeStep{
 	{"memberships", "id", "container_id IN " + ownedContainers},
 	{"containers", "id", "owner_user_id=?"},
 	{"mentions", "comment_id,mentioned_user_id", "mentioned_user_id=? OR comment_id IN (SELECT id FROM comments WHERE author_user_id=?)"},
-	{"comments", "id", "author_user_id=?"},
 	{"reminders", "id", "user_id=?"},
 	{"web_push_subscriptions", "id", "user_id=?"},
 	{"sealed_share_links", "id", "owner_user_id=?"},
 	{"upload_sessions", "id", "user_id=?"},
 	{"pairing_nonces", "nonce", "user_id=?"}, // no foreign key, so not in the user's cascade
-	{"users", "id", "id=?"},
+	// The directory's fences for the subject; erased_subjects alone now refuses its sign-in.
+	{"sso_directory_state", "issuer,subject", "(issuer,subject) IN (SELECT sso_issuer,sso_subject FROM users WHERE id=? AND sso_subject<>'')"},
+	{"sso_login_cutoffs", "issuer,subject", "(issuer,subject) IN (SELECT sso_issuer,sso_subject FROM users WHERE id=? AND sso_subject<>'')"},
+	{"link_requests", "id", "user_id=?"},
+	{"sso_stepup", "id", "session_id IN (SELECT id FROM sessions WHERE user_id=?)"},
+	{"sessions", "id", "user_id=?"},
+	{"push_registrations", "device_id", "device_id IN (SELECT id FROM devices WHERE user_id=?)"},
+	{"key_envelopes", "id", "device_id IN (SELECT id FROM devices WHERE user_id=?)"},
+	{"device_containers", "device_id,container_id", "device_id IN (SELECT id FROM devices WHERE user_id=?)"},
+	{"invitation_envelopes", "invitation_id,container_id", "device_id IN (SELECT id FROM devices WHERE user_id=?)"},
+	{"user_identities", "user_id", "user_id=?"},
+	{"devices", "id", "user_id=?"},
+	{"memberships", "id", "user_id=?"},
 }
 
 // EraseMembers finishes every Delete everything begun by a user.erased event (users with status
@@ -236,7 +248,8 @@ func EraseMembers(ctx context.Context, db *sql.DB) error {
 	if err != nil || !tenancy.Multi() {
 		return err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT id FROM users WHERE status='erased'`)
+	// A scrubbed account (its username is its ID) is done; the rest resume.
+	rows, err := db.QueryContext(ctx, `SELECT id FROM users WHERE status='erased' AND username<>id`)
 	if err != nil {
 		return err
 	}
@@ -256,9 +269,32 @@ func EraseMembers(ctx context.Context, db *sql.DB) error {
 				return fmt.Errorf("erase %s: %w", step.table, err)
 			}
 		}
+		if err := eraseMember(ctx, db, user); err != nil {
+			return err
+		}
 		if err := RecordAuditOutcome(db, "", "platform.member_erased", "", "", "success", "", "member-erase"); err != nil {
 			return err
 		}
 	}
 	return rows.Err()
+}
+
+// eraseMember tombstones the member's comments in notebooks others keep, in batches (ciphertext
+// cleared, as a comment deletion does), then scrubs its user row down to its random ID: no name,
+// secret, salt, recovery or SSO binding is left (owner decision 12). erased_subjects keeps the
+// subject, so it can never sign in again. ponytail: a plain update, as on PostgreSQL, the only
+// multi-mode store; SQLite's cleanup slots are not filled here.
+func eraseMember(ctx context.Context, db *sql.DB, user string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	for {
+		res, err := db.ExecContext(ctx, `UPDATE comments SET body_ciphertext=X'',deleted_at=? WHERE id IN (SELECT id FROM comments WHERE author_user_id=? AND deleted_at='' LIMIT `+fmt.Sprint(purgeBatch)+`)`, now, user)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n < int64(purgeBatch) {
+			break
+		}
+	}
+	_, err := db.ExecContext(ctx, `UPDATE users SET username=id,auth_secret_hash='',login_salt='',recovery_hash='',recovery_used_at='',sso_subject='',sso_issuer='',password_admin_known=0,role='user',updated_at=? WHERE id=? AND status='erased'`, now, user)
+	return err
 }
