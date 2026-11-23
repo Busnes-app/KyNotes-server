@@ -957,3 +957,24 @@ identity and clears ephemeral probe pointers so retired probe GC cannot strand a
 Tests cover key/path isolation, identity races/private-store refusal/crash recovery, environment
 key/fingerprint boundaries, schedule ownership/cadence, drain and alternating-replica upload
 retries on a shared test directory. S3 bucket evidence belongs to 5b. No version pruning.
+
+
+### Tenancy erasure replay preparation
+
+The elected minute adapter polls `/api/suite/erased` through ky-primitives' validated,
+authenticated client after the org mirror. `httpapi.PollErased` fetches outside N3 and applies
+one notice per short transaction: retain the subject/org fence, revoke access, transfer shared
+notebooks through the webhook's erasure path, audit, and advance `erased_poll_revision`.
+The transaction checks the cursor again; a replica whose fetched cursor is stale exits and
+re-fetches next tick. A malformed/refused response applies nothing; an org-binding mismatch
+cannot erase another org's account or advance past that notice. Earlier valid notices remain
+committed if a later notice fails. Unknown subjects get only a fence. The existing worker
+finishes content cleanup in batches. Single mode bypasses the entire feed.
+
+Restore retains erasure fences and clears both suite cursors. PostgreSQL reset/replay tests
+exercise re-erasure and an unlisted restored org staying stale. This prepares reconciliation;
+it does not enable PostgreSQL backup transport or multi startup.
+
+SSO account insertion and final session/step-up identity admission re-check the erasure fence
+in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
+whose earlier lookup already ran cannot mint a session past a newer durable fence.

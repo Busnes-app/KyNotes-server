@@ -1363,6 +1363,21 @@ contract (#290, `docs/SUITE-DIRECTORY.md`, Storage pool; owner decision 14).
   `GET /admin/orgs` remains PR 6. Multi mode is still refused at startup.
 
 
+### Erased-feed reconciliation as built
+
+`httpapi.PollErased` uses the shared `suitedir.Client.Erased` contract; the elected minute
+adapter runs it after the org mirror and before cleanup. Fetch outside N3, then one notice
+per transaction: durable fence, access revocation, shared-notebook transfer/removal, audit and
+cursor. A competing worker checks the cursor inside N3 and re-fetches if another committed.
+An org mismatch refuses the notice without skipping it; unknown subjects get a fence without
+an account. Webhook and feed share the same subject/org erasure helper. Earlier valid notices
+stay committed when a later notice fails. Single mode does nothing.
+
+Tests cover both backends, malformed/refused/authenticated responses, wrong-org bindings,
+audit rollback, unknown subjects, shared ownership, independent-pool concurrency and PG
+restore reset/replay from zero, including unlisted org fencing. Actual PostgreSQL backup and
+restore transport and multi startup remain unbuilt/refused.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

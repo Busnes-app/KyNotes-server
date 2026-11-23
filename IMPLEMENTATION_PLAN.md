@@ -2243,3 +2243,18 @@ Remaining integration: bind identity/parts/GC/prefix purge to the real shared-cl
 object backend (5b), wire supported PG backup/restore and erased-feed reconciliation, then
 phase 6 constructs runtime adapters and enables multi only with every prerequisite present.
 The absence of the shared S3 type does not block these completed independent 5a mechanisms.
+
+
+### Tenancy erasure replay
+
+Built `httpapi.PollErased` over the shared `suitedir.Client.Erased` contract and wired the
+prepared elected minute schedule. Reuse the webhook's subject/org erasure boundary, with
+one notice and cursor per writer transaction and a stale-worker cursor comparison.
+Tests cover authenticated fetch, malformed/refused responses, unknown subjects, wrong-org
+refusal, atomic audit failure, independent-pool concurrency, shared-notebook survival,
+restore replay from zero and single-mode no-op. Run both backend race suites and the golden.
+Operational PostgreSQL backup/restore, primary object storage and phase-6 startup remain gated.
+
+SSO account insertion and final session/step-up identity admission re-check the erasure fence
+in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
+whose earlier lookup already ran cannot mint a session past a newer durable fence.

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Busnes-app/ky-primitives/suitedir"
 	"github.com/Busnes-app/kynotes-server/internal/health"
+	"github.com/Busnes-app/kynotes-server/internal/httpapi"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
 	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
@@ -21,6 +23,7 @@ import (
 type replicaSchedules struct {
 	db           *sql.DB
 	orgs         *orgsync.Poller
+	directory    suitedir.Client
 	reports      *orgsync.Reporter
 	push         *webpush.Sender
 	gcInterval   time.Duration
@@ -46,6 +49,7 @@ func (s *replicaSchedules) tick(owned context.Context, now time.Time) {
 	if !now.Before(s.minute) {
 		s.minute = now.Add(time.Minute) // count attempts, including failures
 		run("org_poll", func() error { return s.orgs.Poll(owned) })
+		run("erased_poll", func() error { return httpapi.PollErased(owned, s.db, s.directory) })
 		run("org_purge", func() error { return storage.PurgeDeletedOrgs(owned, s.db) })
 		run("member_erase", func() error { return storage.EraseMembers(owned, s.db) })
 		run("shared_state", func() error { return storage.SweepSharedState(owned, s.db) })
