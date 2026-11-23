@@ -328,13 +328,17 @@ func TestOrgTriggersRefuseCrossOrgRows(t *testing.T) {
 // actor's org in multi mode, and NULL there for staff and for actors that are no account.
 func TestAuditWritersNameTheOrg(t *testing.T) {
 	s := openFresh(t)
+	written := 0
 	orgOf := func(actor string) string {
 		t.Helper()
-		if err := RecordAuditOutcome(s.db, actor, "test.event", "", "", "success", "", ""); err != nil {
+		// Each call's own event names the one row it wrote: audit times have one-second precision.
+		written++
+		event := fmt.Sprintf("test.event.%d", written)
+		if err := RecordAuditOutcome(s.db, actor, event, "", "", "success", "", ""); err != nil {
 			t.Fatal(err)
 		}
 		var org sql.NullString
-		if err := s.db.QueryRow(`SELECT org_id FROM audit_events WHERE actor_user_id=? ORDER BY at DESC LIMIT 1`, actor).Scan(&org); err != nil {
+		if err := s.db.QueryRow(`SELECT org_id FROM audit_events WHERE actor_user_id=? AND event=?`, actor, event).Scan(&org); err != nil {
 			t.Fatal(err)
 		}
 		if !org.Valid {
