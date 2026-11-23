@@ -24,7 +24,7 @@ func erase(t *testing.T, db *sql.DB, user string) {
 
 // An erased owner's team notebook passes to its longest-standing approved admin, and the rest
 // of the team still reads every page; the notebook the owner alone held is deleted, an
-// invitation it sent no longer opens, and the account is gone (spec, A member erases).
+// invitation it sent no longer opens, and the account is scrubbed (spec, A member erases).
 func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	tm := newTeam(t)
 	tm.rotate(t, tm.id, 1)
@@ -35,6 +35,10 @@ func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	comment, code := tm.owner.comment(t, page, 2)
 	if code != http.StatusOK {
 		t.Fatalf("comment=%d", code)
+	}
+	secondComment, code := tm.owner.comment(t, page, 2)
+	if code != http.StatusOK {
+		t.Fatalf("second comment=%d", code)
 	}
 	sole := seedContainer(t, tm.owner, "workbook", "", map[string]string{pairUser: "owner"})
 	outsider := tm.owner.addUser(t, "outsider")
@@ -73,23 +77,39 @@ func TestEraseKeepsSharedNotebookAndDeletesSoleOnes(t *testing.T) {
 	if err := tm.owner.db.QueryRow(`SELECT deleted_at,body_ciphertext FROM comments WHERE id=?`, comment).Scan(&deleted, &ciphertext); err != nil || deleted == "" || len(ciphertext) != 0 {
 		t.Fatalf("the erased member's comment: deleted_at=%q body=%d bytes (%v)", deleted, len(ciphertext), err)
 	}
-	// ... at a fresh change sequence, so a device synced before the erasure drops it.
-	_, out := status(t, tm.admin.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/changes?since="+fmt.Sprint(cursor), nil, false, false))
-	var changes struct {
-		Changes []struct {
-			ID      string
-			Deleted bool
+	// Page one change at a time: tombstones must have separate fresh sequences or a cursor
+	// would skip the second deletion, even if a full sync happened to return both.
+	seen := map[string]bool{}
+	for {
+		code, out := status(t, tm.admin.do(t, http.MethodGet, "/api/v1/containers/"+tm.id+"/changes?since="+fmt.Sprint(cursor)+"&limit=1", nil, false, false))
+		if code != http.StatusOK {
+			t.Fatalf("sync after erasure: %d %s", code, out)
 		}
+		var changes struct {
+			Changes []struct {
+				ID      string
+				Deleted bool
+			}
+			NextCursor string
+			HasMore    bool
+		}
+		if err := json.Unmarshal([]byte(out), &changes); err != nil {
+			t.Fatalf("changes: %s", out)
+		}
+		for _, c := range changes.Changes {
+			seen[c.ID] = c.Deleted
+		}
+		if !changes.HasMore {
+			break
+		}
+		var next int64
+		if _, err := fmt.Sscan(changes.NextCursor, &next); err != nil || next <= cursor {
+			t.Fatalf("sync did not advance: %s", out)
+		}
+		cursor = next
 	}
-	if err := json.Unmarshal([]byte(out), &changes); err != nil {
-		t.Fatalf("changes: %s", out)
-	}
-	synced := false
-	for _, c := range changes.Changes {
-		synced = synced || c.ID == comment && c.Deleted
-	}
-	if !synced {
-		t.Fatalf("the tombstoned comment is not in the changes since %d: %s", cursor, out)
+	if !seen[comment] || !seen[secondComment] {
+		t.Fatalf("incremental sync missed comment tombstones: %v", seen)
 	}
 	var username, secret, salt string
 	if err := tm.owner.db.QueryRow(`SELECT username,auth_secret_hash,login_salt FROM users WHERE id=?`, pairUser).Scan(&username, &secret, &salt); err != nil || username != pairUser || secret != "" || salt != "" {

@@ -283,8 +283,8 @@ func EraseMembers(ctx context.Context, db *sql.DB) error {
 // cleared, as a comment deletion does), each at a fresh change sequence of its notebook so every
 // device syncs the deletion. Then it scrubs the user row down to its random ID: no name, secret,
 // salt, recovery or SSO binding is left (owner decision 12). erased_subjects keeps the subject,
-// so it can never sign in again. ponytail: plain updates, as on PostgreSQL, the only multi-mode
-// store; SQLite's cleanup slots are not filled here.
+// so it can never sign in again. The cleanup backend preserves SQLite's reserved row space
+// when tests exercise the same path there; production multi mode uses PostgreSQL.
 func eraseMember(ctx context.Context, db *sql.DB, user string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	for {
@@ -326,11 +326,11 @@ func tombstoneBatch(ctx context.Context, db *sql.DB, user, now string) (int, err
 	}
 	for _, c := range batch {
 		// One sequence per comment: sync pages by change_seq, so rows must not share one.
-		var seq int64
-		if err := tx.QueryRowContext(ctx, `UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, c[1]).Scan(&seq); err != nil {
+		seq, err := CleanupFor(db).AdvanceSeq(tx, c[1], now)
+		if err != nil {
 			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE comments SET body_ciphertext=X'',deleted_at=?,change_seq=? WHERE id=?`, now, seq, c[0]); err != nil {
+		if err := CleanupFor(db).TombstoneComment(tx, c[0], now, seq); err != nil {
 			return 0, err
 		}
 	}

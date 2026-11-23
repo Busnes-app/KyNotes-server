@@ -1311,7 +1311,8 @@ Branch `feat/tenancy-build-4d-erase`, stacked on PR 4d. "A member erases", built
   purge's container steps); its mentions, reminders, push subscriptions, sealed links, pending
   uploads, pairing nonces (no foreign key: found by the test's every-table scan), directory
   fences, link requests, sessions, devices, identity and memberships; its **comments in kept
-  notebooks become tombstones** (ciphertext cleared, `deleted_at` set); and its **user row is
+  notebooks become tombstones** (ciphertext cleared, `deleted_at` set, each at its own fresh
+  notebook change sequence through the cleanup backend so paginated sync delivers it); and its **user row is
   scrubbed and kept**, holding only its random ID, because `comments.author_user_id` cascades
   and deleting it would delete the tombstones. `erased_subjects` still refuses the subject. A
   scrubbed account (username equal to its ID) is done; anything else resumes after a crash.
@@ -1319,7 +1320,8 @@ Branch `feat/tenancy-build-4d-erase`, stacked on PR 4d. "A member erases", built
   worker (PR 5a).
 - Tests: `TestEraseKeepsSharedNotebookAndDeletesSoleOnes` (the team passes to the admin; the admin
   and editor still read the page; the erased member's invitation answers 404; its sole notebook
-  and account are gone), `TestEraseSuccessorIsAnyApprovedMember` (a viewer inherits; a notebook
+  is gone, its account is scrubbed and kept, and incremental sync paged one row at a time delivers
+  both comment tombstones), `TestEraseSuccessorIsAnyApprovedMember` (a viewer inherits; a notebook
   with only an unapproved member is deleted), `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
 
 ## Residual risks
