@@ -45,11 +45,11 @@ test("staff console selects an org, ignores late replies and exposes no customer
     await expect(page.getByRole("button", { name: "Create user", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Actions for/ })).toHaveCount(0);
     holdA = true;
-    await page.getByLabel("Organization", { exact: true }).selectOption("org_a");
+    await page.getByRole("combobox", { name: "Organization", exact: true }).selectOption("org_a");
     await arrivedA;
     await expect(page.getByText("org_b-account", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "Loading metadata" })).toBeVisible();
-    await page.getByLabel("Organization", { exact: true }).selectOption("org_b");
+    await page.getByRole("combobox", { name: "Organization", exact: true }).selectOption("org_b");
     await expect(page.getByText("org_b-account", { exact: true })).toBeVisible();
     releaseA(); await finishedA;
     await expect(page.getByText("org_a-account", { exact: true })).toHaveCount(0);
@@ -58,7 +58,7 @@ test("staff console selects an org, ignores late replies and exposes no customer
     await expect(page.getByRole("button", { name: /Save|Pair|Connect/ })).toHaveCount(0);
     await page.getByRole("link", { name: "Audit log", exact: true }).click();
     await expect(page.getByText("platform.event", { exact: true })).toBeVisible();
-    await page.getByLabel("Audit scope").selectOption("org_b");
+    await page.getByRole("combobox", { name: "Audit scope", exact: true }).selectOption("org_b");
     await expect(page.getByText("customer.event", { exact: true })).toBeVisible();
     await expect(page.getByText("platform.event", { exact: true })).toHaveCount(0);
     expect(writes).toEqual([]);
