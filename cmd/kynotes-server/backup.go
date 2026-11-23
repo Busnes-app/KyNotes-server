@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/Busnes-app/ky-primitives/capsule"
 	"github.com/Busnes-app/ky-primitives/recoveryclient"
@@ -256,17 +255,7 @@ func restoreCapsule(path, target string, stdin io.Reader, stdout io.Writer) erro
 // revoked after it was taken: sessions and paired devices end (identities stay), links and
 // invitations go. Capsule restore always runs it; restore-data-dir with --revoke-credentials.
 func revokeRestoredCredentials(store *storage.Store) error {
-	now := time.Now().UTC().Format(time.RFC3339)
 	return store.WithTx(context.Background(), func(tx *sql.Tx) error {
-		for _, table := range []string{"sessions", "share_links", "sealed_share_links"} {
-			if _, e := tx.Exec(`UPDATE `+table+` SET revoked_at=? WHERE revoked_at=''`, now); e != nil {
-				return e
-			}
-		}
-		if _, e := tx.Exec(`UPDATE devices SET revoked_at=? WHERE revoked_at='' AND platform<>'identity'`, now); e != nil {
-			return e
-		}
-		_, e := tx.Exec(`DELETE FROM invitations WHERE status='pending'`)
-		return e
+		return storage.RevokeRestoredCredentials(context.Background(), tx)
 	})
 }

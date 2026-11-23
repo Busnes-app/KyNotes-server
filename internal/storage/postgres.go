@@ -40,7 +40,36 @@ func IsPostgres(db interface{ Driver() driver.Driver }) bool {
 // name only the host and database: the DSN carries a password.
 func OpenPostgres(dsn string) (*Store, error) { return openPostgres(dsn, "", true) }
 
+// OpenPostgresCurrent never creates or migrates a schema. Maintenance commands require the
+// exact release that owns the restored database and operate only on that existing target.
+func OpenPostgresCurrent(ctx context.Context, dsn string) (*Store, error) {
+	s, err := openPostgresContext(ctx, dsn, "", false)
+	if err != nil {
+		return nil, err
+	}
+	latest, err := migrationCount()
+	var applied int
+	if err == nil {
+		err = s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&applied)
+	}
+	if err == nil && applied < latest {
+		err = ErrSchemaOlder
+	}
+	if err == nil && applied > latest {
+		err = ErrSchemaNewer
+	}
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
 func openPostgres(dsn, searchPath string, migrate bool) (*Store, error) {
+	return openPostgresContext(context.Background(), dsn, searchPath, migrate)
+}
+
+func openPostgresContext(ctx context.Context, dsn, searchPath string, migrate bool) (*Store, error) {
 	where := pgdialect.Describe(dsn)
 	if searchPath != "" {
 		dsn = withSearchPath(dsn, searchPath)
@@ -53,7 +82,7 @@ func openPostgres(dsn, searchPath string, migrate bool) (*Store, error) {
 	db.SetMaxOpenConns(runtime.NumCPU() + 4)
 	db.SetMaxIdleConns(4)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	if err = db.Ping(); err != nil {
+	if err = db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("connecting to PostgreSQL at %s: %w", where, err)
 	}
@@ -66,7 +95,7 @@ func openPostgres(dsn, searchPath string, migrate bool) (*Store, error) {
 		}
 	} else {
 		var ok bool
-		if err = db.QueryRow(`SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&ok); err == nil && !ok {
+		if err = db.QueryRowContext(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&ok); err == nil && !ok {
 			err = errors.New("not initialized")
 		}
 	}

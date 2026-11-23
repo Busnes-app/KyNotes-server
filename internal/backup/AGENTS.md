@@ -15,7 +15,8 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   Sealing and drilling hold the snapshot several times in memory (measured peak 1.55 GB for 250 MiB of
   incompressible data with `GOMEMLIMIT=1536MiB`), so `docker-compose.yml` caps the container at 2g, not 512m.
 - Blob consumers use `blobstore.Backend`/`Temporary`; standalone collection still constructs
-  the unchanged volume backend. This adapter does not enable hosted object or PG backup paths.
+  the unchanged volume backend. This adapter does not enable hosted object or PG backup collection. Native restored-target
+  safety preparation is independent of backup-byte recovery.
 - Capsule restore revokes extracted-target credentials and turns deposits off even
   when cleanup-capacity migration refuses; a failed safety step forbids starting that
   target. Ordinary startup refusal preserves the original instance.
@@ -56,9 +57,17 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   never re-pins a key, and sets the interval only when no admin setting exists. Dir and
   keep are env-fixed and only compared.
 
+- `PreparePostgresRestore` is an offline, exact-schema multi-mode target fence. Credential
+  revocation, deposit schedule off, tenancy reset and audit share one transaction. No pin,
+  token, encryption identity or permanent blob-store ID is replaced. Keep all replicas stopped
+  on failure; the caller must not migrate or enable startup as a fallback.
+
 # Verification
 
 `go test -race ./internal/backup ./internal/storage ./internal/httpapi ./cmd/kynotes-server`
 proves snapshot, token compatibility, destination outcomes, route hardening, synthetic
 restore, and decrypt boundary. Prove the guard once per boundary change by planting a
 forbidden production call and removing it after the expected failure.
+
+`TestPostgresRestore*` runs against isolated PostgreSQL in CI; it checks success and full
+rollback on schedule/audit failure or cancellation, plus single-mode refusal.

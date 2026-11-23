@@ -2258,3 +2258,14 @@ Operational PostgreSQL backup/restore, primary object storage and phase-6 startu
 SSO account insertion and final session/step-up identity admission re-check the erasure fence
 in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
 whose earlier lookup already ran cannot mint a session past a newer durable fence.
+
+
+### Native PG restore preparation
+
+Built exact-schema/non-migrating `OpenPostgresCurrent`, shared restored-credential revocation
+and offline `prepare-postgres-restore --confirm-restored` with DSN in environment only.
+Prepare credentials, schedule off, tenancy reset and audit atomically; keep pins/keys/fences/store
+identity. Dedicated PG CI tests exercise target/schema guards and full rollback under failure.
+Existing SQLite capsule/cleanup restore and golden remain required regressions.
+Unbuilt: native large-PG backup-byte transport/retention/drill, primary object runtime and
+phase-6 final enablement; spec open question 3 has not selected a transport implementation.

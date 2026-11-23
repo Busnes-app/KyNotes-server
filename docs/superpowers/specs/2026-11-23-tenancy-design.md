@@ -1378,6 +1378,20 @@ audit rollback, unknown subjects, shared ownership, independent-pool concurrency
 restore reset/replay from zero, including unlisted org fencing. Actual PostgreSQL backup and
 restore transport and multi startup remain unbuilt/refused.
 
+### Native PostgreSQL restored-target preparation as built
+
+`prepare-postgres-restore --confirm-restored` opens the existing exact-release PG schema
+without migration, with its DSN in the environment only. Every replica must be stopped and
+the target separately restored. One transaction revokes sessions/devices/links/pending invites,
+turns deposits off through recoveryclient, resets tenancy coordination and audits the reset.
+Encryption identities, recovery pairing/pin, erasure fences and permanent store identity remain.
+Schedule/audit/reset/cancellation failure rolls back. Single mode refuses this command; its
+existing SQLite restore uses the unchanged revocation operations through a common helper.
+
+Tests cover both schema-version refusals, explicit target/secret boundaries, atomic PG success
+and rollback, and single-mode no-change. The command does not recover PG backup bytes, choose
+open question 3's large-database transport or enable multi startup. Those remain prerequisites.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

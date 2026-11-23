@@ -293,6 +293,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   foreign key, as `pairing_nonces`, needs its own step; comments in kept notebooks are tombstoned and
   the user row is scrubbed and kept, owner decision 12). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
   `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+- Native PostgreSQL restored-target preparation: `prepare-postgres-restore --confirm-restored`
+  reads `KYNOTES_DB_DSN` only from the environment, opens the exact existing schema without
+  migrating and refuses recorded single mode. Stop every replica before targeting a separately
+  restored database. `backup.PreparePostgresRestore` commits credential/link/invitation revocation,
+  deposit schedule off through the shared recovery client, tenancy reset and platform audit together.
+  Preserve encryption identities, deployment/recovery keys, erasure fences and permanent store ID.
+  Failure leaves the transaction unchanged and forbids starting the target. The command does not
+  recover native PG bytes, select a backup transport or enable multi startup. Existing SQLite
+  restore uses the same credential helper with its prior behavior. Verify `TestPostgresCurrent*`,
+  `TestPostgresRestore*`, capsule restore/cleanup regressions and the single-tenant golden.
+  PostgreSQL CI runs the dedicated restore tests in backup/cmd; their other suites stay SQLite-only.
 - Erased-feed reconciliation: `httpapi.PollErased` uses the shared authenticated
   `suitedir.Client.Erased` API on the elected minute schedule. Network fetches precede writer
   transactions; each notice commits its fence, access revocation, ownership transfer, audit
