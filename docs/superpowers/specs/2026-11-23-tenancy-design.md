@@ -108,7 +108,7 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | N5 | In multi mode the sign-in provider is fixed by environment: `KYNOTES_SSO_ISSUER`, `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET`, `KYNOTES_SSO_HMAC_SECRET`. The admin SSO save and pairing routes answer `404`. Auto-provisioning is always on. Customer password sign-in, `/setup`, `user add` for everyday accounts and `apply-setup` are refused. | Today SSO settings live in `server_settings` and are cached per process (`internal/sso/sso.go:27-98`), so a save on one replica leaves the others stale. One issuer (owner decision 2) means the binding never changes. Customers then always get device-only identities with a recovery code, which already works (`AGENTS.md:830-873`). |
 | N6 | In multi mode an account is an administrator only when it is an administrator account (`account_kind='admin'`) **and** its `org_id` is the staff org. Staff accounts are created only by `kynotes-server user add --admin` and the bootstrap variables, into the staff org. | Owner decision 3. Administrator accounts already open no notes (`AGENTS.md:179-196`), so staff never hold content keys. This is defence in depth against a staff mistake that sends `kynotes.admin` for a customer. |
 | N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, an invitation acceptance, or a key or invitation envelope (`key_envelopes`, `invitation_envelopes`) whose user is in another org than the container. **No trigger runs on invitation insert:** an invitation to another org's user ID is created like one to an unknown ID, so creation answers the same for both, and it can never be accepted. Handlers check the org explicitly before each insert and answer as for a missing row: accept answers not-found, and `insertInvitationEnvelopeTx` adds the org to its identity-device check (`teamkeys_routes.go:473-477`), so another org's device gets `errEnvelopeInvalid`, as an unknown device does today. The triggers are a backstop whose error no handler maps to its own answer. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
-| N8 | **Blobs become org-owned.** `blobs` gains `org_id`, and on PostgreSQL its key is `(org_id, digest)`. The object key in multi mode is `orgs/<org_id>/blobs/<digest>`. Single-tenant keeps `<data>/blobs/aa/bb/<digest>` and the digest key. | Fact 3. A shared digest across orgs would let one org's upload, purge or quota interact with another's file. Per-org keys make a purge a prefix delete and quota exact. KyDrive refused content addressing for the same reason (D "Blob storage"). |
+| N8 | **Blobs become org-owned.** `blobs` gains `org_id`, and on PostgreSQL its key is `(org_id, digest)`. The key in multi mode is `orgs/<org_id>/blobs/aa/bb/<digest>` on both backends (today's fan-out under an org prefix). Single-tenant keeps `<data>/blobs/aa/bb/<digest>` and the digest key. | Fact 3. A shared digest across orgs would let one org's upload, purge or quota interact with another's file. Per-org keys make a purge a prefix delete and quota exact. KyDrive refused content addressing for the same reason (D "Blob storage"). |
 | N9 | KyNotes keeps a local mirror of `/api/suite/orgs` (`orgs` table), polled about every 60 s by the elected worker (`suitedir.Client.Orgs`, `suitedir/client.go:241`). Every authenticated read joins the account's org row in the same query as the account. | T D6 and downstream contract 5. C D6. A suspension then takes effect at the next request on every replica. |
 | N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the org's allowance (the pool less what every other app reports). The allowance is cached in the `orgs` mirror, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
 | N11 | **Export runs in the browser, under `export_only`.** A session whose ID token carries `"export_only": true` is marked so. It admits only the routes the browser export needs, listed once in Lifecycle, Export: the reads, plus the few writes that hold no content (logout, recovery-code fetch, browser linking), so a fresh browser can still export (open question 6). Every other route answers `403 export_only`. There is no operator export command. | Fact 1: only the browser can decrypt. The browser export already exists (`exportNotebook.ts`, `AGENTS.md:273-277`). Owner decision 8. |
@@ -180,7 +180,7 @@ Tables this spec adds:
 | Table | Class | Reasoning |
 |---|---|---|
 | `orgs` (`id`, `status`, `revision`, `enabled`, `home_region`, `pool_allowance_bytes`, `pool_checked_at`, `pool_low`, `seen_at`, `purged_at`) | P | The mirror of `/api/suite/orgs` (N9) and of the org's pool allowance (N10), and the target of every `org_id`. It holds the default org in single mode and the staff org in multi mode. A deleted org stays as a tombstone (N14). |
-| `org_usage` (`org_id`, `bytes`, `reported_bytes`) | O | The durable part of the org's charged bytes, kept by triggers, and the last figure reported to KyIdentity ("The org storage pool") |
+| `org_usage` (`org_id`, `bytes`, `reported_bytes`) | O | PostgreSQL only, created in PR 4e. The durable part of the org's charged bytes, kept by triggers, and the last figure reported to KyIdentity ("The org storage pool") |
 | `erased_subjects` (`subject`, `org_id`, `revision`) | P | The local copy of `/api/suite/erased`, so a restore can re-erase (Lifecycle) |
 | `worker_claims` | P | Only if the elected-worker port needs one. The replica pattern uses a session advisory lock and no table. |
 
@@ -290,7 +290,7 @@ The replica pattern's checklist, with KyNotes' state:
 One migration (0032, the next free number) on SQLite, and the same tables on PostgreSQL's first
 schema. It follows C "`org_id` on every row":
 
-1. Create `orgs`, `org_usage` and `erased_subjects`. The migration inserts the default org
+1. Create `orgs` and `erased_subjects`. The migration inserts the default org
    (`00000000-0000-0000-0000-000000000001`, T's default-org ID, `active`, `local`) only when
    `users` already holds rows. That is an existing install, which is always single-tenant. A
    fresh database gets no `orgs` row from the migration.
@@ -312,7 +312,7 @@ schema. It follows C "`org_id` on every row":
    database, with different `KYNOTES_STAFF_ORG_ID` values (and, in a second case, different
    modes). Exactly one starts, the other refuses, and `orgs` holds one staff org.
 3. Add `org_id`, defaulting to the default org, to every O table except `audit_events` (nullable,
-   no default; see its row). Backfill `org_usage`.
+   no default; see its row).
 4. Add triggers, with the same names on both backends:
    - one requires the org to exist in `orgs`;
    - one refuses any change to `org_id`;
@@ -511,7 +511,8 @@ are unchanged.
   endpoint, bucket and region only.
 - `volume`, the launch fallback. `KYNOTES_BLOB_DIR` is a directory every replica mounts (a
   shared filesystem). Layout is `orgs/<org_id>/blobs/aa/bb/<digest>` and
-  `orgs/<org_id>/uploads/<id>/<n>`, the same keys as `object`. Unverified: that `rename` is
+  `orgs/<org_id>/uploads/<id>/<n>`, the same keys as `object` (N8), so `ListDigests` and the
+  orphan sweep walk one layout on both backends. Unverified: that `rename` is
   atomic on the filesystem chosen; PR 5a's two-replica test runs on it.
 
 **The store-ID check** stops a replica that is on a private disk, or in another bucket, from
@@ -553,7 +554,7 @@ Operations in multi mode, on either backend:
 
 | Operation | Today | Multi mode |
 |---|---|---|
-| Write | rename into `blobs/aa/bb/<digest>` | `volume`: as today, under the org prefix. `object`: one `PUT` to `orgs/<org_id>/blobs/<digest>` conditional on the key not existing (`If-None-Match: *`). An existing object is checked for size and digest, as a present file is today (`blobstore.go:71-82`). |
+| Write | rename into `blobs/aa/bb/<digest>` | `volume`: as today, under the org prefix. `object`: one `PUT` to `orgs/<org_id>/blobs/aa/bb/<digest>` conditional on the key not existing (`If-None-Match: *`). An existing object is checked for size and digest, as a present file is today (`blobstore.go:71-82`). |
 | Chunked upload | `tmp/<id>.part`, appended | one part per chunk, `orgs/<org_id>/uploads/<id>/<n>`, because chunk 2 can reach another replica. Finalize copies the parts in order into a private temp file on the replica, hashing as it copies, then writes the blob once. The part objects are deleted after the finalize commits, and on
 cancel and expiry, under the upload's session lock. The orphan sweep also removes `uploads/` keys
 with no live `upload_sessions` row. S3 multipart is not used: its parts must be at least 5 MiB, and a chunk is 4 MiB (`config.go:93`). |
@@ -799,6 +800,10 @@ what the customer stored plus encryption overhead, and it is the figure staff an
   Previews count once per distinct digest, and only while their notebook is live
   (`upload_routes.go:641-651`, `TestDuplicatePreviewsAreChargedOnce`), which a per-row trigger
   cannot follow.
+  `org_usage` and these triggers exist **only in the PostgreSQL schema**, added by PR 4e. They
+  are not in migration 0032, so no single-tenant SQLite write touches them, and comment deletion
+  keeps its SQLite capacity bound (`docs/CLEANUP-CAPACITY.md`). The isolation triggers of
+  Isolation step 4 are the ones that share names across backends.
   `TestOrgUsageMatchesUsedBytes` builds an org with every term and compares the trigger figure
   with the full `usedBytes` query after each write, delete, GC sweep and purge batch.
 
@@ -926,7 +931,7 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
    (open question 8). KyIdentity must publish the pool's usage report and allowance (T amendment,
    board `kyidentity-business-orgs`) before PR 4e. ky-primitives needs the S3 type of open
    question 1 before PR 5b.
-1. **Org model and the single-tenant golden.** Migration 0032: `orgs`, `org_usage`,
+1. **Org model and the single-tenant golden.** Migration 0032: `orgs`,
    `erased_subjects`, the `org_id` columns, the triggers and `ensureOrgs`.
    - Tests: an upgrade test from a 0031 database: every row in the default org, and every API
      answer byte-identical before and after for a fixed set of requests (a single-tenant golden
@@ -940,9 +945,10 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
    `user.erased` accepted but applied only from PR 4.
 4. **Org lifecycle and quotas.** Split: (a) the org poll and the sign-in wait; (b) status checks
    on every credential, suspension and its holds; (c) `export_only`; (d) the purge, erasure and
-   restore reset; (e) the org pool (N10): `org_usage` triggers, the report, the cached
-   allowance and the check. 4e waits for KyIdentity's contract, and multi mode cannot be enabled
-   (PR 6) without it: the pool is required for launch.
+   restore reset; (e) the org pool (N10): `org_usage` and its
+   triggers (PostgreSQL only), the report, the cached allowance and the check. 4e waits for
+   KyIdentity's contract, and multi mode cannot be enabled (PR 6) without it: the pool is
+   required for launch.
    - Tests: a suspended org is refused on session, device and share link. A resume restores
      devices. The purge leaves no row and no object, checked against the classification. A purge
      killed between batches finishes on the next run. A restore of a capsule taken before a
