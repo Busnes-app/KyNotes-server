@@ -27,6 +27,13 @@ func AcceptReplicaConfig(ctx context.Context, db *sql.DB, key string, fields map
 		return err
 	}
 	defer tx.Rollback()
+	current, err := TenancyOfContext(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if current != tenancy {
+		return errors.New("replicas: install binding changed during acceptance")
+	}
 	var raw string
 	if err := tx.QueryRowContext(ctx, `SELECT value FROM server_settings WHERE key='replica_config_fingerprint'`).Scan(&raw); err != nil {
 		return errors.New("replicas: no usable stored configuration to accept")
