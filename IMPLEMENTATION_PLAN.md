@@ -2031,7 +2031,8 @@ Do not implement, do not stub, do not leave TODOs for:
   the password-derived key material that envelope wrapping depends on.
 * Self-service registration. Accounts are created by an administrator via
   `kynotes-server user add`.
-* Multi-tenancy, SCIM, SAML, refresh tokens.
+* SCIM, SAML, refresh tokens. Multi-tenancy is being built in phases ("Tenancy amendment" below);
+  multi-tenant mode is refused at startup until it is complete.
 * Telemetry of any kind.
 * An embedded log database or log viewer (LOGGING.md is explicit).
 
@@ -2096,3 +2097,19 @@ cannot fit the unchanged 90% backup admission budget. Trusted proxy request IDs
 are bounded to128 bytes after CR/LF removal, with normal replacement beyond that.
 The schema, physical-capacity argument, upgrade procedure and regression checks
 are specified in [cleanup capacity](docs/CLEANUP-CAPACITY.md).
+
+## Tenancy amendment, PR 1 (migration 0032)
+
+KyNotes is being built for a multi-tenant hosted mode, specified in
+`docs/superpowers/specs/2026-11-23-tenancy-design.md`. PR 1 changes no single-tenant
+behaviour. Migration `0032_orgs.sql` adds `orgs` and `erased_subjects`, and an `org_id` on
+every org-owned table: `users`, `containers`, `blobs`, `blob_containers`, `object_versions`,
+`conflicts`, `attachments`, `upload_sessions` and `sealed_share_links`, defaulting to the
+default org `00000000-0000-0000-0000-000000000001`. On `audit_events` the column is nullable,
+with no default; existing rows are backfilled. Triggers refuse an unknown org, any change of
+`org_id`, a row whose org differs from its parent's, and a customer audit row with no org.
+At open, `ensureOrgs` records `server_settings.tenancy_mode='single'` and the default org; a
+database recorded in another mode is refused before anything is written. `KYNOTES_TENANCY`
+accepts only `single` (multi is refused until the spec's PR 6), and `KYNOTES_STAFF_ORG_ID` and
+`KYNOTES_REGION` are refused in single mode. The single-tenant upgrade golden
+(`internal/httpapi/testdata/tenancy-golden`) proves the API answers are unchanged.

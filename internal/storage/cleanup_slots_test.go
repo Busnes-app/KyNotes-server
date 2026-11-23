@@ -64,7 +64,8 @@ func legacyCleanupDatabase(t *testing.T, path string, comments, actorBytes int) 
 	if _, err = tx.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id) VALUES('shl_00000000000000000000000000','legacy',X'00000000000000000000000000000000','2099-01-01T00:00:00Z','2026-01-01T00:00:00Z','usr_00000000000000000000000000')`); err != nil {
 		t.Fatal(err)
 	}
-	if err = RecordAuditOutcomeTx(tx, "usr_00000000000000000000000000", "prior.history", "", "", "success", "untouched", "legacy-request"); err != nil {
+	// The row as the legacy release wrote it (no org_id yet).
+	if _, err = tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES('aud_00000000000000000000000000','usr_00000000000000000000000000','prior.history','','','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','success','usr_00000000000000000000000000','legacy-request','untouched')`); err != nil {
 		t.Fatal(err)
 	}
 	if err = tx.Commit(); err != nil {

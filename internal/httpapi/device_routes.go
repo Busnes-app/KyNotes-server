@@ -11,6 +11,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"net/url"
 	"strings"
@@ -217,7 +218,7 @@ func DeviceRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			if _, e := tx.Exec(`DELETE FROM device_containers WHERE device_id=?`, id); e != nil {
 				return e
 			}
-			_, e := tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,actor_device_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, auditID, s.UserID, "device.revoke", "", "", time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), "success", s.UserID, id, r.Header.Get("X-Request-Id"), "")
+			_, e := tx.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,actor_device_id,request_id,reason_code,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, auditID, s.UserID, "device.revoke", "", "", time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), "success", s.UserID, id, r.Header.Get("X-Request-Id"), "", storage.DefaultOrgID)
 			return e
 		})
 		if e == sql.ErrNoRows {

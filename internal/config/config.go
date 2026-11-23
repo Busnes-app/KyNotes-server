@@ -201,6 +201,9 @@ func loadSecretsMode(c *Config, create bool) error {
 	return nil
 }
 func applyEnv(c *Config) error {
+	if err := tenancyEnv(); err != nil {
+		return err
+	}
 	applyBlobEnv(&c.Backup.BlobTarget)
 	if v := os.Getenv("KYNOTES_PORT"); v != "" {
 		c.Server.Bind = "0.0.0.0:" + v
@@ -328,6 +331,24 @@ func applyEnv(c *Config) error {
 }
 
 // parseEnvLimit reads a rate limit. Limits cannot be turned off: anything but a positive integer is an error.
+// tenancyEnv refuses what this release cannot run, so an operator who asks for multi-tenant
+// mode is never served single-tenant by mistake. Multi mode arrives with the tenancy spec's PR 6.
+func tenancyEnv() error {
+	switch os.Getenv("KYNOTES_TENANCY") {
+	case "", "single":
+	case "multi":
+		return errors.New("KYNOTES_TENANCY: multi is not available in this release")
+	default:
+		return errors.New("KYNOTES_TENANCY: must be single or multi")
+	}
+	for _, name := range []string{"KYNOTES_STAFF_ORG_ID", "KYNOTES_REGION"} {
+		if os.Getenv(name) != "" {
+			return fmt.Errorf("%s: set only in multi-tenant mode", name)
+		}
+	}
+	return nil
+}
+
 func parseEnvLimit(value string, dst *int, name string) error {
 	n, err := strconv.Atoi(value)
 	if err != nil || n < 1 {
