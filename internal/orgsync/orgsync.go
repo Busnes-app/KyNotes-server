@@ -94,7 +94,13 @@ func (p *Poller) poll(ctx context.Context) error {
 		// as a platform row. Devices, identities and envelopes stay, so a resume needs no
 		// re-linking (spec, Lifecycle, Suspended or deletion_scheduled).
 		if before == 1 && after == 0 {
-			res, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE org_id=?)`, o.ID)
+			// A deletion_scheduled org keeps its export_only sessions: a member who signed in to
+			// export just before the poll is not cut off (spec N11).
+			keep := "0"
+			if o.Status == "deletion_scheduled" {
+				keep = "1"
+			}
+			res, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE org_id=?) AND NOT (export_only=1 AND ?='1')`, o.ID, keep)
 			if err != nil {
 				return err
 			}

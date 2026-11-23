@@ -237,3 +237,28 @@ func TestMultiModeSignInWaitsForOnePollOfAnUnmirroredOrg(t *testing.T) {
 		t.Fatalf("a forged org triggered %d polls in ten seconds, want 1", polls-1)
 	}
 }
+
+// During deletion_scheduled only an export_only token signs in, and its session is marked.
+func TestMultiModeExportOnlySignInDuringDeletion(t *testing.T) {
+	f := newLogoutFixture(t)
+	toMultiMode(t, f.db, "org_staff")
+	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'`, `INSERT INTO orgs(id,status,home_region) VALUES('org_closing','deletion_scheduled','eu')`} {
+		if _, err := f.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if res := f.signInWith("plain", map[string]any{"org_id": "org_closing"}); res.Code != 403 || errorCode(t, res.Body.String()) != "org_not_active" {
+		t.Fatalf("an ordinary token during deletion: %d %s", res.Code, res.Body.String())
+	}
+	if res := f.signInWith("exporter", map[string]any{"org_id": "org_closing", "export_only": true}); res.Code != 302 {
+		t.Fatalf("export_only during deletion: %d %s", res.Code, res.Body.String())
+	}
+	var marked int
+	if err := f.db.QueryRow(`SELECT count(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.sso_subject='exporter' AND s.export_only=1`).Scan(&marked); err != nil || marked != 1 {
+		t.Fatalf("export_only session not marked: %d %v", marked, err)
+	}
+	// A string "true" is not the claim.
+	if res := f.signInWith("stringly", map[string]any{"org_id": "org_closing", "export_only": "true"}); res.Code != 403 {
+		t.Fatalf("export_only as a string: %d", res.Code)
+	}
+}

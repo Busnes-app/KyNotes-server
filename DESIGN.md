@@ -870,3 +870,13 @@ refused at the next request: its sessions and device credentials answer 401, its
 identities and envelopes are kept, so a resume needs no re-linking. When the org mirror sees an
 org stop serving, the same transaction deletes its sessions and records a platform audit row.
 Single mode is unchanged.
+
+## Tenancy amendment, PR 4c (export during deletion)
+
+Migration 0034 adds `sessions.export_only`. In multi mode a sign-in whose ID token carries
+`export_only` is admitted while its org is `deletion_scheduled`, and its session is marked. A
+marked session reaches only the routes the browser export needs (`auth.ExportRoutes`: its own
+session and sign-out, its identity and recovery-code fetch, browser linking, and the notebook,
+page and attachment reads); every other route answers `403 export_only`. When an org moves to
+`deletion_scheduled` its export-only sessions are kept and the others deleted. The server
+produces no plaintext: the export runs in the browser, as before.

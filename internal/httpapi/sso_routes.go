@@ -55,8 +55,8 @@ var tenancyMessages = map[string]string{
 // Sign-in): the token names an org that is mirrored, active, enabled and in this region, and a
 // subject that was never erased. It returns the refusal code and audit reason, or "" to go on;
 // single mode always goes on. An org not yet mirrored waits for one poll (orgsync.Poller.Await,
-// at most 5 s, once per org every 10 s). ponytail: PR 4c admits an export_only token while the
-// org is deletion_scheduled.
+// at most 5 s, once per org every 10 s). An export_only token is admitted while its org is
+// deletion_scheduled, and its session reaches only auth.ExportRoutes.
 func tenancyRefusal(ctx context.Context, db *sql.DB, t storage.Tenancy, claims *sso.Claims, poller *orgsync.Poller) (code, reason string, err error) {
 	if !t.Multi() {
 		return "", "", nil
@@ -64,9 +64,9 @@ func tenancyRefusal(ctx context.Context, db *sql.DB, t storage.Tenancy, claims *
 	if claims.OrgID == "" {
 		return "org_required", "no_org", nil
 	}
-	var erased, serving, mirrored int
+	var erased, serving, exporting, mirrored int
 	read := func() error {
-		return db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?),(SELECT count(*) FROM orgs WHERE id=?)`, claims.Subject, claims.OrgID, t.Region, claims.OrgID).Scan(&erased, &serving, &mirrored)
+		return db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?),(SELECT count(*) FROM orgs WHERE id=? AND status='deletion_scheduled' AND enabled=1 AND home_region=?),(SELECT count(*) FROM orgs WHERE id=?)`, claims.Subject, claims.OrgID, t.Region, claims.OrgID, t.Region, claims.OrgID).Scan(&erased, &serving, &exporting, &mirrored)
 	}
 	if err = read(); err != nil {
 		return "", "", err
@@ -82,7 +82,7 @@ func tenancyRefusal(ctx context.Context, db *sql.DB, t storage.Tenancy, claims *
 	switch {
 	case erased > 0:
 		return "account_erased", "erased", nil
-	case serving == 0:
+	case serving == 0 && !(claims.ExportOnly && exporting == 1): // N11: export_only during deletion
 		return "org_not_active", "org_not_active", nil
 	}
 	return "", "", nil
@@ -450,7 +450,7 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 		if claims.ValidUntil.Before(deadline) {
 			deadline = claims.ValidUntil
 		}
-		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, AppAdmin: claims.AppAdmin, IssuedAt: claims.IssuedAt, LoginExpires: deadline}, cfg.Server.DevInsecureCookies, RequestID(r))
+		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, AppAdmin: claims.AppAdmin, IssuedAt: claims.IssuedAt, LoginExpires: deadline, ExportOnly: tenancy.Multi() && claims.ExportOnly}, cfg.Server.DevInsecureCookies, RequestID(r))
 		if err != nil {
 			if errors.Is(err, auth.ErrSSOLoginRejected) {
 				WriteError(w, r, 403, "sso_login_rejected", "restart Single Sign-On login")

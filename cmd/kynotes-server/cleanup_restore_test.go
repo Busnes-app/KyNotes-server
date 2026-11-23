@@ -50,7 +50,7 @@ func TestCapacityRefusedRestoreStillRevokesCredentialsAndStopsDeposits(t *testin
 	for _, table := range []string{"containers", "blobs", "blob_containers", "object_versions", "conflicts", "attachments", "upload_sessions", "sealed_share_links"} {
 		undo = append(undo, `ALTER TABLE `+table+` DROP COLUMN org_id`)
 	}
-	undo = append(undo, `DROP TABLE orgs`, `DROP TABLE erased_subjects`, `DELETE FROM schema_migrations WHERE version>=32`, `DELETE FROM server_settings WHERE key='tenancy_mode'`)
+	undo = append(undo, `ALTER TABLE sessions DROP COLUMN export_only`, `DROP TABLE orgs`, `DROP TABLE erased_subjects`, `DELETE FROM schema_migrations WHERE version>=32`, `DELETE FROM server_settings WHERE key='tenancy_mode'`)
 	for _, q := range undo {
 		if _, err = st.DB().Exec(q); err != nil {
 			t.Fatal(q, err)

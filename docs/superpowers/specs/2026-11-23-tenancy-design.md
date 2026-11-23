@@ -1212,6 +1212,29 @@ Branch `feat/tenancy-build-4b`, stacked on PR 4a.
   the resume), `TestStoppedOrgsRemindersWait`, `TestGCWaitsWhileTheBlobsOrgIsStopped`,
   `TestPollEndsTheSessionsOfAnOrgThatStops` (one audit row over two polls).
 
+### PR 4c as built
+
+Branch `feat/tenancy-build-4c`, stacked on PR 4b.
+
+- **Migration 0034** (`sessions.export_only`, 0 or 1) on SQLite and PostgreSQL.
+- **Sign-in:** `tenancyRefusal` admits a token whose `export_only` is JSON `true` while its org is
+  `deletion_scheduled`, enabled and in this region; `MintSSOSession` marks the session. A token
+  with `export_only` in an active org is marked too, and so restricted.
+- **Admission:** `ResolveSession` admits a marked session while its org serves or is
+  `deletion_scheduled` (and in no other non-serving state). Devices get no exception.
+- **The allowlist** (`auth.ExportRoutes`): `GET /auth/session` and `POST /auth/logout` (both
+  paths), `GET /me/identity`, `POST /me/identity/recovery/fetch`, the seven link-request routes,
+  `GET /containers`, `GET /containers/{id}/changes`, `GET /containers/{id}/envelopes`,
+  `GET /objects/{id}`, `GET /objects/{id}/attachments`, `GET /attachments/{id}`. **Correction to
+  Export above:** the server has no `GET /containers/{id}/objects` route (the list of served
+  routes, `servedRoutes`), so there is nothing to admit for it. `PUT /me/identity` stays refused
+  (the spec leaves its need unverified; refusing is the safe default, and a fresh browser
+  restores its key through the recovery-code fetch and linking).
+- **Transition:** the org poll keeps `export_only` sessions when an org moves to
+  `deletion_scheduled` and deletes the rest (PR 4b's step).
+- **Not built here:** PR 4c's end-to-end browser export under `export_only` (Export, last
+  paragraph). It needs a multi-mode server to sign in to, which PR 6 enables.
+
 ## Residual risks
 
 - **One writer for every org.** N3 serialises all writes on PostgreSQL. A busy org delays the

@@ -269,6 +269,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `orgsync` deletes an org's sessions and audits `org.sessions_ended` (platform row) when a poll stops it.
   Verify `TestStoppedOrgIsRefusedOnEveryCredential`, `TestStoppedOrgsRemindersWait`,
   `TestGCWaitsWhileTheBlobsOrgIsStopped`, `TestPollEndsTheSessionsOfAnOrgThatStops`.
+- Tenancy PR 4c, `export_only`: `auth.ExportRoutes` (patterns, matched on `r.Pattern`) is the whole
+  surface an export-only session reaches; `refuseExportOnly` runs in `RequireAccount` and `RequireEither`,
+  before any kind or handler check. Adding a route the browser export needs means adding it there;
+  `TestExportOnlyAdmitsOnlyTheExportRoutes` drives every served session route and fails on a stale or
+  missing entry. Verify that test, `TestExportOnlySessionSurvives`,
+  `TestMultiModeExportOnlySignInDuringDeletion` and `TestPollKeepsExportOnlySessionsForDeletion`.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.

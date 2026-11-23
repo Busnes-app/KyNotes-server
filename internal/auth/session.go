@@ -26,6 +26,9 @@ type Session struct {
 	// PasswordChangeRequired: a password session on a password someone else set (users.password_admin_known).
 	// SSO sessions never carry it: they did not use the password.
 	PasswordChangeRequired bool
+	// ExportOnly: signed in with KyIdentity's export_only claim (tenancy N11); it reaches only
+	// ExportRoutes, and is admitted while its org is deletion_scheduled.
+	ExportOnly bool
 	// What the request was authorized against, for RecheckUserStepUpTx.
 	stepUpRaw, passwordHash string
 }
@@ -107,6 +110,10 @@ func MintPasswordSession(db *sql.DB, w http.ResponseWriter, userID, passwordHash
 	return s, nil
 }
 
+// exportOrg is SQL true while the account's org is deletion_scheduled, enabled and in this
+// region: the one non-serving state that still admits an export_only session (spec N11).
+const exportOrg = `EXISTS(SELECT 1 FROM orgs eo WHERE eo.id=u.org_id AND eo.status='deletion_scheduled' AND eo.enabled=1 AND eo.home_region=(SELECT value FROM server_settings WHERE key='region'))`
+
 func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -119,12 +126,13 @@ func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error)
 	h := sha256.Sum256(raw)
 	var s Session
 	var created, expires, hard, revoked, status, stepup string
-	var adminKnown int
-	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash,u.account_kind,u.password_admin_known FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND `+storage.OrgServes("u.org_id"), hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash, &s.AccountKind, &adminKnown)
+	var adminKnown, exportOnly int
+	err = db.QueryRow(`SELECT s.id,s.user_id,s.created_at,s.expires_at,s.hard_expires_at,s.revoked_at,s.stepup_at,u.status,s.sso_issuer,s.sso_client_id,s.sso_subject,u.auth_secret_hash,u.account_kind,u.password_admin_known,s.export_only FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND (`+storage.OrgServes("u.org_id")+` OR s.export_only=1 AND `+exportOrg+`)`, hex.EncodeToString(h[:])).Scan(&s.ID, &s.UserID, &created, &expires, &hard, &revoked, &stepup, &status, &s.SSOIssuer, &s.SSOClientID, &s.SSOSubject, &s.passwordHash, &s.AccountKind, &adminKnown, &exportOnly)
 	if err != nil || revoked != "" || status != "active" {
 		return Session{}, errors.New("unauthenticated")
 	}
 	s.PasswordChangeRequired = adminKnown != 0 && s.SSOIssuer == ""
+	s.ExportOnly = exportOnly == 1
 	s.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	s.ExpiresAt, _ = time.Parse(time.RFC3339, expires)
 	s.HardExpiresAt, _ = time.Parse(time.RFC3339, hard)
