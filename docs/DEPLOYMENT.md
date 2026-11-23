@@ -280,6 +280,13 @@ socket address. Trusted proxies must append the observed peer address or replace
 header with the observed client, never blindly pass client-supplied headers. Configure
 only actual proxy networks, not all Internet addresses. IPv6 identities retain /64 grouping.
 
+## Tenancy mode
+
+A self-hosted install is single-tenant: leave `KYNOTES_TENANCY` unset or set it to `single`.
+The value is recorded in the database at first start, and a start in another mode is refused.
+`multi` is refused at startup in this release, and so are `KYNOTES_STAFF_ORG_ID` and
+`KYNOTES_REGION`, which belong to it.
+
 ## Trusted proxy addresses
 
 The compose file leaves `TRUSTED_PROXY_CIDRS` empty, so KyNotes trusts no proxy (only the

@@ -63,6 +63,12 @@ and its overflow chain uses no additional pages. Secondary index keys are
 unchanged. Recheck this boundary when upgrading the SQLite dependency or changing
 the source tables, their column types or cleanup indexes.
 
+Migration 0032 adds `org_id` to `containers` and `sealed_share_links` and writes it into every
+existing row in the same migration. Cleanup sizes the old record from `SELECT *`, which reports
+an `ALTER TABLE` default even when the stored record lacks it; storing it keeps that size exact
+(`TestUpgradePutsEveryRowInTheDefaultOrg` compares it with `dbstat`). A column added to a source
+table later needs the same treatment.
+
 ## Existing instances and restore
 
 Before changing a legacy database, startup makes a private snapshot and runs all

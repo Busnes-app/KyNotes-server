@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Groundwork for a multi-tenant hosted mode, with no change to self-hosted behaviour. Starting this release migrates the database (migration 0032): every account, notebook, page version, attachment, upload and share link is recorded in the install's one organisation, and existing audit history is kept. `KYNOTES_TENANCY` may be left unset or set to `single`; `multi` is refused at startup because that mode is not complete, and `KYNOTES_STAFF_ORG_ID` and `KYNOTES_REGION` are refused because they apply only to it. Once migrated, the database cannot be opened by an older release: keep a `copy-data-dir` copy from before the upgrade if you may need to go back.
+
 - Keep SQLite `v1.62.0` with its upstream-required libc `v1.80.1` and memory `v1.12.1`; defer independent updates of those runtime dependencies.
 
 - Prepare application version `0.6.1` (from `0.6.0`) for the compatible dependency refresh. Rebuild or install the updated application; this version bump requires no additional data, account, key or configuration migration.

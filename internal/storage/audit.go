@@ -27,6 +27,7 @@ func recordAuditOutcome(db auditWriter, actor, event, container, object, outcome
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = db.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, actor, event, container, object, now, now, outcome, actor, requestID, reason)
+	// ponytail: single-tenant names the default org; multi mode (spec PR 3) names the actor's.
+	_, err = db.Exec(`INSERT INTO audit_events(id,user_id,event,container_id,object_id,created_at,at,outcome,actor_user_id,request_id,reason_code,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, actor, event, container, object, now, now, outcome, actor, requestID, reason, DefaultOrgID)
 	return err
 }

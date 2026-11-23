@@ -194,6 +194,21 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   routes are listed there. Verify `TestEveryServedRouteIsClassified`, `TestEveryRouteRefusesTheOtherKind`,
   `TestEveryAccountRouteServesBothKindsUnfenced`, `TestPasswordChangeIsForcedAtFirstSignIn`,
   `TestAdminAccountsCannotPairDevices`, `TestKindGatesHoldWithoutTheTriggers`, `TestRefuseSessionKeepsKindsApart`.
+- Tenancy PR 1 (`docs/superpowers/specs/2026-11-23-tenancy-design.md`, DESIGN.md "Tenancy amendment"):
+  migration `0032_orgs.sql` and `storage.ensureOrgs` (run by `Open` after migrating). Every org-owned
+  table has `org_id`, defaulting to `storage.DefaultOrgID`; `audit_events.org_id` is nullable with no
+  default, and every audit writer names the org (`storage.DefaultOrgID` in single mode). A new
+  table must be classified in `internal/storage/orgs_test.go`; a new org-owned one gets the
+  `_org_exists`, `_org_fixed` and, with a parent, `_org_parent` and `_org_parent_move` triggers. A
+  column added to a cleanup source table must be written into existing rows by its migration
+  (docs/CLEANUP-CAPACITY.md). `KYNOTES_TENANCY=multi`, and `KYNOTES_STAFF_ORG_ID` or `KYNOTES_REGION`
+  in single mode, fail every config load (`tenancyEnv`). Single-tenant API answers are pinned by
+  `TestSingleTenantUpgradeGolden`: `testdata/tenancy-golden/legacy.*` is a database the release
+  before tenancy wrote (`-update-legacy` runs only there), and `upgrade.txt` is every answer after
+  upgrading it. Never regenerate `upgrade.txt` to make a change pass; `-update-golden` is only for an
+  answer that is meant to change. Verify `TestEveryTableIsClassified`, `TestOrgOwnedTablesHaveOrgID`,
+  `TestUpgradePutsEveryRowInTheDefaultOrg`, `TestOpenRefusesAnotherTenancyModeAndWritesNothing`,
+  `TestOrgTriggersRefuseCrossOrgRows`, `TestTenancyEnvRefusesWhatThisReleaseCannotRun` and the golden.
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.

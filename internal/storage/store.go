@@ -75,7 +75,10 @@ func open(path string, migrate bool) (*Store, error) {
 	}
 	s := &Store{db: d, path: path}
 	if migrate {
-		if err = s.migrate(); err != nil {
+		if err = s.migrate(); err == nil {
+			err = s.ensureOrgs()
+		}
+		if err != nil {
 			d.Close()
 			return nil, err
 		}

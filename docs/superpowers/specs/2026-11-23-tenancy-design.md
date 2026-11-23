@@ -1,8 +1,8 @@
 # Tenancy: single-tenant and multi-tenant (SaaS), KyNotes design
 
-Date: 2026-11-23, revised the same day for owner decisions 9 and 10. Status: proposed design,
-waiting for owner review. Nothing is built, and this change is docs only. KyNotes has no tenancy
-code today: no `org_id` appears anywhere under `internal/` or `cmd/`.
+Date: 2026-11-23, revised the same day for owner decisions 9 and 10. Status: merged in #176
+and being built; see "PR 1 as built". The line references below describe `master` before any
+tenancy code (`961a302`), when no `org_id` appeared under `internal/` or `cmd/`.
 
 Owner decisions (fixed, not reopened here):
 
@@ -985,6 +985,50 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
    and startup accepting `multi` with every requirement. An end-to-end run against KyIdentity in
    multi mode: two orgs, a Family team notebook inside one, a share link across them, then a
    suspension, an `export_only` export and a deletion.
+
+### PR 1 as built
+
+Branch `feat/tenancy-build-1`. Files are cited at that branch's head.
+
+- Migration `internal/storage/migrations/0032_orgs.sql` creates `orgs` (`id`, `status`,
+  `revision`, `enabled`, `home_region`, `seen_at`, `purged_at`) and `erased_subjects`. The pool
+  columns (`pool_allowance_bytes`, `pool_checked_at`, `pool_low`) are left to PR 4e, which first
+  uses them. The default org is inserted only when `users` has rows.
+- `org_id` is on the nine O tables named in Isolation step 3, with the default org as default,
+  and nullable with no default on `audit_events`. Existing audit rows are backfilled when the
+  default org exists.
+- **Found while building:** cleanup sizes a row from `SELECT *` (`internal/storage/cleanup_rows.go`,
+  `cleanupRowPaddingTx`), and SQLite reports an `ALTER TABLE` default for a row whose stored record
+  lacks the column. Left virtual, `org_id` would make cleanup overestimate a legacy `containers` or
+  `sealed_share_links` row by 37 bytes, so a cleanup rewrite could grow its cell. The migration
+  therefore writes `org_id` into every existing row of those two tables (as 0031 did for its
+  padding). `TestUpgradePutsEveryRowInTheDefaultOrg` compares the stored record with `dbstat`;
+  without the two `UPDATE`s it fails (149 bytes stored against 186 computed for a container).
+  `docs/CLEANUP-CAPACITY.md` says so. The 31→32 upgrade adds no capacity refusal: the growth is one
+  `org_id` per container, sealed link and audit row.
+- Triggers, per table: `<table>_org_exists`, `<table>_org_fixed`, and for a table with a parent
+  `<table>_org_parent` (insert) and `<table>_org_parent_move` (update of the parent column), plus
+  `audit_events_org_named`. A missing parent row compares as NULL and passes: FKs own existence, and
+  a historical orphan child keeps working as today. N7's cross-org triggers are left to PR 3, as the
+  plan says, in a later migration.
+- `storage.ensureOrgs` (`internal/storage/orgs.go`) runs inside `Open` after the migrations, in one
+  transaction: it works out the stored mode, refuses another one before writing, inserts
+  `tenancy_mode` with `ON CONFLICT DO NOTHING`, reads it back, then inserts the default org. It
+  knows only `single`: `KYNOTES_TENANCY=multi` fails every config load (`internal/config/config.go`,
+  `tenancyEnv`) until PR 6, so asking for multi mode never serves single-tenant by mistake.
+  `KYNOTES_STAFF_ORG_ID` and `KYNOTES_REGION` are refused in single mode.
+- The three audit writers (`storage.recordAuditOutcome`, the device revoke in `device_routes.go`
+  and account recovery in `auth_routes.go`) name `storage.DefaultOrgID`. PR 3 makes them name the
+  actor's org in multi mode.
+- **The golden** (`internal/httpapi/tenancy_golden_test.go`, `TestSingleTenantUpgradeGolden`):
+  `testdata/tenancy-golden/legacy.sql`, `legacy.json` and `blobs/` are a database and blob store the
+  release before tenancy wrote through its own API. The test replays migrations 0001 to 0031, loads
+  those rows, upgrades with `storage.Open`, then makes 52 requests (reads by two members and an
+  administrator, saves, a conflict, comments, an upload, links, a delete, and the reads again).
+  `upgrade.txt` is every answer (status, headers bar `Date` and `X-Request-Id`, body), recorded by
+  the commit before any tenancy code. Minted IDs, tokens and clock values become numbered
+  placeholders, and the audit list compares as a set, since it orders rows of one second by a random
+  ID. The run is stable under `-race` and `GODEBUG=fips140=on`.
 
 ## Residual risks
 
