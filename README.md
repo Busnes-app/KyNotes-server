@@ -28,7 +28,9 @@ re-login/re-pairing of linked accounts after migration 0016.
 Administrators can pin a recovery public key, pair KyRecovery, schedule backups, retain
 local sealed copies, download capsules and run synthetic restore drills. Capsules hold
 the database and deployment secrets, while ciphertext blobs require separate recovery.
-Read the [restore runbook](docs/RESTORE.md) before relying on a backup.
+Read the [restore runbook](docs/RESTORE.md) before relying on a backup. Native PostgreSQL restored-target
+safety preparation is documented there for tenancy rehearsals; it does not enable hosted
+startup or provide a PostgreSQL backup transport.
 
 To check that a release image came from this repository's release workflow, and to rebuild its
 binary to the same bytes, see [verifying releases](docs/VERIFYING-RELEASES.md). The security

@@ -184,3 +184,11 @@ These tests do not establish an operational PostgreSQL backup transport or hoste
 SSO account insertion and final session/step-up identity admission re-check the erasure fence
 in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
 whose earlier lookup already ran cannot mint a session past a newer durable fence.
+
+
+Native PostgreSQL restore preparation uses an exact-schema open without migrations and an
+explicit offline target acknowledgement; the DSN stays out of argv and errors. Dedicated
+PG tests check credential revocation, retained encryption identities/pins/fences/store ID,
+schedule-off and audit/reset atomicity under schedule failure, audit failure and cancellation.
+SQLite restore shares the same prior revocation operations. This is target-safety evidence,
+not proof of native PostgreSQL backup recovery, object coverage or hosted readiness.

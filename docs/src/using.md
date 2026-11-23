@@ -15,3 +15,8 @@ Administrators can pin the suite public key, pair KyRecovery, schedule backups, 
 ## Restore
 
 Follow the ordered runbook: recover the capsule and deployment secrets, then fetch/verify the missing ciphertext blobs. Local plaintext maintenance commands require the service to be stopped.
+
+
+For native PostgreSQL recovery rehearsals, the [restore runbook](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/RESTORE.md#prepare-a-native-postgresql-restored-target-tenancy-preparation)
+explains the offline restored-target safety command. Hosted startup and backup transport
+remain unavailable; preparing a target is not permission to serve it.

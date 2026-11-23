@@ -90,6 +90,11 @@ jobs:
           KYNOTES_TEST_DATABASE_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
         run: go test -race -count=1 -timeout 20m -p 2 ./internal/storage/... ./internal/httpapi/... ./internal/auth/... ./internal/app/... ./internal/sso/... ./internal/orgsync/... ./internal/worker/... ./internal/blobstore/... ./cmd/kynotes-mcp/...
 
+      - name: PostgreSQL restored-target safety
+        env:
+          KYNOTES_TEST_DATABASE_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
+        run: go test -race -count=1 -timeout 20m -p 2 ./internal/backup ./cmd/kynotes-server -run '^TestPostgresRestore'
+
   checks:
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest

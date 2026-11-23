@@ -128,3 +128,35 @@ legacy data for cleanup with the old release. If those safety steps fail, do not
 start any release on that target; restore into a fresh target using the release
 that wrote the capsule. Ordinary startup refusal leaves the original instance's
 credentials and schedule unchanged.
+
+
+## Prepare a native PostgreSQL restored target (tenancy preparation)
+
+Hosted startup is still refused in this release. This command prepares a database restored
+by a separate native PostgreSQL recovery procedure; it neither recovers backup bytes nor
+establishes blob coverage or hosted readiness. The tenancy spec's large-database backup
+transport remains open question 3. Do not substitute a SQLite capsule or a private S3 client.
+
+1. Keep the original deployment preserved. Stop **every** replica of the restored target.
+2. Recover into a separate PostgreSQL database using the selected native backup procedure.
+   Retain the original deployment secrets, recovery pin and object-store identity.
+3. Use the exact KyNotes release matching that database schema. Provide its target URL in
+   `KYNOTES_DB_DSN` through your protected environment file, never a command argument:
+
+   ```bash
+   kynotes-server prepare-postgres-restore --confirm-restored
+   ```
+
+The command refuses an uninitialized, older/newer or single-mode target without migrating it.
+One transaction revokes web sessions, paired devices, share/sealed links and pending invitations;
+keeps encryption identities; turns scheduled deposits off; makes customer orgs stale at revision
+zero; clears old grants, directory cursors, replica ephemeral state and probe pointers; and
+records a platform audit. Erasure fences, permanent store ID, keys and sealed recovery pairing
+remain. A schedule/audit/reset failure rolls everything back: keep the target stopped, fix the
+cause and repeat with its matching release.
+
+Before a future supported hosted release serves the target, reconcile the complete org and
+erased-subject feeds from zero, re-purge/re-erase their notices, verify every required ciphertext
+object and the shared store identity, then verify staff access and restore tasks. An org absent
+from the full listing remains stale and unserved. Turn deposits back on only after verifying
+which deployment is authoritative. This preparation command never lifts the startup refusal.

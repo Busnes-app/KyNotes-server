@@ -978,3 +978,16 @@ it does not enable PostgreSQL backup transport or multi startup.
 SSO account insertion and final session/step-up identity admission re-check the erasure fence
 in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves a callback
 whose earlier lookup already ran cannot mint a session past a newer durable fence.
+
+
+### Native PostgreSQL restored-target safety
+
+`OpenPostgresCurrent` opens only an existing, exact-release schema without migrating or
+rewriting tenancy. The offline `prepare-postgres-restore --confirm-restored` command reads
+its target DSN from the protected environment and requires every replica stopped. In one
+transaction `backup.PreparePostgresRestore` revokes credentials/links/pending invitations,
+turns deposits off through recoveryclient's schedule API, resets tenancy coordination and
+records a platform audit. Identity keys, recovery pairing, erasure fences and permanent
+store ID remain. Failed schedule/audit/reset/cancellation rolls back the target. SQLite
+capsule restore retains its behavior through the shared credential-revocation helper.
+Native backup-byte transport, blob recovery and hosted startup remain separate prerequisites.

@@ -51,6 +51,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "prepare-postgres-restore":
+			if e := preparePostgresRestoreCommand(os.Args[2:], os.Stdout); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
 		case "deposit", "export-capsule", "backup-drill", "restore":
 			if e := capsuleCommand(os.Args[1], os.Args[2:]); e != nil {
 				fmt.Fprintln(os.Stderr, e)
