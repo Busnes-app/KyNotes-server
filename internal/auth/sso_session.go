@@ -62,7 +62,8 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
 // checkSSOIdentityTx rechecks the issuer configuration and revocation fences under the writer lock.
 func checkSSOIdentityTx(tx *sql.Tx, userID string, identity SSOIdentity, now time.Time) error {
 	var allowed int
-	err := tx.QueryRow(`SELECT count(*) FROM users WHERE id=? AND status='active' AND sso_issuer=? AND sso_subject=?
+	err := tx.QueryRow(`SELECT count(*) FROM users u WHERE id=? AND status='active' AND sso_issuer=? AND sso_subject=?
+ AND (`+storage.OrgServes("u.org_id")+` OR (?=1 AND `+exportOrg+`))
  AND (COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR NOT EXISTS(SELECT 1 FROM erased_subjects WHERE subject=?))
  AND NOT EXISTS(SELECT 1 FROM sso_directory_state WHERE issuer=? AND subject=? AND revoked_before>=?)
  AND NOT EXISTS(SELECT 1 FROM sso_login_cutoffs WHERE issuer=? AND subject=? AND revoked_before>=?)
@@ -73,7 +74,7 @@ func checkSSOIdentityTx(tx *sql.Tx, userID string, identity SSOIdentity, now tim
  AND ((sid<>'' AND sid=? AND (subject='' OR subject=?))
  OR (?='' AND subject<>'' AND subject=? AND issued_at>=?)
  OR (sid='' AND subject=? AND issued_at>=?)))`,
-		userID, identity.Issuer, identity.Subject, identity.Subject, identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.FixedConfiguration, identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
+		userID, identity.Issuer, identity.Subject, identity.ExportOnly, identity.Subject, identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.Issuer, identity.Subject, identity.IssuedAt.Unix(), identity.FixedConfiguration, identity.Issuer, identity.ClientID, identity.Issuer, identity.ClientID, now.Unix(), identity.SessionID, identity.Subject, identity.SessionID, identity.Subject, identity.IssuedAt.Unix(), identity.Subject, identity.IssuedAt.Unix()).Scan(&allowed)
 	if err != nil {
 		return err
 	}

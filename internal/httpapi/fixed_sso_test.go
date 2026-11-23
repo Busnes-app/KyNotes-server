@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"errors"
+	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +61,30 @@ func TestFixedSSOSettingsAuthenticateAcrossPoolsWithoutDatabaseSecrets(t *testin
 	if res := first.send(req); res.Code != 400 {
 		t.Fatalf("replayed callback: %d %s", res.Code, res.Body.String())
 	}
+	// Admission may have checked an active org before waiting for the writer lock.
+	// Recheck current status/region and the export exception at the final mint boundary.
+	var userID string
+	if err := first.db.QueryRow(`SELECT id FROM users WHERE sso_subject='fixed-user'`).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	identity := auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: "fixed-user", SessionID: "sid", IssuedAt: time.Now(), LoginExpires: time.Now().Add(time.Minute), FixedConfiguration: true}
+	for _, status := range []string{"suspended", "deletion_scheduled"} {
+		if _, err := first.db.Exec(`UPDATE orgs SET status=? WHERE id=?`, status, storage.DefaultOrgID); err != nil {
+			t.Fatal(err)
+		}
+		out := httptest.NewRecorder()
+		if _, err := auth.MintSSOSession(t.Context(), first.db, out, userID, identity, true, "fixed-org-stop"); !errors.Is(err, auth.ErrSSOLoginRejected) || len(out.Result().Cookies()) != 0 {
+			t.Fatalf("stopped org minted a session: %s %v", status, err)
+		}
+	}
+	identity.ExportOnly = true
+	if _, err := auth.MintSSOSession(t.Context(), first.db, httptest.NewRecorder(), userID, identity, true, "fixed-export"); err != nil {
+		t.Fatal("export-only deletion exception lost", err)
+	}
+	if _, err := first.db.Exec(`UPDATE orgs SET status='active' WHERE id=?`, storage.DefaultOrgID); err != nil {
+		t.Fatal(err)
+	}
+
 	if res := second.send(request("org_other")); res.Code != 403 || errorCode(t, res.Body.String()) != "org_mismatch" {
 		t.Fatalf("wrong org: %d %s", res.Code, res.Body.String())
 	}
