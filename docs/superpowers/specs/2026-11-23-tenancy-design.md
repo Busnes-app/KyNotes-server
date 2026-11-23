@@ -1340,6 +1340,7 @@ Branch `feat/tenancy-build-4e`, stacked on PR 4d-2. Built to KyIdentity's merged
   `reported_bytes`, `ceiling_bytes`, `expires_at`, `pool_bytes`. `seq` rises by
   `UPDATE ... RETURNING` in the shared database under the writer lock, so replicas never
   collide and no clock is used; a `stale` answer moves it up to KyIdentity's.
+  A deleted org's purge deletes its row (a `purgeSteps` entry).
 - **The check** (`storage.PoolRefuses`), inside the write's transaction where today's caps run
   there: the org's charged bytes (`OrgChargedBytes`: today's `usedBytes` over the org's
   notebooks, plus its live sealed links; previews now matched by org and digest) plus the

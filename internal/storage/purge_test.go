@@ -50,12 +50,13 @@ func seedPurgeOrg(t *testing.T, s *Store, org, tag string) []string {
 		`INSERT INTO sso_directory_state(issuer,subject,revision,digest,active,event_id) VALUES('iss','sub-` + tag + `',1,'d',1,'e')`,
 		`INSERT INTO sso_login_cutoffs(issuer,subject,revoked_before) VALUES('iss','sub-` + tag + `',1)`,
 		`INSERT INTO audit_events(id,user_id,event,created_at,at,outcome,org_id) VALUES('` + id("aud") + `','` + u + `','e','t','t','success','` + org + `')`,
+		`INSERT INTO org_pool(org_id,seq,expires_at) VALUES('` + org + `',1,'pool-` + tag + `')`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatalf("%.90s: %v", q, err)
 		}
 	}
-	return []string{u, u2, c, o, cm, a, d, ses, inv, digest, "sub-" + tag}
+	return []string{u, u2, c, o, cm, a, d, ses, inv, digest, "sub-" + tag, "pool-" + tag}
 }
 
 // everyValue is every table's values, bar the rows a purge keeps on purpose (the tombstone, the
