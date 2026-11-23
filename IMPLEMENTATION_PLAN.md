@@ -2228,3 +2228,18 @@ Next 5a boundary: schedule wiring, environment-only key input, full shared finge
 proxy drain, blob seam/org prefixes/upload parts/store identity and two-replica blob evidence.
 Then 5b primary object storage (shared client prerequisite only), PG restore/erased-feed adapter
 and phase 6 enablement/E2E. Multi startup stays refused until every prerequisite is met.
+
+
+### Tenancy PR 5a-2: replica adapter and blob seam
+
+Built the approved Backend/Temporary seam without changing volume paths, validated org blob
+and chunk-part keys, and N15 store-ID/probe verification with independent control-file callbacks.
+Prepared strict environment-only shared keys, complete fingerprint fields, elected lifecycle/
+reminder/pool/GC/backup scheduling and replica-pattern drain. Explicit context reads keep
+worker tenancy lookups cancellable. Tests include independent HTTP/database upload replicas
+and control-store identity/cadence/failover/restore evidence. Multi startup remains refused.
+
+Remaining integration: bind identity/parts/GC/prefix purge to the real shared-client primary
+object backend (5b), wire supported PG backup/restore and erased-feed reconciliation, then
+phase 6 constructs runtime adapters and enables multi only with every prerequisite present.
+The absence of the shared S3 type does not block these completed independent 5a mechanisms.

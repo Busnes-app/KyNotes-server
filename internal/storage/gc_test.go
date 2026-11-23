@@ -86,7 +86,7 @@ func TestGCDeletesExpiredLinkRequests(t *testing.T) {
 
 // blobFixture opens a store with one note and returns a helper that writes a blob file
 // and its row, marked unreferenced two hours before now.
-func blobFixture(t *testing.T, now time.Time) (*sql.DB, *blobstore.Store, func(content string) string) {
+func blobFixture(t *testing.T, now time.Time) (*sql.DB, blobstore.Backend, func(content string) string) {
 	t.Helper()
 	root := t.TempDir()
 	s, err := Open(filepath.Join(root, "db.sqlite"))
@@ -131,7 +131,7 @@ func blobFixture(t *testing.T, now time.Time) (*sql.DB, *blobstore.Store, func(c
 	}
 }
 
-func blobState(t *testing.T, db *sql.DB, b *blobstore.Store, d string) (row, file bool) {
+func blobState(t *testing.T, db *sql.DB, b blobstore.Backend, d string) (row, file bool) {
 	t.Helper()
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM blobs WHERE digest=?`, d).Scan(&n); err != nil {

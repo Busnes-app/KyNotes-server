@@ -930,3 +930,30 @@ and atomic restore fencing are prepared, but their startup/restore adapters are 
 Schedule wiring, environment-only shared keys, the full fingerprint field map, proxy drain,
 blob interface/org prefixes/store identity and the object backend remain further boundaries.
 `KYNOTES_TENANCY=multi` still refuses startup. No volume fallback or version pruning is added.
+
+
+## Tenancy amendment, PR 5a-2 (replica adapter and blob seam)
+
+`blobstore.Backend` exposes the existing six operations plus prefix purge, with an opaque
+`Temporary` stream. The volume implementation and single-mode paths stay unchanged; volume
+prefix purge is unsupported, and no hosted-volume selector is added. Validated org/blob/part
+key builders prepare the object namespace. The store-identity protocol records one random
+store ID, verifies its create-exclusive marker, and proves the prior replica's probe visible
+before moving the pointer by compare-and-swap. Losing starters verify the winner's probe;
+missing probes retry only when the pointer changed, up to three times. Control-object I/O
+stays outside the writer transaction. Actual object operations bind only to the shared client
+when it exists; no signing/client copy or speculative shared-S3 interface is introduced.
+
+App preparation requires shared keys from environment, validates the VAPID P-256 encoding and
+HTTPS metadata, and supplies the complete keyed fingerprint field map. Per-host bind/proxy
+peers, local backup paths/retention and logging are excluded; object credentials are never
+fingerprinted. The elected schedule adapter owns minute lifecycle/reminder/backup attempts,
+configured GC cadence and per-tick pool reporting. Proxy drain withdraws readiness and cancels
+work before five seconds of convergence, five seconds of HTTP drain and ten of worker drain.
+
+These adapters are preparation for phase 6, not startup enablement. Real primary-object GC and
+PostgreSQL backup/restore adapters are still prerequisites. Restore preserves permanent store
+identity and clears ephemeral probe pointers so retired probe GC cannot strand a restored DB.
+Tests cover key/path isolation, identity races/private-store refusal/crash recovery, environment
+key/fingerprint boundaries, schedule ownership/cadence, drain and alternating-replica upload
+retries on a shared test directory. S3 bucket evidence belongs to 5b. No version pruning.

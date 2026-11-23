@@ -26,7 +26,7 @@ import (
 )
 
 type uploadClient struct {
-	blobs          *blobstore.Store
+	blobs          blobstore.Backend
 	hc             *http.Client
 	db             *sql.DB
 	url, container string

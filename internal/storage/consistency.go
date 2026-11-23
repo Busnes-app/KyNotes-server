@@ -9,7 +9,7 @@ import (
 // Consistency fails when a blobs row has no file (content is missing). Files with no row are only
 // returned: a restore that copied the original blobs/ beside an older database has them, and they
 // harm nothing.
-func Consistency(db *sql.DB, blobs *blobstore.Store) (untracked []string, err error) {
+func Consistency(db *sql.DB, blobs blobstore.Backend) (untracked []string, err error) {
 	rows, e := db.Query(`SELECT digest FROM blobs`)
 	if e != nil {
 		return nil, e

@@ -31,7 +31,7 @@ func TestServeRefusesToStartOnInvalidConfig(t *testing.T) {
 func TestShutdownWaitsForRunningGC(t *testing.T) {
 	started, finished := make(chan struct{}), make(chan struct{})
 	var once sync.Once
-	gcPass = func(db *sql.DB, _ *blobstore.Store, _ time.Time, _ time.Duration, _ bool) (storage.GCStats, error) {
+	gcPass = func(db *sql.DB, _ blobstore.Backend, _ time.Time, _ time.Duration, _ bool) (storage.GCStats, error) {
 		once.Do(func() {
 			close(started)
 			time.Sleep(200 * time.Millisecond)

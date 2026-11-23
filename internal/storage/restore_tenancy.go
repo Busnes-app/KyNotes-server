@@ -22,7 +22,7 @@ func ResetTenancyAfterRestore(ctx context.Context, tx *sql.Tx) error {
 		`DELETE FROM replica_lockouts`,
 		`DELETE FROM replica_presence`,
 		`UPDATE reminders SET claimed_until=0,claim_token=''`,
-		`DELETE FROM server_settings WHERE key IN ('org_poll_revision','erased_poll_revision','replica_config_fingerprint')`,
+		`DELETE FROM server_settings WHERE key IN ('org_poll_revision','erased_poll_revision','replica_config_fingerprint','blob_probe','blob_probe_prev')`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err

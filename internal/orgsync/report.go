@@ -57,7 +57,7 @@ func (r *Reporter) clock() time.Time {
 }
 
 func (r *Reporter) Report(ctx context.Context) error {
-	tenancy, err := storage.TenancyOf(r.DB)
+	tenancy, err := storage.TenancyOfContext(ctx, r.DB)
 	if err != nil || !tenancy.Multi() {
 		return err
 	}

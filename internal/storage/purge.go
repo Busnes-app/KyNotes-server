@@ -68,7 +68,7 @@ var purgeSteps = []purgeStep{
 // PurgeDeletedOrgs purges every deleted org not yet purged. It runs on the elected worker in
 // multi mode only; single mode has no deleted org and does nothing here.
 func PurgeDeletedOrgs(ctx context.Context, db *sql.DB) error {
-	tenancy, err := TenancyOf(db)
+	tenancy, err := TenancyOfContext(ctx, db)
 	if err != nil || !tenancy.Multi() {
 		return err
 	}
@@ -251,7 +251,7 @@ var eraseSteps = []purgeStep{
 // erased), in batches, resumably: a worker killed between batches finishes on its next run.
 // Multi mode only. Pages the member wrote in notebooks others keep stay: they are the team's.
 func EraseMembers(ctx context.Context, db *sql.DB) error {
-	tenancy, err := TenancyOf(db)
+	tenancy, err := TenancyOfContext(ctx, db)
 	if err != nil || !tenancy.Multi() {
 		return err
 	}

@@ -54,7 +54,7 @@ func currentCommitReceipt(db rowQuerier, objectID string, version int64) string 
 	return commitReceipt(objectID, digest, version, bytes, generation, baseVersion, changeSeq)
 }
 
-func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits config.Limits) {
+func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits config.Limits) {
 	max := limits.ObjectMaxBytes
 	mux.Handle("GET /api/v1/objects/{id}/conflicts", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		uid, _ := auth.CredentialUserID(r)
@@ -426,7 +426,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 // dropUnclaimed deletes digest's file when no blobs row claims it, inside tx (which holds the write
 // lock): a refused save's file then never outlives the refusal. A parallel save of the same bytes that
 // finalized but has not claimed yet finds the file gone in claimBlob and fails; its client retries.
-func dropUnclaimed(tx *sql.Tx, blobs *blobstore.Store, digest string) {
+func dropUnclaimed(tx *sql.Tx, blobs blobstore.Backend, digest string) {
 	var claimed int
 	if tx.QueryRow(`SELECT COUNT(*) FROM blobs WHERE digest=?`, digest).Scan(&claimed) == nil && claimed == 0 {
 		_ = blobs.Delete(digest)
@@ -435,7 +435,7 @@ func dropUnclaimed(tx *sql.Tx, blobs *blobstore.Store, digest string) {
 
 // claimBlob records a finalized blob for cid and clears its GC mark. GC deletes files only
 // inside its own write transaction (storage.sweepBlob), so a file present here outlives tx.
-func claimBlob(tx *sql.Tx, blobs *blobstore.Store, digest, cid string, size int64, now string) error {
+func claimBlob(tx *sql.Tx, blobs blobstore.Backend, digest, cid string, size int64, now string) error {
 	if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at,org_id) VALUES(?,?,?,(SELECT org_id FROM containers WHERE id=?)) ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`, digest, size, now, cid); e != nil {
 		return e
 	}

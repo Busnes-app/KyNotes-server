@@ -150,6 +150,11 @@ deactivation until they expire. Each is in
   restore fencing. Shared-state failures deny admission. SQLite retains its memory paths and
   golden fixtures. These mechanisms do not enable multi startup; scheduling/blob/restore
   adapters and the full configuration boundary remain prerequisites.
+- **Replica adapter preparation:** blob-seam tests preserve volume bytes while rejecting org
+  prefix purge; key builders separate org namespaces. Control-file identity tests exercise
+  CAS races/private-store refusal without an S3 client copy. Environment/fingerprint tests
+  forbid local key fallback and exclude per-host settings/object credentials. Schedule/drain
+  and alternating-router upload tests prepare phase 6; they do not establish bucket readiness.
 - **Static analysis:** CodeQL default setup (Go, JavaScript/TypeScript, Actions), `go vet`,
   `tsc` in strict mode, and `govulncheck`.
 - **Dynamic analysis:** the race detector, four Go fuzz targets in CI (pairing token, auth

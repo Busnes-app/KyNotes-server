@@ -8,7 +8,7 @@ import (
 
 type GCStats struct{ ExpiredUploads, DeletedBlobs int }
 
-func RunGC(db *sql.DB, blobs *blobstore.Store, now time.Time, retention time.Duration, blobsEnabled bool) (GCStats, error) {
+func RunGC(db *sql.DB, blobs blobstore.Backend, now time.Time, retention time.Duration, blobsEnabled bool) (GCStats, error) {
 	var st GCStats
 	// Older releases could finalize an attachment after notebook deletion. Finish that
 	// deletion before reclaiming blobs, so its live row cannot pin the file and quota forever.
@@ -96,7 +96,7 @@ const unreferenced = `NOT EXISTS(SELECT 1 FROM object_versions v WHERE v.blob_di
 // Writers check the file inside theirs (claimBlob), so a save either commits first and keeps
 // the blob, or finds the file gone and fails. A crash before commit leaves an unreferenced row
 // without a file, which the next sweep removes.
-func sweepBlob(db *sql.DB, blobs *blobstore.Store, d, cut string) (bool, error) {
+func sweepBlob(db *sql.DB, blobs blobstore.Backend, d, cut string) (bool, error) {
 	tx, e := db.Begin()
 	if e != nil {
 		return false, e

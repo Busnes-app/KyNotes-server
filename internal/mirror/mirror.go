@@ -99,7 +99,7 @@ func (s Stats) err() error {
 
 // Sync uses the caller's snapshot inventory when supplied. It never forgets a digest
 // just because live GC removed its row after that capsule was collected.
-func Sync(ctx context.Context, db *sql.DB, blobs *blobstore.Store, target offsite.Target, key string, inventory []Object) (Stats, error) {
+func Sync(ctx context.Context, db *sql.DB, blobs blobstore.Backend, target offsite.Target, key string, inventory []Object) (Stats, error) {
 	stats := Stats{}
 	if key == "" {
 		return stats, errors.New("blob target identity required")
@@ -135,7 +135,7 @@ func Sync(ctx context.Context, db *sql.DB, blobs *blobstore.Store, target offsit
 	}
 	return stats, stats.err()
 }
-func put(ctx context.Context, blobs *blobstore.Store, target offsite.Target, b Object) error {
+func put(ctx context.Context, blobs blobstore.Backend, target offsite.Target, b Object) error {
 	source, size, err := blobs.Open(b.Digest)
 	if err != nil {
 		return err
@@ -174,7 +174,7 @@ func verifyExisting(ctx context.Context, target offsite.Target, b Object) error 
 
 // Fetch repairs absent or corrupt local content from the restored database inventory.
 // Replica rows are an upload optimization, never restore authority.
-func Fetch(ctx context.Context, db *sql.DB, blobs *blobstore.Store, target offsite.Target) (Stats, error) {
+func Fetch(ctx context.Context, db *sql.DB, blobs blobstore.Backend, target offsite.Target) (Stats, error) {
 	inventory, err := List(ctx, db)
 	if err != nil {
 		return Stats{}, err
@@ -208,7 +208,7 @@ func Fetch(ctx context.Context, db *sql.DB, blobs *blobstore.Store, target offsi
 	}
 	return stats, stats.err()
 }
-func fetch(ctx context.Context, blobs *blobstore.Store, target offsite.Target, b Object) error {
+func fetch(ctx context.Context, blobs blobstore.Backend, target offsite.Target, b Object) error {
 	reader, err := target.Get(ctx, "blobs/"+b.Digest)
 	if err != nil {
 		return err

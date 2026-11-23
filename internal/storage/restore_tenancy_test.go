@@ -14,7 +14,7 @@ func TestReplicaRestoreResetIsAtomicAndKeepsDeletionFences(t *testing.T) {
 		`INSERT INTO orgs(id,status,home_region,revision) VALUES('org_staff','active','local',9),('org_customer','active','local',7)`,
 		`INSERT INTO erased_subjects(subject,org_id,revision) VALUES('erased-before-restore','org_customer',3)`,
 		`INSERT INTO org_pool(org_id,seq,expires_at) VALUES('org_customer',9,'2099')`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('org_poll_revision','100','t'),('erased_poll_revision','100','t'),('replica_config_fingerprint','old','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('org_poll_revision','100','t'),('erased_poll_revision','100','t'),('replica_config_fingerprint','old','t'),('blob_store_id','retained-store','t'),('blob_probe','expired-probe','t'),('blob_probe_prev','expired-previous-probe','t')`,
 	} {
 		if _, err := a.Exec(q); err != nil {
 			t.Fatal(err)
@@ -78,7 +78,10 @@ func TestReplicaRestoreResetIsAtomicAndKeepsDeletionFences(t *testing.T) {
 	if err := a.QueryRow(`SELECT count(*) FROM orgs restored WHERE restored.id='org_customer' AND NOT ` + OrgServes("restored.id")).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("unlisted restored org can serve: %d %v", n, err)
 	}
-	if err := a.QueryRow(`SELECT count(*) FROM server_settings WHERE key IN ('org_poll_revision','erased_poll_revision','replica_config_fingerprint')`).Scan(&n); err != nil || n != 0 {
+	if err := a.QueryRow(`SELECT count(*) FROM server_settings WHERE key='blob_store_id' AND value='retained-store'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("restore changed permanent store identity: %d %v", n, err)
+	}
+	if err := a.QueryRow(`SELECT count(*) FROM server_settings WHERE key IN ('org_poll_revision','erased_poll_revision','replica_config_fingerprint','blob_probe','blob_probe_prev')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("restore retained old cursors/fingerprint: %d %v", n, err)
 	}
 }

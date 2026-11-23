@@ -26,7 +26,7 @@ var errQuota = errors.New("quota exceeded")
 // MaxShareLinkLifetime caps a sealed share link's expiry; GC deletes a link once it expires.
 const MaxShareLinkLifetime = 30 * 24 * time.Hour
 
-func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits config.Limits) {
+func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits config.Limits) {
 	mux.Handle("POST /api/v1/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")

@@ -151,6 +151,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - `internal/worker/AGENTS.md` — PostgreSQL worker ownership, cancellation and takeover tests.
 
+- `internal/blobstore/AGENTS.md` — blob stream seam, volume compatibility, org keys and shared-store identity.
+
 - `docs/ui-notes-eight/AGENTS.md` owns the sequential UI council evidence, round scores, capture provenance and supplemental theme checks.
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
@@ -311,15 +313,31 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   clears the claim. `SessionLock` pins all request SQL/transactions to one connection;
   worker heartbeats use their own idle lock connection, never a request lease. PostgreSQL
   `/readyz` adds a one-second cached ping; `/livez` stays independent of the database.
-  `VerifyReplicaConfig` prepares keyed, value-free per-field startup comparison; the complete
-  field map and startup invocation remain in the next 5a boundary. `ResetTenancyAfterRestore`
+  `VerifyReplicaConfig` prepares keyed, value-free per-field startup comparison; the app
+  enumerates shared fields, and startup invocation stays gated until phase 6. `ResetTenancyAfterRestore`
   is PG restore preparation: use the credential-revocation transaction, retain erased-subject
   fences, make customer orgs stale at revision zero, clear grants/cursors/ephemeral state.
   Single mode bypasses this helper; qualified outer aliases are required in `OrgServes` correlations.
   It does not enable a PG restore transport. Verify `TestReplica*`, `TestPostgresSchemaMatchesSQLite`,
   purge/erasure coverage, both backend suites and the unchanged single-tenant golden.
-  Elected schedule wiring, environment-only key loading, drain, blob seam/store identity and
-  primary object storage remain prerequisites; startup still refuses multi mode.
+  Runtime construction of the object-GC/PG-backup adapters, primary object storage and phase-6
+  startup invocation remain prerequisites; startup still refuses multi mode.
+
+- Tenancy PR 5a-2: `blobstore.Backend` is the seven-operation seam; `Temporary` owns stream
+  operations without exposing filesystem handles. All single-mode consumers still construct
+  the volume store at the same paths; volume prefix purge is unsupported, never a hosted
+  fallback. `BlobKey`/`UploadPartKey` validate org and key components at the storage boundary.
+  `VerifySharedIdentity` runs the N15 marker/probe protocol with create-exclusive control-object
+  callbacks; no S3 transport/client interface is copied. It performs no store I/O under N3 and
+  advances the probe only after the named prior probe is readable. Retired-probe timestamps
+  use database time; restore retains `blob_store_id` but clears ephemeral probe pointers.
+  `app.readReplicaInputs` is environment-only preparation, with a base64 32-byte P-256 VAPID
+  key and no local key mint. `replicaFields` excludes per-host settings and object credentials.
+  `runReplicaSchedules` serializes minute jobs plus immediate pool reporting; attempts count
+  even when destinations fail. `drainReplica` withdraws readiness, cancels work, waits five
+  seconds for proxies, drains HTTP for five and jobs for ten. These entry points do not enable
+  startup or invent object/PG-backup adapters. Verify `TestReplica*`, `TestBackendSeam*`,
+  `TestObjectKeys*`, `TestStoreIdentitySingleMode*`, both backend suites and the golden.
 
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
