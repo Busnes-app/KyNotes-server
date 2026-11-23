@@ -495,15 +495,22 @@ serving. It runs at startup, in two steps.
    crashed between the insert and the file leaves nothing stuck: the next start writes it.
 2. **Shared store.** `server_settings.blob_probe` names the probe object of the last replica that
    started. The replica must read `probes/<that name>` from its store, or it refuses. Then it
-   writes its own `probes/<random>` and points the row at it. A replica on a private disk cannot
-   read the probe, even on a fresh install with no blobs yet. A replica that refuses never moves
-   the row. If the probe cannot be read, the replica re-reads the row, and if it now names
-   another probe it tries that one, up to three times, so a restart racing another replica's
+   writes its own `probes/<random>` and moves the row to it by compare-and-swap from the value it
+   read (`UPDATE ... WHERE blob_probe = <read value>`, with the empty value for a fresh install).
+   If the swap fails, another replica moved the row first: the replica reads that newer probe from
+   its own store, and refuses if it cannot. So two replicas starting together on a fresh install
+   check each other, and only the first one's empty read goes unchecked. A replica on a private
+   disk cannot read the probe, even on a fresh install with no blobs yet. A replica that refuses
+   never moves the row. If the probe cannot be read, the replica re-reads the row, and if it now
+   names another probe it tries that one, up to three times, so a restart racing another replica's
    start is not refused. The elected worker deletes only probes the row stopped naming more than
    an hour ago (`server_settings.blob_probe_prev` holds the last one with its time).
 
-A refusal names `KYNOTES_BLOB_BACKEND`. If the very first replica was the misconfigured one, every
-later replica refuses until staff fix its mount and clear `blob_probe`. That fails closed.
+The one case left: the replica that wins the very first swap is the misconfigured one. Nothing
+existed to compare it with, so it starts. Every correct replica then refuses, loudly. Staff
+see the install fail to scale and fix it before a second replica serves. That fails closed.
+
+A refusal names `KYNOTES_BLOB_BACKEND`. Staff fix the mount and clear `blob_probe`.
 
 Tests:
 
@@ -574,7 +581,10 @@ The org poll (N9) drives every transition, on the elected worker.
 
 ### Suspended or `deletion_scheduled`
 
-- In one transaction with its audit row: delete the org's sessions.
+- In one transaction with its audit row: delete the org's sessions. When the new status is
+  `deletion_scheduled`, sessions marked `export_only` are kept, so a member who signed in for
+  export just before the poll is not cut off mid-export. `TestExportOnlySessionSurvives` also runs
+  the transition while such a session is open.
 - Devices, identities and envelopes are kept, so a resume needs no re-linking. Device credentials
   answer `401` while the org does not serve (`resolveDevice`).
 - Share links of the org's owners answer `404`. Reminders are not sent. GC does not sweep the
@@ -641,9 +651,12 @@ member of an org deleted by `holder_erased`. KyNotes today never deletes an acco
 all new. Steps 1 to 3 run in one short transaction, so access ends at once and nobody else's
 notebook is touched. Steps 4 to 6 run on the elected worker in resumable batches, as the purge
 does (N14), because one transaction for a member's whole history would hold N3's lock and stop
-every other org's writes. Step 3's transaction also sets the user's status to `erased` and adds
-the subject to `erased_subjects`, so the account cannot sign in or be recreated while the batches
-run. The worker finds unfinished erasures as `users` rows with status `erased`, so a worker killed
+every other org's writes. Step 3's transaction also deletes every pending invitation the member
+sent or received (`inviter_id` or `invitee_id`, `status='pending'`, as
+`teamkeys_routes.go:373-375` does for one notebook). Nobody can then join a notebook the member
+still owns before step 4 deletes it. It also sets the user's status to `erased` and adds the
+subject to `erased_subjects`, so the account cannot sign in or be recreated while the batches run.
+The worker finds unfinished erasures as `users` rows with status `erased`, so a worker killed
 between batches finishes on the next run.
 
 1. End access: sessions, devices and identity, with the same revocations as deactivation.
@@ -676,6 +689,7 @@ Tests:
 - `TestEraseKeepsSharedNotebook`: an erased owner's team notebook with an admin and an editor
   passes to the admin, and both still read every page.
 - `TestEraseDeletesSoleNotebooks`, including a worker killed between batches.
+- An invitation the member sent before the erase answers `404` on accept after step 3.
 - If the only other approved member is a viewer, the notebook passes to that viewer.
 - If the only other members are unapproved or pending, the notebook is deleted.
 
