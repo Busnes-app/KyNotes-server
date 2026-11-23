@@ -30,6 +30,31 @@ func TestCapacityRefusedRestoreStillRevokesCredentialsAndStopsDeposits(t *testin
 		t.Fatal(err)
 	}
 	defer st.Close()
+	// Remove 0032 (tenancy) first: its triggers, index, columns, tables and records. Only
+	// audit_events.org_id stays, because this release's backup export below writes audit rows
+	// that name an org. The restore refuses at 0031's slot allocation, before 0032 would add
+	// that column again; were it to get that far, the duplicate column would fail loudly.
+	rows, err := st.DB().Query(`SELECT name FROM sqlite_schema WHERE type='trigger' AND (name LIKE '%\_org\_%' ESCAPE '\' OR name='audit_events_org_named')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var undo []string
+	for rows.Next() {
+		var name string
+		_ = rows.Scan(&name)
+		undo = append(undo, `DROP TRIGGER `+name)
+	}
+	rows.Close()
+	undo = append(undo, `DROP INDEX blobs_org_digest`)
+	for _, table := range []string{"users", "containers", "blobs", "blob_containers", "object_versions", "conflicts", "attachments", "upload_sessions", "sealed_share_links"} {
+		undo = append(undo, `ALTER TABLE `+table+` DROP COLUMN org_id`)
+	}
+	undo = append(undo, `DROP TABLE orgs`, `DROP TABLE erased_subjects`, `DELETE FROM schema_migrations WHERE version=32`, `DELETE FROM server_settings WHERE key='tenancy_mode'`)
+	for _, q := range undo {
+		if _, err = st.DB().Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
 	// Retain the actual schema30 tables and contents, removing only unpublished0031.
 	for _, q := range []string{`DROP VIEW audit_history`, `DROP TRIGGER cleanup_comment_pending`, `DROP TRIGGER cleanup_link_pending`, `DROP TABLE cleanup_audit_slots`, `ALTER TABLE comments DROP COLUMN cleanup_padding`, `ALTER TABLE containers DROP COLUMN cleanup_padding`, `ALTER TABLE sealed_share_links DROP COLUMN cleanup_padding`, `DELETE FROM schema_migrations WHERE version=31`} {
 		if _, err = st.DB().Exec(q); err != nil {
