@@ -191,7 +191,8 @@ Tables this spec adds:
 | Table | Class | Reasoning |
 |---|---|---|
 | `orgs` (`id`, `status`, `revision`, `enabled`, `home_region`, `pool_allowance_bytes`, `pool_checked_at`, `pool_low`, `seen_at`, `purged_at`) | P | The mirror of `/api/suite/orgs` (N9) and of the org's pool allowance (N10), and the target of every `org_id`. It holds the default org in single mode and the staff org in multi mode. A deleted org stays as a tombstone (N14). |
-| `org_usage` (`org_id`, `bytes`, `reported_bytes`) | O | PostgreSQL only, created in PR 4e. The durable part of the org's charged bytes, kept by triggers, and the last figure reported to KyIdentity ("The org storage pool") |
+| `org_usage` (`org_id`, `bytes`) | O | PostgreSQL only, created in PR 4e. The durable part of the org's charged bytes, kept by triggers, and the last figure reported to KyIdentity ("The org storage pool") |
+| `org_pool` (`org_id`, `seq`, `reported_bytes`, `ceiling_bytes`, `expires_at`, `attempted_at`, `pool_bytes`, `org_used_bytes`, `over_since`) | P | Grant and report state from KyIdentity, written only in multi mode. |
 | `erased_subjects` (`subject`, `org_id`, `revision`) | P | The local copy of `/api/suite/erased`, so a restore can re-erase (Lifecycle) |
 | `worker_claims` | P | Only if the elected-worker port needs one. The replica pattern uses a session advisory lock and no table. |
 
@@ -1323,6 +1324,44 @@ Branch `feat/tenancy-build-4d-erase`, stacked on PR 4d. "A member erases", built
   is gone, its account is scrubbed and kept, and incremental sync paged one row at a time delivers
   both comment tombstones), `TestEraseSuccessorIsAnyApprovedMember` (a viewer inherits; a notebook
   with only an unapproved member is deleted), `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+
+### PR 4e as built
+
+Branch `feat/tenancy-build-4e`, based on PR 4d-2. Built to KyIdentity's merged report-and-grant
+contract (#290, `docs/SUITE-DIRECTORY.md`, Storage pool; owner decision 14).
+
+- Org-owned inserts name their parent's org in the statement: notebooks, versions, conflicts,
+  attachments, uploads, blobs, blob links and sealed links. Previously non-default-org writes
+  hit the isolation trigger and failed closed; the matrix seeded its rows directly and missed
+  that path. `TestOrgMemberWritesLandInItsOrg` exercises the API as org B.
+- PostgreSQL `org_usage.bytes` holds versions, conflicts, live comments and live attachments,
+  maintained by insert/update/delete triggers, initialized for every org and backfilled on
+  migration. Pending reservations, live sealed links and distinct previews are summed at check
+  time. Report state (`reported_bytes`) belongs to `org_pool` beside its grant, rather than
+  duplicating it in `org_usage`. SQLite has no usage table or triggers, preserving its bounded
+  cleanup writes. `TestOrgUsageMatchesUsedBytes` compares the counter with an independent full
+  sum after lifecycle mutations and purge; cascade deletion has its own regression.
+- `org_pool` holds the current sequence, ceiling, expiry, report baseline, attempt time and
+  display figures. PostgreSQL uses `org_storage_report_seq`; stale responses advance its next
+  allocation above KyIdentity's stored value. SQLite's synthetic multi-mode tests use a row
+  counter; production multi mode remains PostgreSQL-only.
+- `storage.PoolRefuses` checks net growth against an unexpired grant inside the writer
+  transaction, returning the existing `413 quota_exceeded`. No grant refuses growth. Finalizing
+  an already reserved upload adds no bytes and needs no fresh headroom. Upload reservation and
+  both finalization paths recheck inside the transaction. Single mode bypasses pool admission.
+- `orgsync.Reporter` reports ordinary changes once per minute, sooner for lower usage or a
+  half-spent grant, and renews unchanged grants before expiry. Stopped orgs release grants with
+  `want_bytes: 0`. Requests contain at most 250 reports and stay within 64 KiB. A short
+  transaction snapshots usage and disables the old grant before sending, so no replica spends
+  headroom KyIdentity may reassign while the request is in flight. Failed requests leave growth
+  paused until a later valid grant; reads, deletes and reservation conversions remain available.
+- The response is bounded and validated as a whole; redirects are refused, credentials never
+  enter an error, and expiry counts from the send. A stale answer only resynchronizes the
+  sequence and requires a fresh report; it never renews the returned old grant. A late response
+  cannot overwrite a newer attempt. `unknown_org` records no headroom.
+- Scheduling the reporter on the elected worker remains PR 5a; exposing the pool figures in
+  `GET /admin/orgs` remains PR 6. Multi mode is still refused at startup.
+
 
 ## Residual risks
 

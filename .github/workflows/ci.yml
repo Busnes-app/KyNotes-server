@@ -13,11 +13,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # make test, plain and strong-key, run beside everything else.
+  # Complementary native Go filters give each half its own package hang budget.
+  # Every test (including subtests, examples and fuzz seeds) still runs once per profile.
   race:
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        filter: ['-run=^Test[A-M]', '-skip=^Test[A-M]']
+    env:
+      TEST_FILTER: ${{ matrix.filter }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,6 +38,12 @@ jobs:
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        filter: ['-run=^Test[A-M]', '-skip=^Test[A-M]']
+    env:
+      TEST_FILTER: ${{ matrix.filter }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

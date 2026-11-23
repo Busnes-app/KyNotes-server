@@ -96,7 +96,7 @@ func ContainerRoutes(mux RouteMux, db *sql.DB) {
 					return errInsufficientRole
 				}
 			}
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, id, in.Kind, s.UserID, in.TeamID, 1, []byte{}, 0, now, now); e != nil {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,team_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at,org_id) VALUES(?,?,?,?,?,?,?,?,?,(SELECT org_id FROM users WHERE id=?))`, id, in.Kind, s.UserID, in.TeamID, 1, []byte{}, 0, now, now, s.UserID); e != nil {
 				return e
 			}
 			if in.TeamID != "" {

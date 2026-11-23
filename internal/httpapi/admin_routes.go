@@ -59,7 +59,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			if !ok {
 				return sql.ErrNoRows
 			}
-			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, teamID, "team", in.OwnerUserID, 1, []byte{}, 0, now, now); e != nil {
+			if _, e := tx.Exec(`INSERT INTO containers(id,kind,owner_user_id,change_seq,meta_ciphertext,meta_version,created_at,updated_at,org_id) VALUES(?,?,?,?,?,?,?,?,(SELECT org_id FROM users WHERE id=?))`, teamID, "team", in.OwnerUserID, 1, []byte{}, 0, now, now, in.OwnerUserID); e != nil {
 				return e
 			}
 			if _, e := tx.Exec(`INSERT INTO memberships(id,container_id,user_id,role,created_at) VALUES(?,?,?,?,?)`, membershipID, teamID, in.OwnerUserID, "owner", now); e != nil {

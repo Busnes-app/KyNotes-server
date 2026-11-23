@@ -74,7 +74,7 @@ func TestDeletedNotebooksLeaveTheQuota(t *testing.T) {
 	if _, err := u.db.Exec(`INSERT INTO attachments(id,container_id,blob_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES('att_late00000000000000000000000',?,'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',10,x'',1,1,'now')`, u.container); err != nil {
 		t.Fatal(err)
 	}
-	if over, err := quotaExceeded(u.db, config.Limits{UserQuotaBytes: 10}, u.container, "", 1); err != nil || !over {
+	if over, err := quotaExceeded(u.db, u.db, config.Limits{UserQuotaBytes: 10}, u.container, "", 1); err != nil || !over {
 		t.Fatalf("live attachment not charged: %v %v", over, err)
 	}
 	if code, out := status(t, u.do(t, http.MethodDelete, "/api/v1/containers/"+u.container, nil, true)); code != http.StatusNoContent {

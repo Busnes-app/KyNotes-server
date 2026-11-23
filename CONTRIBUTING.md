@@ -29,11 +29,20 @@ Run the checks that apply to the files changed. At minimum, validate Markdown
 links and CSS asset paths, and run the project test suite once implementation
 exists. Record the commands and results in the pull request.
 
-`make test` is the full Go race suite used by CI: every package, `-count=1`,
-and a 20-minute per-package hang budget. The real-password API integration suite
-can exceed Go's ten-minute default on slower runners. Preserve its assertions
-and production password parameters; the timeout is a hang detector, not a
-performance target.
+`make test` runs the full Go race suite: every package, `-count=1`, `-p 2`,
+and a 20-minute per-package hang budget. CI runs it in two complementary halves
+in both the normal and strong-key profiles:
+
+```sh
+make test TEST_FILTER='-run=^Test[A-M]'
+make test TEST_FILTER='-skip=^Test[A-M]'
+```
+
+Every top-level test and all its subtests run in exactly one half; examples and
+fuzz seeds run in the second. This splits the real-password API suite's cumulative
+package budget without extending it. Package concurrency is bounded to reduce
+contention. Preserve all assertions and production password parameters; the
+timeout is a hang detector, not a performance target.
 
 ## Coding standard
 

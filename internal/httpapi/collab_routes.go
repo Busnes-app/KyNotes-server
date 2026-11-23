@@ -329,7 +329,7 @@ func CollabRoutes(mux RouteMux, db *sql.DB, limits config.Limits) {
 				return e
 			}
 			// Comments are stored writes like any other: charged to the notebook owner's and team's quota.
-			if over, e := quotaExceeded(tx, limits, cid, "", int64(len(body))); e != nil || over {
+			if over, e := quotaExceeded(db, tx, limits, cid, "", int64(len(body))); e != nil || over {
 				if e == nil {
 					e = errQuota
 				}

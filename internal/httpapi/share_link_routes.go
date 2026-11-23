@@ -62,16 +62,21 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits co
 		now := time.Now().UTC().Format(time.RFC3339)
 		err = dbTx(db, func(tx *sql.Tx) error {
 			var quota int64
-			if e := tx.QueryRow(`SELECT quota_bytes FROM users WHERE id=?`, s.UserID).Scan(&quota); e != nil {
+			var org string
+			if e := tx.QueryRow(`SELECT quota_bytes,org_id FROM users WHERE id=?`, s.UserID).Scan(&quota, &org); e != nil {
 				return e
 			}
-			if over, e := userQuotaExceeded(tx, limits, s.UserID, quota, "", int64(len(sealed))); e != nil || over {
+			over, e := userQuotaExceeded(tx, limits, s.UserID, quota, "", int64(len(sealed)))
+			if e == nil && !over {
+				over, e = storage.PoolRefuses(db, tx, org, "", int64(len(sealed))) // the org's pool (N10)
+			}
+			if e != nil || over {
 				if e == nil {
 					e = errQuota
 				}
 				return e
 			}
-			if _, e := tx.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id) VALUES(?,?,?,?,?,?)`, id, hex.EncodeToString(sum[:]), sealed, expires.UTC().Format(time.RFC3339), now, s.UserID); e != nil {
+			if _, e := tx.Exec(`INSERT INTO sealed_share_links(id,token_hash,ciphertext,expires_at,created_at,owner_user_id,org_id) VALUES(?,?,?,?,?,?,(SELECT org_id FROM users WHERE id=?))`, id, hex.EncodeToString(sum[:]), sealed, expires.UTC().Format(time.RFC3339), now, s.UserID, s.UserID); e != nil {
 				return e
 			}
 			if e := storage.CleanupFor(db).Reserve(tx, "sealed_share_link", id, ""); e != nil {

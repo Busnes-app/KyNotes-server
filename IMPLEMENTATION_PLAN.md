@@ -2202,3 +2202,14 @@ admin, else editor, else any approved member, and it leaves every other notebook
 key rotation a removal makes. `storage.EraseMembers` then deletes, in resumable batches, the
 notebooks it still owned alone, its comments, reminders, push subscriptions, sealed links and
 pending uploads, and the account. Pages it wrote in notebooks others keep stay.
+
+## Tenancy amendment, PR 4e (the org storage pool)
+
+Multi mode checks net byte growth against a cached KyIdentity report-and-grant ceiling under the
+writer lock. PostgreSQL-only `org_usage` triggers keep durable content totals; reservations,
+previews and live sealed links are summed at admission. `org_pool` holds grant/report state and
+uses a PostgreSQL sequence. A renewal pauses growth before sending, and only a matching validated
+response installs a new grant. Stopped orgs release headroom. Deletes and converting an existing
+upload reservation do not need a fresh grant; single mode bypasses pool checks. The elected
+worker schedule and multi-mode startup belong to later phases. See the tenancy spec's PR 4e
+as-built section for the wire and accounting contracts and executable checks.
