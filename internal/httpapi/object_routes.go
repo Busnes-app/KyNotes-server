@@ -380,7 +380,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 			cidID, _ := ids.Mint("cfl")
 			e = claimBlob(tx, blobs, digest, cid, size, now)
 			if e == nil {
-				_, e = tx.Exec(`INSERT INTO conflicts(id,object_id,container_id,base_version,current_version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, cidID, oid, cid, base, live, digest, size, generation, changeSeq, now)
+				_, e = tx.Exec(`INSERT INTO conflicts(id,object_id,container_id,base_version,current_version,blob_digest,ciphertext_bytes,key_generation,change_seq,created_at,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,(SELECT org_id FROM containers WHERE id=?))`, cidID, oid, cid, base, live, digest, size, generation, changeSeq, now, cid)
 			}
 			if e == nil && idemHash != "" {
 				_, e = tx.Exec(`INSERT INTO idempotency_keys(key,response_id,status_code,created_at,object_version) VALUES(?,?,?,?,?)`, idemHash, cidID, 409, now, live)
@@ -402,7 +402,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, limits confi
 		next := live + 1
 		e = claimBlob(tx, blobs, digest, cid, size, now)
 		if e == nil {
-			_, e = tx.Exec(`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,base_version,change_seq,created_at,author_user_id) VALUES(?,?,?,?,?,?,?,?,?)`, oid, next, digest, size, generation, base, changeSeq, now, s.UserID)
+			_, e = tx.Exec(`INSERT INTO object_versions(object_id,version,blob_digest,ciphertext_bytes,key_generation,base_version,change_seq,created_at,author_user_id,org_id) VALUES(?,?,?,?,?,?,?,?,?,(SELECT c.org_id FROM objects o JOIN containers c ON c.id=o.container_id WHERE o.id=?))`, oid, next, digest, size, generation, base, changeSeq, now, s.UserID, oid)
 		}
 		if e == nil {
 			_, e = tx.Exec(`UPDATE objects SET current_version=?,change_seq=?,routing_ciphertext=?,updated_at=? WHERE id=?`, next, changeSeq, routing, now, oid)
@@ -436,10 +436,10 @@ func dropUnclaimed(tx *sql.Tx, blobs *blobstore.Store, digest string) {
 // claimBlob records a finalized blob for cid and clears its GC mark. GC deletes files only
 // inside its own write transaction (storage.sweepBlob), so a file present here outlives tx.
 func claimBlob(tx *sql.Tx, blobs *blobstore.Store, digest, cid string, size int64, now string) error {
-	if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at) VALUES(?,?,?) ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`, digest, size, now); e != nil {
+	if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at,org_id) VALUES(?,?,?,(SELECT org_id FROM containers WHERE id=?)) ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`, digest, size, now, cid); e != nil {
 		return e
 	}
-	if _, e := tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, digest, cid, now); e != nil {
+	if _, e := tx.Exec(`INSERT INTO blob_containers(digest,container_id,first_seen_at,org_id) VALUES(?,?,?,(SELECT org_id FROM containers WHERE id=?)) ON CONFLICT DO NOTHING`, digest, cid, now, cid); e != nil {
 		return e
 	}
 	_, ok, e := blobs.Stat(digest)

@@ -9,6 +9,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"io"
 	"net/http"
 	"strconv"
@@ -148,7 +149,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
-			_, e := tx.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339))
+			_, e := tx.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,kind,declared_bytes,chunk_bytes,expected_digest,created_at,updated_at,expires_at,org_id) VALUES(?,?,?,?,?,?,?,?,?,?,(SELECT org_id FROM containers WHERE id=?))`, id, s.UserID, cid, in.Kind, in.DeclaredBytes, cfg.Limits.ChunkBytes, in.ExpectedDigest, now.Format(time.RFC3339), now.Format(time.RFC3339), now.Add(ttl).Format(time.RFC3339), cid)
 			return e
 		})
 		if writeTeamKeyError(w, r, e) {
@@ -421,7 +422,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			}
 			// The pair is unique; on a conflict (no error, so no aborted transaction on
 			// PostgreSQL) the existing row is found below.
-			res, e := tx.Exec(`INSERT INTO attachments(id,container_id,blob_digest,preview_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(container_id,blob_digest) DO NOTHING`, att, cid, digest, previewDigest, size, meta, in.KeyGeneration, changeSeq, now)
+			res, e := tx.Exec(`INSERT INTO attachments(id,container_id,blob_digest,preview_digest,ciphertext_bytes,metadata_ciphertext,key_generation,change_seq,created_at,org_id) VALUES(?,?,?,?,?,?,?,?,?,(SELECT org_id FROM containers WHERE id=?)) ON CONFLICT(container_id,blob_digest) DO NOTHING`, att, cid, digest, previewDigest, size, meta, in.KeyGeneration, changeSeq, now, cid)
 			if e != nil {
 				return e
 			}
@@ -608,19 +609,24 @@ func uploadLive(status, created, expires string) bool {
 // the team's (IMPLEMENTATION_PLAN.md 1.14). Live pending uploads other than skip count at their
 // declared size, and each finalized preview's blob (cancelled or not) for as long as it is kept.
 func quotaExceeded(q rowQuerier, limits config.Limits, cid, skip string, n int64) (bool, error) {
-	var owner, kind, team string
+	var owner, kind, team, org string
 	var userQuota int64
-	if err := q.QueryRow(`SELECT c.owner_user_id,c.kind,c.team_id,u.quota_bytes FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.id=?`, cid).Scan(&owner, &kind, &team, &userQuota); err != nil {
+	if err := q.QueryRow(`SELECT c.owner_user_id,c.kind,c.team_id,u.quota_bytes,c.org_id FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.id=?`, cid).Scan(&owner, &kind, &team, &userQuota, &org); err != nil {
 		return false, err
 	}
 	if kind == "team" {
 		team = cid
 	}
-	if exceeded, err := userQuotaExceeded(q, limits, owner, userQuota, skip, n); exceeded || err != nil || team == "" || limits.TeamQuotaBytes <= 0 {
+	if exceeded, err := userQuotaExceeded(q, limits, owner, userQuota, skip, n); exceeded || err != nil {
 		return exceeded, err
 	}
-	used, err := usedBytes(q, `SELECT id FROM containers WHERE id=?1 OR team_id=?1`, team, skip)
-	return used+n > limits.TeamQuotaBytes, err
+	if team != "" && limits.TeamQuotaBytes > 0 {
+		used, err := usedBytes(q, `SELECT id FROM containers WHERE id=?1 OR team_id=?1`, team, skip)
+		if err != nil || used+n > limits.TeamQuotaBytes {
+			return err == nil, err
+		}
+	}
+	return storage.PoolRefuses(q, org, skip, n) // the org's pool, after today's safety caps
 }
 
 // userQuotaExceeded charges n more bytes to one account: its notebooks plus its live sealed share
@@ -641,19 +647,10 @@ func userQuotaExceeded(q rowQuerier, limits config.Limits, owner string, userQuo
 	return used+links+n > userQuota, err
 }
 
-// usedBytes sums what the containers in scope (a query of ?1=key) hold or have reserved.
-// Notebook deletion tombstones its attachments and cancels pending uploads. Older late uploads
-// that are still live remain charged until reclaimed, even when their notebook is deleted.
+// usedBytes sums what the containers in scope (a query of ?1=key) hold or have reserved
+// (storage.ChargedBytes).
 func usedBytes(q rowQuerier, scope, key, skip string) (int64, error) {
-	var used int64
-	err := q.QueryRow(`SELECT
- (SELECT COALESCE(SUM(v.ciphertext_bytes),0) FROM object_versions v JOIN objects o ON o.id=v.object_id WHERE o.container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM conflicts WHERE container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(length(body_ciphertext)),0) FROM comments WHERE deleted_at='' AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(ciphertext_bytes),0) FROM attachments WHERE deleted_at='' AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(declared_bytes),0) FROM upload_sessions WHERE status='pending' AND expires_at>?2 AND id<>?3 AND container_id IN (`+scope+`))
-+(SELECT COALESCE(SUM(b.size_bytes),0) FROM blobs b WHERE b.digest IN (SELECT s.finalized_digest FROM upload_sessions s WHERE s.kind='preview' AND s.finalized_digest<>'' AND s.container_id IN (SELECT id FROM containers WHERE deleted_at='') AND s.container_id IN (`+scope+`)))`, key, time.Now().UTC().Format(time.RFC3339), skip).Scan(&used)
-	return used, err
+	return storage.ChargedBytes(q, scope, key, skip)
 }
 
 func uploadTTL(cfg config.Config) time.Duration {

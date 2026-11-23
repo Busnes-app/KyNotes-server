@@ -30,6 +30,7 @@ var (
 		"schema_migrations": true, "pairing_nonces": true, "idempotency": true, "idempotency_keys": true,
 		"server_settings": true, "sso_sync_events": true, "sso_logout_events": true,
 		"sso_directory_state": true, "sso_login_cutoffs": true, "orgs": true, "erased_subjects": true,
+		"org_pool": true,
 	}
 	offInMulti = map[string]bool{"blob_replicas": true}
 	// Tables the PostgreSQL schema leaves out (tenancy spec, Replica work, item 6).
