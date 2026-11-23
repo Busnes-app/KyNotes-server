@@ -107,7 +107,7 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | N4 | Isolation is enforced in the application: every org-owned row carries `org_id`, an org-bound store handle binds it, and triggers check existence, immutability and agreement with the parent row. | T D3 and C D3. The store has one SQL text for both backends, and single-tenant SQLite runs the same handlers. |
 | N5 | In multi mode the sign-in provider is fixed by environment: `KYNOTES_SSO_ISSUER`, `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET`, `KYNOTES_SSO_HMAC_SECRET`. The admin SSO save and pairing routes answer `404`. Auto-provisioning is always on. Customer password sign-in, `/setup`, `user add` for everyday accounts and `apply-setup` are refused. | Today SSO settings live in `server_settings` and are cached per process (`internal/sso/sso.go:27-98`), so a save on one replica leaves the others stale. One issuer (owner decision 2) means the binding never changes. Customers then always get device-only identities with a recovery code, which already works (`AGENTS.md:830-873`). |
 | N6 | In multi mode an account is an administrator only when it is an administrator account (`account_kind='admin'`) **and** its `org_id` is the staff org. Staff accounts are created only by `kynotes-server user add --admin` and the bootstrap variables, into the staff org. | Owner decision 3. Administrator accounts already open no notes (`AGENTS.md:179-196`), so staff never hold content keys. This is defence in depth against a staff mistake that sends `kynotes.admin` for a customer. |
-| N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, an invitation acceptance, or a key or invitation envelope (`key_envelopes`, `invitation_envelopes`) whose user is in another org than the container. **No trigger runs on invitation insert:** an invitation to another org's user ID is created like one to an unknown ID, so creation answers the same for both, and it can never be accepted. An invitation envelope for another org's identity device is refused by its trigger with the same answer as an unknown device gets today (`teamkeys_routes.go:473-477`), so that path reveals nothing either. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
+| N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, an invitation acceptance, or a key or invitation envelope (`key_envelopes`, `invitation_envelopes`) whose user is in another org than the container. **No trigger runs on invitation insert:** an invitation to another org's user ID is created like one to an unknown ID, so creation answers the same for both, and it can never be accepted. Handlers check the org explicitly before each insert and answer as for a missing row: accept answers not-found, and `insertInvitationEnvelopeTx` adds the org to its identity-device check (`teamkeys_routes.go:473-477`), so another org's device gets `errEnvelopeInvalid`, as an unknown device does today. The triggers are a backstop whose error no handler maps to its own answer. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
 | N8 | **Blobs become org-owned.** `blobs` gains `org_id`, and on PostgreSQL its key is `(org_id, digest)`. The object key in multi mode is `orgs/<org_id>/blobs/<digest>`. Single-tenant keeps `<data>/blobs/aa/bb/<digest>` and the digest key. | Fact 3. A shared digest across orgs would let one org's upload, purge or quota interact with another's file. Per-org keys make a purge a prefix delete and quota exact. KyDrive refused content addressing for the same reason (D "Blob storage"). |
 | N9 | KyNotes keeps a local mirror of `/api/suite/orgs` (`orgs` table), polled about every 60 s by the elected worker (`suitedir.Client.Orgs`, `suitedir/client.go:241`). Every authenticated read joins the account's org row in the same query as the account. | T D6 and downstream contract 5. C D6. A suspension then takes effect at the next request on every replica. |
 | N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the org's allowance (the pool less what every other app reports). The allowance is cached in the `orgs` mirror, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
@@ -151,7 +151,7 @@ SQLite. There is no PostgreSQL schema yet. Multi mode needs one (PR 1).
 | `attachments` | `0002_devices.sql:10` | O | It references `blobs(digest)`. `idx_attachments_container_digest` (`0002_devices.sql:11`) stays. |
 | `upload_sessions` | `0002_devices.sql:12` | D | `user_id` and `container_id` FKs |
 | `idempotency` | `0002_devices.sql:13` | P | `user_id` has no FK. The key is a hash that includes the user ID. Rows expire. |
-| `audit_events` | `0002_devices.sql:14` | O | **Nullable** `org_id`: NULL is a platform row (staff actions, backups, purges), as T does for `audit_events`. `user_id` has no FK. |
+| `audit_events` | `0002_devices.sql:14` | O, with one exception | **Nullable** `org_id` with **no default**: NULL is a platform row (staff actions, backups, purges, `staff.read`), as T does for `audit_events`. Every writer names the org explicitly: a customer's action names the actor's org, and a platform writer passes NULL. The existence trigger checks only a non-NULL value. Migration 0032 backfills existing rows with the default org, and in single mode every new row names the default org, so single-tenant rows look as they do today. `user_id` has no FK. |
 | `invitations` | `0003_collaboration.sql:1` | D | `container_id` and `inviter_id` FKs. `invitee_id` has no FK (N7). |
 | `comments` | `0003_collaboration.sql:2` | D | `container_id`, `object_id`, `author_user_id` FKs |
 | `mentions` | `0003_collaboration.sql:3` | D | Both FKs. Mentions already require current membership (`AGENTS.md:337-339`), so N7 keeps them in one org. |
@@ -300,7 +300,8 @@ schema. It follows C "`org_id` on every row":
    from `KYNOTES_STAFF_ORG_ID` (multi mode, `active`, `enabled`, region `KYNOTES_REGION`) if it
    is missing. It records `tenancy_mode` when no row exists: `single` if the default org exists,
    otherwise the configured mode. N1's mismatch check runs right after.
-3. Add `org_id`, defaulting to the default org, to every O table. Backfill `org_usage`.
+3. Add `org_id`, defaulting to the default org, to every O table except `audit_events` (nullable,
+   no default; see its row). Backfill `org_usage`.
 4. Add triggers, with the same names on both backends:
    - one requires the org to exist in `orgs`;
    - one refuses any change to `org_id`;
@@ -388,8 +389,13 @@ Tests:
   IDs and compares the answer with one for random IDs. B's rows must be unchanged.
 - `TestEveryRouteIsInTheCrossOrgMatrix`: a new route fails until it has a matrix row or a stated
   reason (public, pre-auth, platform, staff, or off).
-- N7: an A owner invites B's member, B's member accepts: `404`, and no membership row. A direct
-  insert of that membership is refused by the trigger.
+- N7: an A owner invites B's member, B's member accepts: `404`, and no membership row. The
+  accept handler (`collab_routes.go:235`) compares the invitee's org with the container's
+  explicitly, before the membership insert, and answers the same not-found it gives for a missing
+  invitation. The key-envelope and invitation-envelope writes do the same. The triggers stay as a
+  backstop only: no handler maps a trigger error to its own answer, and the matrix test fails if
+  a cross-org call ever reaches one (it would answer `500`). A direct insert of that membership is
+  refused by the trigger.
 - N8: the same ciphertext uploaded in A and B makes two `blobs` rows and two objects. Purging B
   leaves A's object.
 - All of these run on SQLite (single, one org) and on PostgreSQL (multi).
