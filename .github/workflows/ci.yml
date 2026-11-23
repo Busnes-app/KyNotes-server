@@ -44,9 +44,10 @@ jobs:
         run: make test
 
   # The suites that open a store, again with every storage.Open on a schema in a real
-  # PostgreSQL (KYNOTES_TEST_DATABASE_URL; tenancy spec PR 2). internal/backup and
-  # cmd/kynotes-server are left out: capsules and the offline data-directory commands work on
-  # the SQLite file, and multi-tenant mode refuses them (spec, Replica work items 2 and 7).
+  # PostgreSQL (KYNOTES_TEST_DATABASE_URL; tenancy spec PR 2). Left out: internal/backup and
+  # cmd/kynotes-server, whose capsules and offline data-directory commands work on the SQLite file
+  # (spec, Replica work items 2 and 7), and internal/mirror, the offsite mirror, which is off in
+  # multi-tenant mode and has no blob_replicas table there (spec, open question 2).
   postgres:
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
@@ -74,7 +75,7 @@ jobs:
       - name: test on PostgreSQL
         env:
           KYNOTES_TEST_DATABASE_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
-        run: go test -race -count=1 -timeout 20m -p 2 ./internal/storage/... ./internal/httpapi/... ./internal/auth/... ./internal/app/... ./internal/sso/... ./internal/mirror/... ./cmd/kynotes-mcp/...
+        run: go test -race -count=1 -timeout 20m -p 2 ./internal/storage/... ./internal/httpapi/... ./internal/auth/... ./internal/app/... ./internal/sso/... ./cmd/kynotes-mcp/...
 
   checks:
     if: github.event.pull_request.draft != true

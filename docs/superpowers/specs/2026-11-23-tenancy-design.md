@@ -1076,9 +1076,10 @@ Branch `feat/tenancy-build-2`, stacked on PR 1.
 - **The CI leg.** With `KYNOTES_TEST_DATABASE_URL` set, every `storage.Open(path)` in a test opens
   a schema named after the path (dropped by a later run once its directory is gone). ci.yml
   `postgres` runs `internal/storage`, `internal/httpapi`, `internal/auth`, `internal/app`,
-  `internal/sso`, `internal/mirror` and `cmd/kynotes-mcp` that way, on PostgreSQL 17 with the C
-  locale, and `test` needs it. Left out: `internal/backup` and `cmd/kynotes-server`, whose capsules
-  and offline data-directory commands work on the SQLite file (items 2 and 7, open question 3).
+  `internal/sso` and `cmd/kynotes-mcp` that way, on PostgreSQL 17 with the C locale, and `test`
+  needs it. Left out: `internal/backup` and `cmd/kynotes-server`, whose capsules and offline
+  data-directory commands work on the SQLite file (items 2 and 7, open question 3), and
+  `internal/mirror`, off in multi mode with no `blob_replicas` table there (open question 2).
   Tests about SQLite itself skip there with their reason (cleanup capacity, journal mode, SQLite
   upgrades, capsules, an INTEGER column holding text, the Q12 page budget). Every other fixture
   goes through `storage.Open`, so it runs on PostgreSQL; tests that inject a failure write their

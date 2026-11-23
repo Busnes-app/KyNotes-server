@@ -223,7 +223,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `checkDatabaseBudget`. With `KYNOTES_TEST_DATABASE_URL` set (a UTF8, C-locale PostgreSQL),
   every `storage.Open(path)` in a test opens a schema named after the path; ci.yml `postgres` runs
   the store-using suites that way, without `internal/backup` and `cmd/kynotes-server` (capsules and
-  offline commands work on the SQLite file). A test about SQLite itself calls
+  offline commands work on the SQLite file) or `internal/mirror` (off in multi mode). A test about SQLite itself calls
   `storage.SkipOnPostgres` with the reason; httpapi tests write failure triggers with
   `refuseTrigger`/`dropTrigger`/`afterInsertRun`, order by insertion with `rowOrder` and read the
   catalog with `testTables`/`columnsQuery` (`internal/httpapi/backend_test.go`). Verify
