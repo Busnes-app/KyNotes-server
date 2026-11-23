@@ -18,7 +18,7 @@ var (
 		"upload_sessions": "containers", "audit_events": "", "sealed_share_links": "users",
 	}
 	derived = map[string]string{ // table -> the parent it is scoped through
-		"sessions": "users", "objects": "containers", "devices": "users", "memberships": "containers",
+		"replica_presence": "users", "sessions": "users", "objects": "containers", "devices": "users", "memberships": "containers",
 		"key_envelopes": "containers", "device_containers": "containers", "invitations": "containers",
 		"comments": "containers", "mentions": "comments", "activity": "containers",
 		"push_registrations": "devices", "attachment_refs": "attachments", "share_links": "objects",
@@ -30,11 +30,11 @@ var (
 		"schema_migrations": true, "pairing_nonces": true, "idempotency": true, "idempotency_keys": true,
 		"server_settings": true, "sso_sync_events": true, "sso_logout_events": true,
 		"sso_directory_state": true, "sso_login_cutoffs": true, "orgs": true, "erased_subjects": true,
-		"org_pool": true,
+		"org_pool": true, "replica_logins": true, "replica_rates": true, "replica_lockouts": true,
 	}
 	offInMulti = map[string]bool{"blob_replicas": true}
 	// Tables the PostgreSQL schema leaves out (tenancy spec, Replica work, item 6).
-	sqliteOmits   = map[string]bool{"org_usage": true}
+	sqliteOmits   = map[string]bool{"org_usage": true, "replica_logins": true, "replica_rates": true, "replica_lockouts": true, "replica_presence": true}
 	postgresOmits = map[string]bool{"cleanup_audit_slots": true, "blob_replicas": true}
 )
 

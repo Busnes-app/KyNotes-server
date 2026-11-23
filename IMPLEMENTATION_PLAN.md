@@ -2213,3 +2213,18 @@ response installs a new grant. Stopped orgs release headroom. Deletes and conver
 upload reservation do not need a fresh grant; single mode bypasses pool checks. The elected
 worker schedule and multi-mode startup belong to later phases. See the tenancy spec's PR 4e
 as-built section for the wire and accounting contracts and executable checks.
+
+
+### Tenancy PR 5a-1: replica coordination boundary
+
+Implemented behind the recorded PostgreSQL multi-mode guard: shared PKCE/rates/lockouts/
+presence, token-bound reminder claims, connection-pinned session locks, elected-worker
+ownership/cancellation, cached PG readiness, and configuration/restore preparation.
+`TestReplica*` covers independent pools, atomic admission and consumption, wrong-org/membership
+refusal, lost worker connections, saturated one-connection request pools, reschedules and
+restore rollback/fencing. The PostgreSQL CI leg includes the worker package.
+
+Next 5a boundary: schedule wiring, environment-only key input, full shared fingerprint fields,
+proxy drain, blob seam/org prefixes/upload parts/store identity and two-replica blob evidence.
+Then 5b primary object storage (shared client prerequisite only), PG restore/erased-feed adapter
+and phase 6 enablement/E2E. Multi startup stays refused until every prerequisite is met.

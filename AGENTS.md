@@ -149,6 +149,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - `docs/AGENTS.md` — mdBook manual, chapter ownership and documentation checks.
 
+- `internal/worker/AGENTS.md` — PostgreSQL worker ownership, cancellation and takeover tests.
+
 - `docs/ui-notes-eight/AGENTS.md` owns the sequential UI council evidence, round scores, capture provenance and supplemental theme checks.
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
@@ -297,6 +299,27 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   renewal until half TTL only while the ceiling exceeds all charged bytes (including pending
   reservations); exhausted grants retry once per minute, including after an org resumes. Verify `TestOrgUsage*`,
   `TestPool*`, `TestReport*`, `TestOrgMemberWritesLandInItsOrg`, the golden and both backend suites.
+
+- Tenancy PR 5a-1: PostgreSQL `replica_logins`, `replica_rates`, `replica_lockouts` and
+  `replica_presence` hold cross-replica security/presence state only in recorded multi mode;
+  SQLite keeps its original memory paths and schema layout. Pending logins are hashed,
+  one-use, expiring and capped at 1024 by oldest expiry; their settings hash never copies
+  environment secrets into the payload. Lockout wrappers are per request (`Lockout.For`),
+  with generation-bound success/refunds so a slow request cannot clear a newer window.
+  Presence has an org-match backstop, current-membership writes and membership-filtered reads.
+  Reminders claim for two minutes before sending and delete only their own token; rescheduling
+  clears the claim. `SessionLock` pins all request SQL/transactions to one connection;
+  worker heartbeats use their own idle lock connection, never a request lease. PostgreSQL
+  `/readyz` adds a one-second cached ping; `/livez` stays independent of the database.
+  `VerifyReplicaConfig` prepares keyed, value-free per-field startup comparison; the complete
+  field map and startup invocation remain in the next 5a boundary. `ResetTenancyAfterRestore`
+  is PG restore preparation: use the credential-revocation transaction, retain erased-subject
+  fences, make customer orgs stale at revision zero, clear grants/cursors/ephemeral state.
+  Single mode bypasses this helper; qualified outer aliases are required in `OrgServes` correlations.
+  It does not enable a PG restore transport. Verify `TestReplica*`, `TestPostgresSchemaMatchesSQLite`,
+  purge/erasure coverage, both backend suites and the unchanged single-tenant golden.
+  Elected schedule wiring, environment-only key loading, drain, blob seam/store identity and
+  primary object storage remain prerequisites; startup still refuses multi mode.
 
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier

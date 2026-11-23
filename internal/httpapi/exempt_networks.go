@@ -25,16 +25,18 @@ const exemptNetworksSetting = "rate_limit_exempt_networks"
 // exemptNetworks is the live office-network allowlist: ratelimit.exempt_networks plus the
 // admin setting. Requests from it skip the per-IP sign-in buckets only.
 type exemptNetworks struct {
-	env  string // canonical configured half, read-only in the admin screen
-	list atomic.Pointer[netallow.List]
-	save sync.Mutex // keeps the stored and the live list in step across concurrent saves
+	db        *sql.DB
+	refreshed time.Time
+	env       string // canonical configured half, read-only in the admin screen
+	list      atomic.Pointer[netallow.List]
+	save      sync.Mutex // keeps the stored and the live list in step across concurrent saves
 }
 
 // loadExemptNetworks builds the list at startup. A stored value that cannot be read or no
 // longer parses is dropped, leaving the configured list: fewer exemptions, never more.
 func loadExemptNetworks(cfg config.Config, db *sql.DB, log *logging.Logger) *exemptNetworks {
 	env, _ := netallow.Parse(strings.Join(cfg.RateLimit.ExemptNetworks, ",")) // config.Validate refused a bad one
-	e := &exemptNetworks{env: env.String()}
+	e := &exemptNetworks{env: env.String(), db: db}
 	stored, err := storedExemptNetworks(db)
 	var list *netallow.List
 	if err == nil {
@@ -80,6 +82,7 @@ func (e *exemptNetworks) office(r *http.Request, behindProxy bool, proxies []*ne
 	if e == nil {
 		return netip.Addr{}, false
 	}
+	e.refresh()
 	addr, ok := netip.AddrFromSlice(resolvedClientIP(r, behindProxy, proxies))
 	return addr, ok && e.list.Load().Contains(addr)
 }
@@ -142,4 +145,28 @@ func ExemptNetworkRoutes(mux RouteMux, db *sql.DB, e *exemptNetworks) {
 		e.list.Store(combined)
 		writeJSON(w, e.status(stored))
 	})))
+}
+
+// refresh observes another replica's admin change within one minute. An unreadable stored list
+// closes those exemptions; the environment half stays fixed by the configuration fingerprint.
+func (e *exemptNetworks) refresh() {
+	shared, err := storage.SharedMode(e.db)
+	if !shared && err == nil {
+		return
+	}
+	e.save.Lock()
+	defer e.save.Unlock()
+	if time.Since(e.refreshed) < time.Minute {
+		return
+	}
+	e.refreshed = time.Now()
+	stored, err := storedExemptNetworks(e.db)
+	var list *netallow.List
+	if err == nil {
+		list, err = e.combine(stored)
+	}
+	if err != nil {
+		list, _ = e.combine("")
+	}
+	e.list.Store(list)
 }

@@ -221,6 +221,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		key := strings.ToLower(in.Username) + "\x00" + auth.ClientIP(r)
 		// Reserved before the lookup and verification, so concurrent guesses (an office network
 		// skips the per-IP bucket that used to space them) cannot all pass the lockout at once.
+		loginLockout := loginLockout.For(db, "login")
 		if !loginLockout.Reserve(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "login temporarily unavailable")
 			return
@@ -371,6 +372,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		// Shares the step-up budget: both verify the current password for a live session.
 		key := s.UserID + "\x00" + auth.ClientIP(r)
+		loginLockout := loginLockout.For(db, "login")
 		if !loginLockout.Try(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
@@ -379,10 +381,14 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
 		verifyErr := auth.VerifyAuthSecret(in.CurrentAuthSecret, stored)
 		if errors.Is(verifyErr, auth.ErrBusy) {
+			loginLockout.ReleasePending(key)
 			authBusy(w, r, "password change temporarily unavailable")
 			return
 		}
 		if err != nil || verifyErr != nil {
+			if err != nil {
+				loginLockout.ReleasePending(key)
+			}
 			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
 			return
@@ -513,6 +519,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 			return
 		}
 		key := s.UserID + "\x00" + auth.ClientIP(r)
+		loginLockout := loginLockout.For(db, "login")
 		if !loginLockout.Try(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "try again later")
 			return
@@ -521,10 +528,14 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=? AND status='active'`, s.UserID).Scan(&stored)
 		verifyErr := auth.VerifyAuthSecret(in.CurrentAuthSecret, stored)
 		if errors.Is(verifyErr, auth.ErrBusy) {
+			loginLockout.ReleasePending(key)
 			authBusy(w, r, "upgrade temporarily unavailable")
 			return
 		}
 		if err != nil || verifyErr != nil {
+			if err != nil {
+				loginLockout.ReleasePending(key)
+			}
 			loginLockout.Fail(key, time.Now().UTC())
 			WriteError(w, r, 401, "unauthenticated", "current password is incorrect")
 			return
@@ -622,6 +633,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		s, _ := auth.SessionFromContext(r)
 		key := s.UserID + "\x00" + auth.ClientIP(r)
+		loginLockout := loginLockout.For(db, "login")
 		if !loginLockout.Try(key, time.Now().UTC()) {
 			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "rate_limited", RequestID(r))
 			WriteError(w, r, 429, "rate_limited", "try again later")
@@ -631,10 +643,14 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		err := db.QueryRow(`SELECT auth_secret_hash FROM users WHERE id=?`, s.UserID).Scan(&stored)
 		verifyErr := auth.VerifyAuthSecret(in.AuthSecret, stored)
 		if errors.Is(verifyErr, auth.ErrBusy) {
+			loginLockout.ReleasePending(key)
 			authBusy(w, r, "step-up temporarily unavailable")
 			return
 		}
 		if err != nil || verifyErr != nil {
+			if err != nil {
+				loginLockout.ReleasePending(key)
+			}
 			loginLockout.Fail(key, time.Now().UTC())
 			recordAuditOutcome(db, s.UserID, "auth.step_up", "", "", "failure", "invalid_secret", RequestID(r))
 			WriteError(w, r, 401, "unauthenticated", "invalid credentials")
@@ -699,6 +715,7 @@ func AuthRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		key := strings.ToLower(in.Username) + "\x00" + auth.ClientIP(r)
 		// Reserved before the lookup and verification, like login; a failure keeps it.
+		recoveryLockout := recoveryLockout.For(db, "recovery")
 		if !recoveryLockout.Reserve(key, time.Now().UTC()) {
 			WriteError(w, r, 429, "rate_limited", "recovery temporarily unavailable")
 			return

@@ -204,13 +204,31 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			WriteError(w, r, 413, "payload_too_large", "payload too large")
 			return
 		}
-		defer lockUpload(id)()
-		if e := db.QueryRow(sessionSQL, id).Scan(&uid, &cid, &received, &next, &declared, &chunk, &created, &expires, &status); e != nil {
+		var query rowQuerier = db
+		exec := db.Exec
+		shared, err := storage.SharedMode(db)
+		if err != nil {
+			WriteError(w, r, 503, "unavailable", "upload unavailable")
+			return
+		}
+		if shared {
+			lease, _, err := storage.SessionLock(r.Context(), db, "upload/"+id, true)
+			if err != nil {
+				WriteError(w, r, 503, "unavailable", "upload busy")
+				return
+			}
+			defer lease.Release()
+			query, exec = lease, lease.Exec
+			r = r.WithContext(lease.Context)
+		} else {
+			defer lockUpload(id)()
+		}
+		if e := query.QueryRow(sessionSQL, id).Scan(&uid, &cid, &received, &next, &declared, &chunk, &created, &expires, &status); e != nil {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
 		// A removal or demotion may have committed while the body streamed.
-		if writeTeamKeyError(w, r, checkUploader(db, cid, s.UserID, r.Header.Get(keySchemeHeader))) {
+		if writeTeamKeyError(w, r, checkUploader(query, cid, s.UserID, r.Header.Get(keySchemeHeader))) {
 			return
 		}
 		if !uploadLive(status, created, expires) {
@@ -246,7 +264,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			return
 		}
 		if int64(len(body)) == 0 || received+int64(len(body)) > declared || (received+int64(len(body)) < declared && int64(len(body)) != chunk) {
-			_, _ = db.Exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
+			_, _ = exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
 			if doomed, openErr := blobs.Reopen(id); openErr == nil {
 				_ = doomed.Abort()
 			}
@@ -271,7 +289,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 		n, e := io.Copy(tmp, bytes.NewReader(body))
 		_ = tmp.Close()
 		if e != nil || n > chunk || received+n > declared || (received+n < declared && n != chunk) {
-			_, _ = db.Exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
+			_, _ = exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
 			if doomed, openErr := blobs.Reopen(id); openErr == nil {
 				_ = doomed.Abort()
 			}
@@ -279,7 +297,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs *blobstore.Store, cfg config.C
 			return
 		}
 		now := time.Now().UTC()
-		_, e = db.Exec(`UPDATE upload_sessions SET received_bytes=received_bytes+?,next_chunk=next_chunk+1,updated_at=?,expires_at=? WHERE id=?`, n, now.Format(time.RFC3339), now.Add(uploadTTL(cfg)).Format(time.RFC3339), id)
+		_, e = exec(`UPDATE upload_sessions SET received_bytes=received_bytes+?,next_chunk=next_chunk+1,updated_at=?,expires_at=? WHERE id=?`, n, now.Format(time.RFC3339), now.Add(uploadTTL(cfg)).Format(time.RFC3339), id)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return

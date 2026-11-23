@@ -1,0 +1,2 @@
+-- Replica coordination is PostgreSQL-only. Single-tenant SQLite keeps its in-memory state
+-- and unchanged physical cleanup layout.

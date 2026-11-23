@@ -28,7 +28,7 @@ func TestPostgresSchemaMatchesSQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lite.Close()
-	omitted := map[string]bool{"cleanup_audit_slots": true, "blob_replicas": true, "org_usage": true, "comments.cleanup_padding": true, "containers.cleanup_padding": true, "sealed_share_links.cleanup_padding": true}
+	omitted := map[string]bool{"cleanup_audit_slots": true, "blob_replicas": true, "org_usage": true, "replica_logins": true, "replica_rates": true, "replica_lockouts": true, "replica_presence": true, "reminders.claimed_until": true, "reminders.claim_token": true, "comments.cleanup_padding": true, "containers.cleanup_padding": true, "sealed_share_links.cleanup_padding": true}
 	shape := func(s *Store) []string {
 		var out []string
 		for _, table := range catalogTables(t, s) {

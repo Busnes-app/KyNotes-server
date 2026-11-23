@@ -264,6 +264,7 @@ func WriteAuthError(w http.ResponseWriter, code, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message, "requestId": w.Header().Get("X-Request-Id")}})
 }
 func resolveDevice(db *sql.DB, r *http.Request) (Device, bool) {
+	deviceLockout := deviceLockout.For(db, "device")
 	id := r.Header.Get("X-Kynotes-Device-Id")
 	secret := r.Header.Get("X-Kynotes-Device-Secret")
 	if len(id) == 0 || len(id) > 128 || len(secret) > 512 {

@@ -129,7 +129,7 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 	if len(orgPoll) > 0 {
 		poller = orgPoll[0]
 	}
-	transactions := &ssoTransactions{pending: make(map[string]ssoTransaction)}
+	transactions := &ssoTransactions{db: db, pending: make(map[string]ssoTransaction)}
 	viaProxy := forwardedFromProxy(cfg)
 	isRequestSecure := func(r *http.Request) bool { return requestScheme(r, viaProxy(r)) == "https" }
 	registerSSOLogout(mux, db, ssoStore, cfg)
@@ -200,7 +200,10 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 		}
 
 		state, nonce := sso.GenerateState(), sso.GenerateState()
-		transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, ReauthSession: reauthSession, Challenge: challengeID, Started: started, Expires: time.Now().Add(auth.SSOLoginLifetime)})
+		if err := transactions.add(state, ssoTransaction{Verifier: verifier, Nonce: nonce, RedirectURI: redirectURI, Settings: settings, ReauthSession: reauthSession, Challenge: challengeID, Started: started, Expires: time.Now().Add(auth.SSOLoginLifetime)}); err != nil {
+			WriteError(w, r, 503, "unavailable", "sign-in temporarily unavailable")
+			return
+		}
 		http.SetCookie(w, &http.Cookie{Name: ssoCookieName, Value: state, Path: "/", HttpOnly: true, Secure: !cfg.Server.DevInsecureCookies && isRequestSecure(r), SameSite: http.SameSiteLaxMode, MaxAge: 300})
 
 		authURL, err := url.Parse(disc.AuthorizationEndpoint)
@@ -289,9 +292,17 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 			WriteError(w, r, http.StatusBadRequest, "invalid_state", "invalid SSO state")
 			return
 		}
-		transaction, ok := transactions.take(state)
+		transaction, ok, err := transactions.take(state)
+		if err != nil {
+			WriteError(w, r, 503, "unavailable", "sign-in temporarily unavailable")
+			return
+		}
 		clearCookie(w, ssoCookieName, true, !cfg.Server.DevInsecureCookies && isRequestSecure(r))
-		if !ok || transaction.Settings != settings {
+		sameSettings := transaction.Settings == settings
+		if transaction.SettingsHash != "" {
+			sameSettings = transaction.SettingsHash == ssoSettingsHash(settings)
+		}
+		if !ok || !sameSettings {
 			WriteError(w, r, http.StatusBadRequest, "invalid_state", "expired or changed SSO login")
 			return
 		}
@@ -498,13 +509,30 @@ type ssoTransaction struct {
 	Verifier, Nonce, RedirectURI string
 	Settings                     sso.SSOSettings
 	Expires                      time.Time
+	SettingsHash                 string
 }
 type ssoTransactions struct {
+	db      *sql.DB
 	mu      sync.Mutex
 	pending map[string]ssoTransaction
 }
 
-func (s *ssoTransactions) add(state string, tx ssoTransaction) {
+func (s *ssoTransactions) add(state string, tx ssoTransaction) error {
+	shared, err := storage.SharedMode(s.db)
+	if err != nil {
+		return err
+	}
+	if shared {
+		tx.SettingsHash = ssoSettingsHash(tx.Settings)
+		tx.Settings = sso.SSOSettings{}
+		payload, err := json.Marshal(tx)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return storage.PutLogin(ctx, s.db, state, payload, time.Until(tx.Expires))
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, item := range s.pending {
@@ -525,11 +553,35 @@ func (s *ssoTransactions) add(state string, tx ssoTransaction) {
 		delete(s.pending, oldest)
 	}
 	s.pending[state] = tx
+	return nil
 }
-func (s *ssoTransactions) take(state string) (ssoTransaction, bool) {
+func (s *ssoTransactions) take(state string) (ssoTransaction, bool, error) {
+	shared, err := storage.SharedMode(s.db)
+	if err != nil {
+		return ssoTransaction{}, false, err
+	}
+	if shared {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		raw, ok, err := storage.TakeLogin(ctx, s.db, state)
+		if err != nil || !ok {
+			return ssoTransaction{}, false, err
+		}
+		var tx ssoTransaction
+		if err := json.Unmarshal(raw, &tx); err != nil {
+			return tx, false, err
+		}
+		return tx, true, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, ok := s.pending[state]
 	delete(s.pending, state)
-	return tx, ok && time.Now().Before(tx.Expires)
+	return tx, ok && time.Now().Before(tx.Expires), nil
+}
+
+// A pending PKCE flow binds configuration without copying environment secrets into its row.
+func ssoSettingsHash(settings sso.SSOSettings) string {
+	raw, _ := json.Marshal(settings)
+	return storage.StateHash(string(raw))
 }

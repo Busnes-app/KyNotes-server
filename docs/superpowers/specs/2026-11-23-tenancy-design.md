@@ -1462,3 +1462,30 @@ contract (#290, `docs/SUITE-DIRECTORY.md`, Storage pool; owner decision 14).
     - **Recommend (a)**, as built: it is the safer default, and re-linking is one approval from a
       signed-in browser. Owner question.
 
+
+
+### PR 5a-1 as built: shared replica coordination
+
+- Migration 0036 is a SQLite no-op and creates PG-only `replica_logins`, `replica_rates`,
+  `replica_lockouts` and `replica_presence`; reminder claim columns are PG-only too.
+- Shared mode is selected from the database record. SQLite keeps its existing memory paths.
+  PKCE state is hashed, consumed atomically, expired and capped at 1024 by oldest expiry;
+  pending settings are bound by hash without persisting environment client/directory secrets.
+- All limiter labels and office budgets use database-clock GCRA; login/recovery/device attempts
+  reserve before verification, with per-request generation-bound refunds. Store errors fail closed.
+  Office-network lists refresh within a minute. Presence writes recheck membership and have a
+  cross-org trigger; reads filter current memberships. Purge/erase cover presence explicitly.
+- `SessionLock` keeps SQL and short write transactions on the pinned connection. `worker.Run`
+  adds exclusive ownership, one-second liveness probes on its idle lock connection, cancellation
+  and standby takeover. Schedule wiring is still the next 5a boundary.
+- Reminder claims last two minutes and completion deletes only that token. Rescheduling clears
+  the token, preserving the new reminder against a slow old completion.
+- PG readiness adds a one-second cached ping; liveness remains database-independent.
+  Keyed configuration verification and atomic PG restore fencing are preparation only: the
+  full field map, startup adapter and PG restore transport are not enabled here.
+- `TestReplica*` uses independent database pools, actual signed OIDC login, concurrent token/
+  lockout admission, wrong-org refusal, a fake TLS push, worker-session loss, single-connection
+  saturation and restore rollback/fencing. Existing golden and upgrade fixtures are unchanged.
+- Still unbuilt: elected schedule adapters, shared key loading, complete fingerprint map/drain,
+  blob seam/org prefixes/parts/store identity and primary object storage, erased-feed reconciliation
+  and operational PG backup/restore. Startup continues refusing multi; no volume fallback/pruning.
