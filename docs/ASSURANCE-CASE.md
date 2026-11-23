@@ -128,7 +128,11 @@ deactivation until they expire. Each is in
 ## Evidence
 
 - **Tests:** `make test` runs every Go package under the race detector with
-  `-count=1` and a 20-minute per-package hang budget for the real-password API suite.
+  `-count=1`, `-p 2` and a 20-minute per-package hang budget. CI partitions both the
+  normal and strong-key profiles with complementary `-run=^Test[A-M]` and
+  `-skip=^Test[A-M]` filters: each top-level test and its subtests runs once per
+  profile, with examples and fuzz seeds in the second half. Real-password
+  assertions and production password parameters are unchanged.
   Package tests cover every security-sensitive route, including
   `TestMutatingRequestWithoutCSRFHeaderIsRejected`, `TestCSRFTokenIsBoundToSession`,
   `TestCSRFTokenFromAnotherSessionIsRefused` and the route-level CSRF and step-up tests in

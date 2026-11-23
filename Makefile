@@ -1,11 +1,14 @@
 .PHONY: build test vet fmt
 
+# Empty locally; CI uses complementary -run/-skip filters.
+TEST_FILTER ?=
+
 build:
 	CGO_ENABLED=0 go build -trimpath -o kynotes-server ./cmd/kynotes-server
 
 test:
-	# The real-password API suite can exceed Go's ten-minute package default.
-	go test -race -count=1 -timeout 20m ./...
+	# Keep real passwords and the hang budget; bound package contention.
+	go test -race -count=1 -timeout 20m -p 2 $(TEST_FILTER) ./...
 
 vet:
 	go vet ./...
