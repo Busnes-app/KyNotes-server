@@ -36,6 +36,9 @@ func RequireAccount(db *sql.DB, next http.Handler) http.Handler {
 			unauthenticated(w)
 			return
 		}
+		if refuseExportOnly(w, r, s) {
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, s)))
 	})
 }
@@ -59,6 +62,27 @@ func RequireEveryday(db *sql.DB, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	}))
+}
+
+// ExportRoutes are the routes an export_only session reaches (tenancy N11): its own session and
+// sign-out, its identity and recovery-code fetch and the browser-linking steps (so a fresh browser
+// can open its key), and the reads the browser export makes. Everything else answers 403.
+var ExportRoutes = map[string]bool{
+	"GET /api/v1/auth/session": true, "GET /api/auth/session": true, "POST /api/v1/auth/logout": true, "POST /api/auth/logout": true,
+	"GET /api/v1/me/identity": true, "POST /api/v1/me/identity/recovery/fetch": true,
+	"POST /api/v1/me/link-requests": true, "GET /api/v1/me/link-requests": true, "DELETE /api/v1/me/link-requests/{id}": true,
+	"POST /api/v1/me/link-requests/{id}/claim": true, "POST /api/v1/me/link-requests/{id}/reveal": true,
+	"POST /api/v1/me/link-requests/{id}/approve": true, "POST /api/v1/me/link-requests/{id}/collect": true,
+	"GET /api/v1/containers": true, "GET /api/v1/containers/{id}/changes": true, "GET /api/v1/containers/{id}/envelopes": true,
+	"GET /api/v1/objects/{id}": true, "GET /api/v1/objects/{id}/attachments": true, "GET /api/v1/attachments/{id}": true,
+}
+
+func refuseExportOnly(w http.ResponseWriter, r *http.Request, s Session) bool {
+	if !s.ExportOnly || ExportRoutes[r.Pattern] {
+		return false
+	}
+	WriteAuthError(w, "export_only", "this sign-in can only export your notes")
+	return true
 }
 
 // refuseSession answers for a session of the wrong kind, or one whose password someone else set.
@@ -210,7 +234,7 @@ func RequireEither(db *sql.DB, next http.Handler) http.Handler {
 			}
 		}
 		if s, e := ResolveSession(db, r, time.Now().UTC()); e == nil {
-			if refuseSession(w, s, KindEveryday) {
+			if refuseExportOnly(w, r, s) || refuseSession(w, s, KindEveryday) {
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, s)))
@@ -227,7 +251,7 @@ func WriteAuthError(w http.ResponseWriter, code, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	status := http.StatusUnauthorized
 	switch code {
-	case "forbidden", "step_up_required", "admin_account":
+	case "forbidden", "step_up_required", "admin_account", "export_only":
 		status = http.StatusForbidden
 	case "password_change_required":
 		status = http.StatusConflict

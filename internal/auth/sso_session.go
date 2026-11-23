@@ -20,6 +20,7 @@ type SSOIdentity struct {
 	Issuer, ClientID, Subject, SessionID string
 	IssuedAt, LoginExpires               time.Time
 	AppAdmin                             bool
+	ExportOnly                           bool // the token's export_only claim (tenancy N11)
 }
 
 // MintSSOSession serializes login with logout and account disablement. Cookies are
@@ -43,7 +44,7 @@ func MintSSOSession(ctx context.Context, db *sql.DB, w http.ResponseWriter, user
 	}
 
 	s := c.session
-	_, err = tx.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at,sso_issuer,sso_client_id,sso_subject,sso_sid,sso_issued_at,sso_app_admin) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, s.ID, userID, c.tokenHash, c.csrfHash, s.CreatedAt.Format(time.RFC3339), s.ExpiresAt.Format(time.RFC3339), s.HardExpiresAt.Format(time.RFC3339), identity.Issuer, identity.ClientID, identity.Subject, identity.SessionID, identity.IssuedAt.Unix(), identity.AppAdmin)
+	_, err = tx.Exec(`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at,sso_issuer,sso_client_id,sso_subject,sso_sid,sso_issued_at,sso_app_admin,export_only) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, s.ID, userID, c.tokenHash, c.csrfHash, s.CreatedAt.Format(time.RFC3339), s.ExpiresAt.Format(time.RFC3339), s.HardExpiresAt.Format(time.RFC3339), identity.Issuer, identity.ClientID, identity.Subject, identity.SessionID, identity.IssuedAt.Unix(), identity.AppAdmin, identity.ExportOnly)
 	if err != nil {
 		return Session{}, err
 	}
