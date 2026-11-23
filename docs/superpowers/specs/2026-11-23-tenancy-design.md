@@ -191,7 +191,7 @@ Tables this spec adds:
 | `kynotes.sqlite` (+ WAL) | `serve.go:38` | P | Not used. PostgreSQL. |
 | `.kynotes.lock` | `internal/storage/lock.go:12-24` (exclusive `flock`, `LOCK_EX\|LOCK_NB`) | P | Kept per replica. Each replica has its own data directory, never shared, so the lock only stops two processes on one directory. |
 | `blobs/aa/bb/<digest>` | `blobstore.go:35`, `:58-96` | O (through `blobs`) | The `object` backend, or the shared `volume` (N8, N15) |
-| `tmp/<upload>.part` | `blobstore.go:40` (chunked uploads, `upload_routes.go:157`, `:220`) | D (through `upload_sessions`) | **Must be shared.** Chunk 2 can land on another replica than chunk 1, and `Reopen` would not find the part. Each chunk becomes its own object, `orgs/<org_id>/uploads/<upload>/<n>`. Finalize streams them into one put and hashes while it streams. |
+| `tmp/<upload>.part` | `blobstore.go:40` (chunked uploads, `upload_routes.go:157`, `:220`) | D (through `upload_sessions`) | **Must be shared.** Chunk 2 can land on another replica than chunk 1, and `Reopen` would not find the part. Each chunk becomes its own object, `orgs/<org_id>/uploads/<upload>/<n>`. Finalize copies them into a private temp file on the replica, hashing as it copies, then writes the blob once under its digest ("Blobs in S3-compatible storage"). |
 | `secrets/pairing.key` | `internal/config/config.go:179-200` | P | It is also the CSRF key (`serve.go:29`). Required from `KYNOTES_SECRETS_PAIRING_SECRET`, never minted. Replicas must agree, or a token from one fails CSRF on another. |
 | `secrets/serversalt.key` | `config.go:179-200` | P | It derives synthetic login salts (`sso_routes.go:350`). Required from `KYNOTES_SECRETS_SERVER_SALT_KEY`, never minted. |
 | `secrets/vapid.key` | `internal/webpush/webpush.go:65-76` (`LoadOrCreateEncoded`) | P | A new `KYNOTES_VAPID_KEY`, required in multi mode. Browsers subscribe against the public key, so every replica needs the same one. |
@@ -398,7 +398,11 @@ Tests:
   refused by the trigger.
 - N8: the same ciphertext uploaded in A and B makes two `blobs` rows and two objects. Purging B
   leaves A's object.
-- All of these run on SQLite (single, one org) and on PostgreSQL (multi).
+- All of these run on PostgreSQL in multi mode. They also run on SQLite: the triggers and the
+  handler checks are the same code on both backends, so the SQLite leg builds org B with a test
+  helper that inserts a second `orgs` row straight into the store. Startup's mode rules (N1, N2)
+  do not apply to a test store. A real single-mode install never has a second org, and the
+  single-tenant golden (PR 1) proves its answers are unchanged.
 
 ## Identity binding
 
