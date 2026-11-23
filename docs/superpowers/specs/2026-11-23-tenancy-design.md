@@ -1,8 +1,8 @@
 # Tenancy: single-tenant and multi-tenant (SaaS), KyNotes design
 
-Date: 2026-11-23. Status: proposed design, waiting for owner review. Nothing is built, and this
-change is docs only. KyNotes has no tenancy code today: no `org_id` appears anywhere under
-`internal/` or `cmd/`.
+Date: 2026-11-23, revised the same day for owner decisions 9 and 10. Status: proposed design,
+waiting for owner review. Nothing is built, and this change is docs only. KyNotes has no tenancy
+code today: no `org_id` appears anywhere under `internal/` or `cmd/`.
 
 Owner decisions (fixed, not reopened here):
 
@@ -25,8 +25,19 @@ Owner decisions (fixed, not reopened here):
    cannot be undone and survives a restore, and the `export_only` claim (K open question 4 (a)):
    KyIdentity issues it during `deletion_scheduled`, and apps admit only their export routes
    under it.
+9. **Object storage** (2026-11-23). On the hosted install, primary content (for KyNotes: blobs)
+   goes in S3-compatible object storage, about $0.014/GB/month with a backup copy, against about
+   $0.07 for volumes. Launch runs on disk volumes if object storage is not ready, so the volume
+   backend keeps working behind one interface. Single-tenant installs keep the volume path
+   unchanged. Bucket keys come from the environment or a file, never from a log or this spec.
+10. **One storage pool per org, across all apps, required for launch** (2026-11-23). One number
+    per account, shared by every member and set per org: Personal 20 GB, Couple 40 GB, Family
+    100 GB, Business 30 GB per seat (pooled across the team), Enterprise custom. **KyIdentity
+    holds the pool.** Each app checks it before a write that adds bytes and reports its usage.
+    Today's per-upload and per-user caps may stay as safety limits, but the number a customer
+    buys is the pool.
 
-Object storage is **not** decided. Open question 1 records it with a recommendation.
+Tracking: `Busnes-app/ky-launch#4` (a checklist per app).
 
 References:
 
@@ -76,7 +87,8 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | Mode | `KYNOTES_TENANCY=single` (default) | `KYNOTES_TENANCY=multi` |
 | Database | SQLite at `<data>/kynotes.sqlite`, as today | PostgreSQL only (N2) |
 | Servers | one process per data directory (`.kynotes.lock`) | several replicas across hosts (N2, N12) |
-| Blobs | `<data>/blobs/`, as today | S3-compatible object storage, keyed by org (N8, open question 1) |
+| Blobs | `<data>/blobs/`, as today | S3-compatible object storage keyed by org, or a shared volume until it is ready (N8, N15) |
+| Storage limit | per-user and per-team caps, as today | the org's pool from KyIdentity, with today's caps kept as safety limits (N10) |
 | Sign-in | local passwords, plus any OIDC provider an admin pairs | KyIdentity only, fixed by environment (N5) |
 | Org of a row | the default org | the account's `org_id`, from KyIdentity |
 | Administrators | local administrator accounts | staff only: administrator accounts in the staff org (N6) |
@@ -98,11 +110,12 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | N7 | **A container, its members and its invitations are in one org.** Triggers refuse a membership, invitation or envelope whose user is in another org than the container. An invitation to another org's user ID is accepted at creation and can never be accepted, so creation answers exactly as it does for an unknown ID today. | Teams are how Couple, Family and Business share notebooks, so they stay on in multi mode. Today `invitee_id` is any well-formed user ID with no existence check (`internal/httpapi/collab_routes.go:165-197`), so creation reveals nothing. Accept checks the invitee inside its transaction (`collab_routes.go:235`). |
 | N8 | **Blobs become org-owned.** `blobs` gains `org_id`, and on PostgreSQL its key is `(org_id, digest)`. The object key in multi mode is `orgs/<org_id>/blobs/<digest>`. Single-tenant keeps `<data>/blobs/aa/bb/<digest>` and the digest key. | Fact 3. A shared digest across orgs would let one org's upload, purge or quota interact with another's file. Per-org keys make a purge a prefix delete and quota exact. KyDrive refused content addressing for the same reason (D "Blob storage"). |
 | N9 | KyNotes keeps a local mirror of `/api/suite/orgs` (`orgs` table), polled about every 60 s by the elected worker (`suitedir.Client.Orgs`, `suitedir/client.go:241`). Every authenticated read joins the account's org row in the same query as the account. | T D6 and downstream contract 5. C D6. A suspension then takes effect at the next request on every replica. |
-| N10 | Quotas come from `/api/suite/orgs` `quotas`, with keys settable per org: `max_bytes` (the org's total) and `max_bytes_per_user`. Either may be absent. | Owner decision 5 (input): a Family pool is recommended, not decided. Per-org keys make either choice work without a code change (Quotas). |
+| N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the org's allowance (the pool less what every other app reports). The allowance is cached in the `orgs` mirror, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
 | N11 | **Export runs in the browser, under `export_only`.** A session whose ID token carries `"export_only": true` is marked so. It admits only the read routes the notebook export needs (Lifecycle, Export). Every other route answers `403 export_only`. There is no operator export command. | Fact 1: only the browser can decrypt. The browser export already exists (`exportNotebook.ts`, `AGENTS.md:273-277`). Owner decision 8. |
 | N12 | **Multi mode adopts the replica pattern**: `/livez` and `/readyz` with the drain order, a shared-configuration fingerprint, one elected worker through a PostgreSQL session advisory lock, and every security limit in PostgreSQL. | Owner decision 7. The pattern's "Product rollout contract" (a) to (f) is the checklist (Replica work). |
 | N13 | Each multi install serves one region, `KYNOTES_REGION` (default `local`). An org whose `home_region` differs is treated as not serving. | T "Home region" H1 to H4: an org's data lives in one region. A misrouted token then reaches no data. |
 | N14 | A `deleted` org is purged by the elected worker in short, resumable batches behind a fail-closed audit row. Its `orgs` row stays as a tombstone. Erased subjects come from `/api/suite/erased`. | C D12 and T "Delete everything". A purge in one transaction would hold N3's lock and stop every other org's writes. |
+| N15 | **One blob interface, two backends.** `internal/blobstore` gets an interface with the methods its callers use today (`NewTemp`, `Reopen`, `Open`, `Stat`, `Delete`, `ListDigests`), plus a prefix delete for the purge. `volume` is today's code. `object` is S3-compatible. Single-tenant always uses `volume` at `<data>/blobs`, unchanged. Multi mode takes `KYNOTES_BLOB_BACKEND=object` or `volume`, and `volume` there must be a directory every replica mounts (`KYNOTES_BLOB_DIR`). The backend joins the shared-configuration fingerprint. | Owner decision 9: launch may run on volumes, so both backends must work. A replica on a private disk would lose blobs written by the others, so a store-ID check proves the storage is shared ("Blobs in S3-compatible storage"). |
 
 ## Inventory
 
@@ -166,8 +179,8 @@ Tables this spec adds:
 
 | Table | Class | Reasoning |
 |---|---|---|
-| `orgs` (`id`, `status`, `revision`, `enabled`, `home_region`, `quotas_json`, `seen_at`, `purged_at`) | P | The mirror of `/api/suite/orgs` (N9), and the target of every `org_id`. It holds the default org in single mode and the staff org in multi mode. A deleted org stays as a tombstone (N14). |
-| `org_usage` (`org_id`, `bytes`) | O | The org's charged bytes for `max_bytes`, kept by triggers on `blobs` (Quotas) |
+| `orgs` (`id`, `status`, `revision`, `enabled`, `home_region`, `pool_allowance_bytes`, `pool_checked_at`, `pool_low`, `seen_at`, `purged_at`) | P | The mirror of `/api/suite/orgs` (N9) and of the org's pool allowance (N10), and the target of every `org_id`. It holds the default org in single mode and the staff org in multi mode. A deleted org stays as a tombstone (N14). |
+| `org_usage` (`org_id`, `bytes`, `reported_bytes`) | O | The durable part of the org's charged bytes, kept by triggers, and the last figure reported to KyIdentity ("The org storage pool") |
 | `erased_subjects` (`subject`, `org_id`, `revision`) | P | The local copy of `/api/suite/erased`, so a restore can re-erase (Lifecycle) |
 | `worker_claims` | P | Only if the elected-worker port needs one. The replica pattern uses a session advisory lock and no table. |
 
@@ -177,7 +190,7 @@ Tables this spec adds:
 |---|---|---|---|
 | `kynotes.sqlite` (+ WAL) | `serve.go:38` | P | Not used. PostgreSQL. |
 | `.kynotes.lock` | `internal/storage/lock.go:12-24` (exclusive `flock`, `LOCK_EX\|LOCK_NB`) | P | Kept per replica. Each replica has its own data directory, never shared, so the lock only stops two processes on one directory. |
-| `blobs/aa/bb/<digest>` | `blobstore.go:35`, `:58-96` | O (through `blobs`) | Object storage (N8) |
+| `blobs/aa/bb/<digest>` | `blobstore.go:35`, `:58-96` | O (through `blobs`) | The `object` backend, or the shared `volume` (N8, N15) |
 | `tmp/<upload>.part` | `blobstore.go:40` (chunked uploads, `upload_routes.go:157`, `:220`) | D (through `upload_sessions`) | **Must be shared.** Chunk 2 can land on another replica than chunk 1, and `Reopen` would not find the part. Each chunk becomes its own object, `orgs/<org_id>/uploads/<upload>/<n>`. Finalize streams them into one put and hashes while it streams. |
 | `secrets/pairing.key` | `internal/config/config.go:179-200` | P | It is also the CSRF key (`serve.go:29`). Required from `KYNOTES_SECRETS_PAIRING_SECRET`, never minted. Replicas must agree, or a token from one fails CSRF on another. |
 | `secrets/serversalt.key` | `config.go:179-200` | P | It derives synthetic login salts (`sso_routes.go:350`). Required from `KYNOTES_SECRETS_SERVER_SALT_KEY`, never minted. |
@@ -434,7 +447,7 @@ reveals nothing.
 
 ## Notes specifics
 
-### Blobs and object storage
+### Blobs in S3-compatible storage (owner decision 9)
 
 Today:
 
@@ -444,20 +457,53 @@ Today:
   refused save drops an unclaimed file (`dropUnclaimed`, `:421-427`).
 - A read re-hashes the whole file before it serves it (`blobstore.go:104-133`).
 - GC deletes the file, then the rows, in one transaction (`gc.go:99-125`).
+- Callers hold a concrete `*blobstore.Store` (16 uses under `internal/`). Its methods are
+  `NewTemp`, `Reopen`, `Open`, `Stat`, `Delete` and `ListDigests` (`blobstore.go:36-200`).
 
-In multi mode, on S3-compatible object storage:
+**One interface (N15).** PR 5a turns those six methods into an interface, plus `DeletePrefix` for
+the purge, and keeps today's code as the `volume` backend. That PR changes no behaviour.
+Single-tenant installs always get `volume` at `<data>/blobs`, so their files, paths and upgrade
+are unchanged.
+
+**Two backends in multi mode**, chosen by `KYNOTES_BLOB_BACKEND`:
+
+- `object`, the target. S3-compatible, configured by `KYNOTES_BLOB_S3_ENDPOINT`, `_REGION`,
+  `_BUCKET`, and the keys `KYNOTES_BLOB_S3_ACCESS_KEY` and `KYNOTES_BLOB_S3_SECRET`, or
+  `KYNOTES_BLOB_S3_ACCESS_KEY_FILE` and `KYNOTES_BLOB_S3_SECRET_FILE` naming a file that holds
+  each. Setting both forms of one key is a startup error. The endpoint must be HTTPS. Keys never
+  reach a log, an error body, `/admin/settings` or the fingerprint; the fingerprint holds the
+  endpoint, bucket and region only.
+- `volume`, the launch fallback. `KYNOTES_BLOB_DIR` is a directory every replica mounts (a
+  shared filesystem). Layout is `orgs/<org_id>/blobs/aa/bb/<digest>` and
+  `orgs/<org_id>/uploads/<id>/<n>`, the same keys as `object`. Unverified: that `rename` is
+  atomic on the filesystem chosen; PR 5a's two-replica test runs on it.
+
+**The store-ID check.** The first replica writes a random 32-byte ID to `store-id` at the root of
+the store and to `server_settings`. Every replica reads both at startup and refuses to start, naming
+`KYNOTES_BLOB_BACKEND`, if they differ or `store-id` is missing while `server_settings` has one.
+So a replica that mounted a private disk, or another bucket, never serves.
+
+Operations in multi mode, on either backend:
 
 | Operation | Today | Multi mode |
 |---|---|---|
-| Write | rename into `blobs/aa/bb/<digest>` | one `PUT` to `orgs/<org_id>/blobs/<digest>`, conditional on the key not existing (`If-None-Match: *`, unverified on Backblaze B2). An existing object is checked for size and digest, as a present file is today (`blobstore.go:71-82`). |
-| Chunked upload | `tmp/<id>.part`, appended | one object per chunk, `orgs/<org_id>/uploads/<id>/<n>`. Finalize streams them in order into the blob `PUT`, hashing as it streams, then deletes the parts. S3 multipart is not used: its parts must be at least 5 MiB, and a chunk is 4 MiB (`config.go:93`). |
-| Read | open, hash, rewind, serve | download to a private temp file on the replica, hash, then serve. Objects are at most 25 MiB (attachments) or 10 MiB (pages) (`config.go:93`). Unverified: the added latency. |
-| Delete | in GC's transaction | `DELETE` inside GC's transaction, after the row deletes and before the commit, as today. A commit that fails after the delete leaves a row with no object. The row was already unreferenced, and the next GC pass removes it. |
-| Purge | n/a | delete rows in batches, then list and delete the `orgs/<org_id>/` prefix |
+| Write | rename into `blobs/aa/bb/<digest>` | `volume`: as today, under the org prefix. `object`: one `PUT` to `orgs/<org_id>/blobs/<digest>` conditional on the key not existing (`If-None-Match: *`). An existing object is checked for size and digest, as a present file is today (`blobstore.go:71-82`). |
+| Chunked upload | `tmp/<id>.part`, appended | one part per chunk, `orgs/<org_id>/uploads/<id>/<n>`, because chunk 2 can reach another replica. Finalize copies the parts in order into a private temp file on the replica, hashing as it copies, then writes the blob once. S3 multipart is not used: its parts must be at least 5 MiB, and a chunk is 4 MiB (`config.go:93`). |
+| Read | open, hash, rewind, serve | `object`: download to a private temp file on the replica, hash, then serve. Objects are at most 25 MiB (attachments) or 10 MiB (pages) (`config.go:93`). Unverified: the added latency. |
+| Delete | in GC's transaction | the backend's delete inside GC's transaction, after the row deletes and before the commit, as today. A commit that fails after the delete leaves an unreferenced row with no object, which the next GC pass removes. |
+| Purge | n/a | delete rows in batches, then `DeletePrefix("orgs/<org_id>/")` |
 
-The provider sees only ciphertext and digests. Credentials come from the environment, as for
-today's mirror target (`internal/config/blob_target.go:61`). The strong-crypto profile's HTTPS
-rule for `s3_endpoint` applies (`AGENTS.md:66-70`).
+**What the `object` backend needs from ky-primitives.** The S3 client KyNotes already ships is
+`offsite`'s (`ky-primitives/offsite` v0.3.0, used by the mirror, `internal/backup/mirror.go:74`).
+Its `Target` has only `Put`, `Get` and `Test` (`offsite.go:40-44`), and its `PUT` is unconditional
+(`s3.go:56-107`). It has no delete and no list, on purpose: the mirror never deletes remote
+history (`internal/mirror/AGENTS.md`). The `object` backend needs a conditional put, `HEAD`,
+`DELETE` and a prefix list. Recommend a new type in ky-primitives that reuses `offsite`'s request
+signing, so KyNotes adds no dependency and the mirror's `Target` stays append-only (open question
+1).
+
+The provider sees only ciphertext and digests (fact 1). The strong-crypto profile's HTTPS rule
+for `s3_endpoint` applies (`AGENTS.md:66-70`) to the new endpoint too.
 
 ### Sharing
 
@@ -573,27 +619,110 @@ with revision 0. The next poll re-reads `/api/suite/orgs` and `/api/suite/erased
 survives a restore, as the owner decided. An org absent from a full listing stays `stale` and
 unserved until staff confirm it (C "Restore").
 
-## Quotas
+## The org storage pool (owner decision 10)
 
-Today `quotaExceeded` charges a write to the container owner's `quota_bytes` and, in a team, to
-the team's cap (`internal/httpapi/upload_routes.go:604-650`). The defaults are 1 GiB per user and
-5 GiB per team (`config.go:93`). Comments and sealed links are charged too (`AGENTS.md:103-107`,
-`:373`).
+KyIdentity holds one storage pool per org across every app (Personal 20 GB, Couple 40 GB,
+Family 100 GB, Business 30 GB per seat, Enterprise custom). KyNotes **counts** its bytes for the
+org, **reports** them, and **checks headroom** before every write that adds bytes. The API is
+KyIdentity's to define (worker `kyint-ki-plans`, board `kyidentity-business-orgs`): T on
+`origin/master` `5604cd9` has no pool yet: it keeps opaque per-app quotas (`quotas_json`, T
+line 115) and says apps enforce their own (T line 922). This section is KyNotes'
+half, and it follows KyCalendar's D14 (`Busnes-app/KyCalendar#190`) so the apps agree. Field names
+below are placeholders until T names them.
 
-In multi mode, from `/api/suite/orgs` `quotas` (N10):
+Single-tenant and Enterprise installs have no pool. Nothing in this section runs there.
 
-- `max_bytes`: the org's total. It is checked under N3's lock beside the existing checks, against
-  `org_usage`, kept by insert and delete triggers on `blobs` (each blob row is one org's, N8),
-  plus the org's pending upload and preview bytes, which `quotaExceeded` already counts.
-- `max_bytes_per_user`: replaces `quota_bytes` for the org's owners.
-- **Absent keys.** An absent `max_bytes_per_user` means the org pool alone limits each member.
-  That is the Family pool. An absent `max_bytes` fails closed: writes that grow the org are
-  refused, and `GET /admin/orgs` flags the org. Billing always sends it.
-- A lower quota never deletes data. Writes that grow the org are refused with the existing
-  `413 quota_exceeded`.
-- `team_quota_bytes`, object and attachment sizes and every rate limit stay install constants.
+### Today
 
-So pooled (Family) and per-user plans are both a billing setting, not a code change.
+`quotaExceeded` charges a write to the container owner's `quota_bytes` and, in a team, to the
+team's cap (`internal/httpapi/upload_routes.go:604-618`). The defaults are 1 GiB per user and
+5 GiB per team (`config.go:93`). `usedBytes` (`upload_routes.go:641-651`) sums, for the containers
+in scope, every page version, every conflict, live comments, live attachments, live pending
+uploads at their declared size, and kept preview blobs. `userQuotaExceeded` adds the owner's live
+sealed share links (`:622-636`).
+
+### What KyNotes counts
+
+The org's charged bytes are `usedBytes` with the scope "every container whose `org_id` is the
+org", plus every live sealed share link whose owner is in the org. That is ciphertext, so it is
+what the customer stored plus encryption overhead, and it is the figure staff and the customer see.
+
+- **Counted:** page versions (history included: every save adds a version), conflicts, comments,
+  attachments, previews, pending uploads while they hold a reservation, sealed share links.
+- **Not counted:** rows with no customer content (accounts, devices, envelopes, memberships,
+  reminders, push subscriptions, audit). They are small and bounded by install limits.
+- **Logical, not physical.** Two versions with identical ciphertext count twice, though N8 stores
+  one blob in the org. Today's caps count that way too, so a member sees one number everywhere.
+- **Kept cheap.** Summing every version of a 100-seat org on each save, under N3's one write lock,
+  would stall every org. So `org_usage.bytes` holds the durable terms (versions, conflicts, live
+  comments, live attachments, kept previews), kept by insert, update and delete triggers on those
+  tables. The terms that lapse with time (pending uploads and sealed links past their expiry) are
+  summed at check time from their own indexed rows, which are few.
+  `TestOrgUsageMatchesUsedBytes` builds an org with every term and compares the trigger figure
+  with the full `usedBytes` query after each write, delete, GC sweep and purge batch.
+
+### Report
+
+The elected worker reports each serving org's charged bytes to KyIdentity after the org poll
+(about every 60 s) when the figure changed since `org_usage.reported_bytes`, and at once after a
+purge batch or a restore. A report is the whole figure, never a delta, so a repeat or a lost
+report does no harm. It carries `org_id`, the app (`notes`) and the figure, and nothing else: no
+names, sizes per member or digests. It goes over the suite client's existing authentication to
+KyIdentity (`suitedir`).
+
+### Check
+
+- The answer to the report (or the org poll) gives the org's **allowance**: the pool less what every
+  other app reports. The worker stores it in `orgs.pool_allowance_bytes` with `pool_checked_at`.
+- Every write that adds bytes runs today's checks, then one more inside its own transaction
+  under N3's lock: refuse if the org's charged bytes after the write exceed the allowance.
+  No write calls KyIdentity, so a save never waits on the network, and two replicas check the
+  same row.
+- A write that leaves less than a tenth of the allowance sets `orgs.pool_low`, and the worker
+  refreshes that org at once instead of at its next poll.
+- **Stale allowance.** If `pool_checked_at` is older than 15 minutes, writes that add bytes are
+  refused. Reads, deletes and every write that adds no bytes still pass (open question 10).
+- **No allowance yet** (a new org before its first report): writes that add bytes are refused
+  until the worker fetches one. The sign-in wait for an unmirrored org (Identity binding,
+  step 2) fetches it too, so a new member is not refused on their first save.
+- The answer is `413 quota_exceeded`, the code today's caps return, so the browser needs no change.
+  The browser cannot tell the pool from a safety cap, which is intended.
+
+### What over-quota refuses
+
+Every route that calls `quotaExceeded` or `userQuotaExceeded` today, and nothing else:
+
+| Write | Where it is checked today |
+|---|---|
+| Page save (new version, or a conflict) | `object_routes.go:303` before the blob, `:350` in the transaction |
+| Attachment and preview upload: create, then each chunk | `upload_routes.go:132`, `:320` |
+| Comment | `collab_routes.go:331` |
+| Sealed share link | `share_link_routes.go:68` |
+
+Not refused, at any usage: reads, export, deletes of pages, notebooks, attachments, comments and
+links, membership and invitation changes, device linking, reminders, plain share links, and
+sign-in. A lower pool, a removed Business seat or a stale allowance never deletes data. Since
+every save adds a version, an org over its pool cannot edit pages until it deletes something. A
+delete frees bytes as it does today: a deleted attachment or comment stops counting at once. A
+deleted page's versions still count while their rows exist: `usedBytes` does not filter on
+`objects.deleted_at`, and GC sweeps unreferenced blobs (`gc.go:93`), not versions. Unverified:
+when, if ever, those version rows go. PR 4e finds out, and if they stay, a deleted page stops
+counting.
+
+### Safety limits
+
+`limits.user_quota_bytes` and `limits.team_quota_bytes`, the attachment and page size limits and
+the rate limits stay install settings, checked first, as today. The hosted install sets the two
+quota caps at or above the largest pool a single member or team could use, so they only stop
+runaway use; the pool is the limit a customer meets. Unverified: which value staff choose, since
+a Business pool grows with seats.
+
+### Seat removal
+
+Removing a Business seat lowers the pool, and an org can then be over it. KyIdentity's spec owns
+the rule (ky-launch#4 proposes: block new writes until under, never delete, warn the admin first).
+KyNotes needs nothing more: an allowance below zero refuses every write that adds bytes and nothing
+else.
 
 ## Downstream contract (T "Tokens and suite contracts"), KyNotes' half
 
@@ -604,7 +733,7 @@ So pooled (Family) and per-user plans are both a billing setting, not a code cha
 | 3 | Bind `(sub, org_id)`, refuse a known `sub` in another org | bound by `(sso_issuer, sso_subject)` (`0016_sso_logout.sql:3`) | `users.org_id` immutable, a mismatch refused and audited |
 | 4 | Take the org only from a verified token, a signed webhook or a suite answer | n/a | The only request-chosen org is a staff `?org=` on a staff read route |
 | 5 | Stop serving a non-`active` org; keep data unless `deleted` | n/a | N9, Lifecycle |
-| 6 | Enforce its own quotas | install and per-user caps | N10 |
+| 6 | Enforce its own quotas | install and per-user caps | The org pool: count, report, check (N10); today's caps stay as safety limits |
 | — | Admit only export routes under `export_only` | n/a | N11 |
 | — | Erase on `user.erased` and `/api/suite/erased` | `user.erased` is refused as unsupported (`sso_directory.go:54`) | Lifecycle |
 
@@ -624,8 +753,12 @@ So pooled (Family) and per-user plans are both a billing setting, not a code cha
 | Two replicas | Send a reminder twice, run two purges, double a rate limit | One elected worker; reminder claims; limits in PostgreSQL (N12) |
 | Holder of one replica's disk | Read customer data | In multi mode the data directory holds no key, blob or database |
 | Object storage provider | Read notes | It holds only ciphertext and digests (fact 1) |
+| Anyone who reads a log, an error or the admin settings | Get the bucket keys | Keys come only from the environment or a key file, and are never logged, returned or fingerprinted (N15). A test greps every log line and answer for them. |
+| A replica on the wrong disk or bucket | Serve or lose blobs the others cannot see | The store-ID check refuses to start it (N15) |
+| Member of org A | Use B's pool, or make B look full | The allowance is per `org_id`, from KyIdentity over the suite client's authentication. KyNotes reports only its own count, which it computes; no request can set it. |
+| Any member, or a KyIdentity outage | Write past the pool | The check runs in the write's transaction under N3's lock. An allowance older than 15 minutes, or none, refuses growth. |
 | Staff, or a stolen staff account | Read notes | Staff hold no content keys. Staff reads of an org's directory write a platform audit row. |
-| One org | Exhaust storage or write capacity | `max_bytes`, per-user caps, rate limits. Write capacity is shared (N3, open question 5). |
+| One org | Exhaust storage or write capacity | The pool allowance (N10), per-user caps, rate limits. Write capacity is shared (N3, open question 5). |
 
 ## Phased build plan
 
@@ -637,7 +770,9 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
 0. **Prerequisites, elsewhere.** KyIdentity has built the org claim, suite APIs and webhooks
    (T PRs 1 to 3). `suitedir` has `Orgs` (`suitedir/client.go:241`) but no `/api/suite/erased`
    method: one is needed for PR 4. T and the other specs must be amended for owner decision 5
-   (open question 8).
+   (open question 8). KyIdentity must publish the pool's usage report and allowance (T amendment,
+   board `kyidentity-business-orgs`) before PR 4e. ky-primitives needs the S3 type of open
+   question 1 before PR 5b.
 1. **Org model and the single-tenant golden.** Migration 0032: `orgs`, `org_usage`,
    `erased_subjects`, the `org_id` columns, the triggers and `ensureOrgs`.
    - Tests: an upgrade test from a 0031 database: every row in the default org, and every API
@@ -652,20 +787,34 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
    `user.erased` accepted but applied only from PR 4.
 4. **Org lifecycle and quotas.** Split: (a) the org poll and the sign-in wait; (b) status checks
    on every credential, suspension and its holds; (c) `export_only`; (d) the purge, erasure and
-   restore reset; (e) N10 quotas.
+   restore reset; (e) the org pool (N10): `org_usage` triggers, the report, the cached
+   allowance and the check. 4e waits for KyIdentity's contract, and multi mode cannot be enabled
+   (PR 6) without it: the pool is required for launch.
    - Tests: a suspended org is refused on session, device and share link. A resume restores
      devices. The purge leaves no row and no object, checked against the classification. A purge
      killed between batches finishes on the next run. A restore of a capsule taken before a
-     deletion and an erasure re-applies both. Two parallel writers on PostgreSQL with one
-     `max_bytes` slot left: one succeeds.
-5. **Replica work and object storage.** The elected worker, reminder claims, the in-memory state
-   moved to PostgreSQL, environment-only keys, the fingerprint, `/readyz`, and the object store
-   for blobs and upload parts.
-   - Tests: a two-replica test on one PostgreSQL database and one bucket (MinIO or another local
-     S3 server in CI, unverified which). A sign-in started on one replica completes on the other.
-     A chunked upload alternates replicas. A reminder due once is pushed once while both run. A
-     lockout filled on one holds on the other. A replica with another shared setting refuses to
-     start.
+     deletion and an erasure re-applies both.
+   - Tests for 4e: two parallel writers on PostgreSQL with one allowance slot left: exactly one
+     succeeds. A write that adds no bytes, and every delete, passes at any allowance, including
+     below zero. An allowance older than 15 minutes, or none, refuses growth. Each row of "What
+     over-quota refuses" answers `413 quota_exceeded` over the pool. `TestOrgUsageMatchesUsedBytes`.
+     A report carries only `org_id`, the app and the figure, and a purge reports the lower
+     figure at once. A forged or unauthenticated allowance answer changes nothing (the suite
+     client's existing verification). The single-tenant golden is unchanged.
+5. **Replica work and blob storage.** Split so launch never waits on object storage:
+   - (a) The elected worker, reminder claims, the in-memory state moved to PostgreSQL,
+     environment-only keys, the fingerprint, `/readyz`, the blob interface (N15), the shared
+     `volume` backend with org prefixes and upload parts, and the store-ID check. This is enough
+     to launch.
+   - (b) The `object` backend on ky-primitives' S3 type, with keys from the environment or a file.
+   - Tests: a two-replica test on one PostgreSQL database and one shared directory, then the same
+     test on one bucket (MinIO or another local S3 server in CI, unverified which). A sign-in
+     started on one replica completes on the other. A chunked upload alternates replicas. A
+     reminder due once is pushed once while both run. A lockout filled on one holds on the other.
+     A replica with another shared setting, or another store ID, refuses to start. A blob written
+     twice under one key is stored once. A purge leaves nothing under `orgs/<org_id>/`. No log
+     line, error body or `/admin/settings` answer holds a bucket key. A single-tenant install
+     still writes `<data>/blobs/aa/bb/<digest>` (the golden).
 6. **Admin surface and enabling multi mode.** The route changes, `GET /admin/orgs`, `staff.read`,
    and startup accepting `multi` with every requirement. An end-to-end run against KyIdentity in
    multi mode: two orgs, a Family team notebook inside one, a share link across them, then a
@@ -682,25 +831,27 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
 - **Mirror lag.** A suspension reaches device credentials within one poll, about 60 s.
 - **Share links cross orgs by design.** Anyone with a link and its fragment can read that page
   until it expires (at most 30 days, `AGENTS.md:372-374`) or the owner's org stops serving.
+- **Pool overshoot.** The allowance is up to one poll old, and up to 15 minutes when KyIdentity
+  is unreachable. Other apps' growth in that window can take an org past its pool. KyIdentity's
+  design bounds it; KyNotes refuses growth past 15 minutes.
+- **One member can fill the pool.** The pool is shared by every member, so one member's uploads
+  can leave the others no room. The per-user safety cap bounds it. That is the plan as sold.
+- **The shared volume is a single point of failure** while launch runs on `volume`, until PR 5b.
 - **Operator access.** The operator holds the database and the bucket, which are ciphertext and
   metadata (who is in which notebook, sizes, times). That metadata is not encrypted.
 
 ## Open questions, with recommendations
 
-1. **Object storage for hosted blobs (owner decision 5, not decided).** Object storage is about
-   $0.007/GB/month (Backblaze B2), against about EUR 0.057 (Hetzner volumes) or $0.10
-   (DigitalOcean) for block storage, 8 to 15 times more. Storage is the main cost per account.
-   - (a) S3-compatible object storage.
-   - (b) Block volumes behind a shared filesystem (NFS or CephFS).
-   - **Recommend (a).**
-     - Multi-server needs storage that every host can reach, and a block volume attaches to one
-       host. So (b) also needs a file server, which is one more machine and one more single
-       point of failure.
-     - KyNotes blobs are write-once, content-addressed ciphertext, which fits a conditional `PUT`
-       with no rename.
-     - The provider sees no plaintext (fact 1).
-     - Unverified: B2's latency for a 4 MiB part and a 10 MiB page read, its conditional-write
-       support, and egress costs at our read rate. PR 5 measures them before launch.
+1. **The S3 client.** `offsite` has no delete, list or conditional put, by design (Blobs in
+   S3-compatible storage).
+   - (a) A new type in ky-primitives that reuses `offsite`'s signing.
+   - (b) Add `Delete` and `List` to `offsite.Target`.
+   - (c) The AWS SDK's S3 client, a new direct dependency.
+   - **Recommend (a).** (b) would let the mirror delete remote history, which its contract
+     forbids. (c) adds a dependency for four requests. Unverified: the chosen provider's support
+     for `If-None-Match: *` on `PUT`, its latency for a 10 MiB read, and its egress cost at our
+     read rate. PR 5b measures them. Without the conditional put, a write `HEAD`s first, which is
+     safe because a blob key names its content.
 2. **The offsite mirror in multi mode.** `internal/mirror` copies every blob to one destination
    and never deletes remote history (`internal/mirror/AGENTS.md`), which would defeat the purge
    and Delete everything. Recommend turning it off in multi mode, with the bucket's own
@@ -733,3 +884,14 @@ frozen contract (`AGENTS.md:50-53`; the plan lists multi-tenancy as deferred,
    KyNotes needs nothing from the kind: teams already work the same for any org size.
 9. **Per-org region in one install.** N13 runs one region per install. Recommend keeping that
    until a region move is designed (T H2).
+10. **How long a stale pool allowance is trusted** when KyIdentity cannot be reached.
+    Recommend 15 minutes, as KyCalendar's open question 11: long enough to ride out a KyIdentity
+    restart without refusing saves, short enough that other apps cannot overshoot the pool by
+    much. If KyIdentity's contract fixes a figure, that figure wins.
+11. **The volume fallback's filesystem.** Owner decision 9 lets launch run on volumes, and
+    replicas on several hosts need one filesystem they all mount (NFS or CephFS). Recommend one
+    shared filesystem per region for every app that falls back, chosen with KyDrive and
+    KyMessages, and moving to `object` before the first plan with large pools fills it.
+12. **Version history and the pool.** Every save adds a version that counts. Recommend no
+    automatic pruning for launch, since it would delete customer data; an over-quota member
+    frees room by deleting pages or attachments. A history limit per plan is a later owner choice.
