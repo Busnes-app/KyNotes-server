@@ -13,6 +13,9 @@ test("staff console selects an org, ignores late replies and exposes no customer
   let holdA = false;
   let aArrived = () => {};
   let aFinished = () => {};
+  let releaseProbes = () => {};
+  let probeMode: "pending" | "failed" | "ready" = "pending";
+  const pendingProbes = new Promise<void>((resolve) => { releaseProbes = resolve; });
   const pendingA = new Promise<void>((resolve) => { releaseA = resolve; });
   const arrivedA = new Promise<void>((resolve) => { aArrived = resolve; });
   const finishedA = new Promise<void>((resolve) => { aFinished = resolve; });
@@ -33,6 +36,11 @@ test("staff console selects an org, ignores late replies and exposes no customer
       if (id === "org_a" && holdA) aFinished();
     });
     await page.route("**/api/v1/admin/audit**", (route) => route.fulfill({ json: [{ event: new URL(route.request().url()).searchParams.has("org") ? "customer.event" : "platform.event", outcome: "success", at: "2026-11-23T12:00:00Z" }] }));
+    for (const endpoint of ["/healthz", "/readyz"]) await page.route(`**${endpoint}`, async (route) => {
+      if (probeMode === "pending") await pendingProbes;
+      if (probeMode === "failed") await route.abort("failed");
+      else await route.fulfill({ status: 200, body: "ok" });
+    });
     page.on("request", (request) => { if (request.url().includes("/admin/") && request.method() !== "GET") writes.push(request.url()); });
     await page.goto("/#orgs");
     await page.reload(); // A hash-only navigation does not re-fetch the session marker.
@@ -61,6 +69,16 @@ test("staff console selects an org, ignores late replies and exposes no customer
     await page.getByRole("combobox", { name: "Audit scope", exact: true }).selectOption("org_b");
     await expect(page.getByText("customer.event", { exact: true })).toBeVisible();
     await expect(page.getByText("platform.event", { exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: "Server", exact: true }).click();
+    const server = page.locator("section#server");
+    await expect(server.getByText("Checking…", { exact: true })).toHaveCount(2);
+    probeMode = "failed"; releaseProbes();
+    await expect(server.getByText("Failed", { exact: true })).toHaveCount(2);
+    await expect(server.getByText("Checking…", { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("staff-server-failed-desktop-light.png"), fullPage: true });
+    probeMode = "ready";
+    await server.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(server.getByText("OK", { exact: true })).toHaveCount(2);
     expect(writes).toEqual([]);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "dark" });
@@ -71,7 +89,7 @@ test("staff console selects an org, ignores late replies and exposes no customer
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath("staff-orgs-phone-dark.png"), fullPage: true });
   } finally {
-    releaseA();
+    releaseA(); releaseProbes();
     expect(staff.unexpected).toEqual([]);
     await page.context().close();
   }

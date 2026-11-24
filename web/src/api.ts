@@ -140,8 +140,11 @@ export function updateContainer(id: string, metaCiphertext: string, baseVersion:
 }
 
 export async function serviceStatus() {
-  const [health, ready] = await Promise.all([fetch("/healthz"), fetch("/readyz")]);
-  return { health: health.ok, ready: ready.ok };
+  const [health, ready] = await Promise.all([
+    fetch("/healthz").then((response) => response.ok, () => false),
+    fetch("/readyz").then((response) => response.ok, () => false),
+  ]);
+  return { health, ready };
 }
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");
