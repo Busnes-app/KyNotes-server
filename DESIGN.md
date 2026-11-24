@@ -1014,3 +1014,19 @@ Object/part reads preserve exact stored wire bytes, including when the provider 
 object with gzip metadata. The shared client's identity-encoding GET prevents transparent
 HTTP decoding from changing ciphertext, lengths or hashes; an actual compressed-byte fixture
 pins product-level GET/HEAD agreement. No provider metadata authorizes content transformation.
+
+
+### Primary-object credentials and remaining erasure qualification
+
+`app.newReplicaObjectClient` prepares the actual shared client without I/O from the already
+validated endpoint/bucket/region and environment/_FILE credentials. The credential reader
+rejects ambiguous forms, empty/multiline or over-64-KiB values and nonregular files, accepts
+one trailing file LF/CRLF, and reports no credential or path in errors. Credentials stay out
+of replica fields and persisted settings. This entry point remains separate from maintenance
+and all startup paths; tests preserve the multi refusal and standalone golden.
+
+N3 session-lock ownership and context cancellation do not establish the fate of a previously
+issued remote PUT after lock loss. Complete GC/purge/runtime integration requires a selected
+and qualified delayed-writer erasure fence before deletion/readiness claims. The shared
+conditional API does not choose a product ledger/protocol. Store controls/age and selected
+provider proof, native-PG recovery transport and final assembly remain launch prerequisites.
