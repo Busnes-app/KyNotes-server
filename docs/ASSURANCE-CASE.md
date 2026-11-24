@@ -194,6 +194,23 @@ SQLite restore shares the same prior revocation operations. This is target-safet
 not proof of native PostgreSQL backup recovery, object coverage or hosted readiness.
 
 
+Shared-object preparation uses the actual exported S3 client with org-scoped literal keys.
+Local verified-TLS wire tests cover bounded/hash-verified streams, private-file cleanup,
+immutable-key/part reuse, corrupt/oversize/failure/cancel refusal, paginated canonical listings,
+wrong-org/key/upload cleanup boundaries, gaps/part sizes/order/final digest and explicit staged
+tail removal. Native independent PG pools prove one physical PUT/claim under the key lock and
+continued N3 availability while the provider blocks. This is product-adapter boundary evidence,
+not real-provider qualification or a complete object/GC/runtime implementation. Upstream
+client gate clearance, exclusive controls, provider age and native recovery remain prerequisites.
+
+
+Primary-object client preparation has a separate environment/_FILE credential boundary.
+`TestReplicaObject*` covers bounded values/files, source ambiguity, nonregular/missing paths,
+multiline/empty refusal and secret-safe errors/formatting. Construction writes no shared
+settings or local store and does not enable startup. Actual delayed PUT completion after a
+lost PG lock remains unqualified; neither a canceled context nor the published wire API is
+erasure proof. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
+
 Staff metadata preparation scopes users/audit reads to an explicit org and audits before
 response publication. Tests recheck a concurrently revoked actor, refuse failed audits and
 customer web mutations/content access, and compare logical usage. The staff browser performs

@@ -993,6 +993,44 @@ capsule restore retains its behavior through the shared credential-revocation he
 Native backup-byte transport, blob recovery and hosted startup remain separate prerequisites.
 
 
+### Shared-object ciphertext I/O preparation
+
+`blobstore.Objects` binds one resolved org to the exported ky-primitives S3 client. It stages
+bounded private streams, validates declared length and ciphertext SHA-256, verifies existing
+immutable keys before reuse, and exposes seekable verified downloads whose Close removes the
+private file. Literal org keys own listing and explicit all-version key/org deletion. There
+is no persistent cache, volume fallback or automatic pruning.
+
+Numbered upload parts use the selected org/upload/index namespace. Identical retries reuse
+bytes; counter rollback explicitly removes the uncommitted tail. Final assembly enforces part
+sizes/order and the optional final digest, and retains live parts until the caller commits and
+explicitly cleans them. Callers hold the upload or org/digest session lock through each short
+counter/claim transaction on the same connection; I/O occurs before N3. The prepared module
+is not the full Backend/Temporary or route/worker adapter. Shared create-exclusive control PUT
+and provider-age metadata, GC/orphan policy binding, provider proof and multi startup remain
+unbuilt. It consumes the published shared library, never a private S3 implementation.
+
+Object/part reads preserve exact stored wire bytes, including when the provider labels an
+object with gzip metadata. The shared client's identity-encoding GET prevents transparent
+HTTP decoding from changing ciphertext, lengths or hashes; an actual compressed-byte fixture
+pins product-level GET/HEAD agreement. No provider metadata authorizes content transformation.
+
+
+### Primary-object credentials and remaining erasure qualification
+
+`app.newReplicaObjectClient` prepares the actual shared client without I/O from the already
+validated endpoint/bucket/region and environment/_FILE credentials. The credential reader
+rejects ambiguous forms, empty/multiline or over-64-KiB values and nonregular files, accepts
+one trailing file LF/CRLF, and reports no credential or path in errors. Credentials stay out
+of replica fields and persisted settings. This entry point remains separate from maintenance
+and all startup paths; tests preserve the multi refusal and standalone golden.
+
+N3 session-lock ownership and context cancellation do not establish the fate of a previously
+issued remote PUT after lock loss. Complete GC/purge/runtime integration requires a selected
+and qualified delayed-writer erasure fence before deletion/readiness claims. The shared
+conditional API does not choose a product ledger/protocol. Store controls/age and selected
+provider proof, native-PG recovery transport and final assembly remain launch prerequisites.
+
 ### Staff surface preparation
 
 In multi mode the staff-only users read requires `?org=`, audit defaults to platform rows

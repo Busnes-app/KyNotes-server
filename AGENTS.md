@@ -41,6 +41,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
+- Zentri suite direction (owner, 2026-11-23): tenancy/isolation/reliability/security and launch gates stay first. Competitor research adds no KyNotes feature. No first-party password manager or parity builder/task; compatibility with existing managers is sufficient and no new integration is mandatory. VPN/AI are optional and create no work here. The scope/order pointer is IMPLEMENTATION_PLAN.md, "Suite scope constraint (2026-11-23)"; product-specific choices remain with their existing owners.
 
 ## Design
 
@@ -293,6 +294,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   foreign key, as `pairing_nonces`, needs its own step; comments in kept notebooks are tombstoned and
   the user row is scrubbed and kept, owner decision 12). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
   `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+- Object I/O preparation (`internal/blobstore.Objects`) uses the exported shared S3 client,
+  binds one resolved org, verifies bounded private ciphertext streams, reuses immutable keys,
+  and stores numbered upload parts with explicit tail/post-commit cleanup. Independent single-
+  connection PG pools demonstrate key-lock/claim ordering without N3 across network I/O.
+  It does not yet implement the complete Backend/Temporary adapter or runtime selection.
+  Preserve single volume behavior; exclusive marker creation/provider age metadata, GC,
+  provider qualification and hosted startup remain prerequisites. See blobstore's child DOX.
+
 - Staff surface preparation in recorded multi mode: `GET /admin/users` requires one `org`
   query value and returns only that org's accounts/usage; `/admin/audit` defaults to platform
   rows and accepts one org. `staff.read` is a platform audit naming the selected org, committed
@@ -372,6 +381,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   seconds for proxies, drains HTTP for five and jobs for ten. These entry points do not enable
   startup or invent object/PG-backup adapters. Verify `TestReplica*`, `TestBackendSeam*`,
   `TestObjectKeys*`, `TestStoreIdentitySingleMode*`, both backend suites and the golden.
+
+- Primary-object credential preparation (`internal/app/replica_objects.go`) reads only the
+  selected environment/_FILE forms, rejects ambiguous/empty/multiline/oversized inputs and
+  nonregular files, and reports setting names only. Credentials never enter replica fields,
+  SQL, local key files or printable client state. Its concrete shared-client constructor does
+  no I/O and is not wired into startup. Verify `TestReplicaObject*` in normal/FIPS profiles
+  plus existing object/replica/golden tests. See the tenancy plan for remaining erasure gates.
 
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
