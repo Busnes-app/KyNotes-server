@@ -993,6 +993,28 @@ capsule restore retains its behavior through the shared credential-revocation he
 Native backup-byte transport, blob recovery and hosted startup remain separate prerequisites.
 
 
+### Shared-object ciphertext I/O preparation
+
+`blobstore.Objects` binds one resolved org to the exported ky-primitives S3 client. It stages
+bounded private streams, validates declared length and ciphertext SHA-256, verifies existing
+immutable keys before reuse, and exposes seekable verified downloads whose Close removes the
+private file. Literal org keys own listing and explicit all-version key/org deletion. There
+is no persistent cache, volume fallback or automatic pruning.
+
+Numbered upload parts use the selected org/upload/index namespace. Identical retries reuse
+bytes; counter rollback explicitly removes the uncommitted tail. Final assembly enforces part
+sizes/order and the optional final digest, and retains live parts until the caller commits and
+explicitly cleans them. Callers hold the upload or org/digest session lock through each short
+counter/claim transaction on the same connection; I/O occurs before N3. The prepared module
+is not the full Backend/Temporary or route/worker adapter. Shared create-exclusive control PUT
+and provider-age metadata, GC/orphan policy binding, provider proof and multi startup remain
+unbuilt. It consumes the published shared library, never a private S3 implementation.
+
+Object/part reads preserve exact stored wire bytes, including when the provider labels an
+object with gzip metadata. The shared client's identity-encoding GET prevents transparent
+HTTP decoding from changing ciphertext, lengths or hashes; an actual compressed-byte fixture
+pins product-level GET/HEAD agreement. No provider metadata authorizes content transformation.
+
 ### Host staff and replica maintenance preparation
 
 Recorded multi-mode host account creation targets only the retained staff org on an exact
