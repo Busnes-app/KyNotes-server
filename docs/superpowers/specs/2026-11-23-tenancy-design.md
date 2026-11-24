@@ -1570,7 +1570,7 @@ client, volume fallback, automatic pruning or hosted/native-backup readiness is 
 The object preparation consumes the shared client's encoded-byte GET correction: identity
 encoding preserves opaque gzip-labelled bytes and GET/HEAD size agreement. A regression fails
 against the earlier published client and passes after the upstream correction. This does not
-make the separately published but unmerged conditional-PUT/timestamp follow-up a merged dependency.
+make the separately merged conditional-PUT/timestamp follow-up part of the consumed dependency.
 
 
 ### PR 5b-2 as built: credential/client preparation (startup still refused)
@@ -1583,8 +1583,26 @@ network or database I/O and is not called by ordinary startup or maintenance loa
 Tests cover direct/file/mixed sources, ambiguity/empty/size/multiline/path/type refusal,
 secret-safe errors/formatting, shared-field separation and unchanged startup refusals.
 
-Base #77 is merged and pinned to79823f9; published #78 remains unmerged/not consumed. Before
+Base #77 is merged and pinned to79823f9; #78 is merged asb55ca6d but is not consumed. Before
 complete GC/purge/runtime binding, Notes must select and qualify delayed remote-PUT fate
 after PG-lock loss; cancellation alone is no completion proof. Shared conditional operations
 do not select a Notes ledger/protocol. Keep this and native-PG recovery open question3 as
 explicit remaining gates, alongside store controls/age/provider proof and lifecycle E2E.
+
+
+### Phase 6 host maintenance as built (startup still refused)
+
+Multi-mode `user add --admin` uses bounded stdin derived credentials and an exact existing PG
+schema, refusing customer/everyday creation and password/DSN argv. Recorded staff-org/region
+checks and an in-transaction binding recheck precede atomic account/platform-audit creation;
+the recovery code is emitted only after commit. Staff bootstrap preparation is staff-only,
+audited and serialized across independent pools, with password work outside N3. Everyday
+bootstrap variables refuse; single-mode paths remain unchanged.
+
+`accept-replica-config --confirm-stopped` reads deployment configuration without local-key
+fallback/minting and uses the full existing app field map. The retained salt/encryption key
+and fixed mode/staff/region cannot change. Fingerprint and changed-name audit commit together;
+a failed audit leaves the old fingerprint. Ordinary startup/config loaders still refuse multi.
+Tests cover both backends where applicable, actual PG target/schema/audit/input boundaries,
+real password checks, concurrent bootstrap and unchanged single-account workflows. Maintenance
+preparation does not choose PG backup transport or enable object/runtime/hosted startup.

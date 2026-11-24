@@ -2319,8 +2319,8 @@ regular credential files may end with one LF/CRLF; bounded reads, source/type fa
 client validation errors disclose setting names only. Construction makes no network request,
 local key/store or SQL write. No normal config loader or startup path invokes it.
 
-The base shared client is pinned to merged #77 (`79823f9`); published #78's exclusive-create,
-ETag and age additions remain unmerged and are not consumed. Complete Backend/Temporary,
+The base shared client is pinned to merged #77 (`79823f9`); #78's exclusive-create,
+ETag and age additions are merged as `b55ca6d` but are not consumed by this pin. Complete Backend/Temporary,
 store-ID/probes, request/GC/purge integration and provider evidence remain unbuilt.
 
 Before binding GC/purge/runtime, qualify the fate of an already-issued remote PUT after the
@@ -2330,3 +2330,24 @@ must be recorded here before erasure-readiness claims; consuming wire-only condi
 does not select Messages' ledger/protocol. Preserve access fences while this is unresolved.
 Native encrypted PG base-backup/WAL tool/transport, destination/retention and restore/drill
 remain spec open question 3. Startup remains refused; existing single-mode behavior stays.
+
+### Phase 6 host maintenance preparation
+
+Built host-only PG staff creation with bounded stdin derived credentials and environment-only
+target/identity, atomic platform audit and recovery-code output after commit. Existing single
+CLI remains unchanged. Staff bootstrap preparation is staff-only, audited and one-create across
+independent pools; everyday bootstrap variables refuse. N6 also governs the no-admin warning.
+Built explicit stopped-replica configuration acceptance over the full app field map, read-only
+maintenance config loading, retained salt and fixed install bindings, audit/name-only output,
+and exact-schema/no-migration PG opens. Ordinary startup loaders still refuse multi.
+
+Tests cover real password verification/wrong proof, duplicate/invalid input, wrong org/region,
+output/error secret boundaries, audit rollback, concurrent bootstrap, full fingerprint acceptance,
+retained-key/immutable-binding refusal and untouched single-mode workflows. PG CI includes the
+native staff-command cases without moving SQLite capsule tests to PG. Required race/FIPS,
+full PG, golden, build/vet, web/dist and docs checks remain gates.
+
+Unbuilt: hosted startup/SSO/runtime assembly and complete lifecycle E2E, primary object/part/
+GC/purge/provider evidence through the exported shared S3 client, and native PostgreSQL backup
+transport/retention/drill after open question 3 is selected. Host maintenance alone does not
+qualify a deployment; owner interface approval remains required for its operator surface.

@@ -120,6 +120,14 @@ func DataDir(path string) (string, error) {
 }
 
 func parse(path string) (Config, error) {
+	c, err := parseFile(path)
+	if err != nil {
+		return c, err
+	}
+	return c, applyEnv(&c)
+}
+
+func parseFile(path string) (Config, error) {
 	c := Defaults()
 	if path != "" {
 		b, err := os.ReadFile(path)
@@ -132,7 +140,7 @@ func parse(path string) (Config, error) {
 			}
 		}
 	}
-	return c, applyEnv(&c)
+	return c, nil
 }
 
 func loadMode(path string, probe, createSecrets bool) (Config, error) {
@@ -204,6 +212,10 @@ func applyEnv(c *Config) error {
 	if err := tenancyEnv(); err != nil {
 		return err
 	}
+	return applyEnvValues(c)
+}
+
+func applyEnvValues(c *Config) error {
 	applyBlobEnv(&c.Backup.BlobTarget)
 	if v := os.Getenv("KYNOTES_PORT"); v != "" {
 		c.Server.Bind = "0.0.0.0:" + v

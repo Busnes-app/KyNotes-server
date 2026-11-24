@@ -210,3 +210,11 @@ multiline/empty refusal and secret-safe errors/formatting. Construction writes n
 settings or local store and does not enable startup. Actual delayed PUT completion after a
 lost PG lock remains unqualified; neither a canceled context nor the published wire API is
 erasure proof. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
+
+Host maintenance uses the exact existing PG schema and recorded staff org/region, with no
+migration or local-key fallback. Tests require atomic account/audit creation, real password
+verification and wrong-proof refusal, bounded secret input and redacted errors, and one-create
+bootstrap across independent pools. Explicit config acceptance derives the complete application
+field map; tests preserve the retained encryption key and fixed install bindings, roll back on
+audit failure and verify the ordinary multi startup gate remains closed. Operator acknowledgement
+that every replica is stopped is a maintenance precondition, not an automatic liveness proof.

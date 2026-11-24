@@ -21,16 +21,7 @@ func VerifyReplicaConfig(ctx context.Context, db *sql.DB, key string, fields map
 	if err != nil || !shared {
 		return err
 	}
-	digest := func(name, value string) string {
-		h := hmac.New(sha256.New, []byte(key))
-		h.Write([]byte("kynotes/replica-config/v1\x00" + name + "\x00" + value))
-		return hex.EncodeToString(h.Sum(nil))
-	}
-	want := make(map[string]string, len(fields)+1)
-	for name, value := range fields {
-		want[name] = digest(name, value)
-	}
-	want["$key"] = digest("$key", key)
+	want := replicaFingerprint(key, fields)
 	encoded, err := json.Marshal(want)
 	if err != nil {
 		return err
@@ -74,4 +65,18 @@ func VerifyReplicaConfig(ctx context.Context, db *sql.DB, key string, fields map
 		return fmt.Errorf("replicas: shared configuration differs: %s", strings.Join(names, ", "))
 	}
 	return tx.Commit()
+}
+
+func replicaFingerprint(key string, fields map[string]string) map[string]string {
+	digest := func(name, value string) string {
+		h := hmac.New(sha256.New, []byte(key))
+		h.Write([]byte("kynotes/replica-config/v1\x00" + name + "\x00" + value))
+		return hex.EncodeToString(h.Sum(nil))
+	}
+	want := make(map[string]string)
+	for name, value := range fields {
+		want[name] = digest(name, value)
+	}
+	want["$key"] = digest("$key", key)
+	return want
 }
