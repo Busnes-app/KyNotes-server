@@ -2351,3 +2351,20 @@ Unbuilt: hosted startup/SSO/runtime assembly and complete lifecycle E2E, primary
 GC/purge/provider evidence through the exported shared S3 client, and native PostgreSQL backup
 transport/retention/drill after open question 3 is selected. Host maintenance alone does not
 qualify a deployment; owner interface approval remains required for its operator surface.
+
+
+### Phase 6 fixed environment SSO preparation
+
+Built a fixed store for the existing validated replica SSO snapshot, with no SQL handle or
+settings persistence. Reload retains the snapshot, Save refuses, and the original mutable
+single store remains unchanged. Signed TLS issuer tests run a login across independent PG
+pools without persisted environment secrets, prove one-use/wrong-org/settings-mismatch refusal,
+and inspect pending-state bytes. Environment-input and concurrent reload/save tests cover the
+adapter contract. Runtime selection of this adapter belongs to final gated multi assembly;
+this preparation does not enable startup or complete object/native-PG backup prerequisites.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.

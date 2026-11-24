@@ -218,3 +218,16 @@ bootstrap across independent pools. Explicit config acceptance derives the compl
 field map; tests preserve the retained encryption key and fixed install bindings, roll back on
 audit failure and verify the ordinary multi startup gate remains closed. Operator acknowledgement
 that every replica is stopped is a maintenance precondition, not an automatic liveness proof.
+
+
+The fixed environment SSO store has no database handle and refuses Save; concurrent Reload
+and Save cannot replace its deployment snapshot. Signed issuer tests across independent PG
+pools prove shared one-use login state, wrong-org and changed-settings refusal, and absence of
+environment client/directory secrets in settings and PKCE payloads. The normal single store
+and hosted startup gate retain their existing contracts; runtime assembly is still unbuilt.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.

@@ -302,6 +302,14 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Preserve single volume behavior; exclusive marker creation/provider age metadata, GC,
   provider qualification and hosted startup remain prerequisites. See blobstore's child DOX.
 
+- Fixed multi-mode SSO preparation: pass `readReplicaInputs`' validated `SSO` snapshot to
+  `sso.NewFixedStore`; it has no DB handle, never reloads persisted settings and rejects Save.
+  Shared PKCE state still belongs to the route's PG database. Only recorded multi mode
+  plus this fixed-store marker uses the immutable snapshot at final login/step-up/logout/
+  directory admission; single and mutable stores retain their SQL configuration recheck. No environment client/directory
+  secret enters settings or pending-state rows. The original `NewStore` stays mutable in single
+  mode. Verify `TestFixed*`, signed two-pool callback/one-use/wrong-org/settings-mismatch cases,
+  existing SSO/strong-key tests and golden. Runtime construction/startup remain gated.
 - Host-only tenancy maintenance uses the exact existing PG schema without migrations.
   `user add --admin --username` in multi mode accepts bounded derived credentials on stdin,
   validates the recorded staff org/region from environment and commits the account/audit together.

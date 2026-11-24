@@ -1047,3 +1047,19 @@ config loading still refuses multi. Acceptance requires the retained server salt
 sealed recovery-token key) and immutable mode/staff/region; changed field names and the new
 fingerprint commit together. The operator stops every replica before this offline command.
 No automatic mismatch acceptance, schema migration, backup transport or startup enablement.
+
+
+### Fixed environment SSO preparation
+
+`readReplicaInputs` validates the environment provider and shared keys. `sso.NewFixedStore`
+holds that typed snapshot without a database handle: Reload preserves it and Save refuses.
+The shared PG PKCE/state adapter remains independent of settings persistence, so a login can
+begin on one replica and finish on another without copying client/directory secrets into SQL.
+A different deployment snapshot invalidates the one-use state. Single mode keeps the original
+mutable store. Production multi construction remains behind the unavailable startup path.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.

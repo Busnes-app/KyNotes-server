@@ -77,14 +77,14 @@ func registerDirectorySync(mux RouteMux, db *sql.DB, cfg config.Config, settings
 			verified.ServeHTTP(&syncAuthWriter{ResponseWriter: w, request: r}, r)
 		})
 	}
-	apply := wrap(func(w http.ResponseWriter, r *http.Request) { directoryRequest(w, r, db, cfg, false) })
+	apply := wrap(func(w http.ResponseWriter, r *http.Request) { directoryRequest(w, r, db, cfg, false, settings.Fixed()) })
 	for _, path := range []string{"/api/v1/sync/events", "/api/sync/events", "/sync/events"} {
 		mux.Handle("POST "+path, apply)
 	}
-	mux.Handle("POST /api/v1/sync/readback", wrap(func(w http.ResponseWriter, r *http.Request) { directoryRequest(w, r, db, cfg, true) }))
+	mux.Handle("POST /api/v1/sync/readback", wrap(func(w http.ResponseWriter, r *http.Request) { directoryRequest(w, r, db, cfg, true, settings.Fixed()) }))
 }
 
-func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config.Config, readback bool) {
+func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg config.Config, readback, fixedSettings bool) {
 	settings := r.Context().Value(syncSettingsKey{}).(sso.SSOSettings)
 	event, ok := syncauth.EventFromContext(r)
 	if !ok {
@@ -139,7 +139,7 @@ func directoryRequest(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg co
 	}
 	defer tx.Rollback()
 	var current int
-	if err = tx.QueryRow(`SELECT count(*) FROM server_settings WHERE key='sso_hmac_secret' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)`, settings.HMACSecret, settings.IssuerURL).Scan(&current); err != nil {
+	if err = tx.QueryRow(`SELECT CASE WHEN COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')='multi' AND ?=1 THEN 1 ELSE (SELECT count(*) FROM server_settings WHERE key='sso_hmac_secret' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_issuer_url' AND value=?)) END`, fixedSettings, settings.HMACSecret, settings.IssuerURL).Scan(&current); err != nil {
 		WriteError(w, r, 500, "sync_failed", "configuration lookup failed")
 		return
 	}
