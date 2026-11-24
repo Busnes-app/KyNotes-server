@@ -369,6 +369,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   startup or invent object/PG-backup adapters. Verify `TestReplica*`, `TestBackendSeam*`,
   `TestObjectKeys*`, `TestStoreIdentitySingleMode*`, both backend suites and the golden.
 
+- Primary-object credential preparation (`internal/app/replica_objects.go`) reads only the
+  selected environment/_FILE forms, rejects ambiguous/empty/multiline/oversized inputs and
+  nonregular files, and reports setting names only. Credentials never enter replica fields,
+  SQL, local key files or printable client state. Its concrete shared-client constructor does
+  no I/O and is not wired into startup. Verify `TestReplicaObject*` in normal/FIPS profiles
+  plus existing object/replica/golden tests. See the tenancy plan for remaining erasure gates.
+
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the
   frozen audit and idempotency-key schema on databases created by the earlier
   implementation migrations.
