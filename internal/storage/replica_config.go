@@ -73,7 +73,7 @@ func replicaFingerprint(key string, fields map[string]string) map[string]string 
 		h.Write([]byte("kynotes/replica-config/v1\x00" + name + "\x00" + value))
 		return hex.EncodeToString(h.Sum(nil))
 	}
-	want := make(map[string]string, len(fields)+1)
+	want := make(map[string]string)
 	for name, value := range fields {
 		want[name] = digest(name, value)
 	}
