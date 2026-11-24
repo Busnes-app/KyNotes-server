@@ -20,3 +20,13 @@ Follow the ordered runbook: recover the capsule and deployment secrets, then fet
 For native PostgreSQL recovery rehearsals, the [restore runbook](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/RESTORE.md#prepare-a-native-postgresql-restored-target-tenancy-preparation)
 explains the offline restored-target safety command. Hosted startup and backup transport
 remain unavailable; preparing a target is not permission to serve it.
+
+
+## Staff organization metadata (tenancy preparation)
+
+Hosted startup remains unavailable in this release. The prepared staff console lists
+organization status and storage-pool metadata. Select an organization under Users to inspect
+its accounts and charged bytes, or select Platform/an organization under Audit log. Refresh
+re-reads metadata. Customer accounts are managed in KyIdentity; staff metadata access never
+opens notes, and there are no customer account, team or sign-in configuration write controls.
+Standalone administrators keep the existing console and local account workflows.

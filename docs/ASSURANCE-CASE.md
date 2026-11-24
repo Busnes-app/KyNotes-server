@@ -231,3 +231,10 @@ only when both the store's server-owned fixed marker and recorded multi mode agr
 account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
 mutable stores retain the database configuration recheck. Signed tests cover fixed directory
 signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
+Staff metadata preparation scopes users/audit reads to an explicit org and audits before
+response publication. Tests recheck a concurrently revoked actor, refuse failed audits and
+customer web mutations/content access, and compare logical usage. The staff browser performs
+only read operations for accounts and SSO, validates returned metadata and suppresses stale
+scope responses. Single-mode golden/UI regressions remain required; no hosted readiness is
+claimed while startup is refused.

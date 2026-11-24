@@ -339,7 +339,7 @@ function App() {
   if (auth?.passwordChangeRequired)
     return <ChoosePassword auth={auth} onChanged={(authSecret) => setAuth({ ...auth, authSecret: auth.user.accountKind === "admin" ? "" : authSecret, passwordChangeRequired: false })} onLogout={signOut} />;
   if (auth?.user.accountKind === "admin")
-    return <AdminConsole username={auth.username} sso={auth.sso === true} onLogout={signOut} password={<PasswordSettings username={auth.username} userID={auth.user.id} everyday={false} onAuthSecret={() => {}} onIdentityCreated={() => {}} />} />;
+    return <AdminConsole deployment={auth.user.tenancy === "multi" ? "multi" : "single"} username={auth.username} sso={auth.sso === true} onLogout={signOut} password={<PasswordSettings username={auth.username} userID={auth.user.id} everyday={false} onAuthSecret={() => {}} onIdentityCreated={() => {}} />} />;
   return auth ? (
     <Workspace
       auth={auth}

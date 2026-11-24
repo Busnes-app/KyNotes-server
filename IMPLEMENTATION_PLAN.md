@@ -2368,3 +2368,14 @@ only when both the store's server-owned fixed marker and recorded multi mode agr
 account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
 mutable stores retain the database configuration recheck. Signed tests cover fixed directory
 signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
+### Phase 6 staff surface preparation
+
+Built read-only org/pool listing, org-scoped users/usage, platform-default/scoped audit reads
+with fail-closed platform auditing and transactional staff recheck. Multi user/team web writes
+are absent. StaffConsole uses the existing shell/native selectors and validates metadata;
+server-owned multi user/session metadata selects it without changing single-mode answers.
+Tests cover org selection, audit failure, revoked actors, customer mutation/content refusal,
+usage agreement, response parsing and stale UI replies; run both backend races, the golden,
+frontend checks/build/dist diff and browser fixtures. Startup remains refused. Host staff CLI,
+replica config-accept maintenance and final hosted lifecycle acceptance remain separate work.

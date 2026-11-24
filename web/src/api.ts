@@ -5,7 +5,7 @@ import type { RecoveryAPI, RecoveryCopy } from "./recovery";
 import type { LoginUpgrade } from "./loginUpgrade";
 import type { Legacy } from "./pages";
 export type AccountKind = "user" | "admin";
-export type User = { id: string; role: string; username?: string; accountKind: AccountKind };
+export type User = { id: string; role: string; username?: string; accountKind: AccountKind } & ({ tenancy: "multi" } | { tenancy?: never });
 export type Session = { version?: string; sso?: boolean; user: User; passwordChangeRequired?: boolean; expiresAt: string; hardExpiresAt: string };
 export type Container = { id: string; kind: string; teamId?: string; metaCiphertext: string; metaVersion: number; changeSeq: number; keyGeneration: number; sharedGeneration: number };
 export type Comment = { id: string; authorUserId: string; username: string; bodyCiphertext: string; keyGeneration?: number; createdAt: string };
@@ -140,8 +140,11 @@ export function updateContainer(id: string, metaCiphertext: string, baseVersion:
 }
 
 export async function serviceStatus() {
-  const [health, ready] = await Promise.all([fetch("/healthz"), fetch("/readyz")]);
-  return { health: health.ok, ready: ready.ok };
+  const [health, ready] = await Promise.all([
+    fetch("/healthz").then((response) => response.ok, () => false),
+    fetch("/readyz").then((response) => response.ok, () => false),
+  ]);
+  return { health, ready };
 }
 export const adminUsers = () => request<AdminUser[]>("/api/v1/admin/users");
 export const adminAudit = () => request<Array<Record<string, string>>>("/api/v1/admin/audit");

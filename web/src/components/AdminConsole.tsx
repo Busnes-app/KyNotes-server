@@ -23,6 +23,7 @@ import { OfficeNetworks } from "./OfficeNetworks";
 import { NavIcon, type IconName } from "../NavIcon";
 import { AppFrame, NavItem } from "./AppNav";
 import { Appearance } from "./Appearance";
+import { StaffConsole } from "./StaffConsole";
 import { withStepUp } from "../stepup";
 
 export const ADMIN_ACCOUNT_NOTE = "This is an administrator account. It manages KyNotes and cannot open notes. Sign in with your everyday account to write.";
@@ -39,7 +40,11 @@ const SECTIONS = [
 type SectionID = (typeof SECTIONS)[number][0] | "account" | "appearance";
 
 /** Everything an administrator account reaches: no key, vault, notebook or content crypto (adminSeparation.test.ts). */
-export function AdminConsole({ username, sso, onLogout, password }: { username: string; sso: boolean; onLogout: () => void; password: ReactNode }) {
+type AdminConsoleProps = { username: string; sso: boolean; onLogout: () => void; password: ReactNode; deployment?: "single" | "multi" };
+export function AdminConsole(props: AdminConsoleProps) {
+  return props.deployment === "multi" ? <StaffConsole {...props} /> : <SingleAdminConsole {...props} />;
+}
+function SingleAdminConsole({ username, sso, onLogout, password }: AdminConsoleProps) {
   // SSO administrators change no password here, so their Settings is Appearance alone.
   const settingsTabs = [...(sso ? [] : [["account", "Account"] as const]), ["appearance", "Appearance"] as const];
   const fromHash = (): SectionID => [...SECTIONS, ...settingsTabs].find(([id]) => location.hash === `#${id}`)?.[0] ?? "users";

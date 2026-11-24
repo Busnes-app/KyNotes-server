@@ -34,7 +34,8 @@ func recordAuditOutcome(db *sql.DB, actor, event, container, object, outcome, re
 // ciphertext, request bodies, or raw process logs.
 func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Config) {
 	viaProxy := forwardedFromProxy(cfg)
-	mux.Handle("POST /api/v1/admin/teams", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	registerStaffOrgs(mux, db, cfg)
+	mux.Handle("POST /api/v1/admin/teams", singleModeOnly(db, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -76,8 +77,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			return
 		}
 		writeJSON(w, map[string]any{"id": teamID, "ownerUserId": in.OwnerUserID})
-	})))
-	mux.Handle("GET /api/v1/admin/teams", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("GET /api/v1/admin/teams", singleModeOnly(db, auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Administrator pages hold no team keys, so they get no name ciphertext either.
 		rows, err := db.Query(`SELECT c.id,c.owner_user_id,u.username,(SELECT COUNT(*) FROM memberships m WHERE m.container_id=c.id AND m.revoked_at=''),c.shared_generation>0,c.meta_version>0
  FROM containers c JOIN users u ON u.id=c.owner_user_id WHERE c.kind='team' AND c.deleted_at='' ORDER BY c.id`)
@@ -102,8 +103,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			return
 		}
 		writeJSON(w, out)
-	})))
-	mux.Handle("POST /api/v1/admin/teams/{id}/members", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("POST /api/v1/admin/teams/{id}/members", singleModeOnly(db, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -145,8 +146,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})))
-	mux.Handle("DELETE /api/v1/admin/teams/{id}/members/{userID}", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("DELETE /api/v1/admin/teams/{id}/members/{userID}", singleModeOnly(db, auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -167,8 +168,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})))
-	mux.Handle("POST /api/v1/admin/users", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("POST /api/v1/admin/users", singleModeOnly(db, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -196,7 +197,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 		s, _ := auth.SessionFromContext(r)
 		recordAuditOutcome(db, s.UserID, "admin.user.create", "", id, "success", "kind="+in.AccountKind, r.Header.Get("X-Request-Id"))
 		writeJSON(w, map[string]string{"id": id})
-	})))
+	}))))
 	mux.Handle("GET /api/v1/admin/settings", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var theme string
 		if db.QueryRow(`SELECT value FROM server_settings WHERE key='default_theme'`).Scan(&theme) != nil {
@@ -224,6 +225,9 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/admin/users", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveStaffUsers(w, r, db) {
+			return
+		}
 		rows, err := db.Query(`SELECT id,username,role,account_kind,status,quota_bytes,created_at FROM users ORDER BY username`)
 		if err != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
@@ -244,7 +248,7 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 	})))
 	// errActorRevoked: the acting administrator lost access after the request was authorized.
 	errActorRevoked := errors.New("acting administrator revoked")
-	mux.Handle("PATCH /api/v1/admin/users/{id}", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PATCH /api/v1/admin/users/{id}", singleModeOnly(db, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -319,8 +323,8 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 		}
 		recordAudit(db, s.UserID, "admin.user.update", "", id, r.Header.Get("X-Request-Id"))
 		w.WriteHeader(http.StatusNoContent)
-	})))
-	mux.Handle("POST /api/v1/admin/users/{id}/password", auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("POST /api/v1/admin/users/{id}/password", singleModeOnly(db, auth.RequireStepUp(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -362,8 +366,11 @@ func AdminRoutes(mux RouteMux, db *sql.DB, ssoStore *sso.Store, cfg config.Confi
 		}
 		recordAudit(db, s.UserID, "admin.user.password_reset", "", r.PathValue("id"), RequestID(r))
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	}))))
 	mux.Handle("GET /api/v1/admin/audit", auth.RequireAdmin(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveStaffAudit(w, r, db) {
+			return
+		}
 		limit := 100
 		if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value < 501 {
 			limit = value

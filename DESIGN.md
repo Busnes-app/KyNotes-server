@@ -1063,3 +1063,20 @@ only when both the store's server-owned fixed marker and recorded multi mode agr
 account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
 mutable stores retain the database configuration recheck. Signed tests cover fixed directory
 signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
+### Staff surface preparation
+
+In multi mode the staff-only users read requires `?org=`, audit defaults to platform rows
+and may select one org, and the new org listing exposes mirror and storage-pool metadata.
+Each metadata read rechecks the administrator inside its writer transaction, builds the
+response, commits a platform `staff.read` audit and only then publishes it. Missing/duplicate
+org selection, missing orgs or failed audit disclose no directory data. User/team writes and
+team listing are absent in multi mode. Existing single-mode handlers and answers remain.
+User/account usage reuses the quota accounting function; org usage uses the pool counter.
+
+Only multi-mode user/session metadata adds `tenancy: "multi"`. The browser selects the
+staff console from that server-owned flag, within the existing Busnes AppFrame and native
+controls. Org/scope choices send explicit query values, metadata is validated on receipt,
+and asynchronous results retain their scope so a late reply cannot appear under another org.
+Customer account and SSO controls are read-only; the original single console is retained.
+Backend authorization remains authoritative. Multi startup still refuses this preparation.

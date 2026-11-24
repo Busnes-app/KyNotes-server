@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-const sources = import.meta.glob<string>(["./main.tsx", "./components/AdminConsole.tsx", "./observe.ts"], { query: "?raw", import: "default", eager: true });
+const sources = import.meta.glob<string>(["./main.tsx", "./components/AdminConsole.tsx", "./components/StaffConsole.tsx", "./observe.ts"], { query: "?raw", import: "default", eager: true });
 const main = sources["./main.tsx"];
 const adminConsole = sources["./components/AdminConsole.tsx"];
+const staffConsole = sources["./components/StaffConsole.tsx"];
 
 describe("administrator accounts (sub-project A)", () => {
   it("the admin console imports no key, vault or content crypto module and seals nothing", () => {
-    const imports = [...adminConsole.matchAll(/from "([^"]+)"/g)].map((match) => match[1]);
+    const imports = [...(adminConsole + staffConsole).matchAll(/from "([^"]+)"/g)].map((match) => match[1]);
     expect(imports.filter((path) => /keyring|keyService|teamKeys|observe|storage|floors|pins|identity|recovery|linking|outbound|drain/.test(path))).toEqual([]);
-    expect(adminConsole).not.toMatch(/\b(?:encrypt|decrypt|seal|unwrap|wrapEnvelope)\w*\(/);
+    expect(adminConsole + staffConsole).not.toMatch(/\b(?:encrypt|decrypt|seal|unwrap|wrapEnvelope)\w*\(/);
     expect(adminConsole).toContain("ADMIN_ACCOUNT_NOTE");
   });
 
