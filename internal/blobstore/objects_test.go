@@ -36,14 +36,16 @@ type objectFixture struct {
 	puts             map[string]int
 	failures         map[string]int
 	started, release chan struct{}
+	landed           chan struct{} // closed once the first blocked PUT is stored
 	once             sync.Once
 	gzipKey          string
 	getEncoding      string
+	modified         map[string]time.Time // provider age; absent is unknown
 }
 
 func newObjectFixture(t *testing.T) (*objectFixture, *shareds3.Client) {
 	t.Helper()
-	f := &objectFixture{objects: map[string][]byte{}, puts: map[string]int{}, failures: map[string]int{}}
+	f := &objectFixture{objects: map[string][]byte{}, puts: map[string]int{}, failures: map[string]int{}, modified: map[string]time.Time{}}
 	server := httptest.NewTLSServer(http.HandlerFunc(f.serve))
 	t.Cleanup(server.Close)
 	client, err := shareds3.New(shareds3.Config{Endpoint: server.URL, Bucket: "bucket", Region: "local", AccessKey: "object-fixture-access", SecretKey: "object-fixture-secret", HTTP: server.Client()})
@@ -86,18 +88,25 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 			Size      int64
 			VersionID string `xml:"VersionId,omitempty"`
 			Latest    bool   `xml:"IsLatest,omitempty"`
+			Modified  string `xml:"LastModified,omitempty"`
+		}
+		age := func(k string) string {
+			if at, ok := f.modified[k]; ok {
+				return at.UTC().Format(time.RFC3339)
+			}
+			return ""
 		}
 		entries := []entry{}
 		next := ""
 		if r.URL.Query().Has("versions") {
 			for _, k := range keys {
-				entries = append(entries, entry{k, int64(len(f.objects[k])), "null", true})
+				entries = append(entries, entry{k, int64(len(f.objects[k])), "null", true, age(k)})
 			}
 		} else {
 			token := r.URL.Query().Get("continuation-token")
 			for _, k := range keys {
 				if token == "" || k > token {
-					entries = append(entries, entry{Key: k, Size: int64(len(f.objects[k]))})
+					entries = append(entries, entry{Key: k, Size: int64(len(f.objects[k])), Modified: age(k)})
 				}
 			}
 			if len(entries) > 1 {
@@ -128,13 +137,17 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(500)
 			return
 		}
+		first := false
 		if f.started != nil {
-			f.once.Do(func() { close(f.started) })
+			f.once.Do(func() { close(f.started); first = true })
 			<-f.release
 		}
 		f.mu.Lock()
 		f.objects[key] = body
 		f.mu.Unlock()
+		if first && f.landed != nil {
+			close(f.landed)
+		}
 		w.Header().Set("X-Amz-Version-Id", "null")
 		w.WriteHeader(200)
 		return
@@ -149,6 +162,7 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodDelete {
 		delete(f.objects, key)
 	}
+	modified, aged := f.modified[key]
 	f.mu.Unlock()
 	if r.Method == http.MethodDelete {
 		w.WriteHeader(204)
@@ -160,6 +174,9 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if encoded {
 		w.Header().Set("Content-Encoding", "gzip")
+	}
+	if aged {
+		w.Header().Set("Last-Modified", modified.UTC().Format(http.TimeFormat))
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.Header().Set("X-Amz-Version-Id", "null")

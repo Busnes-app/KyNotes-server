@@ -151,7 +151,31 @@ func TestPurgeLeavesNoRowOfTheOrg(t *testing.T) {
 	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err != nil {
 		t.Fatal(err)
 	}
+	var purgedAt string
+	var users, started int
+	if err := s.db.QueryRow(`SELECT purged_at,(SELECT count(*) FROM users WHERE org_id='org_b'),(SELECT count(*) FROM audit_events WHERE event='platform.org_purge_started' AND object_id='org_b') FROM orgs WHERE id='org_b'`).Scan(&purgedAt, &users, &started); err != nil || purgedAt != "" || users != 0 || started != 1 {
+		t.Fatalf("inside the late-PUT window: purged_at=%q users=%d started=%d %v", purgedAt, users, started, err)
+	}
+	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err != nil {
+		t.Fatal(err)
+	}
+	endPurgeWindow(t, s)
+	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err != nil {
+		t.Fatal(err)
+	}
 	assertPurged(t, s, bIDs, before)
+	var fences int
+	if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM server_settings WHERE key LIKE 'purge_fence:%'),(SELECT count(*) FROM audit_events WHERE event='platform.org_purge_started' AND object_id='org_b')`).Scan(&fences, &started); err != nil || fences != 0 || started != 1 {
+		t.Fatalf("fence rows=%d started audits=%d %v", fences, started, err)
+	}
+}
+
+// endPurgeWindow moves every purge fence back past the late-PUT window.
+func endPurgeWindow(t *testing.T, s *Store) {
+	t.Helper()
+	if _, err := s.db.Exec(`UPDATE server_settings SET value='0' WHERE key LIKE 'purge_fence:%'`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // A purge killed between batches finishes on its next run.
@@ -175,6 +199,7 @@ func TestPurgeKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 		t.Fatalf("a killed purge marked the org purged: %q %v", purgedAt, err)
 	}
 	purgeBatchHook = func(string) error { return nil }
+	endPurgeWindow(t, s)
 	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err != nil {
 		t.Fatal(err)
 	}

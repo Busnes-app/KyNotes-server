@@ -290,6 +290,11 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   fails, nothing is marked purged. Multi-mode blob GC is `storage.RunObjectGC`: candidates and the
   re-check are per `(org_id, digest)`, under `storage.BlobLockName`, rows commit before the object
   delete. Verify `TestObjectGC*` and `TestPurgeDeletesOnlyTheDeletedOrgsPrefix` on PostgreSQL.
+  Late-PUT fence: the purge's first run records `purge_fence:<org>` (database time) with the
+  started audit; it deletes the prefix every run but marks purged only on a run at least
+  `blobstore.LatePutWindow` later. `SweepOrphanObjects` (inside `RunObjectGC`) deletes unclaimed
+  objects over an hour old by provider time, re-checked under their session lock. Verify
+  `TestLatePutAfterPurge*` and `TestOrphanSweep*`.
 - Member erasure uses `CleanupFor(db).AdvanceSeq` and `TombstoneComment`, one fresh sequence per
   retained comment so paginated sync delivers every deletion. Directory erasure runs only in multi
   mode; single mode refuses `user.erased`. Verify `TestMultiModeDirectoryKeepsAccountsInTheirOrg`.

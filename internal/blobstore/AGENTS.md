@@ -38,8 +38,13 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
   content cache or storage fallback. Identical writes reuse verified bytes; parts remain live
   until explicit post-commit/cancel/expiry cleanup. Tail removal validates every index first.
 - Delete/Purge are explicit unreferenced-key/org erasure, including physical versions/markers.
-  No scheduled pruning or orphan deletion is enabled. Unknown-object cleanup needs provider age
-  proof; store-ID creation still requires the shared client's create-exclusive operation.
+  No scheduled version pruning. `Stored` feeds storage's orphan sweep, which deletes only with
+  provider age proof (zero `LastModified` never deletes); store-ID creation still requires the
+  shared client's create-exclusive operation.
+- Late-PUT fence: `Put`/`PutPart` bound the whole call by `putDeadline` from entry. Callers
+  pass already-received bytes and admit the org under the session lock just before the call.
+  `LatePutWindow` (deadline plus SigV4's 15-minute request age) is how long the purge waits
+  after its fence; widening the deadline means widening the window.
 - New shared-client dependencies must point to its reviewed upstream implementation, with no
   copied signing/transport or invented client contract. Provider qualification is separate from
   the local TLS S3 wire fixture.
@@ -53,7 +58,8 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
 
 - `go test -race -count=1 ./internal/blobstore`
 - `TestObjectGC*`/`TestPurgeDeletesOnlyTheDeletedOrgsPrefix` drive storage's GC and purge through
-  the real shared client on PostgreSQL.
+  the real shared client on PostgreSQL. `TestLatePutAfterPurgeIsErasedBeforeTheOrgIsMarkedPurged`
+  and `TestOrphanSweepDeletesOnlyOldUnclaimedObjects` prove the late-PUT fence.
 - `TestObjects*`/`TestObjectParts*` use the actual shared client and a local verified TLS fixture.
 - PostgreSQL CI runs `TestReplicaStoreIdentity*` against isolated schemas.
 - The full HTTPAPI suite and `TestSingleTenantUpgradeGolden` pin existing behavior.

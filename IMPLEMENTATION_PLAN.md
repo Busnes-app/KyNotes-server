@@ -2319,15 +2319,15 @@ regular credential files may end with one LF/CRLF; bounded reads, source/type fa
 client validation errors disclose setting names only. Construction makes no network request,
 local key/store or SQL write. No normal config loader or startup path invokes it.
 
-The base shared client is pinned to merged #77 (`79823f9`); #78's exclusive-create,
-ETag and age additions are merged as `b55ca6d` but are not consumed by this pin. Complete Backend/Temporary,
+The shared client is pinned to the #78 merge (`b55ca6d`): exclusive create, ETags and
+provider age are consumed; the orphan sweep reads the age. Complete Backend/Temporary,
 store-ID/probes, request/GC/purge integration and provider evidence remain unbuilt.
 
-Before binding GC/purge/runtime, qualify the fate of an already-issued remote PUT after the
-writer loses its PG session lock or context. Lock loss/cancellation alone cannot prove that
-remote write finished before erasure. The selected Notes resolution and delayed-write test
-must be recorded here before erasure-readiness claims; consuming wire-only conditional APIs
-does not select Messages' ledger/protocol. Preserve access fences while this is unresolved.
+Selected late-PUT resolution (spec "Late-PUT erasure fence as built"): a time fence, not a
+ledger. Every object PUT is bounded from entry; the purge marks an org purged only after a
+prefix delete at least `LatePutWindow` after its fence; an age-gated orphan sweep removes a
+late PUT after GC or erasure. The window holds only if the provider honors SigV4 request age
+and commits no PUT after it; that is provider qualification, still open.
 Native encrypted PG base-backup/WAL tool/transport, destination/retention and restore/drill
 remain spec open question 3. Startup remains refused; existing single-mode behavior stays.
 

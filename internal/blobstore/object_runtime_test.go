@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,29 +196,181 @@ func TestPurgeDeletesOnlyTheDeletedOrgsPrefix(t *testing.T) {
 	if _, err := db.Exec(`UPDATE orgs SET status='deleted' WHERE id='org_b'`); err != nil {
 		t.Fatal(err)
 	}
-	resolve := stores(t, client)
-	purge := func(ctx context.Context, org string) error {
-		s, err := resolve(org)
+	purge := purgeWith(stores(t, client))
+	for range 2 { // the second run is past the late-PUT window
+		if err := storage.PurgeDeletedOrgs(t.Context(), db, purge); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE server_settings SET value='0' WHERE key='purge_fence:org_b'`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if keys := orgKeys(fixture, "org_b"); len(keys) != 0 {
+		t.Errorf("%v survived the purge", keys)
+	}
+	if !objectExists(t, client, "org_a", d) || !blobRow(t, db, "org_a", d) {
+		t.Fatal("the purge of org_b removed org_a's copy")
+	}
+	if purgedAt(t, db, "org_b") == "" {
+		t.Fatal("org_b not marked purged")
+	}
+}
+
+func purgeWith(stores storage.ObjectStores) storage.PurgeObjects {
+	return func(ctx context.Context, org string) error {
+		s, err := stores(org)
 		if err != nil {
 			return err
 		}
 		return s.Purge(ctx)
 	}
+}
+
+func orgKeys(f *objectFixture, org string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var keys []string
+	for key := range f.objects {
+		if strings.HasPrefix(key, "orgs/"+org+"/") {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+func purgedAt(t *testing.T, db *sql.DB, org string) string {
+	t.Helper()
+	var at string
+	if err := db.QueryRow(`SELECT purged_at FROM orgs WHERE id=?`, org).Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
+// A PUT admitted before the org was deleted times out at the client, then the provider stores
+// it after the purge deleted the prefix. The purge must not mark the org purged until a prefix
+// delete after the late-PUT window has erased it.
+func TestLatePutAfterPurgeIsErasedBeforeTheOrgIsMarkedPurged(t *testing.T) {
+	db := runtimeDatabase(t)
+	fixture, client := newObjectFixture(t)
+	putBlob(t, db, client, "org_b", []byte("stored before the delete"), time.Now())
+	fixture.started, fixture.release, fixture.landed = make(chan struct{}), make(chan struct{}), make(chan struct{})
+	defer blobstore.SetPutDeadline(200 * time.Millisecond)()
+	late := []byte("admitted before the delete, stored after the purge")
+	put := make(chan error, 1)
+	go func() {
+		put <- objectStore(t, client, "org_b", t.TempDir()).Put(t.Context(), objectDigest(late), bytes.NewReader(late), int64(len(late)))
+	}()
+	<-fixture.started
+	select {
+	case err := <-put:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("want the put deadline, got", err)
+		}
+	case <-time.After(10 * time.Second):
+		close(fixture.release)
+		t.Fatal("an admitted PUT outlived its deadline")
+	}
+	if _, err := db.Exec(`UPDATE orgs SET status='deleted' WHERE id='org_b'`); err != nil {
+		t.Fatal(err)
+	}
+	purge := purgeWith(stores(t, client))
 	if err := storage.PurgeDeletedOrgs(t.Context(), db, purge); err != nil {
 		t.Fatal(err)
 	}
-	fixture.mu.Lock()
-	for key := range fixture.objects {
-		if bytes.HasPrefix([]byte(key), []byte("orgs/org_b/")) {
-			t.Errorf("%s survived the purge", key)
+	if at := purgedAt(t, db, "org_b"); at != "" {
+		close(fixture.release)
+		t.Fatal("org marked purged inside the late-PUT window")
+	}
+	close(fixture.release)
+	<-fixture.landed
+	if keys := orgKeys(fixture, "org_b"); len(keys) != 1 {
+		t.Fatalf("the late PUT should have landed: %v", keys)
+	}
+	if _, err := db.Exec(`UPDATE server_settings SET value='0' WHERE key='purge_fence:org_b'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.PurgeDeletedOrgs(t.Context(), db, purge); err != nil {
+		t.Fatal(err)
+	}
+	if keys := orgKeys(fixture, "org_b"); len(keys) != 0 || purgedAt(t, db, "org_b") == "" {
+		t.Fatalf("after the window: keys=%v purged_at=%q", keys, purgedAt(t, db, "org_b"))
+	}
+}
+
+// The orphan sweep deletes an object no row claims only when the provider says it is over an
+// hour old, and only for a serving org: a late PUT after GC or an erasure, or an abandoned
+// upload's parts. Claimed, young, unknown-age and stopped orgs' objects stay.
+func TestOrphanSweepDeletesOnlyOldUnclaimedObjects(t *testing.T) {
+	db := runtimeDatabase(t)
+	fixture, client := newObjectFixture(t)
+	old, young := time.Now().Add(-2*time.Hour), time.Now().Add(-10*time.Minute)
+	put := func(org, body string, at time.Time) string {
+		d := objectDigest([]byte(body))
+		if err := objectStore(t, client, org, t.TempDir()).Put(t.Context(), d, strings.NewReader(body), int64(len(body))); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := blobstore.BlobKey(org, d)
+		fixture.mu.Lock()
+		if !at.IsZero() {
+			fixture.modified[key] = at
+		}
+		fixture.mu.Unlock()
+		return d
+	}
+	orphan := put("org_a", "late put after gc", old)
+	recent := put("org_a", "put ten minutes ago", young)
+	unknown := put("org_a", "no provider age", time.Time{})
+	claimed := put("org_a", "claimed", old)
+	stopped := put("org_b", "suspended org", old)
+	if _, err := db.Exec(`INSERT INTO blobs(org_id,digest,size_bytes,created_at) VALUES('org_a',?,7,'t')`, claimed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE orgs SET status='suspended' WHERE id='org_b'`); err != nil {
+		t.Fatal(err)
+	}
+	part := func(pending bool) string {
+		id, err := ids.Mint("ups")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := objectStore(t, client, "org_a", t.TempDir()).PutPart(t.Context(), id, 0, strings.NewReader("chunk"), 5); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := blobstore.UploadPartKey("org_a", id, 0)
+		fixture.mu.Lock()
+		fixture.modified[key] = old
+		fixture.mu.Unlock()
+		if pending {
+			if _, err := db.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,declared_bytes,chunk_bytes,created_at,updated_at,expires_at,org_id) VALUES(?,'usr_a','cnt_a',5,5,'t','t','t','org_a')`, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return id
+	}
+	abandoned, live := part(false), part(true)
+	n, err := storage.SweepOrphanObjects(t.Context(), db, stores(t, client))
+	if err != nil || n != 2 {
+		t.Fatalf("swept=%d err=%v", n, err)
+	}
+	if objectExists(t, client, "org_a", orphan) {
+		t.Error("an old unclaimed object survived")
+	}
+	for name, d := range map[string]string{"young": recent, "unknown age": unknown, "claimed": claimed} {
+		if !objectExists(t, client, "org_a", d) {
+			t.Errorf("the %s object was swept", name)
 		}
 	}
-	fixture.mu.Unlock()
-	if !objectExists(t, client, "org_a", d) || !blobRow(t, db, "org_a", d) {
-		t.Fatal("the purge of org_b removed org_a's copy")
+	if !objectExists(t, client, "org_b", stopped) {
+		t.Error("a stopped org's object was swept")
 	}
-	var purgedAt string
-	if err := db.QueryRow(`SELECT purged_at FROM orgs WHERE id='org_b'`).Scan(&purgedAt); err != nil || purgedAt == "" {
-		t.Fatalf("purged_at=%q %v", purgedAt, err)
+	for id, want := range map[string]bool{abandoned: false, live: true} {
+		key, _ := blobstore.UploadPartKey("org_a", id, 0)
+		fixture.mu.Lock()
+		_, ok := fixture.objects[key]
+		fixture.mu.Unlock()
+		if ok != want {
+			t.Errorf("upload %s part present=%v, want %v", id, ok, want)
+		}
 	}
 }

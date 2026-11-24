@@ -1028,8 +1028,10 @@ of replica fields and persisted settings. This entry point remains separate from
 and all startup paths; tests preserve the multi refusal and standalone golden.
 
 N3 session-lock ownership and context cancellation do not establish the fate of a previously
-issued remote PUT after lock loss. Complete GC/purge/runtime integration requires a selected
-and qualified delayed-writer erasure fence before deletion/readiness claims. The shared
+issued remote PUT after lock loss. The selected fence is a time window: PUTs are bounded from
+entry, a purge completes only after a prefix delete `LatePutWindow` past its fence, and an
+age-gated orphan sweep removes late PUTs after GC or erasure. Provider qualification of the
+window remains before readiness claims. The shared
 conditional API does not choose a product ledger/protocol. Store controls/age and selected
 provider proof, native-PG recovery transport and final assembly remain launch prerequisites.
 

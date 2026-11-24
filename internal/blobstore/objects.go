@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	shareds3 "github.com/Busnes-app/ky-primitives/s3"
 )
@@ -21,6 +23,16 @@ type Objects struct {
 	org, scratch string
 	maxBytes     int64
 }
+
+// putDeadline bounds every Put/PutPart call, from entry, so a write admitted before an erasure
+// or purge cannot reach the provider after LatePutWindow. Callers pass already-received bytes
+// and admit the org under the session lock immediately before the call.
+var putDeadline = 5 * time.Minute
+
+// LatePutWindow is how long after its writers are fenced an org's prefix can still gain a
+// late PUT: the put deadline plus SigV4's 15-minute request-age limit, which also covers a
+// provider that commits after the client gave up. Unqualified on a real provider.
+const LatePutWindow = 20 * time.Minute
 
 func (Objects) String() string   { return "blobstore.Objects" }
 func (Objects) GoString() string { return "blobstore.Objects" }
@@ -38,6 +50,8 @@ func NewObjects(client *shareds3.Client, org, scratch string, maxBytes int64) (*
 // Put verifies a bounded private snapshot before any PUT. The caller's session lock makes
 // HEAD/verify/PUT safe for a content-addressed key; it does not replace exclusive control PUTs.
 func (s *Objects) Put(ctx context.Context, digest string, body io.Reader, size int64) error {
+	ctx, cancel := context.WithTimeout(ctx, putDeadline)
+	defer cancel()
 	key, err := BlobKey(s.org, digest)
 	if err != nil {
 		return err
@@ -157,8 +171,49 @@ func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// Stored lists the org's blobs and uploads with the provider's modification time, the latest
+// part's for an upload. A zero time is unknown age: the orphan sweep never deletes on it.
+func (s *Objects) Stored(ctx context.Context) (blobs, uploads map[string]time.Time, err error) {
+	prefix, _ := OrgPrefix(s.org)
+	objects, err := s.listObjects(ctx, prefix)
+	if err != nil {
+		return nil, nil, err
+	}
+	blobs, uploads = map[string]time.Time{}, map[string]time.Time{}
+	for _, o := range objects {
+		rest := o.Key[len(prefix):]
+		if strings.HasPrefix(rest, "blobs/") {
+			digest := rest[strings.LastIndexByte(rest, '/')+1:]
+			if key, err := BlobKey(s.org, digest); err != nil || key != o.Key {
+				return nil, nil, ErrCorruptBlob
+			}
+			blobs[digest] = o.LastModified
+			continue
+		}
+		id, index, _ := strings.Cut(strings.TrimPrefix(rest, "uploads/"), "/")
+		n, err := strconv.ParseInt(index, 10, 64)
+		if key, keyErr := UploadPartKey(s.org, id, n); err != nil || keyErr != nil || key != o.Key {
+			return nil, nil, ErrCorruptBlob
+		}
+		switch t, seen := uploads[id]; {
+		case !seen, !t.IsZero() && (o.LastModified.IsZero() || o.LastModified.After(t)):
+			uploads[id] = o.LastModified // the newest part, or unknown if any part's age is
+		}
+	}
+	return blobs, uploads, nil
+}
+
 func (s *Objects) listKeys(ctx context.Context, prefix string) ([]string, error) {
-	var keys []string
+	objects, err := s.listObjects(ctx, prefix)
+	keys := make([]string, len(objects))
+	for i, o := range objects {
+		keys[i] = o.Key
+	}
+	return keys, err
+}
+
+func (s *Objects) listObjects(ctx context.Context, prefix string) ([]shareds3.Object, error) {
+	var keys []shareds3.Object
 	seenKeys, seenTokens := map[string]bool{}, map[string]bool{}
 	token := ""
 	for {
@@ -171,7 +226,7 @@ func (s *Objects) listKeys(ctx context.Context, prefix string) ([]string, error)
 				return nil, ErrCorruptBlob
 			}
 			seenKeys[object.Key] = true
-			keys = append(keys, object.Key)
+			keys = append(keys, object)
 		}
 		if page.Next == "" {
 			return keys, nil
