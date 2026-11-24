@@ -1548,3 +1548,26 @@ open question 3's large-database transport or enable multi startup. Those remain
   duplicate retries on a shared test directory. Actual bucket/part/purge evidence remains5b.
 - Multi startup is still refused. Shared S3 absence constrains5b, not this preparation. No
   automatic version pruning or hosted-volume fallback. Phase6 runtime assembly remains gated.
+
+
+### PR 5b-1 as built: object/part I/O preparation (startup still refused)
+
+The published shared ky-primitives S3 client supplies permanent ciphertext and numbered-part
+operations through `blobstore.Objects`, scoped to one resolved org. Bounded private files verify
+size/hash before PUT/download publication and are removed on Close/error. Existing immutable
+keys/parts are checked and reused. Explicit key/org cleanup covers physical versions/markers;
+no kept logical version is pruned. Parts survive final assembly until explicit post-commit
+cleanup; a rolled-back counter explicitly trims its uncommitted tail. Assembly verifies ordered
+sizes and the final digest. Independent single-connection PG pools hold a key lock across I/O
+and a short claim, while a separate writer can still acquire N3.
+
+Tests use the real shared client over a verified local TLS S3 fixture, plus PG; they do not
+qualify a provider. The complete Backend/Temporary, route/GC/purge binding and startup adapter
+remain unbuilt. Shared-client #77 also lacks N15 create-exclusive marker PUT and provider age
+metadata at the initial consumed head; requirements are with its existing owner. No private
+client, volume fallback, automatic pruning or hosted/native-backup readiness is claimed.
+
+The object preparation consumes the shared client's encoded-byte GET correction: identity
+encoding preserves opaque gzip-labelled bytes and GET/HEAD size agreement. A regression fails
+against the earlier published client and passes after the upstream correction. This does not
+make the separately prepared/unpublished conditional-PUT/timestamp follow-up available.

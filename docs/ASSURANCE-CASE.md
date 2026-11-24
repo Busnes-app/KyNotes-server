@@ -192,3 +192,13 @@ PG tests check credential revocation, retained encryption identities/pins/fences
 schedule-off and audit/reset atomicity under schedule failure, audit failure and cancellation.
 SQLite restore shares the same prior revocation operations. This is target-safety evidence,
 not proof of native PostgreSQL backup recovery, object coverage or hosted readiness.
+
+
+Shared-object preparation uses the actual exported S3 client with org-scoped literal keys.
+Local verified-TLS wire tests cover bounded/hash-verified streams, private-file cleanup,
+immutable-key/part reuse, corrupt/oversize/failure/cancel refusal, paginated canonical listings,
+wrong-org/key/upload cleanup boundaries, gaps/part sizes/order/final digest and explicit staged
+tail removal. Native independent PG pools prove one physical PUT/claim under the key lock and
+continued N3 availability while the provider blocks. This is product-adapter boundary evidence,
+not real-provider qualification or a complete object/GC/runtime implementation. Upstream
+client gate clearance, exclusive controls, provider age and native recovery remain prerequisites.

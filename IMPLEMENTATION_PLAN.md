@@ -2038,6 +2038,26 @@ Do not implement, do not stub, do not leave TODOs for:
 
 ---
 
+## Suite scope constraint (2026-11-23)
+
+Approved suite direction follows the User Preferences in the suite workspace
+`/home/yoshi/git/busnes.app/AGENTS.md`. First-party competitor sources are in
+`/home/yoshi/git/busnes.app/zentrimail-site/docs/research/competitor-product-gaps-2026-11-23.md`;
+its password-manager product/integration recommendation is superseded by the owner.
+There is no first-party password manager, builder or parity task. Compatibility with
+existing managers is sufficient; no new integration is mandatory. VPN and AI remain
+optional and authorize no work.
+
+Complete current tenancy, isolation, reliability, security and launch/startup gates first.
+Later suite priorities belong to their existing product owners: masked email; hosted
+qualification of the existing Euro-Office integration; guest-ready meetings; Calendar
+booking; and the planned Drive Android photo backup. Implemented office integration is
+not hosted qualification, and planned work is not shipped. These priorities add no
+KyNotes feature and do not create another owner or implementation contract. Each
+product's distinct workflow, policy and release choices still require its product
+decision. KyNotes continues the staff/host/tenancy plan, with owner interface approval,
+shared-client and native-PG recovery prerequisites intact; no deployment or readiness claim.
+
 ## 15. Open items requiring a human decision
 
 None block Phases 1 and 2. Raise these before the phase that needs them.
@@ -2269,3 +2289,22 @@ identity. Dedicated PG CI tests exercise target/schema guards and full rollback 
 Existing SQLite capsule/cleanup restore and golden remain required regressions.
 Unbuilt: native large-PG backup-byte transport/retention/drill, primary object runtime and
 phase-6 final enablement; spec open question 3 has not selected a transport implementation.
+
+
+### Tenancy PR 5b-1: shared object and upload-part I/O preparation
+
+Built per-org permanent ciphertext/numbered-part operations over the actual exported shared
+S3 client, pinned to its published upstream implementation. Private bounded spools enforce
+size/digest before PUT or seekable download; identical keys/parts reuse verified bytes.
+Listing rejects malformed namespaces/cursor cycles, explicit cleanup removes physical versions
+and markers, rollback trims only uncommitted part indices, and final assembly keeps parts until
+explicit post-commit cleanup. Single volume construction remains untouched. Native PG tests
+hold a key lock across network I/O then claim on the same single-connection pool, while another
+writer acquires N3; competing replicas produce one PUT/claim.
+
+Not the full Backend/Temporary or route/GC adapter. Upstream #77 must be reviewed/merged at the
+consumed implementation; N15 additionally needs create-exclusive marker PUT and provider object
+age metadata, requested from the existing shared-client owner. Parts/finalization/purge route
+binding, age-gated orphans/probe cleanup, provider/latency/erasure evidence, native-PG recovery
+and final mode-binding/runtime/lifecycle assembly remain prerequisites. Startup stays refused;
+no volume fallback, private client, unselected provider/transport or version pruning.

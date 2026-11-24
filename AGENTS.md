@@ -41,6 +41,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
+- Zentri suite direction (owner, 2026-11-23): tenancy/isolation/reliability/security and launch gates stay first. Competitor research adds no KyNotes feature. No first-party password manager or parity builder/task; compatibility with existing managers is sufficient and no new integration is mandatory. VPN/AI are optional and create no work here. The scope/order pointer is IMPLEMENTATION_PLAN.md, "Suite scope constraint (2026-11-23)"; product-specific choices remain with their existing owners.
 
 ## Design
 
@@ -293,6 +294,13 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   foreign key, as `pairing_nonces`, needs its own step; comments in kept notebooks are tombstoned and
   the user row is scrubbed and kept, owner decision 12). Verify `TestEraseKeepsSharedNotebookAndDeletesSoleOnes`,
   `TestEraseSuccessorIsAnyApprovedMember`, `TestEraseMembersKilledBetweenBatchesFinishesNextRun`.
+- Object I/O preparation (`internal/blobstore.Objects`) uses the exported shared S3 client,
+  binds one resolved org, verifies bounded private ciphertext streams, reuses immutable keys,
+  and stores numbered upload parts with explicit tail/post-commit cleanup. Independent single-
+  connection PG pools demonstrate key-lock/claim ordering without N3 across network I/O.
+  It does not yet implement the complete Backend/Temporary adapter or runtime selection.
+  Preserve single volume behavior; exclusive marker creation/provider age metadata, GC,
+  provider qualification and hosted startup remain prerequisites. See blobstore's child DOX.
 - Native PostgreSQL restored-target preparation: `prepare-postgres-restore --confirm-restored`
   reads `KYNOTES_DB_DSN` only from the environment, opens the exact existing schema without
   migrating and refuses recorded single mode. Stop every replica before targeting a separately
