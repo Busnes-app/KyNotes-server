@@ -148,7 +148,7 @@ func assertPurged(t *testing.T, s *Store, bIDs []string, before map[string]strin
 // A purge leaves no row of the deleted org, keeps its tombstone, and touches no other org.
 func TestPurgeLeavesNoRowOfTheOrg(t *testing.T) {
 	s, bIDs, before := purgeFixture(t)
-	if err := PurgeDeletedOrgs(context.Background(), s.db); err != nil {
+	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err != nil {
 		t.Fatal(err)
 	}
 	assertPurged(t, s, bIDs, before)
@@ -167,7 +167,7 @@ func TestPurgeKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { purgeBatch, purgeBatchHook = 500, func(string) error { return nil } })
-	if err := PurgeDeletedOrgs(context.Background(), s.db); err == nil {
+	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err == nil {
 		t.Fatal("the killed purge reported success")
 	}
 	var purgedAt string
@@ -175,7 +175,7 @@ func TestPurgeKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 		t.Fatalf("a killed purge marked the org purged: %q %v", purgedAt, err)
 	}
 	purgeBatchHook = func(string) error { return nil }
-	if err := PurgeDeletedOrgs(context.Background(), s.db); err != nil {
+	if err := PurgeDeletedOrgs(context.Background(), s.db, noObjects); err != nil {
 		t.Fatal(err)
 	}
 	assertPurged(t, s, bIDs, before)
@@ -305,5 +305,27 @@ func TestEraseMembersKilledBetweenBatchesFinishesNextRun(t *testing.T) {
 				t.Errorf("erasing org_b's member removed org_a's %q", v)
 			}
 		}
+	}
+}
+
+// noObjects is a purge's object step for row-only tests; internal/blobstore tests the real one.
+func noObjects(context.Context, string) error { return nil }
+
+func TestPurgeRefusesWithoutObjectsAndKeepsTheOrgUnpurged(t *testing.T) {
+	s, _, _ := purgeFixture(t)
+	if err := PurgeDeletedOrgs(context.Background(), s.db, nil); err == nil {
+		t.Fatal("a purge without an object store succeeded")
+	}
+	var users int
+	if err := s.db.QueryRow(`SELECT count(*) FROM users WHERE org_id='org_b'`).Scan(&users); err != nil || users != 2 {
+		t.Fatalf("a purge without an object store deleted rows: users=%d %v", users, err)
+	}
+	failing := func(context.Context, string) error { return errors.New("bucket down") }
+	if err := PurgeDeletedOrgs(context.Background(), s.db, failing); err == nil {
+		t.Fatal("a failed prefix delete reported success")
+	}
+	var purgedAt string
+	if err := s.db.QueryRow(`SELECT purged_at FROM orgs WHERE id='org_b'`).Scan(&purgedAt); err != nil || purgedAt != "" {
+		t.Fatalf("org marked purged with its objects left: %q %v", purgedAt, err)
 	}
 }

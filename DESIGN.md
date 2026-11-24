@@ -951,8 +951,10 @@ fingerprinted. The elected schedule adapter owns minute lifecycle/reminder/backu
 configured GC cadence and per-tick pool reporting. Proxy drain withdraws readiness and cancels
 work before five seconds of convergence, five seconds of HTTP drain and ten of worker drain.
 
-These adapters are preparation for phase 6, not startup enablement. Real primary-object GC and
-PostgreSQL backup/restore adapters are still prerequisites. Restore preserves permanent store
+These adapters are preparation for phase 6, not startup enablement. `storage.RunObjectGC` is the
+primary-object GC (per org and digest, under the blob session lock, rows before object) and the
+purge deletes the org's object prefix before it marks the tombstone purged; startup binds them
+later. PostgreSQL backup/restore adapters are still prerequisites. Restore preserves permanent store
 identity and clears ephemeral probe pointers so retired probe GC cannot strand a restored DB.
 Tests cover key/path isolation, identity races/private-store refusal/crash recovery, environment
 key/fingerprint boundaries, schedule ownership/cadence, drain and alternating-replica upload

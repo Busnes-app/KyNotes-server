@@ -9,7 +9,8 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
 - `Backend`/`Temporary` are the product's storage seam; they do not expose filesystem handles.
 - `Objects` owns the prepared per-org permanent ciphertext and numbered upload-part I/O
   through the exported shared S3 client. It is not yet the complete `Backend`/`Temporary`
-  runtime adapter: exclusive control creation, age metadata, GC and route wiring remain gated.
+  runtime adapter: exclusive control creation, age metadata and route wiring remain gated.
+  `storage.RunObjectGC` and the purge's prefix step call it from the elected worker.
 - `Store`/`Temp` retain the single-tenant volume implementation and paths.
 - Key helpers own validation of org/blob/part path components.
 - `VerifySharedIdentity` owns N15 control-file identity/probe decisions; the real object adapter
@@ -51,6 +52,8 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
 ## Verification
 
 - `go test -race -count=1 ./internal/blobstore`
+- `TestObjectGC*`/`TestPurgeDeletesOnlyTheDeletedOrgsPrefix` drive storage's GC and purge through
+  the real shared client on PostgreSQL.
 - `TestObjects*`/`TestObjectParts*` use the actual shared client and a local verified TLS fixture.
 - PostgreSQL CI runs `TestReplicaStoreIdentity*` against isolated schemas.
 - The full HTTPAPI suite and `TestSingleTenantUpgradeGolden` pin existing behavior.

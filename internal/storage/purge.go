@@ -65,9 +65,12 @@ var purgeSteps = []purgeStep{
 	{"users", "id", "org_id=?"},
 }
 
+// PurgeObjects deletes one org's whole object-storage prefix (spec, Deleted, step 4).
+type PurgeObjects func(ctx context.Context, org string) error
+
 // PurgeDeletedOrgs purges every deleted org not yet purged. It runs on the elected worker in
 // multi mode only; single mode has no deleted org and does nothing here.
-func PurgeDeletedOrgs(ctx context.Context, db *sql.DB) error {
+func PurgeDeletedOrgs(ctx context.Context, db *sql.DB, objects PurgeObjects) error {
 	tenancy, err := TenancyOfContext(ctx, db)
 	if err != nil || !tenancy.Multi() {
 		return err
@@ -87,7 +90,7 @@ func PurgeDeletedOrgs(ctx context.Context, db *sql.DB) error {
 	}
 	rows.Close()
 	for _, org := range orgs {
-		if err := PurgeOrg(ctx, db, org); err != nil {
+		if err := PurgeOrg(ctx, db, objects, org); err != nil {
 			return err
 		}
 	}
@@ -96,10 +99,12 @@ func PurgeDeletedOrgs(ctx context.Context, db *sql.DB) error {
 
 // PurgeOrg deletes every row of one deleted org in short batches behind a fail-closed audit row,
 // then marks its tombstone purged (spec, Lifecycle, Deleted). It is idempotent: a purge killed
-// between batches finishes on its next run. The org's blob files are not deleted here: until the
-// per-org blob layout (spec N8, PR 5a) two orgs' identical ciphertext share one file, so only
-// rows are purged and the orphan sweep removes files nothing references.
-func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
+// between batches finishes on its next run. After the rows, the org's object prefix goes; the
+// tombstone is marked purged only once that delete succeeded.
+func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string) error {
+	if objects == nil {
+		return errors.New("purge: no object store") // multi mode has no blobs anywhere else
+	}
 	var status string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM orgs WHERE id=?`, org).Scan(&status); err != nil {
 		return err
@@ -116,6 +121,9 @@ func PurgeOrg(ctx context.Context, db *sql.DB, org string) error {
 		if _, err := purgeTable(ctx, db, step, org, progress+step.table); err != nil {
 			return fmt.Errorf("purge %s: %w", step.table, err)
 		}
+	}
+	if err := objects(ctx, org); err != nil {
+		return fmt.Errorf("purge objects: %w", err)
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

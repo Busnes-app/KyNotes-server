@@ -286,6 +286,10 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   A new table with a foreign key to a purged table must join it (`TestPurgeOrderCoversEveryCascade` reads
   the backend's foreign keys). Verify `TestPurgeLeavesNoRowOfTheOrg` (no value of the deleted org left
   in any table, the other org untouched) and `TestPurgeKilledBetweenBatchesFinishesNextRun`.
+  The purge takes the org's object-prefix delete (`storage.PurgeObjects`); without one, or if it
+  fails, nothing is marked purged. Multi-mode blob GC is `storage.RunObjectGC`: candidates and the
+  re-check are per `(org_id, digest)`, under `storage.BlobLockName`, rows commit before the object
+  delete. Verify `TestObjectGC*` and `TestPurgeDeletesOnlyTheDeletedOrgsPrefix` on PostgreSQL.
 - Member erasure uses `CleanupFor(db).AdvanceSeq` and `TombstoneComment`, one fresh sequence per
   retained comment so paginated sync delivers every deletion. Directory erasure runs only in multi
   mode; single mode refuses `user.erased`. Verify `TestMultiModeDirectoryKeepsAccountsInTheirOrg`.
