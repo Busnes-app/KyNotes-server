@@ -2331,6 +2331,44 @@ does not select Messages' ledger/protocol. Preserve access fences while this is 
 Native encrypted PG base-backup/WAL tool/transport, destination/retention and restore/drill
 remain spec open question 3. Startup remains refused; existing single-mode behavior stays.
 
+### Phase 6 host maintenance preparation
+
+Built host-only PG staff creation with bounded stdin derived credentials and environment-only
+target/identity, atomic platform audit and recovery-code output after commit. Existing single
+CLI remains unchanged. Staff bootstrap preparation is staff-only, audited and one-create across
+independent pools; everyday bootstrap variables refuse. N6 also governs the no-admin warning.
+Built explicit stopped-replica configuration acceptance over the full app field map, read-only
+maintenance config loading, retained salt and fixed install bindings, audit/name-only output,
+and exact-schema/no-migration PG opens. Ordinary startup loaders still refuse multi.
+
+Tests cover real password verification/wrong proof, duplicate/invalid input, wrong org/region,
+output/error secret boundaries, audit rollback, concurrent bootstrap, full fingerprint acceptance,
+retained-key/immutable-binding refusal and untouched single-mode workflows. PG CI includes the
+native staff-command cases without moving SQLite capsule tests to PG. Required race/FIPS,
+full PG, golden, build/vet, web/dist and docs checks remain gates.
+
+Unbuilt: hosted startup/SSO/runtime assembly and complete lifecycle E2E, primary object/part/
+GC/purge/provider evidence through the exported shared S3 client, and native PostgreSQL backup
+transport/retention/drill after open question 3 is selected. Host maintenance alone does not
+qualify a deployment; owner interface approval remains required for its operator surface.
+
+
+### Phase 6 fixed environment SSO preparation
+
+Built a fixed store for the existing validated replica SSO snapshot, with no SQL handle or
+settings persistence. Reload retains the snapshot, Save refuses, and the original mutable
+single store remains unchanged. Signed TLS issuer tests run a login across independent PG
+pools without persisted environment secrets, prove one-use/wrong-org/settings-mismatch refusal,
+and inspect pending-state bytes. Environment-input and concurrent reload/save tests cover the
+adapter contract. Runtime selection of this adapter belongs to final gated multi assembly;
+this preparation does not enable startup or complete object/native-PG backup prerequisites.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
 ### Phase 6 staff surface preparation
 
 Built read-only org/pool listing, org-scoped users/usage, platform-default/scoped audit reads

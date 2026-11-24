@@ -12,6 +12,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/logging"
+	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
 // EnsureBootstrapAdmin seeds an empty database from the environment: BOOTSTRAP_ADMIN_PASS (and
@@ -21,6 +22,13 @@ import (
 // passwords, so both accounts are flagged (password_admin_known) and change them at first sign-in.
 // Without BOOTSTRAP_ADMIN_PASS the database stays empty and the web setup creates both accounts.
 func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
+	tenancy, err := storage.TenancyOf(db)
+	if err != nil {
+		return err
+	}
+	if tenancy.Multi() {
+		return ensureStaffBootstrap(db, c, tenancy)
+	}
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		return err
@@ -86,7 +94,7 @@ func EnsureBootstrapAdmin(db *sql.DB, c config.Config) error {
 // closed; the CLI creates one. role='admin' implies an admin account (0026 triggers).
 func WarnWithoutAdmin(db *sql.DB, log *logging.Logger) bool {
 	var users, admins int
-	if db.QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE role='admin' AND status='active') FROM users`).Scan(&users, &admins) != nil || users == 0 || admins > 0 {
+	if db.QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE role='admin' AND status='active' AND (COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR org_id=(SELECT value FROM server_settings WHERE key='staff_org_id'))) FROM users`).Scan(&users, &admins) != nil || users == 0 || admins > 0 {
 		return false
 	}
 	// The remedy is in the message: the logger drops every attribute key outside its allowlist.

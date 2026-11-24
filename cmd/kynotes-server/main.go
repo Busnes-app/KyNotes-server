@@ -51,6 +51,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "accept-replica-config":
+			if e := acceptReplicaConfigCommand(os.Args[2:], os.Stdout); e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
 		case "prepare-postgres-restore":
 			if e := preparePostgresRestoreCommand(os.Args[2:], os.Stdout); e != nil {
 				fmt.Fprintln(os.Stderr, e)
@@ -540,6 +546,12 @@ func checkCommand(kind string, args []string) error {
 var errUserAddUsage = errors.New("usage: user add --username <name> [--password <pass>] [--admin | --everyday]  (default --everyday; --admin creates an administrator account, which cannot open notes)")
 
 func userCommand(args []string) error {
+	if os.Getenv("KYNOTES_TENANCY") == "multi" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		return staffUserCommand(ctx, args, os.Stdin, os.Stdout)
+	}
+
 	if len(args) < 1 || args[0] != "add" {
 		return errUserAddUsage
 	}

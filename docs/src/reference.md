@@ -21,6 +21,8 @@ The links below open repository documents and need network access.
 - [Notebook export](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/EXPORT.md)
 - [cleanup capacity and upgrade](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/CLEANUP-CAPACITY.md)
 
+- [Offline host maintenance preparation](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/DEPLOYMENT.md#offline-host-maintenance-preparation): staff accounts and explicit stopped-replica config acceptance, without hosted startup.
+
 ## Privacy and vulnerability reports
 
 Read [SECURITY.md](https://github.com/Busnes-app/KyNotes-server/blob/master/SECURITY.md) for this product's security model,

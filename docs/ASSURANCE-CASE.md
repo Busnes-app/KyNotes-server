@@ -211,6 +211,27 @@ settings or local store and does not enable startup. Actual delayed PUT completi
 lost PG lock remains unqualified; neither a canceled context nor the published wire API is
 erasure proof. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
 
+Host maintenance uses the exact existing PG schema and recorded staff org/region, with no
+migration or local-key fallback. Tests require atomic account/audit creation, real password
+verification and wrong-proof refusal, bounded secret input and redacted errors, and one-create
+bootstrap across independent pools. Explicit config acceptance derives the complete application
+field map; tests preserve the retained encryption key and fixed install bindings, roll back on
+audit failure and verify the ordinary multi startup gate remains closed. Operator acknowledgement
+that every replica is stopped is a maintenance precondition, not an automatic liveness proof.
+
+
+The fixed environment SSO store has no database handle and refuses Save; concurrent Reload
+and Save cannot replace its deployment snapshot. Signed issuer tests across independent PG
+pools prove shared one-use login state, wrong-org and changed-settings refusal, and absence of
+environment client/directory secrets in settings and PKCE payloads. The normal single store
+and hosted startup gate retain their existing contracts; runtime assembly is still unbuilt.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
 Staff metadata preparation scopes users/audit reads to an explicit org and audits before
 response publication. Tests recheck a concurrently revoked actor, refuse failed audits and
 customer web mutations/content access, and compare logical usage. The staff browser performs

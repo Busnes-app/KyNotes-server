@@ -365,7 +365,7 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 			if claims.ValidUntil.Before(deadline) {
 				deadline = claims.ValidUntil
 			}
-			identity := auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, IssuedAt: claims.IssuedAt, AppAdmin: claims.AppAdmin, LoginExpires: deadline}
+			identity := auth.SSOIdentity{FixedConfiguration: ssoStore.Fixed(), Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, IssuedAt: claims.IssuedAt, AppAdmin: claims.AppAdmin, LoginExpires: deadline}
 			err := auth.CompleteSSOStepUp(r.Context(), db, transaction.ReauthSession, transaction.Challenge, identity, claims.AuthTime, claims.Assurance, RequestID(r))
 			if err != nil {
 				if errors.Is(err, auth.ErrSSOLoginRejected) {
@@ -472,7 +472,7 @@ func SSORoutes(mux RouteMux, db *sql.DB, cfg config.Config, ssoStore *sso.Store,
 		if claims.ValidUntil.Before(deadline) {
 			deadline = claims.ValidUntil
 		}
-		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, AppAdmin: claims.AppAdmin, IssuedAt: claims.IssuedAt, LoginExpires: deadline, ExportOnly: tenancy.Multi() && claims.ExportOnly}, cfg.Server.DevInsecureCookies, RequestID(r))
+		_, err = auth.MintSSOSession(r.Context(), db, w, userID, auth.SSOIdentity{FixedConfiguration: ssoStore.Fixed(), Issuer: settings.IssuerURL, ClientID: settings.ClientID, Subject: claims.Subject, SessionID: claims.SessionID, AppAdmin: claims.AppAdmin, IssuedAt: claims.IssuedAt, LoginExpires: deadline, ExportOnly: tenancy.Multi() && claims.ExportOnly}, cfg.Server.DevInsecureCookies, RequestID(r))
 		if err != nil {
 			if errors.Is(err, auth.ErrSSOLoginRejected) {
 				WriteError(w, r, 403, "sso_login_rejected", "restart Single Sign-On login")

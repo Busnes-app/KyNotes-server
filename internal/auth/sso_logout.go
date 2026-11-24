@@ -15,7 +15,7 @@ var ErrSSOLogoutRejected = errors.New("invalid or repeated SSO logout")
 
 // ApplySSOLogout records replay admission, a fence for callbacks already in flight,
 // scoped session/device revocation and audit in one writer transaction.
-func ApplySSOLogout(ctx context.Context, db *sql.DB, c oidcverify.LogoutClaims, clientID, requestID string) error {
+func ApplySSOLogout(ctx context.Context, db *sql.DB, c oidcverify.LogoutClaims, clientID, requestID string, fixedConfiguration bool) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -26,7 +26,7 @@ func ApplySSOLogout(ctx context.Context, db *sql.DB, c oidcverify.LogoutClaims, 
 		return ErrSSOLogoutRejected
 	}
 	var configured int
-	if err = tx.QueryRow(`SELECT count(*) FROM server_settings WHERE key='sso_issuer_url' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_client_id' AND value=?)`, c.Issuer, clientID).Scan(&configured); err != nil {
+	if err = tx.QueryRow(`SELECT CASE WHEN COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')='multi' AND ?=1 THEN 1 ELSE (SELECT count(*) FROM server_settings WHERE key='sso_issuer_url' AND value=? AND EXISTS(SELECT 1 FROM server_settings WHERE key='sso_client_id' AND value=?)) END`, fixedConfiguration, c.Issuer, clientID).Scan(&configured); err != nil {
 		return err
 	}
 	if configured != 1 {

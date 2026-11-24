@@ -1031,6 +1031,39 @@ and qualified delayed-writer erasure fence before deletion/readiness claims. The
 conditional API does not choose a product ledger/protocol. Store controls/age and selected
 provider proof, native-PG recovery transport and final assembly remain launch prerequisites.
 
+### Host staff and replica maintenance preparation
+
+Recorded multi-mode host account creation targets only the retained staff org on an exact
+existing PostgreSQL schema. Derived proof/salt/iterations enter through bounded stdin JSON;
+DSN and install identity enter through environment. The account and platform audit commit
+before emitting a recovery code. Customer/everyday creation and raw password argv are refused.
+The future startup bootstrap adapter creates one dedicated staff administrator across replicas,
+with password work before N3 and an in-lock emptiness/binding recheck; it refuses everyday
+bootstrap variables. Single-mode account creation remains unchanged.
+
+Explicit `accept-replica-config --confirm-stopped` reads deployment settings without local
+key reads/minting, then derives the complete existing application fingerprint map. Normal
+config loading still refuses multi. Acceptance requires the retained server salt (also the
+sealed recovery-token key) and immutable mode/staff/region; changed field names and the new
+fingerprint commit together. The operator stops every replica before this offline command.
+No automatic mismatch acceptance, schema migration, backup transport or startup enablement.
+
+
+### Fixed environment SSO preparation
+
+`readReplicaInputs` validates the environment provider and shared keys. `sso.NewFixedStore`
+holds that typed snapshot without a database handle: Reload preserves it and Save refuses.
+The shared PG PKCE/state adapter remains independent of settings persistence, so a login can
+begin on one replica and finish on another without copying client/directory secrets into SQL.
+A different deployment snapshot invalidates the one-use state. Single mode keeps the original
+mutable store. Production multi construction remains behind the unavailable startup path.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
 ### Staff surface preparation
 
 In multi mode the staff-only users read requires `?org=`, audit defaults to platform rows

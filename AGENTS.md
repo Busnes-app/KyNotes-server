@@ -303,6 +303,27 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Preserve single volume behavior; exclusive marker creation/provider age metadata, GC,
   provider qualification and hosted startup remain prerequisites. See blobstore's child DOX.
 
+- Fixed multi-mode SSO preparation: pass `readReplicaInputs`' validated `SSO` snapshot to
+  `sso.NewFixedStore`; it has no DB handle, never reloads persisted settings and rejects Save.
+  Shared PKCE state still belongs to the route's PG database. Only recorded multi mode
+  plus this fixed-store marker uses the immutable snapshot at final login/step-up/logout/
+  directory admission; single and mutable stores retain their SQL configuration recheck. No environment client/directory
+  secret enters settings or pending-state rows. The original `NewStore` stays mutable in single
+  mode. Verify `TestFixed*`, signed two-pool callback/one-use/wrong-org/settings-mismatch cases,
+  existing SSO/strong-key tests and golden. Runtime construction/startup remain gated.
+- Host-only tenancy maintenance uses the exact existing PG schema without migrations.
+  `user add --admin --username` in multi mode accepts bounded derived credentials on stdin,
+  validates the recorded staff org/region from environment and commits the account/audit together.
+  No customer/everyday account or password/DSN argv path exists there. Startup bootstrap
+  preparation seeds only staff accounts, rechecks under N3, refuses everyday variables and
+  audits; the single bootstrap/CLI paths retain their original behavior.
+  `accept-replica-config --confirm-stopped` loads the complete app-owned field map through a
+  separate read-only maintenance loader, requires the retained salt key and fixed mode/staff/
+  region, and atomically audits changed names only. Stop every replica first. Normal config
+  loaders and multi startup remain refused; maintenance never mints local keys or recovers bytes.
+  Verify `TestStaffUserCommand*`, `TestStaffBootstrap*`, `TestReplicaMaintenance*`,
+  `TestReplicaAccept*`, existing bootstrap/user/golden tests and both backend race profiles.
+
 - Staff surface preparation in recorded multi mode: `GET /admin/users` requires one `org`
   query value and returns only that org's accounts/usage; `/admin/audit` defaults to platform
   rows and accepts one org. `staff.read` is a platform audit naming the selected org, committed

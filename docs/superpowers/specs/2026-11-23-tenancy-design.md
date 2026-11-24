@@ -1603,3 +1603,38 @@ complete GC/purge/runtime binding, Notes must select and qualify delayed remote-
 after PG-lock loss; cancellation alone is no completion proof. Shared conditional operations
 do not select a Notes ledger/protocol. Keep this and native-PG recovery open question3 as
 explicit remaining gates, alongside store controls/age/provider proof and lifecycle E2E.
+
+
+### Phase 6 host maintenance as built (startup still refused)
+
+Multi-mode `user add --admin` uses bounded stdin derived credentials and an exact existing PG
+schema, refusing customer/everyday creation and password/DSN argv. Recorded staff-org/region
+checks and an in-transaction binding recheck precede atomic account/platform-audit creation;
+the recovery code is emitted only after commit. Staff bootstrap preparation is staff-only,
+audited and serialized across independent pools, with password work outside N3. Everyday
+bootstrap variables refuse; single-mode paths remain unchanged.
+
+`accept-replica-config --confirm-stopped` reads deployment configuration without local-key
+fallback/minting and uses the full existing app field map. The retained salt/encryption key
+and fixed mode/staff/region cannot change. Fingerprint and changed-name audit commit together;
+a failed audit leaves the old fingerprint. Ordinary startup/config loaders still refuse multi.
+Tests cover both backends where applicable, actual PG target/schema/audit/input boundaries,
+real password checks, concurrent bootstrap and unchanged single-account workflows. Maintenance
+preparation does not choose PG backup transport or enable object/runtime/hosted startup.
+
+
+### Phase 6 fixed environment SSO as built (startup still refused)
+
+`NewFixedStore` accepts the existing app-validated environment snapshot without a database
+handle. Reload preserves it and Save refuses; single mode retains its original mutable store.
+PG PKCE state remains route-owned. Actual signed TLS issuer/two-pool tests exercise callback,
+one-use, wrong-org and differing-environment refusal without persisting client/directory
+secrets. Unit/environment-input tests prove immutable copies and concurrent mutation refusal.
+This prepares N5's store adapter; final runtime construction still waits for primary object
+storage, native PG recovery and full lifecycle acceptance before startup can be enabled.
+
+Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
+only when both the store's server-owned fixed marker and recorded multi mode agree. All
+account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
+mutable stores retain the database configuration recheck. Signed tests cover fixed directory
+signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
