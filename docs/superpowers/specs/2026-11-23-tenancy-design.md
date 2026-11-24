@@ -1643,7 +1643,7 @@ The selected resolution is a time fence, with no new ledger:
 
 Tests: a PUT blocked at the provider times out at the client; the purge runs; the provider
 then stores the PUT. The purge must not be marked inside the window, and the run after it must
-leave no key. Removing the window check fails it; removing the deadline hangs it to its limit.
+leave no key. Removing the window check fails it; removing the deadline fails its 10-second guard.
 The orphan sweep keeps young, unknown-age, claimed, pending-upload and stopped-org objects.
 Mutations of the age check, the claim re-check and the pending-upload check each fail it.
 
