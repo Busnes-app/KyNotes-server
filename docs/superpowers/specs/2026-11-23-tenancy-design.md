@@ -1570,7 +1570,25 @@ client, volume fallback, automatic pruning or hosted/native-backup readiness is 
 The object preparation consumes the shared client's encoded-byte GET correction: identity
 encoding preserves opaque gzip-labelled bytes and GET/HEAD size agreement. A regression fails
 against the earlier published client and passes after the upstream correction. This does not
-make the separately prepared/unpublished conditional-PUT/timestamp follow-up available.
+make the separately merged conditional-PUT/timestamp follow-up part of the consumed dependency.
+
+
+### PR 5b-2 as built: credential/client preparation (startup still refused)
+
+`app.newReplicaObjectClient` consumes the selected environment/_FILE credential forms through
+one bounded, setting-name-only reader and the actual shared client's constructor. One form
+per key, one nonempty line, at most64KiB; regular files may have one trailing LF/CRLF.
+Credentials never enter shared fingerprints/settings or local keys. Construction performs no
+network or database I/O and is not called by ordinary startup or maintenance loading.
+Tests cover direct/file/mixed sources, ambiguity/empty/size/multiline/path/type refusal,
+secret-safe errors/formatting, shared-field separation and unchanged startup refusals.
+
+Base #77 is merged and pinned to79823f9; #78 is merged asb55ca6d but is not consumed. Before
+complete GC/purge/runtime binding, Notes must select and qualify delayed remote-PUT fate
+after PG-lock loss; cancellation alone is no completion proof. Shared conditional operations
+do not select a Notes ledger/protocol. Keep this and native-PG recovery open question3 as
+explicit remaining gates, alongside store controls/age/provider proof and lifecycle E2E.
+
 
 ### Phase 6 host maintenance as built (startup still refused)
 

@@ -203,6 +203,14 @@ continued N3 availability while the provider blocks. This is product-adapter bou
 not real-provider qualification or a complete object/GC/runtime implementation. Upstream
 client gate clearance, exclusive controls, provider age and native recovery remain prerequisites.
 
+
+Primary-object client preparation has a separate environment/_FILE credential boundary.
+`TestReplicaObject*` covers bounded values/files, source ambiguity, nonregular/missing paths,
+multiline/empty refusal and secret-safe errors/formatting. Construction writes no shared
+settings or local store and does not enable startup. Actual delayed PUT completion after a
+lost PG lock remains unqualified; neither a canceled context nor the published wire API is
+erasure proof. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
+
 Host maintenance uses the exact existing PG schema and recorded staff org/region, with no
 migration or local-key fallback. Tests require atomic account/audit creation, real password
 verification and wrong-proof refusal, bounded secret input and redacted errors, and one-create

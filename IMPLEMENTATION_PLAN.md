@@ -2309,6 +2309,28 @@ binding, age-gated orphans/probe cleanup, provider/latency/erasure evidence, nat
 and final mode-binding/runtime/lifecycle assembly remain prerequisites. Startup stays refused;
 no volume fallback, private client, unselected provider/transport or version pruning.
 
+
+### Tenancy PR 5b-2: primary-object credential preparation
+
+Prepared the actual shared S3 client from the selected environment credentials or their
+`_FILE` alternatives, separately from maintenance/shared-fingerprint input. Both forms set
+(including empty values) refuse; inputs are one nonempty line, at most 64 KiB. Operator-owned
+regular credential files may end with one LF/CRLF; bounded reads, source/type failures and
+client validation errors disclose setting names only. Construction makes no network request,
+local key/store or SQL write. No normal config loader or startup path invokes it.
+
+The base shared client is pinned to merged #77 (`79823f9`); #78's exclusive-create,
+ETag and age additions are merged as `b55ca6d` but are not consumed by this pin. Complete Backend/Temporary,
+store-ID/probes, request/GC/purge integration and provider evidence remain unbuilt.
+
+Before binding GC/purge/runtime, qualify the fate of an already-issued remote PUT after the
+writer loses its PG session lock or context. Lock loss/cancellation alone cannot prove that
+remote write finished before erasure. The selected Notes resolution and delayed-write test
+must be recorded here before erasure-readiness claims; consuming wire-only conditional APIs
+does not select Messages' ledger/protocol. Preserve access fences while this is unresolved.
+Native encrypted PG base-backup/WAL tool/transport, destination/retention and restore/drill
+remain spec open question 3. Startup remains refused; existing single-mode behavior stays.
+
 ### Phase 6 host maintenance preparation
 
 Built host-only PG staff creation with bounded stdin derived credentials and environment-only
