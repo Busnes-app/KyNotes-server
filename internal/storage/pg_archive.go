@@ -266,7 +266,7 @@ GROUP BY c.relname ORDER BY c.relname`)
 	parents := map[string][]string{}
 	rows, err = pc.Query(ctx, `SELECT c.relname, p.relname FROM pg_constraint k
 JOIN pg_class c ON c.oid=k.conrelid JOIN pg_class p ON p.oid=k.confrelid
-WHERE k.contype='f' AND c.relnamespace=current_schema()::regnamespace`)
+WHERE k.contype='f' AND c.relnamespace=current_schema()::regnamespace ORDER BY 1,2`)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +285,14 @@ WHERE k.contype='f' AND c.relnamespace=current_schema()::regnamespace`)
 	if rows.Close(); rows.Err() != nil {
 		return nil, rows.Err()
 	}
+	return orderTables(names, byName, parents)
+}
+
+// orderTables puts parents before children. Names and each parent list are sorted first, so
+// the order depends on the schema alone, never on catalog scan order: restore compares the
+// archive's table list with the target's position by position.
+func orderTables(names []string, byName map[string]archiveTable, parents map[string][]string) ([]archiveTable, error) {
+	names = slices.Sorted(slices.Values(names))
 	var out []archiveTable
 	state := map[string]int{} // 1 visiting, 2 done
 	var visit func(string) error
@@ -296,7 +304,7 @@ WHERE k.contype='f' AND c.relnamespace=current_schema()::regnamespace`)
 			return nil
 		}
 		state[n] = 1
-		for _, p := range parents[n] {
+		for _, p := range slices.Sorted(slices.Values(parents[n])) {
 			if err := visit(p); err != nil {
 				return err
 			}

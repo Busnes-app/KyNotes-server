@@ -189,3 +189,34 @@ func (h *hookWriter) Write(p []byte) (int, error) {
 	}
 	return h.buf.Write(p)
 }
+
+// The table order depends only on the schema: the same foreign keys listed in any catalog
+// order give the same archive layout, so a restore never refuses an identical schema.
+func TestArchiveTableOrderIgnoresCatalogOrder(t *testing.T) {
+	names := []string{"y", "child", "x", "a"}
+	byName := map[string]archiveTable{}
+	for _, n := range names {
+		byName[n] = archiveTable{Name: n}
+	}
+	order := func(names []string, parents map[string][]string) string {
+		t.Helper()
+		got, err := orderTables(names, byName, parents)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s []string
+		for _, tb := range got {
+			s = append(s, tb.Name)
+		}
+		return strings.Join(s, ",")
+	}
+	// child sorts before its parents, so its parent list decides their order.
+	one := order(names, map[string][]string{"child": {"y", "x"}})
+	two := order([]string{"x", "a", "child", "y"}, map[string][]string{"child": {"x", "y"}})
+	if one != two || one != "a,x,y,child" {
+		t.Fatalf("orders %q and %q", one, two)
+	}
+	if _, err := orderTables([]string{"a", "b"}, byName, map[string][]string{"a": {"b"}, "b": {"a"}}); err == nil {
+		t.Fatal("a cycle was ordered")
+	}
+}
