@@ -7,7 +7,7 @@ import {
   type CanvasBox, type CanvasPage as Page, type CanvasStroke, type InkColor,
 } from "./document";
 import { History, addBox, contentExtent, eraseAt, fitBox, freeSpot, isUndoKey, pageFits, pruneEmpty, readingOrder, updateBox } from "./canvas";
-import { strokePath } from "./ink";
+import { samplesOf, strokePath } from "./ink";
 import { FORMATS, applyFormat, blockOf, type Format, type TextEditor } from "./format";
 import { NavIcon } from "./NavIcon";
 
@@ -298,7 +298,7 @@ export default function CanvasPage({ pageID, body, onChange, onError, uploadFile
     }
     const points = draft.current;
     if (!points) return;
-    for (const sample of event.nativeEvent.getCoalescedEvents?.() ?? [event.nativeEvent]) {
+    for (const sample of samplesOf(event.nativeEvent)) {
       if (points.length >= MAX_STROKE_POINTS * 3) break;
       const { x, y } = local(sample);
       points.push(Math.round(x), Math.round(y), pressureOf(sample));

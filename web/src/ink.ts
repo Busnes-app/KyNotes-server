@@ -16,3 +16,9 @@ export function strokePath(points: number[], size: number, highlighter: boolean)
   if (!outline.length) return "";
   return `M${outline.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join("L")}Z`;
 }
+
+/** A pointer move's samples, or the move itself when the browser lists none (Ladybird lists none). */
+export function samplesOf<T extends { getCoalescedEvents?: () => T[] }>(event: T): T[] {
+  const coalesced = event.getCoalescedEvents?.() ?? [];
+  return coalesced.length ? coalesced : [event];
+}

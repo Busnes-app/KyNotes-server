@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { strokePath } from "./ink";
+import { samplesOf, strokePath } from "./ink";
+
+type Move = { x: number; getCoalescedEvents?: () => Move[] };
+
+describe("samplesOf", () => {
+  it("uses the browser's coalesced samples", () => {
+    const samples: Move[] = [{ x: 1 }, { x: 2 }];
+    const move: Move = { x: 2, getCoalescedEvents: () => samples };
+    expect(samplesOf(move)).toBe(samples);
+  });
+  it("falls back to the move itself when the list is empty or missing", () => {
+    const empty: Move = { x: 3, getCoalescedEvents: () => [] };
+    const missing: Move = { x: 4 };
+    expect(samplesOf(empty)).toEqual([empty]);
+    expect(samplesOf(missing)).toEqual([missing]);
+  });
+});
 
 describe("strokePath", () => {
   it("renders nothing without points", () => {
