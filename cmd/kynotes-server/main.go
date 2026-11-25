@@ -57,6 +57,15 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "qualify-object-store":
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			e := app.QualifyObjectStore(ctx, os.Stdout)
+			cancel()
+			if e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				os.Exit(1)
+			}
+			return
 		case "prepare-postgres-restore":
 			if e := preparePostgresRestoreCommand(os.Args[2:], os.Stdout); e != nil {
 				fmt.Fprintln(os.Stderr, e)

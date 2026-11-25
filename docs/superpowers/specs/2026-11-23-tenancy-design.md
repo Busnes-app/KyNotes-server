@@ -1658,6 +1658,31 @@ Unproven: that a selected provider honors request age and commits no PUT past th
 (provider qualification), and clock skew between provider and database beyond a few minutes.
 
 
+### Provider qualification as built (startup still refused)
+
+`blobstore.QualifyProvider`, run by `kynotes-server qualify-object-store` with the replica's
+own object environment and bounded `_FILE`/direct credential reader (PR 5b-2), checks the
+provider behaviors the object runtime relies on, under a fresh `qualify/<random>/` prefix it
+deletes again on success and failure:
+
+- **Signatures:** a request signed with a wrong secret is refused, not answered `404`.
+- **Conditional writes:** a second `If-None-Match: *` PUT is refused (`412`) and the object
+  keeps its first bytes (blob writes and the store ID rely on this).
+- **Age metadata:** `LastModified` is present and within 5 minutes of this host's clock, since
+  the orphan sweep ages objects by provider time.
+- **Versions and erasure:** an overwrite and a delete, then a prefix delete, leave no version or
+  delete marker. Versioning on or off is reported; both qualify, because Delete and Purge remove
+  every version.
+
+It needs only read, write, list and delete in the bucket. `TestProviderQualificationOnVersionedS3`
+runs it against the suite's signature-checking, versioned SeaweedFS fixture behind a verified TLS
+proxy (CI job `object-store`, normal and FIPS), and makes the proxy lie in one way at a time;
+each lie fails at its own step. **Not qualified here:** SigV4 request-age refusal (a request
+signed more than 15 minutes earlier) and so the late-PUT window's provider bound, because the
+shared client exposes no signer clock; that needs a ky-primitives option. Credential scope
+(that the key reaches only this bucket) is the operator's IAM policy and is not probed. The
+chosen hosted provider must pass this command before multi startup is enabled.
+
 ### Phase 6 host maintenance as built (startup still refused)
 
 Multi-mode `user add --admin` uses bounded stdin derived credentials and an exact existing PG
