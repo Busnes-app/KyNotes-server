@@ -327,6 +327,9 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   No customer/everyday account or password/DSN argv path exists there. Startup bootstrap
   preparation seeds only staff accounts, rechecks under N3, refuses everyday variables and
   audits; the single bootstrap/CLI paths retain their original behavior.
+  `qualify-object-store` runs `blobstore.QualifyProvider` with the replica object environment and
+  credential reader; verify `TestProviderQualificationOnVersionedS3` (CI `object-store`) and
+  `TestQualifyObjectStoreRefusesIncompleteInput`. It proves no SigV4 request-age refusal.
   `accept-replica-config --confirm-stopped` loads the complete app-owned field map through a
   separate read-only maintenance loader, requires the retained salt key and fixed mode/staff/
   region, and atomically audits changed names only. Stop every replica first. Normal config

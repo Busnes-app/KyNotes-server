@@ -48,6 +48,12 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
 - New shared-client dependencies must point to its reviewed upstream implementation, with no
   copied signing/transport or invented client contract. Provider qualification is separate from
   the local TLS S3 wire fixture.
+- `QualifyProvider` (CLI `qualify-object-store`) proves on a throwaway `qualify/<random>/`
+  prefix, removed on every exit: signatures verified, If-None-Match: * refused and not
+  replacing, LastModified present within `MaxProviderSkew`, prefix erasure leaving no version
+  or marker. Versioning is reported, not required. Each check has a lying-proxy case in
+  `TestProviderQualificationOnVersionedS3` (CI `object-store` job, SeaweedFS, both profiles);
+  keep one per check. SigV4 request-age refusal is not proven: the shared client has no clock option.
 
 ## Work Guidance
 
