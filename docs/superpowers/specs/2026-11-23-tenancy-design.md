@@ -1605,6 +1605,20 @@ do not select a Notes ledger/protocol. Keep this and native-PG recovery open que
 explicit remaining gates, alongside store controls/age/provider proof and lifecycle E2E.
 
 
+### PR 5b-3 as built: object GC and org purge (startup still refused)
+
+`storage.RunObjectGC` is the multi-mode blob sweep. Candidates and the in-lock re-check are per
+`(org_id, digest)` with org-qualified references, at most 100 a pass, serving orgs only. Each
+blob takes `BlobLockName(org, digest)`, deletes its rows in a short transaction on that
+connection, commits, then deletes every version of the object. A failed delete leaves an
+object with no row. `PurgeOrg` takes a `PurgeObjects` step and refuses without one; it deletes
+the `orgs/<org_id>/` prefix after the rows and marks the tombstone purged only on success.
+Tests use the real shared client over the local TLS fixture on PostgreSQL. Each property fails
+under mutation: org-blind candidates, no re-check, object delete before commit, purge without
+the prefix step. The schedule adapter carries the purge step; startup binding, the late-PUT
+fence and the orphan sweep are separate.
+
+
 ### Phase 6 host maintenance as built (startup still refused)
 
 Multi-mode `user add --admin` uses bounded stdin derived credentials and an exact existing PG
