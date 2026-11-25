@@ -24,7 +24,7 @@ Elect one multi-tenant scheduler without an external coordination service.
 
 ## Verification
 
-- `KYNOTES_TEST_DATABASE_URL=<isolated PG17 database> go test -race -count=1 ./internal/worker`
+- `KYNOTES_TEST_DATABASE_URL=<isolated PostgreSQL 18 database> go test -race -count=1 ./internal/worker`
 - `TestReplicaWorkerExclusionCancellationAndTakeover`
 - `TestReplicaWorkerCancelsOnLostConnection` terminates only its schema-specific test lock session.
 
