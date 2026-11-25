@@ -354,3 +354,40 @@ func TestPurgeRefusesWithoutObjectsAndKeepsTheOrgUnpurged(t *testing.T) {
 		t.Fatalf("org marked purged with its objects left: %q %v", purgedAt, err)
 	}
 }
+
+// An org no longer deleted when the batches end keeps its objects, and one that changes during
+// the prefix delete is not marked purged: both decisions re-read the status.
+func TestPurgeRereadsTheStatusBeforeThePrefixAndTheMark(t *testing.T) {
+	s, _, _ := purgeFixture(t)
+	endPurgeWindow(t, s)
+	restore := func() {
+		if _, err := s.db.Exec(`UPDATE orgs SET status='active' WHERE id='org_b'`); err != nil {
+			t.Error(err)
+		}
+	}
+	purgeBatchHook = func(table string) error {
+		if table == "users" {
+			restore()
+		}
+		return nil
+	}
+	t.Cleanup(func() { purgeBatchHook = func(string) error { return nil } })
+	called := false
+	objects := func(context.Context, string) error { called = true; return nil }
+	if err := PurgeOrg(context.Background(), s.db, objects, "org_b"); err == nil || called {
+		t.Fatalf("prefix deleted for an org no longer deleted: err=%v called=%v", err, called)
+	}
+	purgeBatchHook = func(string) error { return nil }
+	if _, err := s.db.Exec(`UPDATE orgs SET status='deleted' WHERE id='org_b'`); err != nil {
+		t.Fatal(err)
+	}
+	endPurgeWindow(t, s)
+	flip := func(context.Context, string) error { restore(); return nil }
+	if err := PurgeOrg(context.Background(), s.db, flip, "org_b"); err == nil {
+		t.Fatal("an org restored during the prefix delete was marked purged")
+	}
+	var purgedAt string
+	if err := s.db.QueryRow(`SELECT purged_at FROM orgs WHERE id='org_b'`).Scan(&purgedAt); err != nil || purgedAt != "" {
+		t.Fatalf("purged_at=%q %v", purgedAt, err)
+	}
+}

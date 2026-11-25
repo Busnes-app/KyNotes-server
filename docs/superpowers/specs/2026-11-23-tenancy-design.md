@@ -1634,10 +1634,14 @@ The selected resolution is a time fence, with no new ledger:
 - The purge's first run inserts `purge_fence:<org>` in database time with the
   `platform.org_purge_started` audit, in one transaction (the audit is now written once). Every
   run deletes the rows and the prefix. Only a run that read the fence at least the window old
-  before its prefix delete marks the tombstone purged and removes the fence.
+  before its prefix delete marks the tombstone purged and removes the fence. The status is
+  re-read before the prefix delete, and the mark requires `status='deleted'` in its own
+  transaction.
 - `SweepOrphanObjects` runs at the end of `RunObjectGC`. For each serving org it lists the
-  prefix with provider times and deletes, under the blob or upload session lock, any blob with
-  no row and any upload with no pending session, once over an hour old. Zero (unknown) age
+  prefix with provider times and deletes any blob with no row and any upload with no pending
+  session, once over an hour old. Each deletion is admitted under the blob or upload session
+  lock, in a short transaction that re-reads both the claim and whether the org still serves.
+  An org stopped during the listing keeps its objects. Zero (unknown) age
   never deletes; at most 100 a pass.
 - The shared client pin moved to the #78 merge (`b55ca6d`) for `LastModified`.
 
@@ -1646,6 +1650,9 @@ then stores the PUT. The purge must not be marked inside the window, and the run
 leave no key. Removing the window check fails it; removing the deadline fails its 10-second guard.
 The orphan sweep keeps young, unknown-age, claimed, pending-upload and stopped-org objects.
 Mutations of the age check, the claim re-check and the pending-upload check each fail it.
+`TestOrphanSweepKeepsObjectsOfAnOrgStoppedDuringTheListing` suspends the org from inside the
+provider listing; it fails without the in-lock serving re-check.
+`TestPurgeRereadsTheStatusBeforeThePrefixAndTheMark` fails without either status re-read.
 
 Unproven: that a selected provider honors request age and commits no PUT past the window
 (provider qualification), and clock skew between provider and database beyond a few minutes.

@@ -374,3 +374,40 @@ func TestOrphanSweepDeletesOnlyOldUnclaimedObjects(t *testing.T) {
 		}
 	}
 }
+
+// An org stopped while the sweep lists its prefix keeps its orphans: each deletion re-admits
+// the org under the session lock, not from the earlier org query.
+func TestOrphanSweepKeepsObjectsOfAnOrgStoppedDuringTheListing(t *testing.T) {
+	db := runtimeDatabase(t)
+	fixture, client := newObjectFixture(t)
+	old := time.Now().Add(-2 * time.Hour)
+	body := "orphan of an org about to stop"
+	d := objectDigest([]byte(body))
+	store := objectStore(t, client, "org_a", t.TempDir())
+	if err := store.Put(t.Context(), d, strings.NewReader(body), int64(len(body))); err != nil {
+		t.Fatal(err)
+	}
+	upload, err := ids.Mint("ups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutPart(t.Context(), upload, 0, strings.NewReader("chunk"), 5); err != nil {
+		t.Fatal(err)
+	}
+	blobKey, _ := blobstore.BlobKey("org_a", d)
+	partKey, _ := blobstore.UploadPartKey("org_a", upload, 0)
+	fixture.mu.Lock()
+	fixture.modified[blobKey], fixture.modified[partKey] = old, old
+	fixture.onList = func() {
+		if _, err := db.Exec(`UPDATE orgs SET status='suspended' WHERE id='org_a'`); err != nil {
+			t.Error(err)
+		}
+	}
+	fixture.mu.Unlock()
+	if n, err := storage.SweepOrphanObjects(t.Context(), db, stores(t, client)); err != nil || n != 0 {
+		t.Fatalf("swept=%d err=%v", n, err)
+	}
+	if keys := orgKeys(fixture, "org_a"); len(keys) != 2 {
+		t.Fatalf("a stopped org lost objects: %v", keys)
+	}
+}

@@ -127,6 +127,14 @@ func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string)
 		}
 	}
 	waited := fenced >= int64(blobstore.LatePutWindow/time.Second)
+	// The batches take time and a run can wait out the window: re-read the status before the
+	// prefix goes, and again when marking it purged.
+	if err := db.QueryRowContext(ctx, `SELECT status FROM orgs WHERE id=?`, org).Scan(&status); err != nil {
+		return err
+	}
+	if status != "deleted" {
+		return fmt.Errorf("purge: org is %s", status)
+	}
 	if err := objects(ctx, org); err != nil {
 		return fmt.Errorf("purge objects: %w", err)
 	}
@@ -163,8 +171,12 @@ func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string)
 	if _, err = tx.ExecContext(ctx, `DELETE FROM server_settings WHERE key=?`, purgeFenceKey+org); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE orgs SET purged_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), org); err != nil {
+	res, err := tx.ExecContext(ctx, `UPDATE orgs SET purged_at=? WHERE id=? AND status='deleted'`, time.Now().UTC().Format(time.RFC3339), org)
+	if err != nil {
 		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return errors.Join(err, errors.New("purge: org is no longer deleted"))
 	}
 	if err = RecordAuditOutcomeTx(tx, "", "platform.org_deleted", "", org, "success", strings.Join(counts, ","), "org-purge"); err != nil {
 		return err
@@ -240,9 +252,6 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org, progress s
 			}
 		}
 		if err == nil {
-			err = purgeBatchHook(step.table)
-		}
-		if err == nil {
 			err = tx.Commit()
 		}
 		if err != nil {
@@ -250,13 +259,16 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org, progress s
 			return total, err
 		}
 		total += n
+		if err := purgeBatchHook(step.table); err != nil {
+			return total, err
+		}
 		if n < int64(purgeBatch) {
 			return total, nil
 		}
 	}
 }
 
-// purgeBatchHook lets a test kill a purge between batches.
+// purgeBatchHook runs after each committed batch, so a test can kill a purge between batches.
 var purgeBatchHook = func(string) error { return nil }
 
 const (

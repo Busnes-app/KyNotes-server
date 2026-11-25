@@ -41,6 +41,7 @@ type objectFixture struct {
 	gzipKey          string
 	getEncoding      string
 	modified         map[string]time.Time // provider age; absent is unknown
+	onList           func()               // runs during each listing, outside the lock
 }
 
 func newObjectFixture(t *testing.T) (*objectFixture, *shareds3.Client) {
@@ -75,6 +76,12 @@ func (f *objectFixture) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && key == "" {
+		f.mu.Lock()
+		onList := f.onList
+		f.mu.Unlock()
+		if onList != nil {
+			onList()
+		}
 		f.mu.Lock()
 		keys := []string{}
 		for k := range f.objects {
