@@ -131,7 +131,7 @@ jobs:
       - name: PostgreSQL restored-target and staff safety
         env:
           KYNOTES_TEST_DATABASE_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
-        run: go test -race -count=1 -timeout 20m -p 2 ./internal/backup ./cmd/kynotes-server -run '^(TestPostgresRestore|TestStaffUserCommand)'
+        run: go test -race -count=1 -timeout 20m -p 2 ./internal/backup ./cmd/kynotes-server -run '^(TestPostgresRestore|TestPostgresBackup|TestStaffUserCommand)'
 
   checks:
     if: github.event.pull_request.draft != true

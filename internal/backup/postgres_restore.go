@@ -16,25 +16,29 @@ func PreparePostgresRestore(ctx context.Context, store *storage.Store) error {
 	if !store.Postgres() {
 		return errors.New("restore preparation requires PostgreSQL")
 	}
-	return store.WithTx(ctx, func(tx *sql.Tx) error {
-		tenancy, err := storage.TenancyOfContext(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if !tenancy.Multi() {
-			return errors.New("restore preparation requires recorded multi tenancy")
-		}
-		if err := storage.RevokeRestoredCredentials(ctx, tx); err != nil {
-			return err
-		}
-		if err := storage.ResetTenancyAfterRestore(ctx, tx); err != nil {
-			return err
-		}
-		if err := recoveryclient.SetInterval(restoreSettings{ctx, tx}, 0); err != nil {
-			return err
-		}
-		return storage.RecordAuditOutcomeTx(tx, "", "platform.restore_prepared", "", "", "success", "credentials_revoked,schedule_off,orgs_stale", "pg-restore")
-	})
+	return store.WithTx(ctx, func(tx *sql.Tx) error { return fenceRestoredTx(ctx, tx) })
+}
+
+// fenceRestoredTx is the restore fence both PostgreSQL restore paths commit with: credentials
+// revoked, orgs stale behind the replay gate, deposits off, audited.
+func fenceRestoredTx(ctx context.Context, tx *sql.Tx) error {
+	tenancy, err := storage.TenancyOfContext(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if !tenancy.Multi() {
+		return errors.New("restore preparation requires recorded multi tenancy")
+	}
+	if err := storage.RevokeRestoredCredentials(ctx, tx); err != nil {
+		return err
+	}
+	if err := storage.ResetTenancyAfterRestore(ctx, tx); err != nil {
+		return err
+	}
+	if err := recoveryclient.SetInterval(restoreSettings{ctx, tx}, 0); err != nil {
+		return err
+	}
+	return storage.RecordAuditOutcomeTx(tx, "", "platform.restore_prepared", "", "", "success", "credentials_revoked,schedule_off,orgs_stale,replay_gated", "pg-restore")
 }
 
 // Keep the library's schedule key/validation inside its API while committing with the reset.

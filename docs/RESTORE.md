@@ -130,6 +130,41 @@ that wrote the capsule. Ordinary startup refusal leaves the original instance's
 credentials and schedule unchanged.
 
 
+## Back up and restore PostgreSQL in multi mode (tenancy preparation)
+
+Hosted startup is still refused in this release. `pg-backup` and `pg-restore` are the
+multi-mode database transport (tenancy open question 3). They have no 256 MiB capsule limit.
+Both read the database URL from `KYNOTES_DB_DSN` and the backup key from
+`KYNOTES_PG_BACKUP_KEY_FILE`, a regular file holding 64 hex characters (32 random bytes, e.g.
+`openssl rand -hex 32`). Keep the key apart from the archives: without it no archive opens,
+and with it every archive does.
+
+```bash
+kynotes-server pg-backup --out /backups/kynotes-2026-11-25.pgb
+```
+
+The backup reads every table in one `REPEATABLE READ` snapshot of the live database, so the
+`blobs` rows (the org-qualified object references) agree with the notes that use them. The
+archive is sealed in AES-256-GCM frames; a changed, reordered, cut or extended archive does
+not open. The file must not exist yet and is removed if the backup fails. Ciphertext objects
+are not copied: GC deletes an object only after `gc.retention` with no reference, so keep no
+archive you mean to restore longer than that retention (default 168 h). No command checks
+blob coverage yet; confirm the referenced objects exist before a hosted release serves.
+
+To restore, stop **every** replica, create a new, empty database and run the release that
+wrote the archive:
+
+```bash
+kynotes-server pg-restore --in /backups/kynotes-2026-11-25.pgb --confirm-stopped
+```
+
+It creates this release's schema, refuses a target that holds any data or another schema
+version, and loads every row in one transaction together with the restore fence described
+below (revocations, deposits off, orgs stale). It also writes the replay gate: until the elected worker
+has read the org and erased-subject feeds from zero and found nothing more, no customer org
+serves, so every erasure and org deletion since the backup is applied again before anyone is
+served. The worker then purges the deleted orgs again. If anything fails, nothing is loaded.
+
 ## Prepare a native PostgreSQL restored target (tenancy preparation)
 
 Hosted startup is still refused in this release. This command prepares a database restored
@@ -151,7 +186,7 @@ The command refuses an uninitialized, older/newer or single-mode target without 
 One transaction revokes web sessions, paired devices, share/sealed links and pending invitations;
 keeps encryption identities; turns scheduled deposits off; makes customer orgs stale at revision
 zero; clears old grants, directory cursors, replica ephemeral state and probe pointers; and
-records a platform audit. Erasure fences, permanent store ID, keys and sealed recovery pairing
+records a platform audit. It also writes the replay gate described above. Erasure fences, permanent store ID, keys and sealed recovery pairing
 remain. A schedule/audit/reset failure rolls everything back: keep the target stopped, fix the
 cause and repeat with its matching release.
 

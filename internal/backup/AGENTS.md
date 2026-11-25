@@ -57,6 +57,9 @@ service operations, blob mirror orchestration, and audit. Shared transport and c
   never re-pins a key, and sets the interval only when no admin setting exists. Dir and
   keep are env-fixed and only compared.
 
+- `BackupPostgres`/`RestorePostgres` seal storage's PostgreSQL archive (1 MiB AES-256-GCM
+  frames, HKDF per-archive key, AAD = magic, salt, index, final flag; random nonces, so FIPS).
+  The restore commits `fenceRestoredTx` with the rows. Never add a path that loads rows without it.
 - `PreparePostgresRestore` is an offline, exact-schema multi-mode target fence. Credential
   revocation, deposit schedule off, tenancy reset and audit share one transaction. No pin,
   token, encryption identity or permanent blob-store ID is replaced. Keep all replicas stopped

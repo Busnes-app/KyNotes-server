@@ -392,3 +392,12 @@ func named(args []driver.Value) []driver.NamedValue {
 	}
 	return out
 }
+
+// PgxConn returns the pgx connection under a driver connection from sql.Conn.Raw, for the
+// COPY protocol, or nil for any other driver.
+func PgxConn(driverConn any) *pgx.Conn {
+	if c, ok := driverConn.(*conn); ok {
+		return c.inner.Conn()
+	}
+	return nil
+}

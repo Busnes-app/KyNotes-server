@@ -23,6 +23,7 @@ func ResetTenancyAfterRestore(ctx context.Context, tx *sql.Tx) error {
 		`DELETE FROM replica_presence`,
 		`UPDATE reminders SET claimed_until=0,claim_token=''`,
 		`DELETE FROM server_settings WHERE key IN ('org_poll_revision','erased_poll_revision','replica_config_fingerprint','blob_probe','blob_probe_prev')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('` + RestoreReplayKey + `','pending',to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err

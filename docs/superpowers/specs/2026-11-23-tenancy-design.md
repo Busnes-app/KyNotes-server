@@ -1392,6 +1392,45 @@ Tests cover both schema-version refusals, explicit target/secret boundaries, ato
 and rollback, and single-mode no-change. The command does not recover PG backup bytes, choose
 open question 3's large-database transport or enable multi startup. Those remain prerequisites.
 
+### PostgreSQL backup transport as built (startup still refused)
+
+Open question 3 is answered for KyNotes with a logical archive, not base backup plus WAL:
+it needs no PostgreSQL tooling or superuser on the host, round-trips in CI, and has no capsule
+limit. A host that also runs PostgreSQL's own PITR still restores through
+`prepare-postgres-restore`, which now writes the same replay gate.
+
+- `pg-backup --out` (`storage.BackupPostgres`): one REPEATABLE READ READ ONLY transaction, a
+  JSON header (format, schema version, database time, tables and columns in foreign-key
+  order), each table's COPY text rows ended by `\.`, and a trailer of row counts and sequence
+  values. The `blobs`, `blob_containers` and version rows are the object references, from the
+  same snapshot as the notes. Objects themselves are not copied: GC retention (168 h by
+  default) bounds how old a restorable archive may be.
+- Sealing (`backup.BackupPostgres`): `KYNOTES_PG_BACKUP_KEY_FILE` (32 bytes, hex), HKDF-SHA256
+  per archive salt, 1 MiB AES-256-GCM frames with random nonces (FIPS), associated data binding
+  magic, salt, frame index and final flag.
+- `pg-restore --in --confirm-stopped`: a just-created database of the archive's schema version
+  only. One transaction deletes the migration and `ensureOrgs` seed rows, turns user triggers
+  off (usage and org-seeding triggers must not run twice), loads every table with foreign keys
+  checked, checks the trailer's counts, sets sequences, turns triggers back on and commits the
+  restore fence (`fenceRestoredTx`, shared with `prepare-postgres-restore`).
+- **Replay before serving.** `ResetTenancyAfterRestore` writes `restore_replay`. While it
+  exists `OrgServes` refuses every customer org (the staff org still serves), so sessions,
+  devices, share links, reminders, GC and the orphan sweep all wait. The elected worker's
+  `httpapi.FinishRestoreReplay` runs after the org and erased polls and deletes it only when
+  both feeds, read from the stored cursors, list nothing more and the cursors did not move.
+  So every erasure since the backup is fenced, and every deleted org is marked deleted, before
+  any customer org serves. The purge then deletes the restored deleted org again.
+- Tests (PostgreSQL): every table round-trips byte for byte, including COPY escapes, NULLs and
+  sequences, with triggers back on; damaged, truncated, extended, wrong-schema or wrong-count
+  archives, a failing fence and a target holding data load nothing; the snapshot excludes a
+  write committed during the backup; every change to a sealed archive fails to open;
+  `TestRestoreAfterPurgeReplaysBeforeServing` restores a backup taken before an org purge and
+  an erasure and shows the org unserved after the org poll until the erasure is replayed.
+- Not built: object storage as the archive's destination and its schedule binding (startup
+  binding), a blob-coverage check, and the KyIdentity "deleted orgs stay listed" trigger the
+  replay relies on (Downstream contract). Cells (C5) give the archive a cell-scoped object
+  prefix when the destination lands.
+
 ### Staff surface as built (startup still refused)
 
 The prepared multi-mode admin surface requires one org for the users read, filters the audit
@@ -1454,7 +1493,8 @@ multi startup or complete the native backup/object/runtime prerequisites.
    snapshots PostgreSQL into a capsule. A shared install will pass that. Recommend PostgreSQL's
    own backups (base backup plus WAL, encrypted, to object storage) for multi mode, with capsules
    kept for single-tenant installs and Enterprise. The restore reset (Lifecycle) then runs after a
-   PostgreSQL restore too. KyIdentity, KyCalendar and KyDrive face the same limit (unverified for
+   PostgreSQL restore too. **Built** as a logical COPY archive instead ("PostgreSQL backup
+   transport as built"). KyIdentity, KyCalendar and KyDrive face the same limit (unverified for
    their sizes).
 4. **Answered (owner decision 12): (a), with tombstoned comments.** An erased owner's team notebooks with other members. Delete everything deletes the
    clicker's data, and a team notebook is shared.

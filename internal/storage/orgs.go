@@ -76,10 +76,15 @@ func TenancyOf(q interface {
 // OrgServes is SQL that is true when the org named by the column expression col may be served:
 // always in single mode; in multi mode only an active, enabled org in this install's region
 // (tenancy N9, N13). Credential checks and the workers carry it, so a stopped org is refused on
-// the next request and its reminders and blobs wait.
+// the next request and its reminders and blobs wait. After a restore no customer org serves
+// until both suite feeds were replayed from zero (RestoreReplayKey).
 func OrgServes(col string) string {
-	return `(COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR EXISTS(SELECT 1 FROM orgs so WHERE so.id=` + col + ` AND so.status='active' AND so.enabled=1 AND so.home_region=(SELECT value FROM server_settings WHERE key='region')))`
+	return `(COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR EXISTS(SELECT 1 FROM orgs so WHERE so.id=` + col + ` AND so.status='active' AND so.enabled=1 AND so.home_region=(SELECT value FROM server_settings WHERE key='region') AND (so.id=(SELECT value FROM server_settings WHERE key='staff_org_id') OR NOT EXISTS(SELECT 1 FROM server_settings WHERE key='` + RestoreReplayKey + `'))))`
 }
+
+// RestoreReplayKey is the server_settings row a restore writes and the elected worker deletes
+// once the org and erased feeds, read from zero, have nothing more (httpapi.FinishRestoreReplay).
+const RestoreReplayKey = "restore_replay"
 
 const tenancyQuery = `SELECT COALESCE(MAX(CASE WHEN key='tenancy_mode' THEN value END),'single'),COALESCE(MAX(CASE WHEN key='staff_org_id' THEN value END),''),COALESCE(MAX(CASE WHEN key='region' THEN value END),'') FROM server_settings WHERE key IN ('tenancy_mode','staff_org_id','region')`
 
