@@ -18,8 +18,8 @@ import (
 )
 
 // replicaSchedules is the application adapter, not another scheduler. The eventual multi
-// startup binds gc to storage.RunObjectGC and purge to the org's blobstore.Objects.Purge, and
-// supplies PostgreSQL backup once it exists.
+// startup binds gc to storage.RunObjectGC, purge to the org's blobstore.Objects.Purge and
+// backup to backup.BackupPostgres with its object-storage destination.
 // Until then config.Load refuses multi; the single-mode loops stay unchanged.
 type replicaSchedules struct {
 	db           *sql.DB
@@ -52,6 +52,7 @@ func (s *replicaSchedules) tick(owned context.Context, now time.Time) {
 		s.minute = now.Add(time.Minute) // count attempts, including failures
 		run("org_poll", func() error { return s.orgs.Poll(owned) })
 		run("erased_poll", func() error { return httpapi.PollErased(owned, s.db, s.directory) })
+		run("restore_replay", func() error { return httpapi.FinishRestoreReplay(owned, s.db, s.directory) })
 		run("org_purge", func() error { return storage.PurgeDeletedOrgs(owned, s.db, s.purge) })
 		run("member_erase", func() error { return storage.EraseMembers(owned, s.db) })
 		run("shared_state", func() error { return storage.SweepSharedState(owned, s.db) })

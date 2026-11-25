@@ -107,3 +107,50 @@ func eraseSubjectTx(ctx context.Context, tx *sql.Tx, issuer, subject, org string
 	}
 	return eraseMemberTx(tx, user)
 }
+
+// FinishRestoreReplay lifts a restore's replay gate (storage.RestoreReplayKey) once the org
+// and erased feeds, read from zero, list nothing past the stored cursors: every deleted org is
+// marked again and every erased subject fenced before any customer org serves. The elected
+// worker runs it after both polls; the gate stays while either feed fails or has more.
+func FinishRestoreReplay(ctx context.Context, db *sql.DB, dir suitedir.Client) error {
+	var gated bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM server_settings WHERE key=?)`, storage.RestoreReplayKey).Scan(&gated); err != nil || !gated {
+		return err
+	}
+	cursors := func(q interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	}) (orgs, erased int64, err error) {
+		err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(CASE WHEN key='org_poll_revision' THEN CAST(value AS BIGINT) END),0),COALESCE(MAX(CASE WHEN key=? THEN CAST(value AS BIGINT) END),0) FROM server_settings WHERE key IN ('org_poll_revision',?)`, erasedCursor, erasedCursor).Scan(&orgs, &erased)
+		return orgs, erased, err
+	}
+	orgCursor, erasedAt, err := cursors(db)
+	if err != nil {
+		return err
+	}
+	if orgs, _, err := dir.Orgs(ctx, orgCursor); err != nil || len(orgs) > 0 {
+		return err
+	}
+	if notices, _, err := dir.Erased(ctx, erasedAt); err != nil || len(notices) > 0 {
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	o, e, err := cursors(tx)
+	if err != nil || o != orgCursor || e != erasedAt {
+		return err
+	} // A poll committed meanwhile; check again next tick.
+	res, err := tx.ExecContext(ctx, `DELETE FROM server_settings WHERE key=?`, storage.RestoreReplayKey)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return err
+	}
+	if err := storage.RecordAuditOutcomeTx(tx, "", "platform.restore_replayed", "", "", "success", "orgs_and_erasures_replayed", "restore-replay"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

@@ -982,6 +982,16 @@ in their writer operation. `TestErasedFeedFenceRejectsRacingSessionMint` proves 
 whose earlier lookup already ran cannot mint a session past a newer durable fence.
 
 
+### PostgreSQL backup transport (multi mode)
+
+`pg-backup` streams every table by COPY from one REPEATABLE READ snapshot into an archive
+sealed in AES-256-GCM frames under an operator key file; the blob rows in it are the object
+references of the same instant. `pg-restore` loads it into a just-created database in one
+transaction (user triggers off, foreign keys on) with the restore fence below, plus a replay
+gate: `OrgServes` refuses every customer org until the elected worker has read both suite
+feeds from zero to empty. Objects are not copied; GC retention bounds how old a restorable
+archive may be.
+
 ### Native PostgreSQL restored-target safety
 
 `OpenPostgresCurrent` opens only an existing, exact-release schema without migrating or

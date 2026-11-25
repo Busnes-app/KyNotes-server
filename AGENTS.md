@@ -349,6 +349,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   the original surface. No UI choice grants access or changes the startup refusal.
   Verify `TestStaff*`, N6, route classification, quota regressions, cross-org matrix and golden;
   `staffAPI.test.ts` and `staff-console.e2e.ts` exercise parsing, scope changes and late responses.
+- PostgreSQL backup transport (multi mode): `pg-backup --out` / `pg-restore --in --confirm-stopped`,
+  DSN and key file (`KYNOTES_PG_BACKUP_KEY_FILE`, 64 hex) from the environment only.
+  `storage.BackupPostgres` streams every table by COPY from one REPEATABLE READ snapshot, in
+  foreign-key order, with row counts and sequences in a trailer; `backup` seals it in 1 MiB
+  AES-256-GCM frames whose associated data binds salt, index and the final flag. Restore loads
+  only into a just-created target, with user triggers off (usage counters must not count twice)
+  and foreign keys on, then commits the restore fence in the same transaction.
+  `storage.RestoreReplayKey` keeps every customer org unserved (`OrgServes`) until
+  `httpapi.FinishRestoreReplay` sees both suite feeds empty past their cursors. Verify
+  `TestPostgresArchive*`, `TestSealedArchiveRefusesEveryChange`, `TestPostgresBackupRestoresFencedAndGated`
+  and `TestRestoreAfterPurgeReplaysBeforeServing`; a new table must be seeded in the round trip.
 - Native PostgreSQL restored-target preparation: `prepare-postgres-restore --confirm-restored`
   reads `KYNOTES_DB_DSN` only from the environment, opens the exact existing schema without
   migrating and refuses recorded single mode. Stop every replica before targeting a separately

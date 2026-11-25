@@ -72,6 +72,15 @@ func TestStoppedOrgIsRefusedOnEveryCredential(t *testing.T) {
 	if got := answers(); got != serving {
 		t.Fatalf("after resuming: %v", got)
 	}
+	// A restore's replay gate stops every customer org until the feeds are replayed.
+	set(`INSERT INTO server_settings(key,value,updated_at) SELECT '` + storage.RestoreReplayKey + `','pending',?`)
+	if got := answers(); got != stopped {
+		t.Fatalf("during the restore replay: %v, want %v", got, stopped)
+	}
+	set(`DELETE FROM server_settings WHERE key='` + storage.RestoreReplayKey + `' AND ?<>''`)
+	if got := answers(); got != serving {
+		t.Fatalf("after the restore replay: %v", got)
+	}
 }
 
 // A stopped org's reminders wait: none is pushed, and none is lost, until it serves again.
