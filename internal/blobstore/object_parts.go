@@ -17,6 +17,8 @@ import (
 // upload session lock and owns DB counter admission. An identical retry reuses bytes; a
 // rolled-back counter explicitly drops its uncommitted tail before accepting another body.
 func (s *Objects) PutPart(ctx context.Context, id string, index int64, body io.Reader, size int64) error {
+	ctx, cancel := context.WithTimeout(ctx, putDeadline)
+	defer cancel()
 	key, err := UploadPartKey(s.org, id, index)
 	if err != nil {
 		return err

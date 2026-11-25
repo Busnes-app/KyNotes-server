@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 )
 
 // purgeBatch is the most rows one purge transaction deletes, so no batch holds the writer
@@ -99,8 +101,9 @@ func PurgeDeletedOrgs(ctx context.Context, db *sql.DB, objects PurgeObjects) err
 
 // PurgeOrg deletes every row of one deleted org in short batches behind a fail-closed audit row,
 // then marks its tombstone purged (spec, Lifecycle, Deleted). It is idempotent: a purge killed
-// between batches finishes on its next run. After the rows, the org's object prefix goes; the
-// tombstone is marked purged only once that delete succeeded.
+// between batches finishes on its next run. After the rows, the org's object prefix goes, on
+// every run. The tombstone is marked purged only by a run whose prefix delete started at least
+// LatePutWindow after the purge fenced the org's writers, so a late PUT cannot outlive it.
 func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string) error {
 	if objects == nil {
 		return errors.New("purge: no object store") // multi mode has no blobs anywhere else
@@ -112,7 +115,8 @@ func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string)
 	if status != "deleted" || org == DefaultOrgID {
 		return fmt.Errorf("purge: org is %s", status)
 	}
-	if err := RecordAuditOutcome(db, "", "platform.org_purge_started", "", org, "success", "", "org-purge"); err != nil {
+	fenced, err := purgeFence(ctx, db, org)
+	if err != nil {
 		return err // nothing is deleted without the record that the purge began
 	}
 	progress := "purge_rows:" + org + ":"
@@ -122,8 +126,20 @@ func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string)
 			return fmt.Errorf("purge %s: %w", step.table, err)
 		}
 	}
+	waited := fenced >= int64(blobstore.LatePutWindow/time.Second)
+	// The batches take time and a run can wait out the window: re-read the status before the
+	// prefix goes, and again when marking it purged.
+	if err := db.QueryRowContext(ctx, `SELECT status FROM orgs WHERE id=?`, org).Scan(&status); err != nil {
+		return err
+	}
+	if status != "deleted" {
+		return fmt.Errorf("purge: org is %s", status)
+	}
 	if err := objects(ctx, org); err != nil {
 		return fmt.Errorf("purge objects: %w", err)
+	}
+	if !waited {
+		return nil // a PUT admitted before the fence may still land; a later run deletes it
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -152,13 +168,61 @@ func PurgeOrg(ctx context.Context, db *sql.DB, objects PurgeObjects, org string)
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE orgs SET purged_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), org); err != nil {
+	if _, err = tx.ExecContext(ctx, `DELETE FROM server_settings WHERE key=?`, purgeFenceKey+org); err != nil {
 		return err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE orgs SET purged_at=? WHERE id=? AND status='deleted'`, time.Now().UTC().Format(time.RFC3339), org)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return errors.Join(err, errors.New("purge: org is no longer deleted"))
 	}
 	if err = RecordAuditOutcomeTx(tx, "", "platform.org_deleted", "", org, "success", strings.Join(counts, ","), "org-purge"); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+const purgeFenceKey = "purge_fence:"
+
+// purgeFence returns the seconds, in database time, since the org's purge began. The first run
+// records that time with the platform.org_purge_started audit, in one transaction. The org is
+// deleted before then, so every writer admitted later is refused.
+func purgeFence(ctx context.Context, db *sql.DB, org string) (int64, error) {
+	clock := `SELECT CAST(strftime('%s','now') AS INTEGER)`
+	if IsPostgres(db) {
+		clock = `SELECT floor(extract(epoch FROM clock_timestamp()))::bigint`
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var now int64
+	if err := tx.QueryRowContext(ctx, clock).Scan(&now); err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO server_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO NOTHING`, purgeFenceKey+org, strconv.FormatInt(now, 10), time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return 0, err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return 0, err
+	} else if n == 1 {
+		if err := RecordAuditOutcomeTx(tx, "", "platform.org_purge_started", "", org, "success", "", "org-purge"); err != nil {
+			return 0, err
+		}
+	}
+	var since string
+	if err := tx.QueryRowContext(ctx, `SELECT value FROM server_settings WHERE key=?`, purgeFenceKey+org).Scan(&since); err != nil {
+		return 0, err
+	}
+	start, err := strconv.ParseInt(since, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return now - start, tx.Commit()
 }
 
 // purgeTable deletes the step's rows in batches. When progress names a server_settings row, each
@@ -188,9 +252,6 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org, progress s
 			}
 		}
 		if err == nil {
-			err = purgeBatchHook(step.table)
-		}
-		if err == nil {
 			err = tx.Commit()
 		}
 		if err != nil {
@@ -198,13 +259,16 @@ func purgeTable(ctx context.Context, db *sql.DB, step purgeStep, org, progress s
 			return total, err
 		}
 		total += n
+		if err := purgeBatchHook(step.table); err != nil {
+			return total, err
+		}
 		if n < int64(purgeBatch) {
 			return total, nil
 		}
 	}
 }
 
-// purgeBatchHook lets a test kill a purge between batches.
+// purgeBatchHook runs after each committed batch, so a test can kill a purge between batches.
 var purgeBatchHook = func(string) error { return nil }
 
 const (

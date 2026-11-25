@@ -1598,7 +1598,7 @@ network or database I/O and is not called by ordinary startup or maintenance loa
 Tests cover direct/file/mixed sources, ambiguity/empty/size/multiline/path/type refusal,
 secret-safe errors/formatting, shared-field separation and unchanged startup refusals.
 
-Base #77 is merged and pinned to79823f9; #78 is merged asb55ca6d but is not consumed. Before
+Base #77 was pinned at 79823f9; the late-PUT fence moved the pin to the #78 merge b55ca6d. Before
 complete GC/purge/runtime binding, Notes must select and qualify delayed remote-PUT fate
 after PG-lock loss; cancellation alone is no completion proof. Shared conditional operations
 do not select a Notes ledger/protocol. Keep this and native-PG recovery open question3 as
@@ -1617,6 +1617,45 @@ Tests use the real shared client over the local TLS fixture on PostgreSQL. Each 
 under mutation: org-blind candidates, no re-check, object delete before commit, purge without
 the prefix step. The schedule adapter carries the purge step; startup binding, the late-PUT
 fence and the orphan sweep are separate.
+
+
+### Late-PUT erasure fence as built (startup still refused)
+
+The problem: a writer admitted before an org's deletion (or holding a blob lock it then
+loses) can have a PUT the provider stores after the purge deleted the prefix, or after GC
+deleted the blob. Lock loss and cancellation prove nothing about that remote write.
+
+The selected resolution is a time fence, with no new ledger:
+
+- `Objects.Put`/`PutPart` bound the whole call by a 5-minute deadline from entry. Callers
+  admit the org under the session lock just before the call, with bytes already received.
+- `LatePutWindow` is 20 minutes: the deadline plus SigV4's 15-minute request-age limit, which
+  a provider applies when it receives the request.
+- The purge's first run inserts `purge_fence:<org>` in database time with the
+  `platform.org_purge_started` audit, in one transaction (the audit is now written once). Every
+  run deletes the rows and the prefix. Only a run that read the fence at least the window old
+  before its prefix delete marks the tombstone purged and removes the fence. The status is
+  re-read before the prefix delete, and the mark requires `status='deleted'` in its own
+  transaction.
+- `SweepOrphanObjects` runs at the end of `RunObjectGC`. For each serving org it lists the
+  prefix with provider times and deletes any blob with no row and any upload with no pending
+  session, once over an hour old. Each deletion is admitted under the blob or upload session
+  lock, in a short transaction that re-reads both the claim and whether the org still serves.
+  An org stopped during the listing keeps its objects. Zero (unknown) age
+  never deletes; at most 100 a pass.
+- The shared client pin moved to the #78 merge (`b55ca6d`) for `LastModified`.
+
+Tests: a PUT blocked at the provider times out at the client; the purge runs; the provider
+then stores the PUT. The purge must not be marked inside the window, and the run after it must
+leave no key. Removing the window check fails it; removing the deadline fails its 10-second guard.
+The orphan sweep keeps young, unknown-age, claimed, pending-upload and stopped-org objects.
+Mutations of the age check, the claim re-check and the pending-upload check each fail it.
+`TestOrphanSweepKeepsObjectsOfAnOrgStoppedDuringTheListing` suspends the org from inside the
+provider listing; it fails without the in-lock serving re-check.
+`TestPurgeRereadsTheStatusBeforeThePrefixAndTheMark` fails without either status re-read.
+
+Unproven: that a selected provider honors request age and commits no PUT past the window
+(provider qualification), and clock skew between provider and database beyond a few minutes.
 
 
 ### Phase 6 host maintenance as built (startup still refused)

@@ -207,9 +207,11 @@ client gate clearance, exclusive controls, provider age and native recovery rema
 Primary-object client preparation has a separate environment/_FILE credential boundary.
 `TestReplicaObject*` covers bounded values/files, source ambiguity, nonregular/missing paths,
 multiline/empty refusal and secret-safe errors/formatting. Construction writes no shared
-settings or local store and does not enable startup. Actual delayed PUT completion after a
-lost PG lock remains unqualified; neither a canceled context nor the published wire API is
-erasure proof. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
+settings or local store and does not enable startup. A late PUT after a lost PG lock is fenced
+by time: `TestLatePutAfterPurgeIsErasedBeforeTheOrgIsMarkedPurged` lands a timed-out PUT after
+the prefix delete and fails if the purge completes inside the window;
+`TestOrphanSweepDeletesOnlyOldUnclaimedObjects` covers GC/erasure orphans. The provider's
+honoring of the window is unqualified. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
 
 Host maintenance uses the exact existing PG schema and recorded staff org/region, with no
 migration or local-key fallback. Tests require atomic account/audit creation, real password

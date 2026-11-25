@@ -49,8 +49,11 @@ func TestOrgUsageMatchesUsedBytes(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE orgs SET status='deleted' WHERE id='org_b'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := PurgeOrg(context.Background(), s.db, noObjects, "org_b"); err != nil {
-		t.Fatal(err)
+	for range 2 { // the second run is past the late-PUT window
+		if err := PurgeOrg(context.Background(), s.db, noObjects, "org_b"); err != nil {
+			t.Fatal(err)
+		}
+		endPurgeWindow(t, s)
 	}
 	var n int
 	if err := s.db.QueryRow(`SELECT count(*) FROM org_usage WHERE org_id='org_b'`).Scan(&n); err != nil || n != 0 {

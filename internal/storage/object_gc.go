@@ -69,7 +69,108 @@ func RunObjectGC(ctx context.Context, db *sql.DB, stores ObjectStores, now time.
 	if _, err := db.ExecContext(ctx, `UPDATE blobs AS b SET unreferenced_since=? WHERE unreferenced_since='' AND `+orgUnreferenced, now.UTC().Format(time.RFC3339)); err != nil {
 		return deleted, errors.Join(sweepErr, err)
 	}
-	return deleted, sweepErr
+	orphans, err := SweepOrphanObjects(ctx, db, stores)
+	return deleted + orphans, errors.Join(sweepErr, err)
+}
+
+// orphanAge is how old, by the provider's clock, an object no row claims must be before the
+// sweep deletes it (spec: an hour). It exceeds LatePutWindow, so no admitted PUT is in flight.
+const orphanAge = time.Hour
+
+// SweepOrphanObjects deletes serving orgs' objects that no row claims: a blob whose delete
+// failed after its commit, or one a late PUT wrote after GC or an erasure deleted it, and the
+// parts of an upload with no pending session. Each deletion is admitted under its session lock
+// (the org still serves, no claim), so a writer that holds the lock claims first and an org
+// stopped after the listing keeps its objects. Unknown provider age never deletes.
+func SweepOrphanObjects(ctx context.Context, db *sql.DB, stores ObjectStores) (int, error) {
+	var now int64
+	if err := db.QueryRowContext(ctx, `SELECT floor(extract(epoch FROM clock_timestamp()))::bigint`).Scan(&now); err != nil {
+		return 0, err
+	}
+	cutoff := time.Unix(now, 0).Add(-orphanAge)
+	rows, err := db.QueryContext(ctx, `SELECT id FROM orgs o WHERE `+OrgServes("o.id")+` ORDER BY id`)
+	if err != nil {
+		return 0, err
+	}
+	var orgs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		orgs = append(orgs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, org := range orgs {
+		store, err := stores(org)
+		if err != nil {
+			return deleted, err
+		}
+		blobs, uploads, err := store.Stored(ctx)
+		if err != nil {
+			return deleted, err
+		}
+		type orphan struct {
+			lock, claimed string
+			id            string
+			drop          func(context.Context, string) error
+		}
+		var due []orphan
+		for digest, at := range blobs {
+			if !at.IsZero() && at.Before(cutoff) {
+				due = append(due, orphan{BlobLockName(org, digest), `SELECT count(*) FROM blobs WHERE org_id=? AND digest=?`, digest, store.Delete})
+			}
+		}
+		for id, at := range uploads {
+			if !at.IsZero() && at.Before(cutoff) {
+				due = append(due, orphan{"upload/" + id, `SELECT count(*) FROM upload_sessions WHERE org_id=? AND id=? AND status='pending'`, id, store.DeleteParts})
+			}
+		}
+		for _, o := range due {
+			if deleted >= objectGCBatch {
+				return deleted, nil
+			}
+			ok, err := dropOrphan(ctx, db, org, o.lock, o.claimed, o.id, o.drop)
+			if err != nil {
+				return deleted, err
+			}
+			if ok {
+				deleted++
+			}
+		}
+	}
+	return deleted, nil
+}
+
+func dropOrphan(ctx context.Context, db *sql.DB, org, lock, claimed, id string, drop func(context.Context, string) error) (bool, error) {
+	lease, _, err := SessionLock(ctx, db, lock, true)
+	if err != nil {
+		return false, err
+	}
+	defer lease.Release()
+	// Admit under the lock, in a short transaction (N3) that serialises with the org poll's
+	// status write: the org still serves and nothing claims the object. No I/O holds N3.
+	tx, err := lease.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var serving, n int
+	if err := tx.QueryRow(`SELECT count(*) FROM orgs o WHERE o.id=? AND `+OrgServes("o.id"), org).Scan(&serving); err != nil || serving == 0 {
+		return false, err
+	}
+	if err := tx.QueryRow(claimed, org, id).Scan(&n); err != nil || n != 0 {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, drop(lease.Context, id)
 }
 
 func sweepObject(ctx context.Context, db *sql.DB, stores ObjectStores, org, digest, cut string) (bool, error) {
