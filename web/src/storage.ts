@@ -1,6 +1,7 @@
 import { x25519 } from "@noble/curves/ed25519.js";
 import type { HeldIdentity } from "./identity";
 import type { KeyState } from "./keyring";
+import { keepStorage } from "./persist";
 import { isPinConfirmation, sameKey, type PinConfirmation, type Pins } from "./pins";
 import { sameBytes } from "./teamKeys";
 const databaseName = "kynotes-web";
@@ -332,12 +333,14 @@ const holds = (record: VaultRecord, userID: string, expected: HeldIdentity | nul
 export async function storeIdentityKey(username: string, userID: string, identity: HeldIdentity, expected?: HeldIdentity | null): Promise<boolean> {
   const stored = await sealForDevice(userID, identity).catch(() => undefined);
   // Only in an opened vault record: updateRecord never creates one.
-  return stored ? updateRecord(username, (record) => {
+  const kept = stored ? await updateRecord(username, (record) => {
     if (expected !== undefined && !holds(record, userID, expected)) return undefined;
     const { resetSent, ...rest } = record;
     // Keeping the key a reset sent finishes that reset here.
     return resetSent && resetSent.userID === userID && sameBytes(resetSent.publicKey, identity.publicKey) ? { ...rest, identity: stored } : { ...record, identity: stored };
   }) : false;
+  if (kept) void keepStorage();
+  return kept;
 }
 
 /** Records, before a reset is sent, the new public key; best-effort (M4: an unanswered reset is explained on the next load). */
