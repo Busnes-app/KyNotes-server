@@ -200,13 +200,22 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `_org_exists`, `_org_fixed` and, with a parent, `_org_parent` and `_org_parent_move` triggers. A
   column added to a cleanup source table must be written into existing rows by its migration
   (docs/CLEANUP-CAPACITY.md). `KYNOTES_TENANCY=multi`, and `KYNOTES_STAFF_ORG_ID` or `KYNOTES_REGION`
-  in single mode, fail every config load (`tenancyEnv`). Single-tenant API answers are pinned by
+  in single mode, fail every config load (`tenancyEnv`); the multi-tenant gate reads the
+  build-tagged constant `multiTenantBuild` (`internal/config/gate_release.go` `false`,
+  `gate_kye2e.go` `true` only under `-tags kye2e`), and a `kye2e` build admits `multi` only with
+  an `https` `KYNOTES_SSO_ISSUER` under `.test` (RFC 2606). `scripts/check-test-build-tag.sh`
+  (CI `checks`) keeps `kye2e` confined to the gate files, `e2e/`, docs and guard scripts and
+  forbids `-tags`/`GOFLAGS` in release paths; `scripts/check-release-image.sh` verifies `go
+  version -m` and the release refusal on `kynotes-server:ci` before publish and in
+  `release-image.yml` before push and on the pushed digest. Single-tenant API answers are pinned by
   `TestSingleTenantUpgradeGolden`: `testdata/tenancy-golden/legacy.*` is a database the release
   before tenancy wrote (`-update-legacy` runs only there), and `upgrade.txt` is every answer after
   upgrading it. Never regenerate `upgrade.txt` to make a change pass; `-update-golden` is only for an
   answer that is meant to change. Verify `TestEveryTableIsClassified`, `TestOrgOwnedTablesHaveOrgID`,
   `TestUpgradePutsEveryRowInTheDefaultOrg`, `TestOpenRefusesAnotherTenancyModeAndWritesNothing`,
-  `TestOrgTriggersRefuseCrossOrgRows`, `TestTenancyEnvRefusesWhatThisReleaseCannotRun` and the golden.
+  `TestOrgTriggersRefuseCrossOrgRows`, `TestTenancyEnvRefusesWhatThisReleaseCannotRun`,
+  `TestReleaseBuildRefusesMultiTenant`, `go test -tags kye2e ./internal/config/...`,
+  `scripts/check-test-build-tag.sh` and the golden.
 - Tenancy PR 2, the PostgreSQL store (DESIGN.md "Tenancy amendment, PR 2"). Handlers keep writing
   SQLite-dialect SQL; `internal/storage/pgdialect` (ported from KyIdentity's, keep the two in step)
   translates it: `?`/`?NNN` placeholders, renumbered so only the arguments a statement uses are

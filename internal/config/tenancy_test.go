@@ -14,13 +14,17 @@ func TestTenancyEnvRefusesWhatThisReleaseCannotRun(t *testing.T) {
 	if err := os.WriteFile(path, []byte("data_dir: "+dir+"\nserver:\n  bind: 127.0.0.1:8080\n  dev_insecure_cookies: true\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	wantMultiNoIssuer := "KYNOTES_TENANCY: multi is not available"
+	if multiTenantBuild {
+		wantMultiNoIssuer = "under .test"
+	}
 	for _, tc := range []struct {
 		env     map[string]string
 		refusal string
 	}{
 		{map[string]string{}, ""},
 		{map[string]string{"KYNOTES_TENANCY": "single"}, ""},
-		{map[string]string{"KYNOTES_TENANCY": "multi"}, "KYNOTES_TENANCY: multi is not available"},
+		{map[string]string{"KYNOTES_TENANCY": "multi"}, wantMultiNoIssuer},
 		{map[string]string{"KYNOTES_TENANCY": "Multi"}, "KYNOTES_TENANCY: must be single or multi"},
 		{map[string]string{"KYNOTES_STAFF_ORG_ID": "staff"}, "KYNOTES_STAFF_ORG_ID: set only in multi-tenant mode"},
 		{map[string]string{"KYNOTES_TENANCY": "single", "KYNOTES_REGION": "eu"}, "KYNOTES_REGION: set only in multi-tenant mode"},

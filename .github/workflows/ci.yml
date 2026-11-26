@@ -204,6 +204,7 @@ jobs:
             tools/go.sum
       - run: go build ./...
       - run: go vet ./...
+      - run: scripts/check-test-build-tag.sh
       # The release binary must not depend on where it is built: build it the way the
       # Dockerfile does (no .git in the context, -trimpath) from two directories and require
       # identical bytes. docs/VERIFYING-RELEASES.md tells users how to repeat this.
@@ -244,6 +245,7 @@ jobs:
           set -eu
           image=kynotes-server:ci
           docker build --build-arg "VERSION=${GITHUB_SHA}" -t "$image" .
+          bash scripts/check-release-image.sh "$image"
           auth='{"authSecret":"944265b190cc588ea5a5c40f4bd10c941d4738138241e5295abe9a5e0e208310","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000}'
           printf '%s' "$auth" | docker run -i --rm --user "$(id -u):$(id -g)" -v "$PWD/testdata/config-good:/data" "$image" user add --config /data/kynotes.yaml --username probe
           docker run -d --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
