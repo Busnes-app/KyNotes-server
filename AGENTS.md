@@ -41,23 +41,17 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 - Best-effort 90-second keyword refresh policy (foreground cadence; background catch-up on resume).
 - DOX hierarchy scope is app-only.
-- Zentri suite direction (owner, 2026-11-23): tenancy/isolation/reliability/security and launch gates stay first. Competitor research adds no KyNotes feature. No first-party password manager or parity builder/task; compatibility with existing managers is sufficient and no new integration is mandatory. VPN/AI are optional and create no work here. The scope/order pointer is IMPLEMENTATION_PLAN.md, "Suite scope constraint (2026-11-23)"; product-specific choices remain with their existing owners.
+- Suite direction (owner, 2026-11-23): tenancy/isolation/reliability/security and launch gates stay first. Competitor research adds no KyNotes feature. No first-party password manager or parity builder/task; compatibility with existing managers is sufficient and no new integration is mandatory. VPN/AI are optional and create no work here; product-specific choices remain with their existing owners.
 
 ## Design
 
 - `DESIGN.md` is the current product and server architecture design.
 - Keep implementation changes aligned with its encryption, sync, storage, and
-  self-hosting contracts; update the design when those contracts change.
-- `IMPLEMENTATION_PLAN.md` is the binding build order. Its Phase 0 contracts
-  (module path, crypto formats, API and error schema, IDs, schema, limits) are
-  frozen: implement them, do not re-decide them. Changing a frozen contract
-  requires updating `DESIGN.md` and the plan in the same change.
+  self-hosting contracts; update `DESIGN.md` when those contracts change.
 
 ## Verification
 
 - Draft-retry browser fixtures wait for the initial encrypted notebook list to render before creating a notebook; a late list publication can move an open native menu. `web/e2e/notebook-load.e2e.ts` owns intentional creation during a delayed list load.
-
-- The historical-source capture driver uses a fresh private extraction per run and removes it on completion or failure. `node --test docs/ui-review-followups-2026-10-26/capture.test.mjs` verifies that a planted commit-named temporary directory is ignored, invalid revisions are rejected, and the current checkout is retained.
 
 - The workspace and the administration console render the ky-ui 0.11.0 app frame (`AppFrame` in `web/src/components/AppNav.tsx`: `.ky-app`, `.ky-sidebar`, `.ky-brand`, one `.ky-nav`, `.ky-sidebar-foot`, `.ky-content`). On desktop the sidebar shows Notes and Work queue, then the notebook tree (`#notebook-tree`: notebooks, with the open notebook's sections nested under it, scrolling on its own), then the account footer and licence line; Settings starts at x=272, and the workspace puts the page list column at x=240 with the page after it. On phones (720px and narrower) the header is the brand and `.ky-mobile-actions` (the Settings menu's gear, then an icon-only Sign out) over one row of tabs, with no name or role, and the licence line ends the page; the tree folds away and the current Notes tab opens and closes it (`aria-expanded`); the page list and the page are separate screens. Selecting a page returns focus to its title; reselecting the open page preserves pending saves. Opening the tree never changes keys or saved settings. The sign-in screen pre-fills no field and has no licence line. `web/e2e/mobile-navigation.e2e.ts`, `ui-council.e2e.ts` and `three-pane.e2e.ts` (toolbar order, formatting, Draw, list rows, section opening) verify the geometry, the single current destination, reachability, focus and a delayed-save/reload regression.
 
@@ -145,7 +139,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `web/src/ky-ui/` is generated from Busnes-app/ky-ui, pinned by `VERSION` file hashes. Change shared colors, navigation states, the shell (`shell.css`) and storage helpers upstream, then run its consumer sync with an explicit worktree map; do not hand-edit vendored files.
 - Products own layout, routes, saved choice keys and named palettes. Busnes aliases consume shared tokens; mark primary navigation with `ky-nav-item` while preserving current-page semantics.
 - `web/src/main.tsx` starts ky-ui's `watchForUpdate` (the update notice). The entry document is never served from a cache: the global `no-store` covers it (`TestEntryDocumentIsNeverServedFromCache`).
-- Verify vendored files with `node web/src/ky-ui/check-vendor.mjs` from this document's directory. Builds/CI run that check. Rendered evidence and capture limitations are recorded in the repository-root `UI-VERIFICATION.md`.
+- Verify vendored files with `node web/src/ky-ui/check-vendor.mjs` from this document's directory. Builds/CI run that check.
 
 ## Child DOX Index
 
@@ -154,8 +148,6 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/worker/AGENTS.md` — PostgreSQL worker ownership, cancellation and takeover tests.
 
 - `internal/blobstore/AGENTS.md` — blob stream seam, volume compatibility, org keys and shared-store identity.
-
-- `docs/ui-notes-eight/AGENTS.md` owns the sequential UI council evidence, round scores, capture provenance and supplemental theme checks.
 
 - `internal/httpapi`: opaque routing ciphertext, role-gated mutations, and
   device-validated envelope writes are covered by the package integration
@@ -448,9 +440,6 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   changed to a random one through `POST /api/v1/auth/password` and set back to `-password` after
   the device is revoked, re-wrapping the identity each time; re-runs skip it. The temporary
   password sits beside the device key (`.takeover`, 0600) until restored; the next run restores it.
-- `FRONTEND_IMPLEMENTATION_PLAN.md` defines the separate responsive web MVP,
-  browser crypto/local-storage boundaries, sync state machine, and mobile
-  reuse path; it does not alter the frozen server plan.
 - `web/` is the browser client; keep plaintext in browser memory only, send
   CSRF headers on mutations, and run its `npm test` plus `npm run build` checks; team notebooks use
   shared container keys (`keyring.ts`). It needs WebCrypto (HTTPS or localhost) and shows `NEEDS_HTTPS`
@@ -467,7 +456,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   edited. Pages reflow to a text column at <=800px and never persist a phone-fitted width.
   `knowledge.ts` caches text/task projections per note object, so note objects must be
   replaced, never mutated. Verify `document.test.ts`, `canvas.test.ts`, `knowledge.test.ts`,
-  `ink.test.ts` and the canvas checks in `UI-VERIFICATION.md`.
+  and `ink.test.ts`.
   Encrypted section anchors for comments remain. Attachment payloads and metadata are encrypted in the
   browser, and pending chunked uploads are persisted in the IndexedDB vault for
   reload recovery, with visible progress, retry, and cancel controls. Inline
@@ -496,8 +485,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   says why, and a refused hash navigation restores the URL with `replaceState`. A notebook switch clears
   the previous notebook's state, drops superseded loads and reapplies versions saved during
   the read (`carryAll` for pages, `carryVersions` for sections and groups; `writeObject`
-  records every write made during a load). Verify `order.test.ts`, `pages.test.ts`, `notes.test.ts`
-  and the section/page browser checks in `UI-VERIFICATION.md`.
+  records every write made during a load). Verify `order.test.ts`, `pages.test.ts`, and `notes.test.ts`.
 - `web/` subpages: `outline.ts` derives display levels from each page's `level` without
   writing (legacy pages open with no PUT); indent and outdent use Ctrl+Alt+] / Ctrl+Alt+[
   (not Tab, by recorded ruling) or the editor's Indent/Outdent buttons, and reveal the page's collapsed ancestors.
@@ -528,7 +516,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   in-tab notifications only, opt-in from Settings, saying "A task is due" unless task text is turned
   on; reminders passed before the tab opened fire nothing and show as missed. Reminder preferences are
   per account (`readReminderPrefs(userID)`). Verify `taskDates.test.ts` and `web/e2e/task-dates.e2e.ts`.
-- Reminder push (opt-in, `IMPLEMENTATION_PLAN.md` "Reminder push extension"): `push:yes` beside `remind:`
+- Reminder push (opt-in): `push:yes` beside `remind:`
   opts a task in; the Settings checkbox "Also remind me when KyNotes is closed" registers `web/public/sw.js`
   (shows a fixed "A reminder is due", opens `/#/`; no cache, fetch or storage; `/sw.js` is on the router
   allowlist) and PUTs the endpoint. Ids are `reminderID` (`reminderPush.ts`, HMAC under `reminderIDKey` in
@@ -914,8 +902,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `RecheckUserStepUpTx`, while accept only moves envelopes authorized at insertion. `GET /users/{id}/identity`
   answers self, live co-members and an inviting steward, else a uniform 404;
   `object_versions.author_user_id` is written, not yet read. Shared 409 `already_exists` covers
-  moved generations, duplicates and incomplete rotations. Known limits are listed in
-  `IMPLEMENTATION_PLAN.md` §9. The probe seals and opens a real envelope with `internal/teamkeys`
+  moved generations, duplicates and incomplete rotations. The probe seals and opens a real envelope with `internal/teamkeys`
   (never linked into the server). Verify `TestEnvelope*`, `TestKeyRotation*`,
   `TestOwnIdentityWriteIsRewrapOnly`, `TestConcurrentRotationsCannotSplitAGeneration`,
   `TestUnkeyedContainerRefusesEveryWrite`, `TestUnkeyedContainerTakesNoInvitationEnvelope`,
@@ -1165,8 +1152,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestContainerCreationTakesNoName`, `TestIdentityWrapAgreesWithVectors`, `npm test` (contentKeys,
   keyring, drain, storage, stuckEdits, workspaceWiring) and `npm run e2e --prefix web`.
 - `internal/notecrypto` is the Go port of `web/src/crypto.ts` content sealing (objects, container
-  names, attachment metadata and bytes) for the MCP bridge. Writes are content v2 (`IMPLEMENTATION_PLAN.md`
-  §1.3 "Content sealing"): `0x02 ‖ nonce(12) ‖ AES-256-GCM`, subkey `HKDF-SHA256(containerKey, salt =
+  names, attachment metadata and bytes) for the MCP bridge. Writes are content v2: `0x02 ‖ nonce(12) ‖ AES-256-GCM`, subkey `HKDF-SHA256(containerKey, salt =
   containerID, info = "kynotes/content/v2")`, AAD binding container, bound ID (the object; the page for
   comments and attachments; the container for its name) and kind. Seal* take the bound ID; Open* take it
   and whether v1 (unbound, per-label subkeys, no AAD) may be read; `OpenContainerName` also reports the
