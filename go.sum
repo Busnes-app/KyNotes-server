@@ -1,5 +1,5 @@
-github.com/Busnes-app/ky-primitives v0.10.2-0.20261124003741-b55ca6d3313c h1:uVDDt5rGQoNUSRvVeTGGBKl/S8C2ygmF65n0d/xf+jo=
-github.com/Busnes-app/ky-primitives v0.10.2-0.20261124003741-b55ca6d3313c/go.mod h1:xYUuDP23Ey2tnBVVIbrOz0qjGsZ0bBBpSraG0qWm1O8=
+github.com/Busnes-app/ky-primitives v0.11.0 h1:MebWjP0paYHuGIOMSFsdG3GR5fzSxLpWerrq/4g4Azk=
+github.com/Busnes-app/ky-primitives v0.11.0/go.mod h1:xYUuDP23Ey2tnBVVIbrOz0qjGsZ0bBBpSraG0qWm1O8=
 github.com/Busnes-app/ky-primitives/offsite v0.3.0 h1:E0ycngO0BHAooTDRvDagmrJlkZlTeRqBNX5pLwQMlg0=
 github.com/Busnes-app/ky-primitives/offsite v0.3.0/go.mod h1:UYfgJk5VJ/Z4Dff5wvSPeOn4dwS1qLGDeNPTTkEguKI=
 github.com/aws/aws-sdk-go-v2 v1.48.0 h1:tFU7EJVm7MfyaXLsXdYTZ0Vd6vwt9OljCyqq0gqk0Mc=
