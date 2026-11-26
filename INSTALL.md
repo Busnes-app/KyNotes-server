@@ -92,11 +92,10 @@ section and the repository CI workflow for source/build tests; a passing health 
 screenshot is not a substitute. Record the revision, commands, environment and skips when
 reporting results. Design plans and dated evidence remain records of their stated scope.
 
-
 ## Cleanup metadata upgrade
 
 Before upgrading an existing instance, keep a stopped-server data-directory copy
-and the old release. Migration0031 preflights future cleanup slots against the
+and the old release. Migration 0031 preflights future cleanup slots against the
 unchanged backup budget and can refuse startup without changing the live
 schema/data. If refused, reduce unneeded pages/notebooks or share links with the
 old release and retry. See [cleanup capacity](docs/CLEANUP-CAPACITY.md).

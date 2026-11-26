@@ -13,14 +13,15 @@ The links below open repository documents and need network access.
 ## Detailed product guides
 
 - [Standalone installation](https://github.com/Busnes-app/KyNotes-server/blob/master/INSTALL.md)
-- [capabilities and access setup](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/MCP.md)
-- [verifying releases](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/VERIFYING-RELEASES.md)
-- [assurance case](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/ASSURANCE-CASE.md)
-- [docs/STRONG-CRYPTO.md](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/STRONG-CRYPTO.md)
+- [Agent access (MCP)](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/MCP.md)
+- [Verifying releases](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/VERIFYING-RELEASES.md)
+- [Assurance case](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/ASSURANCE-CASE.md)
+- [Key strength and TLS](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/STRONG-CRYPTO.md)
 - [Suite installer](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/INSTALLER.md)
 - [Notebook export](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/EXPORT.md)
-- [cleanup capacity and upgrade](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/CLEANUP-CAPACITY.md)
-
+- [Logging](https://github.com/Busnes-app/KyNotes-server/blob/master/LOGGING.md)
+- [Design](https://github.com/Busnes-app/KyNotes-server/blob/master/DESIGN.md)
+- [Cleanup capacity and upgrade](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/CLEANUP-CAPACITY.md)
 - [Offline host maintenance preparation](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/DEPLOYMENT.md#offline-host-maintenance-preparation): staff accounts and explicit stopped-replica config acceptance, without hosted startup.
 
 ## Privacy and vulnerability reports

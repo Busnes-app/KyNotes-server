@@ -102,6 +102,7 @@ KyNotes Server is released under the [MIT License](LICENSE.txt).
 - [Agent access (MCP)](docs/MCP.md) — give an AI agent access to one notebook.
 - [Notebook export](docs/EXPORT.md) — export a notebook as a zip.
 - [Restore](docs/RESTORE.md) — restore KyNotes from a recovery capsule.
+- [Cleanup capacity and upgrade](docs/CLEANUP-CAPACITY.md) — staged capacity preflight for comment-deletion and share-link audit storage.
 - [Logging](LOGGING.md) — the structured, privacy-safe log format.
 - [Key strength](docs/STRONG-CRYPTO.md) — key sizes KyNotes accepts and the Go TLS profile.
 - [Verifying releases](docs/VERIFYING-RELEASES.md) — check a release image's signature and source.
@@ -110,7 +111,6 @@ KyNotes Server is released under the [MIT License](LICENSE.txt).
 - [Contributing](CONTRIBUTING.md) — how to propose a change and what it must pass.
 - [Security policy](SECURITY.md) — how to report a vulnerability privately.
 - [Release notes](CHANGELOG.md) — what changed in each release, and its upgrade impact.
-
 
 ### Upgrading cleanup metadata
 
