@@ -342,14 +342,31 @@ func applyEnvValues(c *Config) error {
 	return nil
 }
 
-// parseEnvLimit reads a rate limit. Limits cannot be turned off: anything but a positive integer is an error.
+// testIssuer refuses an issuer outside the reserved .test domain (RFC 2606), so a test build
+// deployed by mistake cannot take tokens from a real issuer.
+func testIssuer(issuer string) error {
+	u, err := url.Parse(issuer)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.ForceQuery || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("KYNOTES_SSO_ISSUER: this end-to-end test build serves only an https issuer under .test, got %q", issuer)
+	}
+	host := strings.ToLower(u.Hostname())
+	if len(host) <= len(".test") || !strings.HasSuffix(host, ".test") {
+		return fmt.Errorf("KYNOTES_SSO_ISSUER: this end-to-end test build serves only an https issuer under .test, got %q", issuer)
+	}
+	return nil
+}
+
 // tenancyEnv refuses what this release cannot run, so an operator who asks for multi-tenant
-// mode is never served single-tenant by mistake. Multi mode arrives with the tenancy spec's PR 6.
+// mode is never served single-tenant by mistake. Only the build-tagged constant (gate_release.go)
+// opens multi-tenant startup for the suite end-to-end run; a bool, so -ldflags -X cannot.
 func tenancyEnv() error {
 	switch os.Getenv("KYNOTES_TENANCY") {
 	case "", "single":
 	case "multi":
-		return errors.New("KYNOTES_TENANCY: multi is not available in this release")
+		if !multiTenantBuild {
+			return errors.New("KYNOTES_TENANCY: multi is not available in this release")
+		}
+		return testIssuer(os.Getenv("KYNOTES_SSO_ISSUER"))
 	default:
 		return errors.New("KYNOTES_TENANCY: must be single or multi")
 	}
@@ -361,6 +378,7 @@ func tenancyEnv() error {
 	return nil
 }
 
+// parseEnvLimit reads a rate limit. Limits cannot be turned off: anything but a positive integer is an error.
 func parseEnvLimit(value string, dst *int, name string) error {
 	n, err := strconv.Atoi(value)
 	if err != nil || n < 1 {
