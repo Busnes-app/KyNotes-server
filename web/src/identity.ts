@@ -1,17 +1,19 @@
+import { generatePQIdentity } from "./pqIdentity";
+import { loadPQ } from "./pq";
 import { base64, fromBase64, type LoginKeys } from "./crypto";
-import { generateIdentity, IDENTITY_WRAP_ALG, sameBytes, unwrapIdentity, wrapIdentity, type Identity } from "./teamKeys";
+import { IDENTITY_WRAP_ALG, sameBytes, unwrapIdentity, wrapIdentity, type Identity } from "./teamKeys";
 
 /** The password-wrapped identity; only local login and step-up responses carry it. */
-export type IdentityRecord = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg: string; wrappedPrivateKey: string };
+export type IdentityRecord = { orgId?: string; deviceId: string; publicKey: string; fingerprint: string; wrapAlg: string; wrappedPrivateKey: string };
 /** wrapAlg of an identity created from a single sign-on session: no server copy (P5 adds a recovery code). */
 export const DEVICE_ONLY_WRAP = "none";
 /** passwordCopy "addable": a reset stripped the password copy; the user's own password change may re-add it. */
-export type PublicIdentity = { deviceId: string; publicKey: string; fingerprint: string; wrapAlg?: string; recoveryId?: string; recoverySetAt?: string; passwordCopy?: string };
-export type IdentityUpload = { publicKey: string; wrapAlg: string; wrappedPrivateKey: string };
-export type HeldIdentity = Identity & { deviceId: string };
+export type PublicIdentity = { deviceId: string; publicKey: string; fingerprint: string; orgId?: string; wrapAlg?: string; recoveryId?: string; recoverySetAt?: string; passwordCopy?: string };
+export type IdentityUpload = { publicKey: string; orgId?: string; wrapAlg: string; wrappedPrivateKey: string };
+export type HeldIdentity = Identity & { deviceId: string; orgId?: string };
 export type IdentityAPI = {
   myIdentity: () => Promise<PublicIdentity | undefined>;
-  putMyIdentity: (input: IdentityUpload) => Promise<{ deviceId: string }>;
+  putMyIdentity: (input: IdentityUpload) => Promise<{ deviceId: string; orgId?: string }>;
   /** Proves the password and returns the wrapped identity, if the session may receive it. */
   stepUp: (authSecret: string) => Promise<IdentityRecord | undefined>;
 };
@@ -21,7 +23,7 @@ export function openIdentity(record: IdentityRecord, userKEK: Uint8Array, userID
   if (record.wrapAlg !== IDENTITY_WRAP_ALG) throw new Error("unsupported identity wrap");
   const identity = unwrapIdentity(userKEK, fromBase64(record.wrappedPrivateKey), userID);
   if (!sameBytes(identity.publicKey, fromBase64(record.publicKey))) throw new Error("identity public key mismatch");
-  return { ...identity, deviceId: record.deviceId };
+  return { ...identity, deviceId: record.deviceId, orgId: record.orgId };
 }
 
 /** Why a password sign-in yields no identity: an administrator set the password (the user's own change creates it), or the identity has no password copy (this browser must be linked or restored). */
@@ -35,14 +37,15 @@ const unlock = (record: IdentityRecord, keys: LoginKeys, userID: string): HeldId
  * Never replaces an identity it cannot open.
  */
 export async function ensureIdentity(api: IdentityAPI, userID: string, keys: LoginKeys, fromLogin: IdentityRecord | undefined): Promise<HeldIdentity | NoIdentity> {
+  await loadPQ();
   if (fromLogin) return unlock(fromLogin, keys, userID);
   const existing = await api.stepUp(keys.authSecret);
   if (existing) return unlock(existing, keys, userID);
-  const identity = generateIdentity();
+  const identity = await generatePQIdentity();
   const upload = { publicKey: base64(identity.publicKey), wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(keys.userKEK, identity.privateKey, userID)) };
   try {
-    const { deviceId } = await api.putMyIdentity(upload);
-    return { ...identity, deviceId };
+    const { deviceId, orgId } = await api.putMyIdentity(upload);
+    return { ...identity, deviceId, orgId };
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "password_change_required") return "admin-password";
@@ -59,6 +62,7 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
  * used only when it matches the server's current identity.
  */
 export async function rewrapIdentity(api: Pick<IdentityAPI, "myIdentity" | "stepUp">, userID: string, current: LoginKeys, next: LoginKeys, cached: HeldIdentity | undefined): Promise<{ identity: HeldIdentity; identityDeviceId: string; wrappedIdentityKey: string } | undefined> {
+  await loadPQ();
   const live = await api.myIdentity();
   if (!live) return undefined;
   const holdsLive = (held: HeldIdentity | undefined): held is HeldIdentity => held?.deviceId === live.deviceId && sameBytes(held.publicKey, fromBase64(live.publicKey));
@@ -79,7 +83,7 @@ export async function rewrapIdentity(api: Pick<IdentityAPI, "myIdentity" | "step
   return { identity, identityDeviceId: identity.deviceId, wrappedIdentityKey: base64(wrapped) };
 }
 
-export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string }> };
+export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string; orgId?: string }> };
 /**
  * This browser's vault copy: load includes a pending one (deviceId "") and throws when unreadable.
  * save is false when nothing was kept; with expected it writes only while the vault still holds
@@ -103,20 +107,20 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
   if (live) {
     // Another tab may have kept this key after the first read: read again before sending this browser to link.
     if (!holdsLive(local, live)) local = await store.load();
-    return local && holdsLive(local, live) ? finish(store, local, live.deviceId) : { kind: "link" };
+    return local && holdsLive(local, live) ? finish(store, { ...local, orgId: live.orgId }, live.deviceId) : { kind: "link" };
   }
   if (local?.deviceId && !replace) return { kind: "orphaned" };
-  const pending = local && !local.deviceId ? local : { ...generateIdentity(), deviceId: "" };
+  const pending = local && !local.deviceId ? local : { ...await generatePQIdentity(), deviceId: "" };
   // Compare-and-swap against what this run read: a key another tab kept meanwhile is never overwritten.
   if (pending !== local && !(await store.save(pending, local ?? null))) return retried ? { kind: "unsaved" } : settleSSOIdentity(api, store, false, true);
   try {
-    const { deviceId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
-    return await finish(store, pending, deviceId);
+    const { deviceId, orgId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
+    return await finish(store, { ...pending, orgId }, deviceId);
   } catch (error) {
     if ((error as { code?: string }).code !== "identity_exists") throw error;
     // Another tab of this browser sent the same key first: finish it. A different key: settle against it once.
     const now = await api.myIdentity();
-    if (now && holdsLive(pending, now)) return finish(store, pending, now.deviceId);
+    if (now && holdsLive(pending, now)) return finish(store, { ...pending, orgId: now.orgId }, now.deviceId);
     if (!retried) return settleSSOIdentity(api, store, false, true);
     throw error;
   }
@@ -170,5 +174,6 @@ export function identityStatus(local: HeldIdentity | undefined, live: PublicIden
 export function currentCopy(local: HeldIdentity | undefined, live: PublicIdentity | undefined | "unreachable"): HeldIdentity | undefined {
   if (!local?.deviceId) return undefined;
   if (live === "unreachable") return local;
-  return identityStatus(local, live) === "held" ? local : undefined;
+  if (identityStatus(local, live) !== "held") return undefined;
+  return live?.orgId !== undefined && live.orgId !== local.orgId ? { ...local, orgId: live.orgId } : local;
 }

@@ -6,8 +6,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "prebuild": "node src/ky-ui/check-vendor.mjs",
-    "pretest": "node src/ky-ui/check-vendor.mjs",
+    "prebuild": "bash ../scripts/build-pqwasm.sh && node src/ky-ui/check-vendor.mjs",
+    "pretest": "bash ../scripts/build-pqwasm.sh && node src/ky-ui/check-vendor.mjs",
     "e2e": "playwright test"
   },
   "dependencies": {

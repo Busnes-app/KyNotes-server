@@ -1,3 +1,5 @@
+import { isPQPublic } from "./pqIdentity";
+import { PQ_PUBLIC_BYTES } from "./pq";
 import { digestSha256Hex, fromBase64 } from "./crypto";
 import type { PublicIdentity } from "./identity";
 import type { MemberKey } from "./keyring";
@@ -9,17 +11,17 @@ export type PinChange = { member: MemberKey; pinned: string };
 /** Decodes a standard-base64 X25519 public key; anything but exactly 32 bytes throws. */
 export function publicKeyBytes(publicKey: string): Uint8Array {
   const raw = fromBase64(publicKey);
-  if (raw.length !== 32) throw new Error("invalid identity public key");
+  if (raw.length !== 32 && !isPQPublic(raw)) throw new Error("invalid identity public key");
   return raw;
 }
 
-const validKey = (key: string): boolean => { try { return publicKeyBytes(key).length === 32; } catch { return false; } };
+const validKey = (key: string): boolean => { try { return [32, PQ_PUBLIC_BYTES].includes(publicKeyBytes(key).length); } catch { return false; } };
 
 /** True only when both decode to the same 32 bytes. */
 export function sameKey(a: string, b: string): boolean {
   try {
     const [x, y] = [publicKeyBytes(a), publicKeyBytes(b)];
-    return x.every((byte, i) => byte === y[i]);
+    return x.length === y.length && x.every((byte, i) => byte === y[i]);
   } catch {
     return false;
   }

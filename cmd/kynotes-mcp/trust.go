@@ -136,6 +136,8 @@ func (k *keyState) raise(c container) error {
 type self struct {
 	userID, deviceID string
 	key              *ecdh.PrivateKey
+	raw              []byte
+	orgID            string
 }
 
 type openedRing struct {
@@ -156,7 +158,7 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 	}
 	var pinnedKeys [][]byte
 	for _, k := range pins {
-		if raw, err := base64.StdEncoding.DecodeString(k); err == nil && len(raw) == 32 {
+		if raw, err := base64.StdEncoding.DecodeString(k); err == nil && teamkeys.ValidatePublicIdentity(raw) == nil {
 			pinnedKeys = append(pinnedKeys, raw)
 		}
 	}
@@ -174,10 +176,17 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 		return true
 	}
 	open := func(alg string, envelope []byte, generation int64, sender []byte) []byte {
+		if len(me.raw) == teamkeys.PQPrivateBytes && alg != teamkeys.PQEnvelopeAlg && generation >= known.Generation {
+			return nil
+		}
 		if generation < 1 || generation > math.MaxUint32 {
 			return nil
 		}
-		key, err := teamkeys.OpenEnvelope(alg, envelope, me.key, containerID, uint32(generation), me.deviceID, sender)
+		private := me.raw
+		if private == nil {
+			private = me.key.Bytes()
+		}
+		key, err := teamkeys.OpenIdentityEnvelope(alg, envelope, private, me.orgID, containerID, uint32(generation), me.deviceID, sender)
 		if err != nil {
 			return nil
 		}
@@ -192,7 +201,7 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 	var deferred []row
 	for _, r := range rows {
 		// v3 is sealed today; v2 rows written before it still open.
-		if r.DeviceID != me.deviceID || (r.Alg != teamkeys.EnvelopeAlg && r.Alg != teamkeys.LegacyEnvelopeAlg) {
+		if r.DeviceID != me.deviceID || (r.Alg != teamkeys.PQEnvelopeAlg && r.Alg != teamkeys.EnvelopeAlg && r.Alg != teamkeys.LegacyEnvelopeAlg) {
 			continue
 		}
 		envelope, err := base64.StdEncoding.DecodeString(r.Envelope)
@@ -206,7 +215,13 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 		var key []byte
 		var steward *member
 		if sender == me.deviceID {
-			key = open(r.Alg, envelope, r.KeyGeneration, me.key.PublicKey().Bytes())
+			pub := []byte(nil)
+			if me.raw != nil {
+				pub, _ = teamkeys.IdentityPublic(me.raw)
+			} else {
+				pub = me.key.PublicKey().Bytes()
+			}
+			key = open(r.Alg, envelope, r.KeyGeneration, pub)
 		} else {
 			for i := range members {
 				if m := &members[i]; m.identity != nil && m.identity.DeviceID == sender && m.UserID != me.userID && isSteward(m.Role) && userID.MatchString(m.UserID) {
@@ -215,7 +230,7 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 			}
 			if steward != nil {
 				pub, err := base64.StdEncoding.DecodeString(steward.identity.PublicKey)
-				if err != nil || len(pub) != 32 {
+				if err != nil || teamkeys.ValidatePublicIdentity(pub) != nil {
 					continue
 				}
 				pinned, ok := pins[steward.UserID]
@@ -263,7 +278,7 @@ func openKeyring(containerID string, rows []envelopeRow, me self, members []memb
 func sameKey(a, b string) bool {
 	x, err1 := base64.StdEncoding.DecodeString(a)
 	y, err2 := base64.StdEncoding.DecodeString(b)
-	return err1 == nil && err2 == nil && len(x) == 32 && bytes.Equal(x, y)
+	return err1 == nil && err2 == nil && teamkeys.ValidatePublicIdentity(x) == nil && bytes.Equal(x, y)
 }
 
 // readKey is keyring.ts readKeys: a row opens only with its own generation's key, at or above

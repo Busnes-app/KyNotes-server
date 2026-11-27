@@ -8,7 +8,7 @@ import authVectors from "../../testdata/protocol/auth_vectors.json";
 // HKDF-SHA256, ChaCha20Poly1305, mode_auth; the same entry as the CFRG draft-irtf-cfrg-hpke test-vectors.json.
 import rfc from "../../testdata/protocol/rfc9180_a2_3_auth.json";
 import { deriveLoginKeys, LEGACY_LOGIN_ITERATIONS, NEEDS_HTTPS } from "./crypto";
-import { ENVELOPE_ALG, ENVELOPE_BYTES, envelopeInfo, envelopeSender, envelopeSuite, generateIdentity, LEGACY_ENVELOPE_ALG, LEGACY_ENVELOPE_BYTES, unwrapEnvelope, unwrapIdentity, wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
+import { AUTH_ENVELOPE_ALG, AUTH_ENVELOPE_BYTES, envelopeInfo, envelopeSender, envelopeSuite, generateIdentity, LEGACY_ENVELOPE_ALG, LEGACY_ENVELOPE_BYTES, unwrapEnvelope, unwrapIdentity, wrapEnvelopeForVector as wrapEnvelope, wrapEnvelopeForVector, wrapIdentityForVector, WRAPPED_IDENTITY_BYTES } from "./teamKeys";
 
 const h = hexToBytes;
 
@@ -123,9 +123,9 @@ describe("Go cross-implementation vectors", () => {
       const sender = { deviceId: v.senderDeviceId, privateKey: h(v.senderPrivateKey) };
       const sealed = await wrapEnvelopeForVector(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, sender, h(v.ephemeralSeed));
       expect(bytesToHex(sealed)).toBe(v.envelope);
-      expect(sealed.length).toBe(ENVELOPE_BYTES);
-      expect(envelopeSender(ENVELOPE_ALG, h(v.envelope))).toBe(v.senderDeviceId);
-      expect(bytesToHex(await unwrapEnvelope(ENVELOPE_ALG, h(v.envelope), h(v.recipientPrivateKey), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.senderPublicKey)))).toBe(v.contentKey);
+      expect(sealed.length).toBe(AUTH_ENVELOPE_BYTES);
+      expect(envelopeSender(AUTH_ENVELOPE_ALG, h(v.envelope))).toBe(v.senderDeviceId);
+      expect(bytesToHex(await unwrapEnvelope(AUTH_ENVELOPE_ALG, h(v.envelope), h(v.recipientPrivateKey), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.senderPublicKey)))).toBe(v.contentKey);
     }
   });
 
@@ -137,7 +137,7 @@ describe("Go cross-implementation vectors", () => {
       const open = (alg: string, sender = h(v.senderPublicKey), generation = v.keyGeneration) =>
         unwrapEnvelope(alg, h(v.envelope), h(v.recipientPrivateKey), v.containerId, generation, v.recipientDeviceId, sender);
       expect(bytesToHex(await open(LEGACY_ENVELOPE_ALG))).toBe(v.contentKey);
-      await expect(open(ENVELOPE_ALG)).rejects.toThrow();
+      await expect(open(AUTH_ENVELOPE_ALG)).rejects.toThrow();
       await expect(open(LEGACY_ENVELOPE_ALG, h(v.recipientPublicKey))).rejects.toThrow();
       await expect(open(LEGACY_ENVELOPE_ALG, new Uint8Array(32))).rejects.toThrow();
       await expect(open(LEGACY_ENVELOPE_ALG, h(v.senderPublicKey), v.keyGeneration ^ 2)).rejects.toThrow();
@@ -147,7 +147,7 @@ describe("Go cross-implementation vectors", () => {
 
 describe("v3 binding and sender authentication", () => {
   const v = vectors.hpkeEnvelopes[0];
-  const open = (envelope: Uint8Array, container = v.containerId, generation = v.keyGeneration, device = v.recipientDeviceId, sender: Uint8Array = h(v.senderPublicKey), alg = ENVELOPE_ALG) =>
+  const open = (envelope: Uint8Array, container = v.containerId, generation = v.keyGeneration, device = v.recipientDeviceId, sender: Uint8Array = h(v.senderPublicKey), alg = AUTH_ENVELOPE_ALG) =>
     unwrapEnvelope(alg, envelope, h(v.recipientPrivateKey), container, generation, device, sender);
 
   it("refuses an envelope replayed into another container, generation or recipient", async () => {
@@ -161,7 +161,7 @@ describe("v3 binding and sender authentication", () => {
     await expect(open(h(v.envelope), v.containerId, v.keyGeneration, v.recipientDeviceId, new Uint8Array(32))).rejects.toThrow();
     const relabelled = h(v.envelope);
     relabelled.set(new TextEncoder().encode("dev_00000000000000000000000009"), 1);
-    expect(envelopeSender(ENVELOPE_ALG, relabelled)).toBe("dev_00000000000000000000000009");
+    expect(envelopeSender(AUTH_ENVELOPE_ALG, relabelled)).toBe("dev_00000000000000000000000009");
     await expect(open(relabelled)).rejects.toThrow();
   });
 
@@ -169,27 +169,27 @@ describe("v3 binding and sender authentication", () => {
     // Someone holding only the recipient's public key (a server) cannot impersonate the sender.
     const forger = generateIdentity();
     const forged = await wrapEnvelope(h(v.contentKey), h(v.recipientPublicKey), v.containerId, v.keyGeneration, v.recipientDeviceId, { deviceId: v.senderDeviceId, privateKey: forger.privateKey });
-    expect(envelopeSender(ENVELOPE_ALG, forged)).toBe(v.senderDeviceId);
+    expect(envelopeSender(AUTH_ENVELOPE_ALG, forged)).toBe(v.senderDeviceId);
     await expect(open(forged)).rejects.toThrow();
   });
 
   it("refuses a swapped alg or version byte, tampering, truncation and malformed senders", async () => {
     await expect(open(h(v.envelope), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.senderPublicKey), LEGACY_ENVELOPE_ALG)).rejects.toThrow();
     await expect(open(h(v.envelope), v.containerId, v.keyGeneration, v.recipientDeviceId, h(v.senderPublicKey), "hpke-base-x25519-hkdfsha256-chacha20poly1305")).rejects.toThrow();
-    for (const at of [0, 1, 30, 31, 62, 63, ENVELOPE_BYTES - 1]) {
+    for (const at of [0, 1, 30, 31, 62, 63, AUTH_ENVELOPE_BYTES - 1]) {
       const bad = h(v.envelope);
       bad[at] ^= 1;
       await expect(open(bad), `byte ${at}`).rejects.toThrow();
     }
-    await expect(open(h(v.envelope).subarray(0, ENVELOPE_BYTES - 1))).rejects.toThrow();
+    await expect(open(h(v.envelope).subarray(0, AUTH_ENVELOPE_BYTES - 1))).rejects.toThrow();
     for (const version of [0x01, 0x02]) {
       const other = h(v.envelope);
       other[0] = version;
-      expect(() => envelopeSender(ENVELOPE_ALG, other)).toThrow();
+      expect(() => envelopeSender(AUTH_ENVELOPE_ALG, other)).toThrow();
     }
     const badSender = h(v.envelope);
     badSender.set(new TextEncoder().encode("usr_"), 1);
-    expect(() => envelopeSender(ENVELOPE_ALG, badSender)).toThrow();
+    expect(() => envelopeSender(AUTH_ENVELOPE_ALG, badSender)).toThrow();
     await expect(open(badSender)).rejects.toThrow();
   });
 
@@ -218,15 +218,15 @@ describe("v3 binding and sender authentication", () => {
     const two = await wrapEnvelope(ck, a.publicKey, v.containerId, 1, v.recipientDeviceId, sender);
     expect(one[0]).toBe(0x03);
     expect(bytesToHex(one)).not.toBe(bytesToHex(two));
-    expect(bytesToHex(await unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey))).toBe(bytesToHex(ck));
+    expect(bytesToHex(await unwrapEnvelope(AUTH_ENVELOPE_ALG, one, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey))).toBe(bytesToHex(ck));
     // A fresh seal opens in its own context only.
     const other = "dev_00000000000000000000000009";
     const relabelled = Uint8Array.from(one);
     relabelled.set(new TextEncoder().encode(other), 1);
-    await expect(unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, "cnt_00000000000000000000000009", 1, v.recipientDeviceId, b.publicKey), "container").rejects.toThrow();
-    await expect(unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, v.containerId, 2, v.recipientDeviceId, b.publicKey), "generation").rejects.toThrow();
-    await expect(unwrapEnvelope(ENVELOPE_ALG, one, a.privateKey, v.containerId, 1, other, b.publicKey), "recipient").rejects.toThrow();
-    await expect(unwrapEnvelope(ENVELOPE_ALG, relabelled, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey), "sender").rejects.toThrow();
+    await expect(unwrapEnvelope(AUTH_ENVELOPE_ALG, one, a.privateKey, "cnt_00000000000000000000000009", 1, v.recipientDeviceId, b.publicKey), "container").rejects.toThrow();
+    await expect(unwrapEnvelope(AUTH_ENVELOPE_ALG, one, a.privateKey, v.containerId, 2, v.recipientDeviceId, b.publicKey), "generation").rejects.toThrow();
+    await expect(unwrapEnvelope(AUTH_ENVELOPE_ALG, one, a.privateKey, v.containerId, 1, other, b.publicKey), "recipient").rejects.toThrow();
+    await expect(unwrapEnvelope(AUTH_ENVELOPE_ALG, relabelled, a.privateKey, v.containerId, 1, v.recipientDeviceId, b.publicKey), "sender").rejects.toThrow();
   });
 });
 

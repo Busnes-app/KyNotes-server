@@ -28,3 +28,14 @@ its accounts and charged bytes, or select Platform/an organization under Audit l
 re-reads metadata. Customer accounts are managed in KyIdentity; staff metadata access never
 opens notes, and there are no customer account, team or sign-in configuration write controls.
 Standalone administrators keep the existing console and local account workflows.
+
+## Upgrade notebook-key encryption
+
+In a browser holding your encryption key, open **Settings → Account → Upgrade encryption**.
+Save and type back the new recovery code. Existing notebooks remain readable. Sign other
+browsers in again or link them, and compare your new fingerprint with your colleagues.
+Team writes wait until every approved member with a key upgrades. This differs from
+resetting your key, which discards access to your personal notebooks.
+
+See the [protocol and upgrade guide](https://github.com/Busnes-app/KyNotes-server/blob/master/docs/PQC.md)
+for compatibility and build details.

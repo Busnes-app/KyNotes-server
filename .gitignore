@@ -18,3 +18,7 @@
 
 # Generated mdBook manual
 /docs/book/
+
+# Generated from pinned ky-primitives, never tracked.
+web/public/assets/pq/
+internal/web/dist/assets/pq/

@@ -14,12 +14,14 @@ import (
 	"testing"
 
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
 // Routes with no request-chosen ID the cross-org matrix could try, each with its reason. A new
 // route fails TestEveryRouteIsInTheCrossOrgMatrix until it is a matrix row or listed here.
 var crossOrgExempt = map[string]string{
-	"GET /api/v1/share-links/{token}": "public: the token is the credential and serves ciphertext only",
+	"POST /api/v1/me/identity/pq-upgrade": "loads the authenticated user identity only; foreign device ID is a compare-and-swap mismatch (TestPQUpgrade)",
+	"GET /api/v1/share-links/{token}":     "public: the token is the credential and serves ciphertext only",
 	// Another account's reminder ID answers 404 where an unused one is created: an existence
 	// oracle, across orgs as across users today. Using it needs the other account's ID, an HMAC
 	// under a key only that account's browser holds, which the server never shows anyone else.
@@ -30,8 +32,8 @@ var crossOrgExempt = map[string]string{
 // matrixBodies are valid bodies for the routes that would refuse {} before reaching their
 // authorization, so the matrix tests the authorization and not the body check.
 var matrixBodies = map[string]string{
-	"POST /api/v1/me/link-requests/{id}/claim":   `{"approverKey":"` + base64.StdEncoding.EncodeToString(make([]byte, 32)) + `"}`,
-	"POST /api/v1/me/link-requests/{id}/reveal":  `{"newcomerKey":"` + base64.StdEncoding.EncodeToString(make([]byte, 32)) + `"}`,
+	"POST /api/v1/me/link-requests/{id}/claim":   `{"approverKey":"` + base64.StdEncoding.EncodeToString(make([]byte, teamkeys.PQPublicBytes)) + `"}`,
+	"POST /api/v1/me/link-requests/{id}/reveal":  `{"newcomerKey":"` + base64.StdEncoding.EncodeToString(make([]byte, teamkeys.PQPublicBytes)) + `"}`,
 	"POST /api/v1/me/link-requests/{id}/approve": `{"bundle":"` + base64.StdEncoding.EncodeToString(make([]byte, linkBundleBytes)) + `"}`,
 	"POST /api/v1/objects/{id}/share-links":      `{"version":1,"expiresAt":"2099-01-01T00:00:00Z"}`,
 	"POST /api/v1/objects/{id}/attachments":      `{"attachmentId":"att_00000000000000000000000000","objectVersion":1}`,

@@ -11,6 +11,7 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/keyprotocol"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 	"net/http"
 	"net/url"
@@ -268,7 +269,7 @@ func DeviceRoutes(mux RouteMux, db *sql.DB, cfg config.Config) {
 		}
 		var raw []byte
 		var e error
-		if raw, e = base64.StdEncoding.DecodeString(in.PublicKey); e != nil || len(raw) != 32 {
+		if raw, e = base64.StdEncoding.DecodeString(in.PublicKey); e != nil || keyprotocol.ValidatePublicIdentity(raw) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
 		}

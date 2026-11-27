@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page, type Request } from "@playwright/test";
-import { OWNER, addToTeam, adminConsole, adminSection, approve, backToNotes, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, userRow, vaultOf, withDialog, type Person, openNotebooks, openSettings } from "./people";
+import { nodePQ, OWNER, addToTeam, adminConsole, adminSection, approve, backToNotes, createTeamFor, createUser, heldKeys, nameTeam, person, shoot as shootAs, signIn, signInAndChoose, userRow, vaultOf, withDialog, type Person, openNotebooks, openSettings } from "./people";
 import { asContentKey, decryptComment, deriveLoginKeys, decryptContainerMeta, decryptObject, encryptNote, fromBase64, type KeyRef } from "../src/crypto";
 import { waitingKey } from "../src/keyring";
 import { newRecoveryCode } from "../src/recovery";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope } from "../src/teamKeys";
+
+test.beforeAll(nodePQ);
 
 // Three people in three isolated browser contexts (cookies and IndexedDB apart).
 const TEMPORARY = "temporary horse battery staple";
@@ -580,9 +582,9 @@ async function p3b(admin: Person, owner: Person, editor: Person, newcomer: Perso
     const envelope = fromBase64(row.envelope);
     expect(row.alg).toBe(ENVELOPE_ALG);
     const sender = senders.get(envelopeSender(row.alg, envelope))!;
-    await expect(unwrapEnvelope(row.alg, envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).rejects.toThrow();
-    await expect(unwrapEnvelope(row.alg, envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, oldIdentity.deviceId, sender)).rejects.toThrow();
-    expect(await unwrapEnvelope(row.alg, envelope, Uint8Array.from(newIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender)).toHaveLength(32);
+    await expect(unwrapEnvelope(row.alg, envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender, newIdentity.orgId ?? "")).rejects.toThrow();
+    await expect(unwrapEnvelope(row.alg, envelope, Uint8Array.from(oldIdentity.privateKey), cid, row.keyGeneration, oldIdentity.deviceId, sender, oldIdentity.orgId ?? "")).rejects.toThrow();
+    expect(await unwrapEnvelope(row.alg, envelope, Uint8Array.from(newIdentity.privateKey), cid, row.keyGeneration, newIdentity.deviceId, sender, newIdentity.orgId ?? "")).toHaveLength(32);
   }
   // The reset retired the old key's generations: the steward minted a new one, so content written
   // afterwards sits above them all and no retained pre-reset key opens the server's bytes.
@@ -739,7 +741,8 @@ async function p3c(editor: Person, second: Person, cid: string, senders: Map<str
 
   // 5. A relay that swaps the approver's one-time key on its way to the newcomer: the codes differ,
   // the approver's Approve stays disabled with the newcomer's code typed, and no key leaves.
-  const swapped = Buffer.alloc(32, 9).toString("base64");
+  const { generatePQIdentityReady } = await import("../src/pqIdentity");
+  const swapped = Buffer.from(generatePQIdentityReady().publicKey).toString("base64");
   await newcomer.route("**/api/v1/me/link-requests/*/collect", async (route) => {
     const response = await route.fetch();
     if (!response.ok()) { await route.fulfill({ response }); return; }

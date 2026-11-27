@@ -1,3 +1,4 @@
+import { loadPQ } from "./pq";
 import { base64, deriveLoginKeys, LEGACY_LOGIN_ITERATIONS, LOGIN_ITERATIONS, randomLoginSalt, type LoginKeys } from "./crypto";
 import { openIdentity, type IdentityRecord } from "./identity";
 import { IDENTITY_WRAP_ALG, wrapIdentity } from "./teamKeys";
@@ -37,6 +38,7 @@ export async function upgradeLogin(send: (input: LoginUpgrade) => Promise<void>,
   const keys = await deriveLoginKeys(password, newLoginSalt, LOGIN_ITERATIONS);
   let rewrap: { identityDeviceId: string; wrappedIdentityKey: string } | undefined;
   if (identity?.wrapAlg === IDENTITY_WRAP_ALG) {
+    await loadPQ();
     const held = openIdentity(identity, current.userKEK, userID);
     rewrap = { identityDeviceId: held.deviceId, wrappedIdentityKey: base64(wrapIdentity(keys.userKEK, held.privateKey, userID)) };
   }

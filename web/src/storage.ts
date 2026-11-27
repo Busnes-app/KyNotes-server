@@ -1,4 +1,5 @@
-import { x25519 } from "@noble/curves/ed25519.js";
+import { identityPublic } from "./pqIdentity";
+import { loadPQ } from "./pq";
 import type { HeldIdentity } from "./identity";
 import type { KeyState } from "./keyring";
 import { keepStorage } from "./persist";
@@ -279,8 +280,8 @@ export async function rememberAfter<T>(call: () => Promise<T>, username: string,
  * keep the raw key, as before. deviceId "" marks an identity created here that the server has not
  * confirmed yet (settleSSOIdentity).
  */
-type SealedIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; sealed: Uint8Array; deviceKey: CryptoKey };
-type RawIdentity = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey: Uint8Array };
+type SealedIdentity = { orgId?: string; userID: string; deviceId: string; publicKey: Uint8Array; sealed: Uint8Array; deviceKey: CryptoKey };
+type RawIdentity = { orgId?: string; userID: string; deviceId: string; publicKey: Uint8Array; privateKey: Uint8Array };
 type VaultIdentity = SealedIdentity | RawIdentity;
 /** resetSent: the public key a reset from this browser sent; cleared once this browser keeps that key. */
 type VaultRecord = { username: string; updatedAt: string; identity?: VaultIdentity; pins?: { userID: string; keys: Pins }; keyStates?: { userID: string; byContainer: Record<string, KeyState> }; resetSent?: { userID: string; publicKey: Uint8Array } };
@@ -296,7 +297,7 @@ export const identityStorage = (): "wrapped" | "plain" =>
 const identityAAD = (userID: string, deviceId: string) => new TextEncoder().encode(`kynotes/device-identity/v1|${userID}|${deviceId}`);
 
 async function sealForDevice(userID: string, identity: HeldIdentity): Promise<VaultIdentity> {
-  const base = { userID, deviceId: identity.deviceId, publicKey: identity.publicKey.slice() };
+  const base = { orgId: identity.orgId, userID, deviceId: identity.deviceId, publicKey: identity.publicKey.slice() };
   if (identityStorage() === "plain") return { ...base, privateKey: identity.privateKey.slice() };
   const deviceKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -312,7 +313,8 @@ async function openForDevice(stored: VaultIdentity): Promise<HeldIdentity | unde
   try {
     const privateKey = "privateKey" in stored ? stored.privateKey
       : new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: identityAAD(stored.userID, stored.deviceId) }, stored.deviceKey, stored.sealed.slice(12)));
-    return sameBytes(x25519.getPublicKey(privateKey), stored.publicKey) ? { deviceId: stored.deviceId, publicKey: stored.publicKey, privateKey } : undefined;
+    if (privateKey.length !== 32) await loadPQ();
+    return sameBytes(identityPublic(privateKey), stored.publicKey) ? { orgId: stored.orgId, deviceId: stored.deviceId, publicKey: stored.publicKey, privateKey } : undefined;
   } catch {
     return undefined;
   }

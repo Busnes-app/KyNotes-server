@@ -13,6 +13,7 @@ import (
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/keyprotocol"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -22,8 +23,8 @@ import (
 const (
 	linkTTL         = 10 * time.Minute
 	linkMaxPending  = 3
-	linkBundleBytes = 81 // 0x02 | HPKE enc(32) | ChaCha20-Poly1305(identity private key)(48); the retired v1 was 61
-	linkCommitLabel = "kynotes/link-commit/v1"
+	linkBundleBytes = 1 + 1137 + keyprotocol.PQPrivateBytes + 3389 // v3 | xwing.Seal(PQ identity encoding) | HybridSig
+	linkCommitLabel = "kynotes/link-commit/v2"
 )
 
 var (
@@ -42,11 +43,11 @@ func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 // readField decodes {"<name>": "<base64>"} of exactly size bytes.
 func readField(w http.ResponseWriter, r *http.Request, name string, size int) ([]byte, bool) {
 	var in map[string]string
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&in) != nil {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&in) != nil {
 		return nil, false
 	}
 	b, err := base64.StdEncoding.DecodeString(in[name])
-	return b, err == nil && len(b) == size
+	return b, err == nil && (len(b) == size || name == "bundle" && len(b) == linkBundleBytes-keyprotocol.PQPrivateBytes+32)
 }
 
 func sessionLive(tx *sql.Tx, s auth.Session, now time.Time) error {
@@ -264,7 +265,7 @@ func listLinks(db *sql.DB) http.Handler {
 
 func claimLink(db *sql.DB) http.Handler {
 	return linkHandler(func(w http.ResponseWriter, r *http.Request, s auth.Session, id string) {
-		key, ok := readField(w, r, "approverKey", 32)
+		key, ok := readField(w, r, "approverKey", keyprotocol.PQPublicBytes)
 		if !ok {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
@@ -288,7 +289,7 @@ func claimLink(db *sql.DB) http.Handler {
 // revealLink takes the newcomer's key after a claim, only if it is the key the request committed to.
 func revealLink(db *sql.DB) http.Handler {
 	return linkHandler(func(w http.ResponseWriter, r *http.Request, s auth.Session, id string) {
-		key, ok := readField(w, r, "newcomerKey", 32)
+		key, ok := readField(w, r, "newcomerKey", keyprotocol.PQPublicBytes)
 		if !ok {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return

@@ -24,6 +24,11 @@ func TestEmbeddedAssetsContainNoMergeConflictMarkers(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
+		// The compiled Go WASM contains these strings in runtime diagnostics.
+		// Merge-conflict markers are meaningful only in textual assets.
+		if strings.HasSuffix(path, ".wasm") && bytes.HasPrefix(body, []byte{0, 'a', 's', 'm'}) {
+			return nil
+		}
 		for _, marker := range markers {
 			if bytes.Contains(body, marker) {
 				t.Errorf("embedded asset %q contains merge-conflict marker %q", path, marker)
@@ -67,7 +72,7 @@ func TestHandlerServesAppAndSPAPaths(t *testing.T) {
 }
 
 func TestHandlerSetsExactCSP(t *testing.T) {
-	const want = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	const want = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	res := httptest.NewRecorder()
 	Handler().ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/", nil))
 	if got := res.Header().Get("Content-Security-Policy"); got != want {

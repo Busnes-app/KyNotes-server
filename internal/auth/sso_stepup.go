@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/ids"
@@ -33,8 +34,12 @@ func WithChallengeLimit(ctx context.Context, allow func(userID string) bool) con
 
 // The digest binds the exact attempted operation without storing its potentially secret body.
 func stepUpAction(w http.ResponseWriter, r *http.Request) (string, error) {
-	// ponytail: one confirmation binds ≤64 KiB; upgrade: batch putEnvelopes, one confirmation each.
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+	// PQ rotations are atomic: allow a bounded multi-member envelope set in one confirmation.
+	limit := int64(64 << 10)
+	if strings.HasPrefix(r.URL.Path, "/api/v1/containers/") && (strings.HasSuffix(r.URL.Path, "/key-rotations") || strings.HasSuffix(r.URL.Path, "/envelopes")) {
+		limit = 8 << 20
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		return "", err
 	}

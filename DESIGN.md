@@ -139,7 +139,7 @@ Each container has a randomly generated content-encryption key. That key is
 wrapped for each authorized device and member using public-key envelopes. A
 device can decrypt only the containers explicitly enrolled on that device.
 
-Each user also holds an X25519 identity keypair, represented on the server as a
+Each user holds a versioned X-Wing/HybridSig identity (with a classical read key), represented on the server as a
 `devices` row with `platform = 'identity'` and an unusable `secret_hash`. Its
 private key is wrapped (AES-256-GCM, AAD `kynotes/identity/v1` || user ID) under
 a `userKEK` that the browser derives from the same PBKDF2 output as the login
@@ -174,29 +174,16 @@ also needs a KySignOn confirmation of that request, so the administrator cannot
 clear the flag by changing the password. A local-only account has no second proof:
 until its user changes the password, whoever set it can act as the user. That is
 an accepted residual of administrator-set passwords. The change revokes every
-other session and device credential of the account in the same transaction. Envelopes are
-v3, RFC 9180 HPKE in mode_auth with DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and
-ChaCha20Poly1305 (alg `hpke-auth-x25519-hkdfsha256-chacha20poly1305`):
-`0x03 | senderDeviceID(30) | enc(32) | ChaCha20-Poly1305(CK)(48)` (111 bytes), a
-single-shot seal of the content key from the sender identity's key to the
-recipient's. HPKE `info` is `kynotes/envelope/v3 | containerID | generation (u32 BE) |
-recipientDeviceID | senderDeviceID` (fixed-length IDs) and `aad` is empty: the context
-is fixed per envelope, so it belongs in the key schedule, and one message gains nothing
-from aad. Auth mode binds both identity keys and `enc`. Stored v2 envelopes
-(`x25519-hkdf-sha256-chacha20poly1305`, `0x02 | senderDeviceID | ephPub | nonce |
-ChaCha20-Poly1305(CK)`, 123 bytes, the same agreements through a custom HKDF with this
-context as AAD under the label `kynotes/envelope/v2`) still open and are never rewritten;
-nothing seals them. A client opens by the row's `alg`; alg, version byte and length must
-agree. Like v2, Auth mode is not resistant to key-compromise impersonation (RFC 9180
-§9.1.1): whoever holds a recipient's identity private key can forge envelopes to that
-recipient that appear to come from any sender. An identity key compromise is already a
-full compromise of that member's keys, so this adds no new exposure.
-`testdata/protocol/envelope_vectors.json` pins the bytes of both versions. A
-browser accepts an envelope from its own identity, from a current owner or
-admin whose identity key matches its local trust-on-first-use pin, or, for
-history below the device's high-water mark, from an identity already pinned
-(see below), and reads rows at or above `shared_generation` only with that
-generation's key. A password change
+other session and device credential of the account in the same transaction. Envelopes are v4 HPKE base X-Wing (0x647A), HKDF-SHA256, AES-256-GCM with
+ML-DSA-65 + Ed25519 sender signatures; both halves must verify. Organization,
+container, generation, device IDs and version are bound into HPKE and the signed
+message. Stored v2/v3 classical envelopes remain read-only. The explicit Settings
+upgrade preserves the classical read key and envelope history, replaces recovery
+copies, and retires future keys. Every approved keyed member upgrades before a
+steward mints the next generation. `docs/PQC.md` owns exact encodings, upgrade
+semantics, browser WASM/CSP and interoperability checks. The existing steward,
+pin and generation-floor trust rules below apply to all envelope versions.
+A password change
 re-wraps the identity in the same transaction. Recovery and administrator
 password resets remove only its password copy and write an audit row (an administrator
 reset also revokes paired device credentials): another
@@ -355,7 +342,7 @@ disabled, with unreferenced storage growth as the explicit trade-off.
 A browser that does not hold the account's identity asks a trusted browser of the same account
 for it. The server relays only public keys and one sealed bundle (`/api/v1/me/link-requests`,
 migration `0024_device_linking.sql`). The newcomer first posts a commitment to its one-time
-X25519 key; the trusted browser claims the request with its own one-time key; the newcomer then
+X-Wing/HybridSig key; the trusted browser claims the request with its own one-time key; the newcomer then
 reveals its key, which must match the commitment. Both screens show a six-digit check code over the
 account, the request and both keys. The newcomer confirms its code; the approver types the
 code shown on the newcomer's screen, so a click cannot replace the comparison. The newcomer pins
@@ -368,8 +355,8 @@ by `ratelimit.link_poll_per_minute`) and are audited, except collect misses.
 Recovery, an administrator reset and the self-service reset delete the account's open link requests
 in the same transaction.
 
-The commitment is `SHA-256("kynotes/link-commit/v1" | newcomerKey)`. The check code is the first four
-bytes (big-endian) of `SHA-256("kynotes/link-check/v1" | userID | requestID | approverKey |
+The commitment is `SHA-256("kynotes/link-commit/v2" | newcomerKey)`. The check code is the first four
+bytes (big-endian) of `SHA-256("kynotes/link-check/v2" | userID | requestID | approverKey |
 newcomerKey)` mod 10^6, so it binds the account, the request and both one-time keys in order. This is
 the published commit-then-reveal pattern for authenticating a key agreement with a short
 authenticated string (SAS): Vaudenay, "Secure Communications over Insecure Channels Based on Short
@@ -386,21 +373,12 @@ hash of public values rather than Vaudenay's XOR of committed nonces or ZRTP's h
 secret, and the commitment is a plain hash (as in ZRTP), not the extractable or equivocable commitment
 Vaudenay's proof assumes.
 
-The bundle is RFC 9180 HPKE in mode_auth with the envelope v3 suite (DHKEM(X25519, HKDF-SHA256),
-HKDF-SHA256, ChaCha20Poly1305), single shot from the approver's one-time key (skS) to the newcomer's
-(pkR): `0x02 | enc(32) | ChaCha20-Poly1305(identity private key)(48)`, 81 bytes. HPKE `info` is
-`kynotes/link/v2 | userID | requestID | identityDeviceID | approverKey | newcomerKey` and `aad` is
-empty. Auth mode binds the bundle to the approver key the check code covers, so the relay cannot seal
-a bundle of its own to the newcomer. The newcomer refuses a bundle for one reason: `format` (version
-or length), `newcomer-key` (the context's key is not its own), `low-order` (the approver key) or
-`aead` (HPKE open failed). `testdata/protocol/link_vectors.json` (Go, through circl with a fixed
-ephemeral seed) pins the bytes and the reject cases; `web/src/linking.test.ts` reseals them
-byte-identically. The earlier v1 bundle (`0x01 | nonce | ct`, 61 bytes, a custom HKDF and AAD
-construction) is gone: its one-time keys live only in the memory of the tab that made them, so a v1
-bundle left on the relay across an upgrade is collected and opened by that pre-upgrade tab's own code,
-and a new client never holds a key a v1 bundle was sealed to. The server accepts only 81-byte
-bundles, so a pre-upgrade approver tab fails at approve, a pre-upgrade newcomer tab refuses a v2
-bundle as `format`, and the user starts again.
+The v3 bundle uses HPKE base X-Wing and a HybridSig proof under the approver's
+one-time key, whose complete public encoding the SAS covers. Both signatures
+are verified before decryption. Info and AAD bind the account, request, identity
+row and both complete public keys. `docs/PQC.md` defines the exact format and
+sizes. Existing v1/v2 linking attempts restart after upgrade; historical
+container envelopes remain readable independently of the linking transport.
 
 ### Device enrollment and revocation
 
@@ -739,7 +717,7 @@ Keep an unlinked local administrator available for recovery; see [SSO roles](doc
 
 Backup/recovery step-up routes, local user creation and password reset require a one-use OIDC proof for SSO
 sessions. A `user`-scope challenge (`sso_stepup.scope`, migration 0024) proves only the session's own
-account, bound to the action and body (64 KiB at most), with a fresh `auth_time`; it covers identity creation,
+account, bound to the action and body (64 KiB, or 8 MiB for atomic envelope rotations/writes), with a fresh `auth_time`; it covers identity creation,
 envelope writes, rotations and changing an administrator-set password on an SSO-linked account. A grant opens
 only its own scope, and challenge creation is rate-limited per account. Migration 0019 binds the exact request digest to the original session;
 fresh signed auth_time and ordinary assurance, identity and app-admin permission

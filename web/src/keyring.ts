@@ -1,8 +1,9 @@
+import { isPQPublic } from "./pqIdentity";
 import { bytesToHex, randomBytes } from "@noble/ciphers/utils.js";
 import { asContentKey, base64, fromBase64, hkdfSha256, sha256, type KeyRef } from "./crypto";
 import type { HeldIdentity, PublicIdentity } from "./identity";
 import { FingerprintChangedError, publicKeyBytes, sameKey, type PinChange, type Pins } from "./pins";
-import { ENVELOPE_ALG, envelopeSender, LEGACY_ENVELOPE_ALG, unwrapEnvelope, wrapEnvelope, type Identity } from "./teamKeys";
+import { ENVELOPE_ALG, AUTH_ENVELOPE_ALG, envelopeSender, LEGACY_ENVELOPE_ALG, unwrapEnvelope, wrapEnvelope, type Identity } from "./teamKeys";
 
 /** An envelope as written, and as read back from GET /containers/{id}/envelopes (every recipient's row for a session). */
 export type Envelope = { deviceId: string; keyGeneration: number; alg: string; envelope: string };
@@ -115,13 +116,17 @@ export async function openKeyring(input: OpenKeyringInput): Promise<OpenedKeyrin
   for (const [generation, key] of input.held ?? []) accept(generation, key);
   if (!me) return out;
   const open = async (alg: string, envelope: Uint8Array, generation: number, sender: Uint8Array) => {
-    try { return asContentKey(await unwrapEnvelope(alg, envelope, me.privateKey, containerID, generation, me.deviceId, sender)); } catch { return undefined; }
+    try { return asContentKey(await unwrapEnvelope(alg, envelope, me.privateKey, containerID, generation, me.deviceId, sender, me.orgId ?? "")); } catch { return undefined; }
   };
   // Pass 1: self and current stewards; these alone raise the mark.
   const deferred: Array<{ alg: string; envelope: Uint8Array; generation: number }> = [];
   for (const row of envelopes) {
     // v3 is sealed today; v2 rows written before it still open.
-    if (row.deviceId !== me.deviceId || (row.alg !== ENVELOPE_ALG && row.alg !== LEGACY_ENVELOPE_ALG)) continue;
+    if (row.deviceId !== me.deviceId || (row.alg !== ENVELOPE_ALG && row.alg !== AUTH_ENVELOPE_ALG && row.alg !== LEGACY_ENVELOPE_ALG)) continue;
+    // A PQ identity opens classical rows only as history. Accepting one at the
+    // write generation would let a future break of the retained classical key
+    // downgrade new writes, even though v4 itself cannot be forged.
+    if (isPQPublic(me.publicKey) && row.alg !== ENVELOPE_ALG && row.keyGeneration >= (known.generation ?? 0)) continue;
     try {
       const envelope = fromBase64(row.envelope);
       const sender = envelopeSender(row.alg, envelope);
@@ -177,14 +182,14 @@ export const WAITING_GENERATION = 0;
  * a password change, and "Forget this device" once the identity comes back (link, recovery code, password).
  */
 export const waitingKey = (identity: Pick<Identity, "privateKey">): KeyRef =>
-  asContentKey(hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1")));
+  asContentKey(hkdfSha256(identity.privateKey.length === 32 ? identity.privateKey : identity.privateKey.subarray(1,33), 32, new Uint8Array(0), new TextEncoder().encode("kynotes/waiting/v1")));
 
 /**
  * The HMAC key behind reminder ids (reminderPush.ts): from the identity alone, so every browser of the
  * account derives the same id for a task, and the server cannot link an id to a page. Not a content key.
  */
 export const reminderIDKey = (identity: Pick<Identity, "privateKey">): Uint8Array =>
-  hkdfSha256(identity.privateKey, 32, new Uint8Array(0), new TextEncoder().encode("kynotes/reminder-id/v1"));
+  hkdfSha256(identity.privateKey.length === 32 ? identity.privateKey : identity.privateKey.subarray(1,33), 32, new Uint8Array(0), new TextEncoder().encode("kynotes/reminder-id/v1"));
 
 /**
  * The one key a server row may be read with: the container key of the row's own generation, at or
@@ -214,6 +219,7 @@ export async function openFirst<T>(keys: KeyRef[], open: (key: KeyRef) => Promis
 export type SweepPlan =
   | { kind: "idle" }
   | { kind: "unrecoverable" }
+  | { kind: "pq-upgrade"; members: string[] }
   | { kind: "mint"; recipients: MemberKey[] }
   | { kind: "wrap"; grants: Array<{ member: MemberKey; generation: number }> };
 
@@ -232,6 +238,9 @@ export function planSweep(input: { container: KeyedContainer; me: string; member
   const self = members.find((member) => member.userId === me);
   if (!self?.identity || !isSteward(self.role)) return { kind: "idle" };
   const keyed = members.filter((member) => member.identity && member.approved !== false);
+  const legacy = keyed.filter((member) => !isPQPublic(publicKeyBytes(member.identity!.publicKey)));
+  if (legacy.length) return { kind: "pq-upgrade", members: legacy.map((member)=>member.userId) };
+  if (container.sharedGeneration > 0 && envelopes.some((row) => row.keyGeneration === container.keyGeneration && row.alg !== ENVELOPE_ALG)) return { kind: "mint", recipients: keyed };
   if (container.sharedGeneration === 0) return input.recoverable ? { kind: "mint", recipients: keyed } : { kind: "unrecoverable" };
   if (!envelopes.some((row) => row.keyGeneration === container.keyGeneration)) return { kind: "mint", recipients: keyed };
   const held = new Set(envelopes.map((row) => `${row.deviceId}:${row.keyGeneration}`));
@@ -261,7 +270,7 @@ export async function sealFor(member: MemberKey, containerID: string, generation
   } else if (!sameKey(pins[member.userId], identity.publicKey)) {
     throw new FingerprintChangedError(member, pins[member.userId]);
   }
-  const envelope = base64(await wrapEnvelope(key, recipient, containerID, generation, identity.deviceId, me));
+  const envelope = base64(await wrapEnvelope(key, recipient, containerID, generation, identity.deviceId, me, me.orgId ?? ""));
   return { envelope: { deviceId: identity.deviceId, keyGeneration: generation, alg: ENVELOPE_ALG, envelope }, pins: next, fresh };
 }
 

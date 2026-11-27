@@ -2,6 +2,9 @@ import { expect, type Browser, type BrowserContextOptions, type Locator, type Pa
 import { asContentKey, fromBase64, type KeyRef } from "../src/crypto";
 import { ENVELOPE_ALG, envelopeSender, unwrapEnvelope } from "../src/teamKeys";
 
+/** Real WASM for Node-side verification of browser-produced envelopes. */
+export async function nodePQ() { await import("../pq-test-setup.mjs"); }
+
 /** decline: dismiss it (a confirm answered Cancel); otherwise it is accepted with answer. */
 export type Dialog = { type: string; text: string | RegExp; answer?: string; decline?: boolean; seen?: (defaultValue: string, message: string) => void };
 export type Person = { page: Page; expected: Dialog[]; unexpected: string[] };
@@ -221,7 +224,7 @@ export async function approve(owner: Person, username: string) {
 }
 
 /** fields: the record's stored field names, so a test sees anything kept beyond the identity. */
-type Vault = { fields: string[]; sealed: boolean; extractable?: boolean; identity?: { deviceId: string; publicKey: number[]; privateKey: number[] } };
+type Vault = { fields: string[]; sealed: boolean; extractable?: boolean; identity?: { orgId?: string; deviceId: string; publicKey: number[]; privateKey: number[] } };
 
 /** This browser's keys vault record; a sealed identity is opened in the page with its device key. Never creates the database. */
 export function vaultOf(page: Page) {
@@ -235,7 +238,7 @@ export function vaultOf(page: Page) {
       const all = db.transaction("keys").objectStore("keys").getAll();
       all.onsuccess = async () => {
         db.close();
-        type Stored = { userID: string; deviceId: string; publicKey: Uint8Array; privateKey?: Uint8Array; sealed?: Uint8Array; deviceKey?: CryptoKey };
+        type Stored = { orgId?: string; userID: string; deviceId: string; publicKey: Uint8Array; privateKey?: Uint8Array; sealed?: Uint8Array; deviceKey?: CryptoKey };
         const row = (all.result as Array<{ identity?: Stored }>)[0];
         if (!row) { resolve(null); return; }
         const fields = Object.keys(row).sort();
@@ -245,7 +248,7 @@ export function vaultOf(page: Page) {
           const privateKey = stored.sealed && stored.deviceKey
             ? new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.sealed.slice(0, 12), additionalData: new TextEncoder().encode(`kynotes/device-identity/v1|${stored.userID}|${stored.deviceId}`) }, stored.deviceKey, stored.sealed.slice(12)))
             : stored.privateKey!;
-          resolve({ fields, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
+          resolve({ fields, sealed: Boolean(stored.sealed), extractable: stored.deviceKey?.extractable, identity: { orgId: stored.orgId, deviceId: stored.deviceId, publicKey: [...stored.publicKey], privateKey: [...privateKey] } });
         } catch (error) { reject(error); }
       };
     };
@@ -257,14 +260,15 @@ export function vaultOf(page: Page) {
  * identities the three browsers hold, never from the server, so a substituted sender fails here.
  */
 export async function heldKeys(page: Page, cid: string, senders: Map<string, Uint8Array>): Promise<Map<number, KeyRef>> {
+  await nodePQ();
   const own = (await vaultOf(page))!.identity!;
   const rows = await page.evaluate(async (id) => (await fetch(`/api/v1/containers/${id}/envelopes`)).json(), cid) as Array<{ deviceId: string; keyGeneration: number; alg: string; envelope: string }>;
   return new Map(await Promise.all(rows.filter((row) => row.deviceId === own.deviceId).map(async (row): Promise<[number, KeyRef]> => {
-    // Browsers seal only v3 (HPKE) envelopes.
+    // Browsers seal only v4 signed X-Wing envelopes.
     if (row.alg !== ENVELOPE_ALG) throw new Error(`envelope alg ${row.alg} (generation ${row.keyGeneration} for ${own.deviceId})`);
     const envelope = fromBase64(row.envelope);
     const sender = senders.get(envelopeSender(row.alg, envelope));
     if (!sender) throw new Error(`envelope from an unknown sender ${envelopeSender(row.alg, envelope)} (generation ${row.keyGeneration} for ${own.deviceId}; known: ${[...senders.keys()].join(", ")})`);
-    return [row.keyGeneration, asContentKey(await unwrapEnvelope(row.alg, envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender))];
+    return [row.keyGeneration, asContentKey(await unwrapEnvelope(row.alg, envelope, Uint8Array.from(own.privateKey), cid, row.keyGeneration, own.deviceId, sender, own.orgId ?? ""))];
   })));
 }

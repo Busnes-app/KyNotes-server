@@ -1,6 +1,7 @@
 import { gcm } from "@noble/ciphers/aes.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
-import { x25519 } from "@noble/curves/ed25519.js";
+import { identityPublic } from "./pqIdentity";
+import { loadPQ, PQ_PRIVATE_BYTES } from "./pq";
 import { APIRequestError } from "./api";
 import { base64, deriveRecoveryKEK, fromBase64, sha256, type LoginKeys } from "./crypto";
 import { DEVICE_ONLY_WRAP, type HeldIdentity, type IdentityStore, type PublicIdentity } from "./identity";
@@ -92,10 +93,11 @@ const aad = (userID: string, publicKey: Uint8Array) => concat(encoder.encode(WRA
 
 /** Test-only: fixed salt and nonce for testdata/protocol/recovery_vectors.json. */
 export async function sealRecoveryForVector(secret: Uint8Array, privateKey: Uint8Array, userID: string, salt: Uint8Array, nonce: Uint8Array): Promise<Uint8Array> {
-  if (secret.length !== SECRET_BYTES || privateKey.length !== 32 || salt.length !== SALT_BYTES || nonce.length !== NONCE_BYTES) throw new Error("invalid recovery input");
+  if (secret.length !== SECRET_BYTES || (privateKey.length !== 32 && privateKey.length !== PQ_PRIVATE_BYTES) || salt.length !== SALT_BYTES || nonce.length !== NONCE_BYTES) throw new Error("invalid recovery input");
+  if (privateKey.length !== 32) await loadPQ();
   const kek = await deriveRecoveryKEK(secret, salt);
   try {
-    return concat(salt, nonce, gcm(kek, nonce, aad(userID, x25519.getPublicKey(privateKey))).encrypt(privateKey));
+    return concat(salt, nonce, gcm(kek, nonce, aad(userID, identityPublic(privateKey))).encrypt(privateKey));
   } finally {
     kek.fill(0);
   }
@@ -112,7 +114,7 @@ export const sealRecovery = (secret: Uint8Array, identity: Identity, userID: str
  */
 export async function openRecovery(secret: Uint8Array, wrapped: Uint8Array, userID: string, listed: { deviceId: string; publicKey: string; wrapAlg: string }): Promise<HeldIdentity> {
   const publicKey = keyOrUndefined(listed.publicKey);
-  if (!publicKey || listed.wrapAlg !== RECOVERY_ALG || wrapped.length !== RECOVERY_BYTES || secret.length !== SECRET_BYTES) throw new RecoveryCodeError(RECOVERY_WRONG);
+  if (!publicKey || listed.wrapAlg !== RECOVERY_ALG || (wrapped.length !== RECOVERY_BYTES && wrapped.length !== PQ_PRIVATE_BYTES+44) || secret.length !== SECRET_BYTES) throw new RecoveryCodeError(RECOVERY_WRONG);
   const kek = await deriveRecoveryKEK(secret, wrapped.subarray(0, SALT_BYTES));
   let privateKey: Uint8Array;
   try {
@@ -122,7 +124,8 @@ export async function openRecovery(secret: Uint8Array, wrapped: Uint8Array, user
   } finally {
     kek.fill(0);
   }
-  if (!sameBytes(x25519.getPublicKey(privateKey), publicKey)) {
+  if (privateKey.length !== 32) await loadPQ();
+  if (!sameBytes(identityPublic(privateKey), publicKey)) {
     privateKey.fill(0);
     throw new RecoveryCodeError(RECOVERY_WRONG);
   }
@@ -136,7 +139,7 @@ export type RecoveryAPI = {
   myIdentity: () => Promise<PublicIdentity | undefined>;
   putRecovery: (input: { deviceId: string; expectedRecoveryId: string; wrapAlg: string; wrappedKey: string }) => Promise<{ recoveryId: string }>;
   fetchRecovery: () => Promise<RecoveryCopy | undefined>;
-  replaceIdentity: (input: ReplaceInput) => Promise<{ deviceId: string }>;
+  replaceIdentity: (input: ReplaceInput) => Promise<{ deviceId: string; orgId?: string }>;
 };
 
 export const CONFIRM_FIRST = "Type the asked group of your saved recovery code first.";
@@ -258,7 +261,7 @@ export async function restoreIdentity(api: Pick<RecoveryAPI, "fetchRecovery" | "
     if (live.deviceId !== copy.deviceId || !sameBytes(listed, keyOrUndefined(copy.publicKey) ?? new Uint8Array())) throw new RecoveryCodeError(RECOVERY_STALE);
     let wrapped: Uint8Array;
     try { wrapped = fromBase64(copy.wrappedKey); } catch { throw new RecoveryCodeError(RECOVERY_WRONG); }
-    const identity = await openRecovery(secret, wrapped, userID, { deviceId: live.deviceId, publicKey: live.publicKey, wrapAlg: copy.wrapAlg });
+    const identity = { ...await openRecovery(secret, wrapped, userID, { deviceId: live.deviceId, publicKey: live.publicKey, wrapAlg: copy.wrapAlg }), orgId: live.orgId };
     let saved = false;
     try {
       if (await store.save(identity, before ?? null)) {
@@ -301,10 +304,11 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
     wrap = { wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(password.keys.userKEK, prepared.identity.privateKey, prepared.userID)) };
   }
   let deviceId: string;
+  let orgId: string | undefined;
   await store.noteReset?.(prepared.identity.publicKey).catch(() => undefined);
   const replace = (with_: typeof wrap) => api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...with_, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } });
   try {
-    ({ deviceId } = await replace(wrap).catch((error) => {
+    ({ deviceId, orgId } = await replace(wrap).catch((error) => {
       if (!(error instanceof APIRequestError && error.code === "device_only_required")) throw error;
       return replace({ wrapAlg: DEVICE_ONLY_WRAP });
     }));
@@ -315,9 +319,10 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
     const listed = live && keyOrUndefined(live.publicKey);
     if (!live || !listed || !sameBytes(listed, prepared.identity.publicKey)) throw error;
     deviceId = live.deviceId;
+    orgId = live.orgId;
   }
   kept.delete(prepared);
-  const identity = { ...prepared.identity, deviceId };
+  const identity = { ...prepared.identity, deviceId, orgId };
   return { identity, kept: await store.save(identity) };
 }
 

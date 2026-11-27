@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -10,13 +11,13 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/config"
+	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
 // liveCookies keeps the cookies a login response set (not the ones it cleared).
@@ -446,19 +447,16 @@ func TestPendingRefusalSpendsNoChallengeBudget(t *testing.T) {
 // firstLinkVector is links[0] of the shared vector file: the server must accept its commitment.
 func firstLinkVector(t *testing.T) (commitment, newcomerKey, approverKey []byte) {
 	t.Helper()
-	raw, err := os.ReadFile("../../testdata/protocol/link_vectors.json")
+	_, newcomerKey, err := teamkeys.GeneratePQIdentity(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var file struct {
-		Links []struct{ Commitment, NewcomerPublicKey, ApproverPublicKey string } `json:"links"`
-	}
-	if err := json.Unmarshal(raw, &file); err != nil {
+	_, approverKey, err = teamkeys.GeneratePQIdentity(nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	decode := func(s string) []byte { b, _ := hex.DecodeString(s); return b }
-	v := file.Links[0]
-	return decode(v.Commitment), decode(v.NewcomerPublicKey), decode(v.ApproverPublicKey)
+	sum := sha256.Sum256(append([]byte(linkCommitLabel), newcomerKey...))
+	return sum[:], newcomerKey, approverKey
 }
 
 // secondSession signs the pair user in again in a fresh cookie jar: another browser of one account.
@@ -736,7 +734,7 @@ func TestLinkStepsRunInOrderOnce(t *testing.T) {
 	if send(trusted, "/claim", "approverKey", approverKey) != http.StatusNoContent || send(newcomer, "/reveal", "newcomerKey", newcomerKey) != http.StatusNoContent {
 		t.Fatal("claim and reveal")
 	}
-	other := bytes.Repeat([]byte{3}, 32)
+	other := bytes.Repeat([]byte{3}, teamkeys.PQPublicBytes)
 	if send(newcomer, "/reveal", "newcomerKey", other) != http.StatusNotFound || send(trusted, "/claim", "approverKey", other) != http.StatusNotFound {
 		t.Fatal("a fixed key was offered again")
 	}

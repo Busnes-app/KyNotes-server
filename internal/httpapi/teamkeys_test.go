@@ -15,6 +15,7 @@ import (
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/teamkeys"
 )
 
 // member is a second logged-in user on the same server as the pairClient.
@@ -82,7 +83,7 @@ func seedContainer(t *testing.T, p *pairClient, kind, team string, roles map[str
 }
 
 func envJSON(deviceID string, generation int64, fill byte) string {
-	return `{"deviceId":` + quote(deviceID) + `,"keyGeneration":` + strconv.FormatInt(generation, 10) + `,"alg":"x25519-hkdf-sha256-chacha20poly1305","envelope":` + quote(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 93))) + `}`
+	return `{"deviceId":` + quote(deviceID) + `,"keyGeneration":` + strconv.FormatInt(generation, 10) + `,"alg":"` + envelopeAlg + `","envelope":` + quote(base64.StdEncoding.EncodeToString(append(append([]byte{4}, []byte("dev_00000000000000000000000000")...), bytes.Repeat([]byte{fill}, teamkeys.PQEnvelopeBytes-31)...))) + `}`
 }
 
 func envelopesBody(items ...string) []byte {
@@ -272,31 +273,31 @@ func TestEnvelopeWriteIsInsertOnlyExceptOwnIdentity(t *testing.T) {
 		t.Fatalf("second steward overwrote a recipient: %d %s", code, body)
 	}
 	var fill []byte
-	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.editorID).Scan(&fill); err != nil || fill[0] != 1 {
+	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.editorID).Scan(&fill); err != nil || fill[len(fill)-1] != 1 {
 		t.Fatalf("envelope changed: %x %v", fill, err)
 	}
 	if code, body := put(tm.owner, envelopesBody(envJSON(tm.ownerID, 1, 3))); code != http.StatusNoContent {
 		t.Fatalf("own identity replace=%d %s", code, body)
 	}
-	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.ownerID).Scan(&fill); err != nil || fill[0] != 3 {
+	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.ownerID).Scan(&fill); err != nil || fill[len(fill)-1] != 3 {
 		t.Fatalf("own identity not replaced: %x %v", fill, err)
 	}
 }
 
-// TestEnvelopeWriteAcceptsBothFormats: v3 (HPKE) and v2 rows are stored with their alg; any other alg is refused.
-func TestEnvelopeWriteAcceptsBothFormats(t *testing.T) {
+// TestEnvelopeWriteAcceptsOnlyPQFormat: v3 (HPKE) and v2 rows are stored with their alg; any other alg is refused.
+func TestEnvelopeWriteAcceptsOnlyPQFormat(t *testing.T) {
 	tm := newTeam(t)
 	keyForTest(t, tm.owner.db, tm.id, pairUser)
 	put := func(alg, device string) (int, string) {
-		item := strings.Replace(envJSON(device, 1, 1), legacyEnvelopeAlg, alg, 1)
+		item := strings.Replace(envJSON(device, 1, 1), envelopeAlg, alg, 1)
 		return status(t, tm.owner.do(t, http.MethodPut, "/api/v1/containers/"+tm.id+"/envelopes", envelopesBody(item), true, false))
 	}
-	for _, alg := range []string{"x25519-hkdf-sha256-chacha20poly1305-v4", "hpke-base-x25519-hkdfsha256-chacha20poly1305", ""} {
+	for _, alg := range []string{"x25519-hkdf-sha256-chacha20poly1305-v4", "hpke-base-x25519-hkdfsha256-chacha20poly1305", legacyEnvelopeAlg, "hpke-auth-x25519-hkdfsha256-chacha20poly1305", ""} {
 		if code, body := put(alg, tm.editorID); code != http.StatusBadRequest || !strings.Contains(body, "invalid_request") {
 			t.Fatalf("alg %q: %d %s", alg, code, body)
 		}
 	}
-	for device, alg := range map[string]string{tm.editorID: envelopeAlg, tm.adminID: legacyEnvelopeAlg} {
+	for device, alg := range map[string]string{tm.editorID: envelopeAlg} {
 		if code, body := put(alg, device); code != http.StatusNoContent {
 			t.Fatalf("alg %q: %d %s", alg, code, body)
 		}
@@ -350,7 +351,7 @@ func TestOwnIdentityWriteIsRewrapOnly(t *testing.T) {
 		t.Fatalf("member re-wrap=%d %s", code, body)
 	}
 	var fill []byte
-	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.editorID).Scan(&fill); err != nil || fill[0] != 2 {
+	if err := tm.owner.db.QueryRow(`SELECT envelope FROM key_envelopes WHERE device_id=?`, tm.editorID).Scan(&fill); err != nil || fill[len(fill)-1] != 2 {
 		t.Fatalf("re-wrap not stored: %x %v", fill, err)
 	}
 }

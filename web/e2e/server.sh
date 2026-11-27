@@ -24,6 +24,6 @@ YAML
 mkdir -m 700 "$data/secrets"
 (umask 077; echo "e2e0setup0token0000000000000000" > "$data/secrets/setup.token")
 # Background plus wait, so a SIGTERM to this script reaches the server instead of orphaning it.
-"$data/kynotes-server" --config "$data/kynotes.yaml" &
+PUSH_RELAY_URL= APNS_RELAY_URL= "$data/kynotes-server" --config "$data/kynotes.yaml" &
 server=$!
 wait "$server"

@@ -7,6 +7,7 @@ Own the product's user manual and documentation workflow.
 ## Ownership
 
 - `src/` owns manual chapters; existing reference documents and plans retain their own scope.
+- `PQC.md` owns versioned PQ crypto formats, compatibility, upgrade and build contracts; `src/using.md` owns the user upgrade task.
 - Root README owns the product entry point; CONTRIBUTING.md and SECURITY.md own their policies.
 
 ## Local Contracts

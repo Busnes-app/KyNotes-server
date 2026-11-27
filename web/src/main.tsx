@@ -3,7 +3,7 @@ import { AdminConsole } from "./components/AdminConsole";
 import { Appearance, ThemeSwitcher } from "./components/Appearance";
 import { AppFrame, NavItem, usePhone } from "./components/AppNav";
 import { setupProblem } from "./setup";
-import { IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
+import { PQUpgrade, IdentityReset, RECOVERY_MISSING, RECOVERY_RESTORED, RecoveryRestore, RecoverySetup, RESET_UNFINISHED } from "./components/RecoveryCode";
 import { downloadFile } from "./download";
 import { zip } from "./zip";
 import { exportUnsent, retireWaiting } from "./stuckEdits";
@@ -949,7 +949,8 @@ function Workspace({
   async function keyNoticeFor(result: KeySync, fresh: MemberKey[], asked: boolean) {
     const notices: string[] = [];
     const plan = result.plan;
-    if (plan.kind === "unrecoverable") notices.push(UNRECOVERABLE);
+    if (plan.kind === "pq-upgrade") notices.push(`Key sharing waits for ${plan.members.join(", ")} to upgrade encryption in Settings → Account. Existing notebooks remain readable.`);
+    else if (plan.kind === "unrecoverable") notices.push(UNRECOVERABLE);
     else if (plan.kind === "untrusted") notices.push(asked ? `No keys were exchanged with ${plan.members.join(", ")}: you did not confirm their new encryption key.` : `The encryption key of ${plan.members.join(", ")} changed. Reopen this notebook to compare fingerprints.`);
     else if (plan.kind === "rollback") notices.push(ROLLBACK);
     else if (plan.kind === "pins-unsaved") notices.push("No keys were exchanged: this browser could not save the colleague keys it checked. Allow site storage and reopen the notebook.");
@@ -3682,6 +3683,7 @@ function SettingsView({
             </button>
           )}
         </section>
+        {identityState === "held" && live && fromBase64(live.publicKey).length === 32 && <PQUpgrade userID={userID} held={heldIdentity} store={identityStore} stepUp={stepUp} password={sso ? undefined : passwordReset(username)} onUpgraded={onIdentityChanged} />}
         {identityState === "held" && <RecoverySetup userID={userID} held={heldIdentity} live={live} sso={sso} stepUp={stepUp} autoStart={recoveryPrompt} onSaved={onIdentityChanged} />}
         {resetUnfinished && <p role="status">{RESET_UNFINISHED}</p>}
         {live && <IdentityReset userID={userID} store={identityStore} live={live} held={identityState === "held"} stepUp={stepUp} exportWaiting={exportWaiting} onReset={onReset} password={sso ? undefined : passwordReset(username)} />}

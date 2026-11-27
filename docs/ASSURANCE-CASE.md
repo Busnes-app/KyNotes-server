@@ -42,8 +42,10 @@ downloaded by a member before revocation.
 
 1. **Browser → KyNotes.** The browser holds the content keys. The server stores ciphertext,
    key envelopes and metadata ([DESIGN.md, Encryption](../DESIGN.md#encryption)). The server
-   binary does not link the client-side sealing code (`internal/notecrypto` is used only by the MCP
-   bridge in `cmd/kynotes-mcp`; `TestNotLinkedIntoServer` in `internal/notecrypto` checks it).
+   binary does not link private client sealing helpers (`internal/notecrypto` and
+   `internal/teamkeys`); `TestNotLinkedIntoServer` checks this. The server uses public
+   framing/validation from `internal/keyprotocol`. The browser runs shared Go PQ helpers
+   as build-generated WASM; see [PQC](PQC.md).
 2. **Proxy → KyNotes.** `X-Forwarded-For` counts only when `behind_proxy` is set and the peer is in
    the trusted proxies, read right to left (`resolvedClientIP` in `internal/httpapi/ratelimit.go`).
 3. **KyNotes → push services.** Subscription endpoints must be `https` to one of five browser push
@@ -85,12 +87,13 @@ downloaded by a member before revocation.
   version (`TestConcurrentSaveReplayMakesOneVersion`, `draft-durability.e2e.ts`).
 - **Complete mediation.** Every request resolves its session from the database
   (`ResolveSession`), so a revoked session or deactivated account stops at the next request.
-- **Economy of mechanism.** Seven direct Go modules (`go.mod`); WebCrypto in the browser.
+- **Economy of mechanism.** Pinned shared primitives; WebCrypto and the shared Go PQ WASM in the browser.
 - **Separation of privilege.** Backup and recovery actions need step-up, except a manual
   deposit, which only seals to the already-pinned key (admin plus CSRF); SSO admin needs both the
   account role and the verified `kynotes.admin` claim ([SECURITY.md](../SECURITY.md)).
 - **Open design.** Only published algorithms: Argon2id, PBKDF2-SHA256, HKDF-SHA256, AES-256-GCM,
-  X25519 for note/authentication mechanisms. Optional SMB uses the documented legacy NTLM
+  X-Wing (ML-KEM-768 + X25519) and ML-DSA-65 + Ed25519 for new key envelopes and linking;
+  classical keys remain for historical reads only. Optional SMB uses the documented legacy NTLM
   mechanisms for interoperability; it is disabled unless explicitly selected. The code and
   this argument are public. Listing primitives does not establish expert review of every
   application protocol.
@@ -111,7 +114,7 @@ downloaded by a member before revocation.
 | SQL injection | `database/sql` with `?` parameters; the one concatenated statement joins a constant | `internal/storage/gc.go` |
 | Command injection | The server starts no subprocess; `exec.Command` appears only in the test probe | `cmd/kynotes-probe` |
 | Server-side request forgery | Push endpoints restricted to five hosts; other outbound targets are operator configuration | `internal/webpush/webpush.go` |
-| Content disclosure or substitution by the server | Content sealed with AES-256-GCM under per-container keys, subkeys from HKDF-SHA256 bound to the container ID, and associated data binding each ciphertext to its object (or page) and kind; older unbound content refused once its notebook migrates; keys wrapped to X25519 device and identity keys | `web/src/crypto.ts`, `internal/notecrypto/notecrypto.go`, [DESIGN.md](../DESIGN.md#encryption) |
+| Content disclosure or substitution by the server | Content sealed with AES-256-GCM under per-container keys, subkeys from HKDF-SHA256 bound to the container ID, and associated data binding each ciphertext to its object (or page) and kind; older unbound content refused once its notebook migrates; new keys wrapped with signed X-Wing envelopes bound to org/container/generation/devices; classical envelopes accepted only below the write generation after upgrade | `web/src/crypto.ts`, `internal/notecrypto/notecrypto.go`, [DESIGN.md](../DESIGN.md#encryption) |
 | Secrets in logs | A logging contract that allows only opaque IDs and outcomes | [LOGGING.md](../LOGGING.md) |
 | Vulnerable dependencies | Dependabot for Go, npm, Actions and the base image; `govulncheck` in CI | `.github/dependabot.yml`, `.github/workflows/ci.yml` |
 | Supply-chain tampering | Actions pinned by commit; base images pinned by digest; release images attested and built only from a commit that passed CI; the binary rebuilds to the same bytes | [VERIFYING-RELEASES.md](VERIFYING-RELEASES.md) |

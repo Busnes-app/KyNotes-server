@@ -1,3 +1,7 @@
+> PQC amendment: [docs/PQC.md](../../PQC.md) supersedes the classical identity,
+> envelope and linking formats below. Historical phases and vectors remain records;
+> current production writes use the v4 envelope and v3 linking transport.
+
 # Sub-project T: shared team keys (design draft)
 
 Status: approved direction 2026-10-07 (C → B → T → A list); delivered in phases P1–P5, one PR each. Source of truth read: origin/master at 1410db2. Legacy login-derived content key removed 2026-10-08 (user decision, see §9).
