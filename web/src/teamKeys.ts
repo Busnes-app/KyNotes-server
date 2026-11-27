@@ -1,3 +1,5 @@
+import { identityPublic, isPQPublic } from "./pqIdentity";
+import { loadPQ, result, HYBRID_SIGNATURE_BYTES, PQ_PRIVATE_BYTES, XWING_PUBLIC_BYTES } from "./pq";
 import { gcm } from "@noble/ciphers/aes.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { randomBytes } from "@noble/ciphers/utils.js";
@@ -7,14 +9,16 @@ import { CipherSuite, HkdfSha256 } from "@hpke/core";
 import { DhkemX25519HkdfSha256 } from "@hpke/dhkem-x25519";
 import { hkdfSha256 } from "./crypto";
 
-/** Envelope v3: RFC 9180 HPKE mode_auth, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305. Every new envelope is v3. */
-export const ENVELOPE_ALG = "hpke-auth-x25519-hkdfsha256-chacha20poly1305";
+/** Envelope v3: RFC 9180 HPKE mode_auth, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305. Read-only for stored v3 rows; production writes use v4. */
+export const AUTH_ENVELOPE_ALG = "hpke-auth-x25519-hkdfsha256-chacha20poly1305";
 /** 0x03 | senderDeviceID(30) | enc(32) | ChaCha20-Poly1305(CK)(48). */
-export const ENVELOPE_BYTES = 111;
+export const AUTH_ENVELOPE_BYTES = 111;
 /** Envelope v2, the earlier custom construction: opened for stored rows, never sealed. */
 export const LEGACY_ENVELOPE_ALG = "x25519-hkdf-sha256-chacha20poly1305";
 /** 0x02 | senderDeviceID(30) | ephPub(32) | nonce(12) | ChaCha20-Poly1305(CK)(48). */
 export const LEGACY_ENVELOPE_BYTES = 123;
+export const ENVELOPE_ALG = "hpke-base-xwing-647a-hkdfsha256-aes256gcm-hybridsig";
+export const ENVELOPE_BYTES = 31 + 1137 + 32 + HYBRID_SIGNATURE_BYTES;
 export const IDENTITY_WRAP_ALG = "aes-256-gcm";
 export const WRAPPED_IDENTITY_BYTES = 60;
 const ENVELOPE_LABEL = "kynotes/envelope/v3";
@@ -74,7 +78,7 @@ export async function hpkeKeyPair(privateKey: Uint8Array): Promise<CryptoKeyPair
   return { privateKey: await envelopeSuite.kem.deserializePrivateKey(privateKey), publicKey: await envelopeSuite.kem.deserializePublicKey(x25519.getPublicKey(privateKey)) };
 }
 
-/** ephemeralSeed is the HPKE ikmE (test vectors only); omitted, the library draws a fresh ephemeral key. */
+/** Classical v3 fixture generator only. Production writers use wrapEnvelope (v4). */
 async function sealEnvelope(
   contentKey: Uint8Array, recipientPublicKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string,
   sender: Sender, ephemeralSeed?: Uint8Array,
@@ -86,8 +90,21 @@ async function sealEnvelope(
   return concat(Uint8Array.of(0x03), encoder.encode(sender.deviceId), new Uint8Array(enc), new Uint8Array(ct));
 }
 
-export function wrapEnvelope(contentKey: Uint8Array, recipientPublicKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string, sender: Sender): Promise<Uint8Array> {
-  return sealEnvelope(contentKey, recipientPublicKey, containerID, keyGeneration, recipientDeviceID, sender);
+export async function wrapEnvelope(contentKey: Uint8Array, recipientPublicKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string, sender: Sender, orgID = ""): Promise<Uint8Array> {
+  if (contentKey.length !== 32 || !isPQPublic(recipientPublicKey) || sender.privateKey.length !== PQ_PRIVATE_BYTES) throw new Error("Post-quantum identity upgrade required before sharing keys");
+  const ctx = pqEnvelopeInfo(orgID, containerID, keyGeneration, recipientDeviceID, sender.deviceId);
+  const pq = await loadPQ();
+  const sealed = result(pq.xwingSeal(recipientPublicKey.subarray(33,33+XWING_PUBLIC_BYTES),ctx,ctx,contentKey));
+  const unsigned = concat(Uint8Array.of(4),idBytes("dev",sender.deviceId),sealed);
+  const sig = result(pq.hybridsigSign(sender.privateKey.subarray(65,97),sender.privateKey.subarray(97,129),"kynotes/envelope/v4/sender",concat(ctx,unsigned)));
+  return concat(unsigned,sig);
+}
+
+export function pqEnvelopeInfo(orgID: string, containerID: string, generation: number, recipientID: string, senderID: string): Uint8Array {
+  const org = encoder.encode(orgID);
+  if (org.length > 255 || orgID.includes("\0")) throw new Error("invalid org");
+  const size = new Uint8Array(2); new DataView(size.buffer).setUint16(0,org.length);
+  return concat(envelopeContext("kynotes/envelope/v4\0",containerID,generation,recipientID,senderID),size,org);
 }
 
 /** Test-only: fixed HPKE ephemeral seed for cross-implementation vectors. */
@@ -95,7 +112,7 @@ export const wrapEnvelopeForVector = sealEnvelope;
 
 /** The sender device ID an envelope of alg claims; unauthenticated until unwrapEnvelope succeeds with that sender's key. Alg, version and length must agree. */
 export function envelopeSender(alg: string, envelope: Uint8Array): string {
-  const [version, size] = alg === ENVELOPE_ALG ? [0x03, ENVELOPE_BYTES] : alg === LEGACY_ENVELOPE_ALG ? [0x02, LEGACY_ENVELOPE_BYTES] : [-1, -1];
+  const [version, size] = alg === ENVELOPE_ALG ? [4, ENVELOPE_BYTES] : alg === AUTH_ENVELOPE_ALG ? [3, AUTH_ENVELOPE_BYTES] : alg === LEGACY_ENVELOPE_ALG ? [0x02, LEGACY_ENVELOPE_BYTES] : [-1, -1];
   if (envelope.length !== size || envelope[0] !== version) throw new Error("unsupported envelope");
   const sender = new TextDecoder().decode(envelope.subarray(1, 1 + ID_BYTES));
   idBytes("dev", sender);
@@ -103,8 +120,17 @@ export function envelopeSender(alg: string, envelope: Uint8Array): string {
 }
 
 /** Opens a v3 or stored v2 envelope, selected by alg; senderPublicKey is the identity key the caller resolved for envelopeSender. */
-export async function unwrapEnvelope(alg: string, envelope: Uint8Array, recipientPrivateKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string, senderPublicKey: Uint8Array): Promise<Uint8Array> {
+export async function unwrapEnvelope(alg: string, envelope: Uint8Array, recipientPrivateKey: Uint8Array, containerID: string, keyGeneration: number, recipientDeviceID: string, senderPublicKey: Uint8Array, orgID = ""): Promise<Uint8Array> {
   const sender = envelopeSender(alg, envelope);
+  if (alg === ENVELOPE_ALG) {
+    if (recipientPrivateKey.length !== PQ_PRIVATE_BYTES || !isPQPublic(senderPublicKey)) throw new Error("invalid PQ identity");
+    const ctx = pqEnvelopeInfo(orgID,containerID,keyGeneration,recipientDeviceID,sender);
+    const pq = await loadPQ(), unsigned = envelope.subarray(0,envelope.length-HYBRID_SIGNATURE_BYTES);
+    result(pq.hybridsigVerify(senderPublicKey.subarray(33+XWING_PUBLIC_BYTES),"kynotes/envelope/v4/sender",concat(ctx,unsigned),envelope.subarray(unsigned.length)));
+    return result(pq.xwingOpen(recipientPrivateKey.subarray(33,65),ctx,ctx,unsigned.subarray(31)));
+  }
+  if (recipientPrivateKey.length === PQ_PRIVATE_BYTES) recipientPrivateKey = recipientPrivateKey.subarray(1,33);
+  if (isPQPublic(senderPublicKey)) senderPublicKey = senderPublicKey.subarray(1,33);
   if (senderPublicKey.length !== 32) throw new Error("invalid sender key");
   if (alg === LEGACY_ENVELOPE_ALG) return unwrapLegacyEnvelope(envelope, recipientPrivateKey, containerID, keyGeneration, recipientDeviceID, sender, senderPublicKey);
   const opened = await envelopeSuite.open({
@@ -135,7 +161,7 @@ function identityAAD(userID: string): Uint8Array {
 }
 
 function sealIdentity(userKEK: Uint8Array, privateKey: Uint8Array, userID: string, nonce: Uint8Array): Uint8Array {
-  if (userKEK.length !== 32 || privateKey.length !== 32 || nonce.length !== 12) throw new Error("invalid identity input");
+  if (userKEK.length !== 32 || (privateKey.length !== 32 && privateKey.length !== PQ_PRIVATE_BYTES) || nonce.length !== 12) throw new Error("invalid identity input");
   return concat(nonce, gcm(userKEK, nonce, identityAAD(userID)).encrypt(privateKey));
 }
 
@@ -147,7 +173,7 @@ export function wrapIdentity(userKEK: Uint8Array, privateKey: Uint8Array, userID
 export const wrapIdentityForVector = sealIdentity;
 
 export function unwrapIdentity(userKEK: Uint8Array, wrapped: Uint8Array, userID: string): Identity {
-  if (userKEK.length !== 32 || wrapped.length !== WRAPPED_IDENTITY_BYTES) throw new Error("invalid wrapped identity");
+  if (userKEK.length !== 32 || (wrapped.length !== WRAPPED_IDENTITY_BYTES && wrapped.length !== PQ_PRIVATE_BYTES+28)) throw new Error("invalid wrapped identity");
   const privateKey = gcm(userKEK, wrapped.subarray(0, 12), identityAAD(userID)).decrypt(wrapped.subarray(12));
-  return { privateKey, publicKey: x25519.getPublicKey(privateKey) };
+  return { privateKey, publicKey: identityPublic(privateKey) };
 }

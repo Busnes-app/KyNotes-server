@@ -1,3 +1,4 @@
+import { generatePQIdentityReady as generateIdentity } from "./pqIdentity";
 import "fake-indexeddb/auto";
 import { bytesToHex } from "@noble/ciphers/utils.js";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
@@ -6,7 +7,7 @@ import type { PublicIdentity } from "./identity";
 import { memberKeyStatus, mergeFloor, newContainerKey, openKeyring, readKeys, sealFor, writeKey, type Envelope, type InvitationEnvelope, type KeyFloor, type Keyring, type KeyState, type Member, type ReportedContainer } from "./keyring";
 import { inviteWithKeys, syncContainerKeys, type Caller, type InviteAPI, type InviteKeys, type InviteTarget, type KeyAPI, type PinStore } from "./keyService";
 import { confirmFingerprintChange, displayName, isPinConfirmation, type PinChange, type PinConfirmation, type Pins } from "./pins";
-import { generateIdentity } from "./teamKeys";
+
 import { clearAllDeviceKeys, getKeyState, getPins, storeConfirmedPin, openVault, storeKeyState, storePins, type PinsStored } from "./storage";
 
 const cnt = `cnt_${"a".repeat(26)}`;

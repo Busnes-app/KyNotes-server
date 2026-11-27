@@ -81,6 +81,10 @@ go vet ./...
 go test -race -count=1 ./...
 ```
 
+Browser prebuild/pretest and `make build/test` generate the ignored PQ WASM assets.
+Run `bash scripts/build-pqwasm.sh` before a direct Go build on a fresh checkout; see
+[the PQC build and upgrade guide](docs/PQC.md).
+
 These checks are not the complete release gate. CI also runs browser regressions, fuzz
 checks, the Docker/installer probe and vulnerability checks; see
 [the workflow](.github/workflows/ci.yml). Browser fixtures do not prove a live KyIdentity
@@ -128,3 +132,5 @@ Read the [online manual](https://busnes.app/manuals/kynotes-server/) or browse i
 Build and check it with `mdbook build docs` and `python3 docs/check-links.py`,
 then open `docs/book/index.html`. The documentation workflow also provides a
 downloadable `documentation-book` artifact.
+
+Post-quantum notebook-key envelopes, device linking and the one-time member upgrade: [PQC guide](docs/PQC.md).

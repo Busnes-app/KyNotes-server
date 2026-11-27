@@ -23,9 +23,9 @@ delete accounts. Nothing in this guide rewrites a stored key.
 | --- | --- | --- |
 | Notebook content, names, comments, attachments (browser, `kynotes-mcp`) | 32-byte container keys; AES-256-GCM under HKDF-SHA256 subkeys bound to container, object and kind | Refused: `asContentKey` and Go `notecrypto` require 32 bytes, and the browser's only AES import refuses any key that is not 256 bits. |
 | Share links | A fresh 32-byte key in the URL fragment, AES-256-GCM | A fragment that decodes to 16 or 24 bytes is refused before WebCrypto sees it (`web/src/crypto.ts`). |
-| Identities and team-key envelopes | X25519 identity keys; new envelopes HPKE Auth (X25519, HKDF-SHA256, ChaCha20-Poly1305); stored v2 envelopes open read-only | Fixed suites: keys, version byte and length must agree; no size is selectable. |
+| Identities and team-key envelopes | X-Wing (0x647A)/HKDF-SHA256/AES-256-GCM plus ML-DSA-65 + Ed25519 sender proof; stored v2/v3 envelopes open read-only ([format](PQC.md)) | Fixed suites: keys, version byte and length must agree; no size is selectable. |
 | Identity wraps | AES-256-GCM under a 32-byte key derived with PBKDF2-SHA256 (600 000 iterations) from the password or from the 128-bit recovery code | Login iterations below 600 000 are refused, apart from the documented one-time upgrade of a legacy 100 000-iteration account; recovery iterations are a client constant, never read from the server. |
-| Device linking | X25519, HKDF-SHA256, ChaCha20-Poly1305, SHA-256 commitments | Fixed suite. |
+| Device linking | X-Wing HPKE base, HybridSig sender proof, full-key SHA-256 commitments and SAS | Fixed suite. |
 | Browser vault key | Non-extractable AES-256-GCM generated in the browser | Not imported. |
 | Passwords and recovery codes on the server | Argon2id (`ky-primitives/password`) over a 256-bit derived login secret | scrypt verifiers are refused. |
 | Hosted maintenance credentials and fingerprint | Same Argon2id and HMAC-SHA256 mechanisms as account creation and replica startup | Bounded stdin accepts exactly a 256-bit derived proof, standard-base64 salt of 16–64 bytes and 600000–1000000 iterations. Environment pairing/salt keys remain at least 32 bytes; configuration acceptance refuses a changed retained encryption key. |

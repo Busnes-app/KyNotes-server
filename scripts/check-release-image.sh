@@ -21,7 +21,7 @@ fi
 # A complete multi-tenant configuration, issuer under .test as the test build wants: only the
 # release gate may refuse it. --network none: nothing it could reach exists anyway.
 set +e
-out=$(docker run --rm --network none --memory 256m \
+out=$(docker run --rm --network none --memory 256m -e PUSH_RELAY_URL= -e APNS_RELAY_URL= \
   -e KYNOTES_TENANCY=multi \
   -e KYNOTES_STAFF_ORG_ID=org-staff \
   -e KYNOTES_REGION=e2e-1 \

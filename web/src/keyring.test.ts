@@ -1,9 +1,10 @@
+import { generatePQIdentityReady as generateIdentity } from "./pqIdentity";
 import { beforeAll, describe, expect, it } from "vitest";
 import { asContentKey, base64, decryptNote, encryptNote, type KeyRef } from "./crypto";
 import { guardContainer, mergeFloor, memberKeyStatus, keysAllowed, NO_FLOOR, ownCopyKeys, raiseFloor, newContainerKey, openFirst, openKeyring, planSweep, readKeys, sealFor, WAITING_GENERATION, waitingKey, writeKey, type Envelope, type KeyFloor, type Me, type MemberKey } from "./keyring";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import vectors from "../../testdata/protocol/envelope_vectors.json";
-import { ENVELOPE_ALG, generateIdentity, LEGACY_ENVELOPE_ALG } from "./teamKeys";
+import { AUTH_ENVELOPE_ALG, wrapEnvelopeForVector, ENVELOPE_ALG, LEGACY_ENVELOPE_ALG } from "./teamKeys";
 import { confirmFingerprintChange, FingerprintChangedError, PinConfirmation } from "./pins";
 
 const cnt = `cnt_${"a".repeat(26)}`;
@@ -43,8 +44,8 @@ describe("keyring", () => {
     const self: MemberKey = { userId: me.userId, username: "me", role: "editor", identity: { deviceId: me.deviceId, publicKey: base64(me.publicKey) } };
     const v2: Envelope = { deviceId: me.deviceId, keyGeneration: v.keyGeneration, alg: LEGACY_ENVELOPE_ALG, envelope: base64(hexToBytes(v.envelope)) };
     const k3 = newContainerKey();
-    const v3 = (await sealFor(self, v.containerId, v.keyGeneration + 1, k3, me, {})).envelope;
-    expect(v3.alg).toBe(ENVELOPE_ALG);
+    const v3 = { deviceId: me.deviceId, keyGeneration: v.keyGeneration+1, alg: AUTH_ENVELOPE_ALG, envelope: base64(await wrapEnvelopeForVector(k3,me.publicKey,v.containerId,v.keyGeneration+1,me.deviceId,me)) };
+    expect(v3.alg).toBe(AUTH_ENVELOPE_ALG);
     const openAll = (rows: Envelope[]) => openKeyring({ containerID: v.containerId, envelopes: rows, me, members: [self, owner], pins: {}, known: { mark: 0, digests: {} } });
     const opened = await openAll([v2, v3]);
     expect(bytesToHex(opened.ring.get(v.keyGeneration)!)).toBe(v.contentKey);

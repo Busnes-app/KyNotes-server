@@ -63,7 +63,8 @@ was checked byte for byte against the 0.4.3 image; earlier releases were not che
 ```bash
 v=<release version>
 git clone --branch v$v https://github.com/Busnes-app/KyNotes-server.git kynotes-v$v && cd kynotes-v$v
-go_version=$(sed -n 's/^FROM golang:\([0-9.]*\)@.*/\1/p' Dockerfile)
+go_version=$(awk '$1 == "toolchain" { sub(/^go/,"",$2); print $2 }' go.mod)
+bash scripts/build-pqwasm.sh
 GOTOOLCHAIN=go$go_version CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -trimpath \
   -ldflags="-X github.com/Busnes-app/kynotes-server/internal/appversion.release=$v" \
   -o kynotes-from-source ./cmd/kynotes-server
@@ -72,7 +73,8 @@ cid=$(docker create ghcr.io/busnes-app/kynotes-server@$d) \
 sha256sum kynotes-from-source kynotes-from-image
 ```
 
-The two hashes must match. This works because the binary embeds the committed web build in
+The two hashes must match. The helper builds the ignored WASM and matching runtime
+from the pinned Go toolchain and module before the Go embed is compiled. This works because the binary embeds the committed web build in
 `internal/web/dist`, and CI fails any commit whose `internal/web/dist` differs from a fresh
 `npm run build`; the image rebuilds it and gets the same files. The distroless base around the
 binary is pinned by digest and is not rebuilt; the binary is what you are checking.

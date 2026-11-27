@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ecdh"
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
@@ -84,7 +83,7 @@ func (s stack) browser(t *testing.T, username, password string) browser {
 	if err := c.login(ctx); !errors.Is(err, errNoIdentity) {
 		t.Fatalf("first sign-in: %v", err)
 	}
-	key, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	key, _ := teamkeys.NewIdentity()
 	kek, _ := teamkeys.UserKEK(password, salt, iterations)
 	wrapped, _ := teamkeys.SealIdentity(kek, key.Bytes(), id)
 	b := browser{c, salt}
@@ -116,9 +115,9 @@ func (b browser) stepUp(t *testing.T) {
 
 func (b browser) envelope(t *testing.T, cid string, generation int64, key []byte, to *client) map[string]any {
 	t.Helper()
-	env, err := teamkeys.SealEnvelope(key, to.identity.PublicKey().Bytes(), cid, uint32(generation), to.identityDevice, b.identity, b.identityDevice)
+	env, err := teamkeys.SealPQEnvelope(key, to.identity.PublicKey().Bytes(), b.orgID, cid, uint32(generation), to.identityDevice, b.identity.Bytes(), b.identityDevice)
 	must(t, err)
-	return map[string]any{"deviceId": to.identityDevice, "keyGeneration": generation, "alg": teamkeys.EnvelopeAlg, "envelope": base64.StdEncoding.EncodeToString(env)}
+	return map[string]any{"deviceId": to.identityDevice, "keyGeneration": generation, "alg": teamkeys.PQEnvelopeAlg, "envelope": base64.StdEncoding.EncodeToString(env)}
 }
 
 // rotate mints a new key for the members given, as an owner's browser sweep does.

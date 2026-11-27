@@ -43,6 +43,15 @@ days and coordinate a fix and disclosure.
   fence by editing status. Unversioned senders must upgrade before this receiver.
   Readback requires a signed purpose/subject and an atomic successful audit
   identifying the probed subject and signed event ID.
+- New container-key envelopes and device links use X-Wing HPKE (0x647A) plus
+  ML-DSA-65 and Ed25519 sender proofs; both signature halves are required. Context
+  binds org/container/generation/devices for envelopes and account/request/keys for links.
+  The six-digit SAS covers both full X-Wing and signing public keys. Compare it on both screens.
+- The explicit PQ upgrade retains classical keys for historical reads and replaces recovery
+  copies while retiring future container keys. Upgraded browser/MCP keyrings refuse classical
+  envelopes at the write generation. Old ciphertexts and old backups remain exposed to the
+  old cryptography; the upgrade cannot retroactively protect them. Team writes wait for all
+  approved keyed members to upgrade and compare changed fingerprints. See [PQC](docs/PQC.md).
 - Team membership changes rotate keys for future content. Removed members may
   retain content they already downloaded.
 - Deterministic attachment encryption may reveal that two ciphertexts are

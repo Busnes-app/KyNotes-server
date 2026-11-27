@@ -116,7 +116,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
       const work: SweepPlan = next.kind !== "wrap" ? next : grants.length ? { kind: "wrap", grants } : { kind: "idle" };
       // A caller that may not wrap only reports the work; a refused first key writes nothing, so it is still explained.
       deferred = !caller.canWrap && (work.kind === "mint" || work.kind === "wrap");
-      return caller.canWrap || work.kind === "unrecoverable" ? work : { kind: "idle" };
+      return caller.canWrap || (work.kind === "unrecoverable" || work.kind === "pq-upgrade") ? work : { kind: "idle" };
     };
     const targets = (next: SweepPlan): MemberKey[] => (next.kind === "mint" ? next.recipients : next.kind === "wrap" ? next.grants.map((grant) => grant.member) : []).filter((member) => member.userId !== caller.userId);
 
@@ -156,7 +156,7 @@ export async function syncContainerKeys(api: KeyAPI, containerID: string, caller
     // A refused first pin: the keys its sender sealed are never returned, adopted or remembered.
     if (firstContact) return stopped(firstContact, []);
     trusted(opened);
-    if (sweep.kind === "idle" || sweep.kind === "unrecoverable") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
+    if (sweep.kind === "idle" || sweep.kind === "unrecoverable" || sweep.kind === "pq-upgrade") return result({ ring: opened.ring, plan: sweep, minted: false }, fresh);
 
     // Seal first so every recipient's pin is stored before anything leaves this browser.
     pins = opened.pins;

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { recoveryAPI } from "../api";
-import type { LoginKeys } from "../crypto";
+import { recoveryAPI, upgradeIdentity, myIdentity } from "../api";
+import { base64, type LoginKeys } from "../crypto";
+import { wrapIdentity, IDENTITY_WRAP_ALG } from "../teamKeys";
 import { downloadFile } from "../download";
 import type { HeldIdentity, IdentityStore, PublicIdentity } from "../identity";
 import { confirmRecoverySaved, parseRecoveryCode, prepareRecovery, recheck, recoveryRefusal, recoveryTypeBack, RESET_ACTION, RESET_CONFIRM, RESET_PHRASE, resetConfirmed, resetIdentity, restoreIdentity, saveRecovery, type PreparedRecovery } from "../recovery";
-import { generateIdentity } from "../teamKeys";
+import { generatePQIdentity } from "../pqIdentity";
 
 export { RESET_CONFIRM, resetConfirmed };
 
@@ -245,7 +246,7 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
         if (typeof checked === "string") { setStatus(checked); return; }
         keysRef.current = checked;
       }
-      hold(await prepareRecovery(generateIdentity(), userID));
+      hold(await prepareRecovery(await generatePQIdentity(), userID));
       setHidden(false);
     } catch (error) {
       setStatus(recoveryRefusal(error, RESET_ACTION).message);
@@ -302,4 +303,47 @@ export function IdentityReset({ userID, store, live, held, stepUp, exportWaiting
       {status && <p role="status">{status}</p>}
     </section>
   );
+}
+
+
+/** An explicit re-key preserves old envelopes and waiting drafts, while rotating future keys. */
+export function PQUpgrade({ userID, held, store, stepUp, password, onUpgraded }: {
+  userID: string; held: () => Promise<HeldIdentity | undefined>; store: IdentityStore; stepUp: () => Promise<void>;
+  password?: { derive: (password: string) => Promise<LoginKeys>; stepUp: (authSecret: string) => Promise<unknown> };
+  onUpgraded: () => void;
+}) {
+  const { prepared, hold, forget, showAgain } = usePrepared(true);
+  const [hidden,setHidden] = useState(false), [typed,setTyped] = useState(""), [status,setStatus] = useState("");
+  const old = useRef<HeldIdentity | undefined>(undefined), keys = useRef<LoginKeys | undefined>(undefined);
+  const submission = useRef<Parameters<typeof upgradeIdentity>[0] | undefined>(undefined);
+  useEffect(()=>()=>{keys.current?.userKEK.fill(0);},[]);
+  async function begin() {
+    try {
+      const identity = await held(); if (!identity || identity.privateKey.length !== 32) throw new Error("This browser must hold the original encryption key.");
+      if (password) {
+        keys.current?.userKEK.fill(0);
+        const checked = await checkedPasswordKeys(password,typed);setTyped("");
+        if (typeof checked === "string") throw new Error(checked);keys.current=checked;
+      }
+      submission.current=undefined;old.current=identity;hold(await prepareRecovery(await generatePQIdentity(identity.privateKey),userID));setHidden(false);
+    } catch(error) {setStatus(recoveryRefusal(error,"upgrade encryption").message);}
+  }
+  async function finish() {
+    if (!prepared || !old.current) return;
+    try {
+      if (keys.current && password) await password.stepUp(keys.current.authSecret); else await stepUp();
+      const next = { ...prepared.identity, deviceId:old.current.deviceId, orgId:(await myIdentity())?.orgId };
+      submission.current ??= {deviceID:next.deviceId,publicKey:base64(next.publicKey),wrapAlg:keys.current?IDENTITY_WRAP_ALG:"none",wrappedPrivateKey:keys.current?base64(wrapIdentity(keys.current.userKEK,next.privateKey,userID)):"",recoveryKey:prepared.wrappedKey};
+      await upgradeIdentity(submission.current);
+      if (!(await store.save(next,old.current))) throw new Error("The server upgraded your key, but this browser could not keep it. Restore with the new recovery code.");
+      forget(true);keys.current?.userKEK.fill(0);keys.current=undefined;setStatus("Encryption upgraded. Other browsers must sign in again or link. Compare your new fingerprint with your teams.");onUpgraded();
+    } catch(error) {setStatus(recoveryRefusal(error,"upgrade encryption").message);}
+  }
+  return <section className="config-card"><h2>Upgrade encryption</h2>
+    <p>Keep access to existing notebooks and protect future notebook keys with post-quantum encryption. Save a new recovery code. Other browsers must sign in again or link, and your colleagues must trust your new fingerprint. Team writes wait until every member upgrades.</p>
+    {!prepared && <>{password && <label className="field"><span>Your password</span><input type="password" autoComplete="current-password" value={typed} onChange={(event)=>setTyped(event.target.value)} /></label>}<button disabled={Boolean(password)&&!typed} onClick={()=>void begin()}>Upgrade encryption…</button></>}
+    {prepared && !hidden && <CodeShown code={prepared.code} onNext={()=>setHidden(true)} />}
+    {prepared && hidden && <TypeBack prepared={prepared} onBack={()=>{showAgain();setHidden(false);}} onConfirmed={finish} />}
+    {status && <p role="status">{status}</p>}
+  </section>;
 }

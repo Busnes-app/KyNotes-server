@@ -1,4 +1,5 @@
-import { x25519 } from "@noble/curves/ed25519.js";
+import { identityPublic, isPQPublic } from "./pqIdentity";
+import { loadPQ } from "./pq";
 import { base64, fromBase64 } from "./crypto";
 import { APIRequestError, cancelSSOStepUp, type LinkRequestRow, type LinkState } from "./api";
 import type { HeldIdentity, IdentityStore, PublicIdentity } from "./identity";
@@ -78,6 +79,7 @@ export async function otherCopyHeld(api: Pick<NewcomerAPI, "myIdentity">, store:
 /** Starts a link; refuses before any request when this browser could not keep the identity. */
 export async function startNewcomerLink(api: Pick<NewcomerAPI, "create">, canKeep: () => Promise<boolean>, userID: string): Promise<NewcomerLink> {
   if (!(await canKeep())) throw new LinkStorageError();
+  await loadPQ();
   const key = newLinkKey();
   // Create has no request ID: its only 404 is an account with no identity to link.
   const { id, expiresAt } = await orEnd({ id: "", userID, key }, () => api.create(base64(linkCommitment(key.publicKey)))).catch((error: unknown) => {
@@ -170,9 +172,9 @@ export async function finishNewcomerLink(link: NewcomerLink, bundle: Uint8Array,
     const listed = await api.myIdentity();
     if (!listed) throw new Error("Your account has no encryption key to link.");
     const privateKey = await openLinkBundle(bundle, link.key, { userID: link.userID, requestID: link.id, identityDeviceID: listed.deviceId, approverKey: pin.approverKey, newcomerKey: link.key.publicKey });
-    const publicKey = x25519.getPublicKey(privateKey);
+    const publicKey = identityPublic(privateKey);
     if (!sameBytes(publicKey, publicKeyBytes(listed.publicKey))) throw new Error("The key sent is not your account's encryption key. Nothing was linked.");
-    const identity = { deviceId: listed.deviceId, publicKey, privateKey };
+    const identity = { orgId: listed.orgId, deviceId: listed.deviceId, publicKey, privateKey };
     const current = await store.load();
     if (current && !sameBytes(current.publicKey, publicKey)) throw new Error(OTHER_COPY);
     if (current?.deviceId === identity.deviceId) return current;
@@ -189,6 +191,7 @@ export type ApproverLink = Attempt & { readonly commitment: Uint8Array; readonly
 export async function claimLink(api: { claim: (id: string, approverKey: string) => Promise<void> }, row: LinkRequestRow, userID: string): Promise<ApproverLink> {
   const commitment = fromBase64(row.commitment);
   if (commitment.length !== 32) throw new LinkTamperedError();
+  await loadPQ();
   const link = { id: row.id, userID, key: newLinkKey(), commitment };
   await orEnd(link, () => api.claim(row.id, base64(link.key.publicKey)));
   return link;
@@ -200,7 +203,7 @@ export function revealedLink(link: ApproverLink, row: LinkRequestRow | undefined
   if (link.newcomerKey || row?.id !== link.id || !row.newcomerKey) return link;
   let newcomerKey: Uint8Array;
   try { newcomerKey = publicKeyBytes(row.newcomerKey); } catch { newcomerKey = new Uint8Array(); }
-  if (newcomerKey.length !== 32 || !sameBytes(linkCommitment(newcomerKey), link.commitment)) {
+  if (!isPQPublic(newcomerKey) || !sameBytes(linkCommitment(newcomerKey), link.commitment)) {
     endLink(link);
     throw new LinkTamperedError();
   }

@@ -16,7 +16,7 @@ mkdir "$data/backups"
 printf '%s\n' '{"version":1,"backup":{"dir":"/data/backups","keep":7,"depositInterval":"24h"}}' >"$data/bundle.json"
 printf '%s\n' '{"version":1,"sso":{"issuerUrl":"https://id.example","clientId":"kynotes","clientSecret":"inline-secret-value","redirectUri":"https://notes.example/api/v1/auth/oidc/callback"}}' >"$data/inline.json"
 
-docker run -d --name "$name" --memory 768m --memory-swap 768m --cpus 1 --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" -e KYNOTES_BACKUP_DIR=/data/backups -e KYNOTES_BACKUP_KEEP=7 \
+docker run -d --name "$name" --memory 768m --memory-swap 768m --cpus 1 --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" -e PUSH_RELAY_URL= -e APNS_RELAY_URL= -e KYNOTES_BACKUP_DIR=/data/backups -e KYNOTES_BACKUP_KEEP=7 \
   -v "$data:/data" "$image" --config /data/kynotes.yaml >/dev/null
 ready=0
 for _ in $(seq 1 30); do

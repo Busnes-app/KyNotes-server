@@ -189,12 +189,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
-      - name: Verify frontend and embedded asset set
-        run: |
-          npm ci --prefix web
-          npm test --prefix web
-          npm run build --prefix web
-          diff -qr web/dist internal/web/dist
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
@@ -202,6 +196,12 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
+      - name: Verify frontend and embedded asset set
+        run: |
+          npm ci --prefix web
+          npm test --prefix web
+          npm run build --prefix web
+          diff -qr web/dist internal/web/dist
       - run: go build ./...
       - run: go vet ./...
       - run: scripts/check-test-build-tag.sh
@@ -216,7 +216,7 @@ jobs:
           for d in "$RUNNER_TEMP/a" "$RUNNER_TEMP/elsewhere/b"; do
             mkdir -p "$d/src"
             git archive HEAD | tar -x -C "$d/src"
-            (cd "$d/src" && CGO_ENABLED=0 go build -trimpath -ldflags="$ld" -o "$d/kynotes-server" ./cmd/kynotes-server)
+            (cd "$d/src" && bash scripts/build-pqwasm.sh && CGO_ENABLED=0 go build -trimpath -ldflags="$ld" -o "$d/kynotes-server" ./cmd/kynotes-server)
           done
           sha256sum "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
           cmp "$RUNNER_TEMP/a/kynotes-server" "$RUNNER_TEMP/elsewhere/b/kynotes-server"
@@ -249,7 +249,7 @@ jobs:
           bash scripts/check-release-image.sh "$image"
           auth='{"authSecret":"944265b190cc588ea5a5c40f4bd10c941d4738138241e5295abe9a5e0e208310","loginSalt":"MDEyMzQ1Njc4OWFiY2RlZg==","iterations":600000}'
           printf '%s' "$auth" | docker run -i --rm --user "$(id -u):$(id -g)" -v "$PWD/testdata/config-good:/data" "$image" user add --config /data/kynotes.yaml --username probe
-          docker run -d --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
+          docker run -d -e PUSH_RELAY_URL= -e APNS_RELAY_URL= --name kynotes-probe-server --user "$(id -u):$(id -g)" -p 8080:8080 -v "$PWD/testdata/config-good:/data" "$image" --config /data/kynotes.yaml
           trap 'docker rm -f kynotes-probe-server >/dev/null 2>&1 || true' EXIT
           ready=0
           for _attempt in $(seq 1 30); do if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then ready=1; break; fi; sleep 1; done

@@ -1,10 +1,11 @@
+import { generatePQIdentityReady as generateIdentity } from "./pqIdentity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { base64, fromBase64 } from "./crypto";
 import { APIRequestError, type LinkRequestRow, type LinkState } from "./api";
 import type { HeldIdentity } from "./identity";
 import { approveLink, awaitLinkBundle, claimLink, confirmTypedCode, endLink, keepClaim, finishNewcomerLink, LinkEndedError, LinkNoIdentityError, linkRefusal, LinkStorageError, LinkTamperedError, OTHER_COPY, otherCopyHeld, NEWCOMER_POLL_MS, pollNewcomerLink, revealedLink, startNewcomerLink, type NewcomerLink } from "./linkFlow";
 import { confirmCheckCode, isLiveLinkKey, linkCommitment, newLinkKey, sealLinkBundle, type CheckCodeConfirmation } from "./linking";
-import { generateIdentity, type Identity } from "./teamKeys";
+import { type Identity } from "./teamKeys";
 
 const me = `usr_${"a".repeat(26)}`;
 const other = `usr_${"z".repeat(26)}`;

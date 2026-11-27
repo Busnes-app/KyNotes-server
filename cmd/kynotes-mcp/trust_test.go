@@ -58,7 +58,7 @@ func randomKey() []byte {
 func TestTrustRules(t *testing.T) {
 	cid, _ := ids.Mint("cnt")
 	agent, owner, editor, stranger := newPerson(t), newPerson(t), newPerson(t), newPerson(t)
-	me := self{agent.userID, agent.deviceID, agent.key}
+	me := self{userID: agent.userID, deviceID: agent.deviceID, key: agent.key}
 	k1, k2 := randomKey(), randomKey()
 	members := []member{agent.as("editor"), owner.as("owner"), editor.as("editor")}
 
@@ -229,7 +229,7 @@ func TestStoredV2RowsStillOpen(t *testing.T) {
 	agent := person{u, e.RecipientDeviceID, key}
 	ownerUser, _ := ids.Mint("usr")
 	owner := member{UserID: ownerUser, Username: "owner", Role: "owner", identity: &publicIdentity{e.SenderDeviceID, base64.StdEncoding.EncodeToString(unhex(e.SenderPublicKey))}}
-	me := self{agent.userID, agent.deviceID, agent.key}
+	me := self{userID: agent.userID, deviceID: agent.deviceID, key: agent.key}
 	v2 := envelopeRow{DeviceID: agent.deviceID, KeyGeneration: e.KeyGeneration, Alg: teamkeys.LegacyEnvelopeAlg, Envelope: base64.StdEncoding.EncodeToString(unhex(e.Envelope))}
 	k2 := randomKey()
 	v3 := seal(t, e.ContainerID, e.KeyGeneration+1, k2, agent, agent)
@@ -241,5 +241,49 @@ func TestStoredV2RowsStillOpen(t *testing.T) {
 	got, err = openKeyring(e.ContainerID, []envelopeRow{v2, v3}, me, []member{agent.as("editor"), owner}, map[string]string{}, keyState{})
 	if err != nil || len(got.ring) != 0 {
 		t.Fatalf("opened a row under the other alg: %+v %v", got, err)
+	}
+}
+
+func TestPQIdentityRefusesClassicalWriteGeneration(t *testing.T) {
+	var file struct {
+		Envelopes []struct {
+			RecipientPrivateKey, SenderPrivateKey, RecipientDeviceID, SenderDeviceID, ContainerID, Envelope string
+			KeyGeneration                                                                                   int64
+		}
+	}
+	raw, err := os.ReadFile("../../testdata/protocol/envelope_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	v := file.Envelopes[0]
+	dec := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	priv, _, err := teamkeys.GeneratePQIdentity(dec(v.RecipientPrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pub, err := teamkeys.GeneratePQIdentity(dec(v.SenderPrivateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := self{userID: "usr_00000000000000000000000000", deviceID: v.RecipientDeviceID, raw: priv}
+	members := []member{{UserID: "usr_11111111111111111111111111", Username: "owner", Role: "owner", identity: &publicIdentity{v.SenderDeviceID, base64.StdEncoding.EncodeToString(pub)}}}
+	rows := []envelopeRow{{DeviceID: v.RecipientDeviceID, KeyGeneration: v.KeyGeneration, Alg: teamkeys.LegacyEnvelopeAlg, Envelope: base64.StdEncoding.EncodeToString(dec(v.Envelope))}}
+	for _, g := range []int64{v.KeyGeneration, v.KeyGeneration + 1} {
+		out, err := openKeyring(v.ContainerID, rows, me, members, map[string]string{}, keyState{Generation: g})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (len(out.ring) > 0) != (g > v.KeyGeneration) {
+			t.Fatal("classical generation policy", g)
+		}
 	}
 }

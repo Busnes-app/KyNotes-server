@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/ecdh"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -28,7 +27,7 @@ type client struct {
 	original, authSecret, keyPath string
 	iterations                    int
 	takenOver                     bool // the account holds a temporary password until restorePassword
-	deviceKey                     *ecdh.PrivateKey
+	deviceKey                     *teamkeys.IdentityKey
 	server                        string
 	hc                            *http.Client
 	cookies                       []*http.Cookie
@@ -38,9 +37,10 @@ type client struct {
 	version                       int
 	userID, loginSalt             string
 	identityDevice                string
-	identityKey                   *ecdh.PrivateKey // the account's identity, unwrapped with the password
-	generation                    int64            // the probe notebook's key generation
-	contentKey                    []byte           // the probe notebook's key at generation
+	orgID                         string
+	identityKey                   *teamkeys.IdentityKey // the account's identity, unwrapped with the password
+	generation                    int64                 // the probe notebook's key generation
+	contentKey                    []byte                // the probe notebook's key at generation
 }
 
 func main() {
@@ -112,7 +112,7 @@ func (p *client) identity() error {
 		return errors.New("the probe account has an encryption key without a password copy (an administrator reset); reset it in Settings or use a fresh account")
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		key, err := ecdh.X25519().GenerateKey(rand.Reader)
+		key, err := teamkeys.NewIdentity()
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func (p *client) identity() error {
 				return fmt.Errorf("identity create: %s", b)
 			}
 			p.identityKey, p.identityDevice = key, out.DeviceID
-			return nil
+			return p.login()
 		}
 		var e struct {
 			Error struct {
@@ -202,14 +202,14 @@ func (p *client) keyContainer() error {
 	if _, err = rand.Read(p.contentKey); err != nil {
 		return err
 	}
-	sealed, err := teamkeys.SealEnvelope(p.contentKey, p.identityKey.PublicKey().Bytes(), p.containerID, 2, p.identityDevice, p.identityKey, p.identityDevice)
+	sealed, err := teamkeys.SealPQEnvelope(p.contentKey, p.identityKey.PublicKey().Bytes(), p.orgID, p.containerID, 2, p.identityDevice, p.identityKey.Bytes(), p.identityDevice)
 	if err != nil {
 		return err
 	}
 	if err = p.stepUp(); err != nil {
 		return err
 	}
-	body := []byte(fmt.Sprintf(`{"expectedGeneration":1,"envelopes":[{"deviceId":%q,"keyGeneration":2,"alg":%q,"envelope":%q}]}`, p.identityDevice, teamkeys.EnvelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	body := []byte(fmt.Sprintf(`{"expectedGeneration":1,"envelopes":[{"deviceId":%q,"keyGeneration":2,"alg":%q,"envelope":%q}]}`, p.identityDevice, teamkeys.PQEnvelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
 	res, err = p.request(http.MethodPost, "/api/v1/containers/"+p.containerID+"/key-rotations", body, nil, false)
 	if err != nil {
 		return err
@@ -313,7 +313,7 @@ func (p *client) stepUp() error {
 
 // loadOrCreateDeviceKey returns the probe's random X25519 device key, created
 // once (0600, in a 0700 directory) so re-runs re-pair the same device.
-func loadOrCreateDeviceKey(path string) (*ecdh.PrivateKey, error) {
+func loadOrCreateDeviceKey(path string) (*teamkeys.IdentityKey, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -325,11 +325,11 @@ func loadOrCreateDeviceKey(path string) (*ecdh.PrivateKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		return ecdh.X25519().NewPrivateKey(raw)
+		return teamkeys.ParseIdentity(raw)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	key, err := ecdh.X25519().GenerateKey(rand.Reader)
+	key, err := teamkeys.NewIdentity()
 	if err != nil {
 		return nil, err
 	}
@@ -463,6 +463,7 @@ func (p *client) login() error {
 		} `json:"user"`
 		Identity *struct {
 			DeviceID          string `json:"deviceId"`
+			OrgID             string `json:"orgId"`
 			WrapAlg           string `json:"wrapAlg"`
 			WrappedPrivateKey string `json:"wrappedPrivateKey"`
 		} `json:"identity"`
@@ -490,10 +491,11 @@ func (p *client) login() error {
 	if err != nil {
 		return fmt.Errorf("unwrap the probe identity: %w", err)
 	}
-	if p.identityKey, err = ecdh.X25519().NewPrivateKey(raw); err != nil {
+	if p.identityKey, err = teamkeys.ParseIdentity(raw); err != nil {
 		return err
 	}
 	p.identityDevice = session.Identity.DeviceID
+	p.orgID = session.Identity.OrgID
 	return nil
 }
 
@@ -545,11 +547,11 @@ func (p *client) envelope() error {
 	if err := p.stepUp(); err != nil {
 		return err
 	}
-	sealed, err := teamkeys.SealEnvelope(p.contentKey, p.deviceKey.PublicKey().Bytes(), p.containerID, uint32(p.generation), p.deviceID, p.identityKey, p.identityDevice)
+	sealed, err := teamkeys.SealPQEnvelope(p.contentKey, p.deviceKey.PublicKey().Bytes(), p.orgID, p.containerID, uint32(p.generation), p.deviceID, p.identityKey.Bytes(), p.identityDevice)
 	if err != nil {
 		return err
 	}
-	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":%d,"alg":%q,"envelope":%q}]}`, p.deviceID, p.generation, teamkeys.EnvelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
+	body := []byte(fmt.Sprintf(`{"envelopes":[{"deviceId":%q,"keyGeneration":%d,"alg":%q,"envelope":%q}]}`, p.deviceID, p.generation, teamkeys.PQEnvelopeAlg, base64.StdEncoding.EncodeToString(sealed)))
 	res, err := p.request(http.MethodPut, "/api/v1/containers/"+p.containerID+"/envelopes", body, nil, false)
 	if err != nil {
 		return err
@@ -580,7 +582,7 @@ func (p *client) envelope() error {
 	if err != nil {
 		return err
 	}
-	opened, err := teamkeys.OpenEnvelope(envelopes[0].Alg, raw, p.deviceKey, p.containerID, uint32(p.generation), p.deviceID, p.identityKey.PublicKey().Bytes())
+	opened, err := teamkeys.OpenIdentityEnvelope(envelopes[0].Alg, raw, p.deviceKey.Bytes(), p.orgID, p.containerID, uint32(p.generation), p.deviceID, p.identityKey.PublicKey().Bytes())
 	if err != nil || !bytes.Equal(opened, p.contentKey) {
 		return fmt.Errorf("device could not open its envelope: %v", err)
 	}

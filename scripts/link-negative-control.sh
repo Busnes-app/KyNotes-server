@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Negative control for the device-link bundle (web/src/linking.ts): the linking tests must pass as
-# committed and fail when the HPKE info binding or Auth-mode sender authentication is removed.
+# committed and fail when the context binding or HybridSig sender authentication is removed.
 # Mutates linking.ts in place and restores it from git, so it refuses to run on uncommitted edits.
 set -euo pipefail
 cd "$(dirname "$0")/../web"
@@ -45,7 +45,6 @@ control() {
 
 control "info without binding" \
   'const linkInfo = (c: LinkContext) => concat(' 'const linkInfo = (c: LinkContext) => encoder.encode(LINK_LABEL) ?? concat('
-control "mode_base (no sender authentication)" \
-  'senderKey: await hpkeKeyPair(approver.privateKey), ' '' \
-  'senderPublicKey: await envelopeSuite.kem.deserializePublicKey(context.approverKey),' ''
+control "no sender authentication" \
+  'result(pq.hybridsigVerify(context.approverKey.subarray(33+XWING_PUBLIC_BYTES),SIGN_LABEL,concat(ctx,unsigned),bundle.subarray(unsigned.length)));' 'void context.approverKey;'
 exit "$status"

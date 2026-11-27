@@ -296,3 +296,6 @@ export const deletePushSubscription = (endpoint: string) => request<void>("/api/
 export const serverReminders = () => request<Array<{ id: string; at: string }>>("/api/v1/reminders");
 export const putReminder = (id: string, at: string) => request<void>(`/api/v1/reminders/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ at }) });
 export const deleteReminder = (id: string) => request<void>(`/api/v1/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/** Retains legacy decryption and replaces the password/recovery copies atomically. */
+export const upgradeIdentity = (input: { deviceID: string; publicKey: string; wrapAlg: string; wrappedPrivateKey: string; recoveryKey: string }) => request<{ deviceId: string; recoveryId: string }>("/api/v1/me/identity/pq-upgrade", { method: "POST", body: JSON.stringify(input) });

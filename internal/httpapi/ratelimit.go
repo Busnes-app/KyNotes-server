@@ -106,7 +106,7 @@ func rateLimitMiddlewareWith(cfg config.Config, db *sql.DB, exempt *exemptNetwor
 		case r.Method == http.MethodPost && strings.HasPrefix(path, "/api/v1/invitations/") && strings.HasSuffix(path, "/accept"):
 			// Its own bucket at the same rate: bounds guessing and the refusal audit rows a caller can write.
 			limit, rate, label = cfg.RateLimit.InvitationPerHour, cfg.RateLimit.InvitationPerHour, "accept"
-		case r.Method != http.MethodGet && (path == "/api/v1/me/identity" || strings.HasPrefix(path, "/api/v1/me/identity/recovery")):
+		case r.Method != http.MethodGet && (path == "/api/v1/me/identity" || path == "/api/v1/me/identity/pq-upgrade" || strings.HasPrefix(path, "/api/v1/me/identity/recovery")):
 			// Creating or resetting the identity, setting or fetching its recovery-code copy: a handful an hour
 			// bounds resets, fetches and audit rows. ponytail: reuses pairing_per_hour; upgrade path is a
 			// dedicated recovery_per_hour key.

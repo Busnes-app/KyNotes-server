@@ -148,6 +148,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 
 ## Child DOX Index
 
+- `internal/keyprotocol/AGENTS.md` — public identity/envelope wire validation; private crypto stays in `internal/teamkeys`.
+
 - `docs/AGENTS.md` — mdBook manual, chapter ownership and documentation checks.
 
 - `internal/worker/AGENTS.md` — PostgreSQL worker ownership, cancellation and takeover tests.
@@ -448,7 +450,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   identity, rotation, pairing, envelope, sync, upload and GC contracts as external clients. It
   unwraps or creates a password-wrapped identity (`teamkeys.UserKEK`/`SealIdentity`/`OpenIdentity`),
   stops on one without a password copy, and keys its notebook by a first rotation (generation 2).
-  Its X25519 device key is random, persisted 0600 (`-device-key`, default under the user cache dir
+  Its X-Wing/HybridSig device key is random, persisted 0600 (`-device-key`, default under the user cache dir
   per server URL and username), never derived from `authSecret`; the device is revoked every run.
   An operator-set password (`password_change_required` on identity create, before pairing) is
   changed to a random one through `POST /api/v1/auth/password` and set back to `-password` after
@@ -669,7 +671,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   token compatibility and authenticated restore checks. Cross-server workspace migration
   remains deferred to v2.
 - `internal/web` embeds the production `web/dist` bundle into the server image;
-  update the checked-in embed after frontend bundle changes. The embed test rejects
+  update the checked-in embed after frontend bundle changes. Finish the build/sync before starting Go checks: Go snapshots embedded filenames at invocation. The embed test rejects
   merge-conflict markers so generated chunks are never hand-merged into a broken bundle.
   After `npm run build --prefix web`, synchronize the complete generated asset set
   into `internal/web/dist`; CI runs frontend tests/build and `diff -qr web/dist internal/web/dist`
@@ -880,18 +882,20 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   after the user's own password change. Any new path that sets a password for someone else must
   set the flag. `/setup` accepts only `authSecret`. A password change needs no content warning
   (`web/src/passwordChange.ts`).
-  `web/src/teamKeys.ts` holds the envelope/identity primitives (exact pins): envelopes on hpke-js
-  (`@hpke/core`, `@hpke/dhkem-x25519`, `@hpke/chacha20poly1305`), Go on `github.com/cloudflare/circl/hpke`
-  (stdlib `crypto/hpke` has no Auth mode), identities on `@noble/curves`/`@noble/ciphers`. New envelopes are
-  v3 (RFC 9180 HPKE Auth, alg `hpke-auth-x25519-hkdfsha256-chacha20poly1305`); stored v2 rows
-  (`x25519-hkdf-sha256-chacha20poly1305`) are opened, never sealed or rewritten. Opening is selected by the
-  row's `alg`, and alg, version byte and length must agree. `testdata/protocol/rfc9180_a2_3_auth.json` is
-  RFC 9180 A.2.3; `TestHPKEMatchesRFC9180AuthVector` and `teamKeys.test.ts` check both libraries against it; `web/src/identity.ts` creates the identity silently after a local password login
+  `web/src/teamKeys.ts` and `internal/teamkeys/pq.go` implement v4 X-Wing HPKE base
+  (0x647A) with ML-DSA-65 + Ed25519 sender signatures. Both signature halves are required.
+  `docs/PQC.md` owns exact formats, org/container/generation bindings, identity upgrade,
+  WASM/CSP/build contracts and compatibility. Stored v2/v3 readers remain, with CIRCL and
+  hpke-js needed by v3; production writes accept only v4. The explicit Settings upgrade
+  keeps old envelope rows and the classical read key, rotates future generations and
+  replaces password/recovery copies atomically. Pending legacy members block key sharing.
+  Browser tests execute the real build-generated shared Go WASM; binaries stay ignored.
+  `web/src/identity.ts` creates the identity silently after a local password login
   or `/setup`, never replaces one it cannot open, and caches it in the IndexedDB vault
   ("Forget this device" clears it). SSO sessions create device-only identities (P3c).
   `internal/teamkeys` regenerates `testdata/protocol/envelope_vectors.json` (`-update`; v2 `envelopes`
-  are frozen, v3 `hpkeEnvelopes` are sealed through circl with a fixed ephemeral seed);
-  `web/src/teamKeys.test.ts` reproduces the v3 bytes and opens both. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
+  are frozen, historical v3 `hpkeEnvelopes` are sealed through circl with a fixed ephemeral seed);
+  `web/src/teamKeys.test.ts` reproduces the historical v3 bytes and opens both. Verify `TestIdentity*`, `TestUserActionStepUpRefusesUngrantedSSOSession`,
   `TestRegisterCannotClaimIdentity`, `TestPasswordChangeRewrapsIdentityAtomically`,
   `TestRecoveryAndAdminResetKeepIdentity`, `TestAdminKnownPasswordGatesIdentityUntilOwnChange`,
   `TestDirectoryRevocationsSpareIdentity`, `TestPasswordChangeSharesStepUpLockout`,
@@ -926,7 +930,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestRemovedMemberCannotWriteAnywhereInTheTeam`, `TestCollaboratorRemovalRulesAndAcceptOutcomes`,
   `TestInvitation*`, `TestUserIdentityVisibility`,
   `TestOpenEnvelopeAgreesWithVectors`, `TestOpenLegacyEnvelopeVectors`, `TestSenderAuthentication`,
-  `TestEnvelopeWriteAcceptsBothFormats`, `TestStoredV2RowsStillOpen` and the probe.
+  `TestEnvelopeWriteAcceptsOnlyPQFormat`, `TestStoredV2RowsStillOpen` and the probe.
 - Team keys P3a (web): `web/src/keyring.ts` (pure: envelopes → generation keys, write key, exact-generation
   read key, steward sweep plan), `web/src/keyService.ts` (one sweep against an injected API: mint via
   rotation, backfill wraps, one retry on 409) and `web/src/pins.ts` (add-only TOFU pins in the vault
@@ -1022,7 +1026,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   be expected by the test; expected confirms are matched on their text.
   `KYNOTES_E2E_URL` points it at a running server; only ever a throwaway one.
 - Team keys P3a client trust (`web/src/keyring.ts`, `web/src/pins.ts`): envelopes are sender-authenticated
-  v3, or stored v2 (spec §1); `openKeyring` and `sealFor` are async (HPKE runs on WebCrypto); `openKeyring` accepts a key only from this identity or a current
+  v4, or stored v2/v3 (`docs/PQC.md`); `openKeyring` and `sealFor` are async (PQ crypto runs on the shared WASM); `openKeyring` accepts a key only from this identity or a current
   owner/admin whose key matches its pin (first contact pins and is surfaced, mismatch refused), or,
   below this device's vault high-water mark (`getKeyState`/`storeKeyState`, never from the server), an
   identity already pinned here; the first key per generation wins, across reloads via stored key
@@ -1075,7 +1079,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   device-only `wrap_alg='none'` identities; a password never unlocks or re-wraps them), envelope `PUT` and
   key rotations. Step-up start, poll and cancel need a session, not an admin; challenge creation has a
   per-account `challenge` bucket; the 409 codes are `step_up_pending` (with the challenge ID),
-  `sso_step_up_required`, `sso_sign_in_required` and `password_change_required`; the action body is capped at 64 KiB
+  `sso_step_up_required`, `sso_sign_in_required` and `password_change_required`; the action body is capped at 64 KiB (8 MiB for atomic container envelope writes/rotations)
   (`413 payload_too_large`, JSON). `password_admin_known` refuses every local action step-up and the link steps create, claim, reveal, approve and
   collect (list and cancel accept it); on an SSO-linked account `POST /auth/password` then needs a fresh KySignOn
   confirmation. Every password change revokes the account's other sessions and non-identity device credentials in
@@ -1087,11 +1091,12 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   Rate limits: own `link` bucket at `pairing_per_hour`, `link-step` at `login_per_minute`, collect at
   `ratelimit.link_poll_per_minute` (default 60; the newcomer polls every 4 s, so the 3 live requests make 45 a
   minute).
-  Web: `linking.ts` (commitment, six-digit check code, 81-byte v2 bundle in RFC 9180 HPKE mode_auth from the
-  approver's one-time key on the envelope v3 suite, info binding user, request, identity row and both keys; no v1
-  path (DESIGN.md "Device linking"); frozen branded confirmations; `testdata/protocol/link_vectors.json` from
-  `internal/teamkeys`, resealed byte-identically through `sealLinkBundleForVector`;
-  `scripts/link-negative-control.sh` shows the tests fail without the info binding or Auth mode), `linkFlow.ts` (newcomer pins the approver
+  Web: `linking.ts` uses v3 X-Wing HPKE base plus a HybridSig sender proof. The
+  commitment and six-digit check code cover both complete one-time public encodings;
+  `linking.test.ts` flips every byte of both fixed X-Wing key fixtures. Both signatures
+  are verified before opening. Historical linking v1/v2 attempts restart; stored
+  container v2/v3 envelopes remain readable. Exact formats and builds: `docs/PQC.md`.
+   `linkFlow.ts` (newcomer pins the approver
   key before revealing, a failed reveal ends the attempt, no auto-retry with a new key; `awaitLinkBundle` keeps the
   attempt through a 429 or network error and backs off to 30 s, ending on a 404 or a streak past the TTL; a create
   404 is `LinkNoIdentityError`; the approver types the newcomer's code,
@@ -1263,3 +1268,13 @@ Verify `TestDeletedNotebookRefusesContentKeysAndInvitations`,
 `TestInvitationRacingNotebookDeletionIsRefused`, `TestNewPageRacingNotebookDeletionIsRefused`,
 `TestChildCreationRacingParentDeletionIsRefused` and
 `TestHistoricalOrphanRefusesObjectsAndInvitations`.
+
+- PQC Wave 1: `docs/PQC.md` owns identity/envelope/linking formats and upgrade workflow.
+  Verify `TestPQ*`, the full Go race suite (including MCP), browser tests/build and
+  browser team-key checks. `scripts/build-pqwasm.sh` generates ignored runtime assets
+  from the pinned module/toolchain; run it before direct Go builds. Throwaway browser and image checks explicitly empty both push-relay URLs. `make build/test`
+  and browser prebuild/pretest do this. Keep CI Go setup before browser checks and
+  build WASM inside both reproducibility-check source trees. Root owns these contracts;
+  `docs/AGENTS.md` owns the user-manual chapter that explains the upgrade.
+
+- PQ keyrings accept classical envelopes only below the observed write generation; browser and MCP tests guard this downgrade boundary. The server imports `internal/keyprotocol` public framing/validation only; `TestNotLinkedIntoServer` must continue excluding private `teamkeys`/`notecrypto` helpers.

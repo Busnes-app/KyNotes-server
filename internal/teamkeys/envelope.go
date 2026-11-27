@@ -6,14 +6,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"regexp"
 
+	"github.com/Busnes-app/kynotes-server/internal/keyprotocol"
 	"github.com/cloudflare/circl/hpke"
 )
 
 // Envelope v3 is RFC 9180 HPKE in mode_auth, suite DHKEM(X25519, HKDF-SHA256) /
 // HKDF-SHA256 / ChaCha20Poly1305, single-shot over the 32-byte content key:
-// 0x03 | senderDeviceID(30) | enc(32) | ct+tag(48). Every new envelope is v3.
+// 0x03 | senderDeviceID(30) | enc(32) | ct+tag(48). Production writes use v4 (pq.go); this suite reads stored v3 rows.
 const (
 	EnvelopeAlg   = "hpke-auth-x25519-hkdfsha256-chacha20poly1305"
 	EnvelopeBytes = 111
@@ -35,10 +35,9 @@ const (
 var (
 	suite     = hpke.NewSuite(hpke.KEM_X25519_HKDF_SHA256, hpke.KDF_HKDF_SHA256, hpke.AEAD_ChaCha20Poly1305)
 	kemScheme = hpke.KEM_X25519_HKDF_SHA256.Scheme()
-	aadID     = regexp.MustCompile(`^(cnt|dev|usr)_[0-9a-hjkmnp-tv-z]{26}$`)
 )
 
-func validID(prefix, id string) bool { return aadID.MatchString(id) && id[:3] == prefix }
+func validID(prefix, id string) bool { return keyprotocol.ValidID(prefix, id) }
 
 // envelopeContext is label | containerID | generation (u32 BE) | recipientDeviceID |
 // senderDeviceID: the v3 HPKE info and, with the v2 label, the v2 AAD.
@@ -52,6 +51,7 @@ func envelopeContext(label, containerID string, generation uint32, recipientDevi
 	return append(ctx, senderDeviceID...), nil
 }
 
+// Deprecated: classical interoperability fixtures only; production writes use SealPQEnvelope.
 // SealEnvelope wraps contentKey for recipientPub (raw X25519) as a v3 envelope,
 // authenticated by the sender's identity key and bound to the container,
 // generation and both devices. Same bytes as web/src/teamKeys.ts.
@@ -94,7 +94,9 @@ func sealEnvelope(rnd io.Reader, contentKey, recipientPub []byte, containerID st
 // identity key. The alg, version byte and length must agree.
 func EnvelopeSender(alg string, envelope []byte) (string, error) {
 	version, size := byte(envelopeVersion), EnvelopeBytes
-	if alg == LegacyEnvelopeAlg {
+	if alg == PQEnvelopeAlg {
+		version, size = 4, PQEnvelopeBytes
+	} else if alg == LegacyEnvelopeAlg {
 		version, size = legacyEnvelopeVersion, LegacyEnvelopeBytes
 	} else if alg != EnvelopeAlg {
 		return "", errors.New("teamkeys: unsupported envelope alg")

@@ -17,6 +17,7 @@ import (
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/keyprotocol"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -38,7 +39,7 @@ const (
 
 func decodeRecoveryCopy(alg, value string) ([]byte, bool) {
 	wrapped, err := base64.StdEncoding.DecodeString(value)
-	return wrapped, alg == recoveryWrapAlg && err == nil && len(wrapped) == recoveryWrapBytes
+	return wrapped, alg == recoveryWrapAlg && err == nil && (len(wrapped) == recoveryWrapBytes || len(wrapped) == keyprotocol.PQRecoveryBytes)
 }
 
 var (
@@ -88,7 +89,7 @@ func checkResetLimitTx(tx *sql.Tx, userID string, now time.Time) error {
 
 func decodeWrappedIdentity(value string) ([]byte, bool) {
 	wrapped, err := base64.StdEncoding.DecodeString(value)
-	return wrapped, err == nil && len(wrapped) == wrappedIdentityBytes
+	return wrapped, err == nil && (len(wrapped) == wrappedIdentityBytes || len(wrapped) == keyprotocol.PQWrappedIdentityBytes)
 }
 
 // passwordCopyAddableSQL (over user_identities i) is true when the user's own password change may
@@ -102,18 +103,18 @@ const passwordCopyAddableSQL = `(i.wrap_alg='none' AND NOT EXISTS(SELECT 1 FROM 
 func loadIdentity(db interface {
 	QueryRow(string, ...any) *sql.Row
 }, userID string, withWrapped bool) (map[string]string, error) {
-	var deviceID, publicKey, fingerprint, alg, created, updated, recoveryID, recoveryAt string
+	var deviceID, publicKey, fingerprint, alg, created, updated, recoveryID, recoveryAt, orgID string
 	var wrapped []byte
 	var addable bool
 	// The recovery-code copy is never selected here: only the fetch route returns it.
-	err := db.QueryRow(`SELECT i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at,i.recovery_id,i.recovery_updated_at,`+passwordCopyAddableSQL+` FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, userID).Scan(&deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated, &recoveryID, &recoveryAt, &addable)
+	err := db.QueryRow(`SELECT (SELECT org_id FROM users WHERE id=i.user_id),i.device_id,d.public_key,d.fingerprint,i.wrap_alg,i.wrapped_private_key,i.created_at,i.updated_at,i.recovery_id,i.recovery_updated_at,`+passwordCopyAddableSQL+` FROM user_identities i JOIN devices d ON d.id=i.device_id WHERE i.user_id=?`, userID).Scan(&orgID, &deviceID, &publicKey, &fingerprint, &alg, &wrapped, &created, &updated, &recoveryID, &recoveryAt, &addable)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{"deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "wrapAlg": alg, "createdAt": created, "updatedAt": updated, "recoveryId": recoveryID, "recoverySetAt": recoveryAt}
+	out := map[string]string{"orgId": orgID, "deviceId": deviceID, "publicKey": publicKey, "fingerprint": fingerprint, "wrapAlg": alg, "createdAt": created, "updatedAt": updated, "recoveryId": recoveryID, "recoverySetAt": recoveryAt}
 	if addable {
 		out["passwordCopy"] = "addable"
 	}
@@ -124,6 +125,7 @@ func loadIdentity(db interface {
 }
 
 func IdentityRoutes(mux RouteMux, db *sql.DB) {
+	pqUpgradeRoutes(mux, db)
 	mux.Handle("GET /api/v1/me/identity", auth.RequireEveryday(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, _ := auth.SessionFromContext(r)
 		identity, err := loadIdentity(db, s.UserID, false)
@@ -164,7 +166,7 @@ func IdentityRoutes(mux RouteMux, db *sql.DB) {
 		sso := s.SSOIssuer != ""
 		pub, err := base64.StdEncoding.DecodeString(in.PublicKey)
 		var wrapped, recovery []byte
-		ok := err == nil && len(pub) == 32
+		ok := err == nil && keyprotocol.ValidatePublicIdentity(pub) == nil
 		switch {
 		case !sso && in.WrapAlg == identityWrapAlg:
 			var good bool

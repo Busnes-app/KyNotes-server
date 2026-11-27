@@ -39,7 +39,7 @@ func sealIdentity(userKEK, privateKey []byte, userID string, nonce []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
-	if len(privateKey) != 32 || len(nonce) != aead.NonceSize() {
+	if (len(privateKey) != 32 && len(privateKey) != PQPrivateBytes) || len(nonce) != aead.NonceSize() {
 		return nil, errors.New("teamkeys: invalid identity input")
 	}
 	return aead.Seal(append([]byte{}, nonce...), nonce, privateKey, aad), nil
@@ -61,7 +61,7 @@ func OpenIdentity(userKEK, wrapped []byte, userID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(wrapped) != aead.NonceSize()+32+aead.Overhead() {
+	if len(wrapped) != aead.NonceSize()+32+aead.Overhead() && len(wrapped) != PQWrappedIdentityBytes {
 		return nil, errors.New("teamkeys: invalid wrapped identity")
 	}
 	return aead.Open(nil, wrapped[:aead.NonceSize()], wrapped[aead.NonceSize():], aad)

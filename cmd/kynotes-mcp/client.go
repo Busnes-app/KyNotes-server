@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -47,7 +46,8 @@ type client struct {
 	base, username, password string
 	hc                       *http.Client
 	userID, identityDevice   string
-	identity                 *ecdh.PrivateKey
+	identity                 *teamkeys.IdentityKey
+	orgID                    string
 }
 
 func newClient(base, username, password string) *client {
@@ -79,6 +79,8 @@ func (c *client) login(ctx context.Context) error {
 		PasswordChangeRequired bool `json:"passwordChangeRequired"`
 		Identity               *struct {
 			DeviceID          string `json:"deviceId"`
+			OrgID             string `json:"orgId"`
+			PublicKey         string `json:"publicKey"`
 			WrapAlg           string `json:"wrapAlg"`
 			WrappedPrivateKey string `json:"wrappedPrivateKey"`
 		} `json:"identity"`
@@ -112,9 +114,14 @@ func (c *client) login(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("unwrap this account's encryption key: %w", err)
 	}
-	if c.identity, err = ecdh.X25519().NewPrivateKey(raw); err != nil {
+	if c.identity, err = teamkeys.ParseIdentity(raw); err != nil {
 		return err
 	}
+	pub, err := base64.StdEncoding.DecodeString(session.Identity.PublicKey)
+	if err != nil || !bytes.Equal(pub, c.identity.PublicKey().Bytes()) {
+		return errors.New("identity public key mismatch")
+	}
+	c.orgID = session.Identity.OrgID
 	c.userID, c.identityDevice = session.User.ID, session.Identity.DeviceID
 	return nil
 }

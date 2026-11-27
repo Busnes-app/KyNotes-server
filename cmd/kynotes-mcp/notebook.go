@@ -108,7 +108,7 @@ func (n *notebook) refresh(ctx context.Context) error {
 	if err := n.c.call(ctx, http.MethodGet, "/api/v1/containers/"+n.id+"/envelopes", nil, &rows, true); err != nil {
 		return err
 	}
-	me := self{userID: n.c.userID, deviceID: n.c.identityDevice, key: n.c.identity}
+	me := self{userID: n.c.userID, deviceID: n.c.identityDevice, raw: n.c.identity.Bytes(), orgID: n.c.orgID}
 	opened, err := openKeyring(n.id, rows, me, members, n.trust.Pins, *known)
 	if err != nil {
 		return err
