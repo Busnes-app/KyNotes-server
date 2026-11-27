@@ -217,9 +217,13 @@ func IdentityRoutes(mux RouteMux, db *sql.DB) {
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		resetReason := ""
+		var orgID string
 		err = dbTx(db, func(tx *sql.Tx) error {
 			// Recovery or a password change may have committed since the middleware ran.
 			if err := auth.RecheckUserActionTx(tx, s, time.Now().UTC()); err != nil {
+				return err
+			}
+			if err := tx.QueryRow(`SELECT org_id FROM users WHERE id=?`, s.UserID).Scan(&orgID); err != nil {
 				return err
 			}
 			if in.Replace && !sso {
@@ -342,7 +346,7 @@ func IdentityRoutes(mux RouteMux, db *sql.DB) {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
-		writeJSON(w, map[string]string{"deviceId": deviceID, "fingerprint": fingerprint})
+		writeJSON(w, map[string]string{"orgId": orgID, "deviceId": deviceID, "fingerprint": fingerprint})
 	})))
 	// The recovery-code copy is set and fetched only behind a user-action step-up (a local password
 	// re-proof, or KySignOn for this exact request); the server never sees the code.

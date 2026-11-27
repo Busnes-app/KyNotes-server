@@ -168,8 +168,8 @@ export async function myIdentity(): Promise<PublicIdentity | undefined> {
   try { return await request<PublicIdentity>("/api/v1/me/identity"); }
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
-export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
-export const putDeviceOnlyIdentity = (publicKey: string) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ publicKey, wrapAlg: "none" }) });
+export const putMyIdentity = (input: IdentityUpload) => request<{ deviceId: string; fingerprint: string; orgId: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify(input) });
+export const putDeviceOnlyIdentity = (publicKey: string) => request<{ deviceId: string; fingerprint: string; orgId: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ publicKey, wrapAlg: "none" }) });
 /** Sets or replaces the recovery-code copy (compare-and-swap); recovery.ts saveRecovery is the only caller. */
 export const putRecovery: RecoveryAPI["putRecovery"] = (input) => request<{ recoveryId: string }>("/api/v1/me/identity/recovery", { method: "PUT", body: JSON.stringify(input) });
 /** Behind a user-action step-up; undefined when the account has no identity or no copy (one 404 for both). */
@@ -178,7 +178,7 @@ export async function fetchRecovery(): Promise<RecoveryCopy | undefined> {
   catch (error) { if (error instanceof APIRequestError && error.code === "not_found") return undefined; throw error; }
 }
 /** The self-service reset: a new identity with its recovery copy, replacing the one named by expectedDeviceId. */
-export const replaceIdentity: RecoveryAPI["replaceIdentity"] = (input) => request<{ deviceId: string; fingerprint: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ ...input, replace: true }) });
+export const replaceIdentity: RecoveryAPI["replaceIdentity"] = (input) => request<{ deviceId: string; fingerprint: string; orgId: string }>("/api/v1/me/identity", { method: "PUT", body: JSON.stringify({ ...input, replace: true }) });
 export const recoveryAPI: RecoveryAPI = { myIdentity, putRecovery, fetchRecovery, replaceIdentity };
 /** A device-link request as the trusted side lists it; newcomerKey is "" until revealed to this session. */
 export type LinkRequestRow = { id: string; commitment: string; createdAt: string; expiresAt: string; claimed: boolean; newcomerKey: string };

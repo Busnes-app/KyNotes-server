@@ -13,7 +13,7 @@ export type IdentityUpload = { publicKey: string; orgId?: string; wrapAlg: strin
 export type HeldIdentity = Identity & { deviceId: string; orgId?: string };
 export type IdentityAPI = {
   myIdentity: () => Promise<PublicIdentity | undefined>;
-  putMyIdentity: (input: IdentityUpload) => Promise<{ deviceId: string }>;
+  putMyIdentity: (input: IdentityUpload) => Promise<{ deviceId: string; orgId?: string }>;
   /** Proves the password and returns the wrapped identity, if the session may receive it. */
   stepUp: (authSecret: string) => Promise<IdentityRecord | undefined>;
 };
@@ -44,8 +44,8 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
   const identity = await generatePQIdentity();
   const upload = { publicKey: base64(identity.publicKey), wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(keys.userKEK, identity.privateKey, userID)) };
   try {
-    const { deviceId } = await api.putMyIdentity(upload);
-    return { ...identity, deviceId, orgId: (await api.myIdentity().catch(() => undefined))?.orgId };
+    const { deviceId, orgId } = await api.putMyIdentity(upload);
+    return { ...identity, deviceId, orgId };
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "password_change_required") return "admin-password";
@@ -83,7 +83,7 @@ export async function rewrapIdentity(api: Pick<IdentityAPI, "myIdentity" | "step
   return { identity, identityDeviceId: identity.deviceId, wrappedIdentityKey: base64(wrapped) };
 }
 
-export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string }> };
+export type DeviceOnlyAPI = Pick<IdentityAPI, "myIdentity"> & { putDeviceOnlyIdentity: (publicKey: string) => Promise<{ deviceId: string; orgId?: string }> };
 /**
  * This browser's vault copy: load includes a pending one (deviceId "") and throws when unreadable.
  * save is false when nothing was kept; with expected it writes only while the vault still holds
@@ -114,8 +114,8 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
   // Compare-and-swap against what this run read: a key another tab kept meanwhile is never overwritten.
   if (pending !== local && !(await store.save(pending, local ?? null))) return retried ? { kind: "unsaved" } : settleSSOIdentity(api, store, false, true);
   try {
-    const { deviceId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
-    return await finish(store, { ...pending, orgId: (await api.myIdentity().catch(() => undefined))?.orgId }, deviceId);
+    const { deviceId, orgId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
+    return await finish(store, { ...pending, orgId }, deviceId);
   } catch (error) {
     if ((error as { code?: string }).code !== "identity_exists") throw error;
     // Another tab of this browser sent the same key first: finish it. A different key: settle against it once.

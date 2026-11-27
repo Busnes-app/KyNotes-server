@@ -139,7 +139,7 @@ export type RecoveryAPI = {
   myIdentity: () => Promise<PublicIdentity | undefined>;
   putRecovery: (input: { deviceId: string; expectedRecoveryId: string; wrapAlg: string; wrappedKey: string }) => Promise<{ recoveryId: string }>;
   fetchRecovery: () => Promise<RecoveryCopy | undefined>;
-  replaceIdentity: (input: ReplaceInput) => Promise<{ deviceId: string }>;
+  replaceIdentity: (input: ReplaceInput) => Promise<{ deviceId: string; orgId?: string }>;
 };
 
 export const CONFIRM_FIRST = "Type the asked group of your saved recovery code first.";
@@ -308,7 +308,7 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
   await store.noteReset?.(prepared.identity.publicKey).catch(() => undefined);
   const replace = (with_: typeof wrap) => api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...with_, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } });
   try {
-    ({ deviceId } = await replace(wrap).catch((error) => {
+    ({ deviceId, orgId } = await replace(wrap).catch((error) => {
       if (!(error instanceof APIRequestError && error.code === "device_only_required")) throw error;
       return replace({ wrapAlg: DEVICE_ONLY_WRAP });
     }));
@@ -322,7 +322,6 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
     orgId = live.orgId;
   }
   kept.delete(prepared);
-  orgId ??= (await api.myIdentity().catch(() => undefined))?.orgId;
   const identity = { ...prepared.identity, deviceId, orgId };
   return { identity, kept: await store.save(identity) };
 }
