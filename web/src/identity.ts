@@ -45,7 +45,7 @@ export async function ensureIdentity(api: IdentityAPI, userID: string, keys: Log
   const upload = { publicKey: base64(identity.publicKey), wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(keys.userKEK, identity.privateKey, userID)) };
   try {
     const { deviceId } = await api.putMyIdentity(upload);
-    return { ...identity, deviceId, orgId: (await api.myIdentity())?.orgId };
+    return { ...identity, deviceId, orgId: (await api.myIdentity().catch(() => undefined))?.orgId };
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "password_change_required") return "admin-password";
@@ -115,12 +115,12 @@ export async function settleSSOIdentity(api: DeviceOnlyAPI, store: IdentityStore
   if (pending !== local && !(await store.save(pending, local ?? null))) return retried ? { kind: "unsaved" } : settleSSOIdentity(api, store, false, true);
   try {
     const { deviceId } = await api.putDeviceOnlyIdentity(base64(pending.publicKey));
-    return await finish(store, { ...pending, orgId: (await api.myIdentity())?.orgId }, deviceId);
+    return await finish(store, { ...pending, orgId: (await api.myIdentity().catch(() => undefined))?.orgId }, deviceId);
   } catch (error) {
     if ((error as { code?: string }).code !== "identity_exists") throw error;
     // Another tab of this browser sent the same key first: finish it. A different key: settle against it once.
     const now = await api.myIdentity();
-    if (now && holdsLive(pending, now)) return finish(store, pending, now.deviceId);
+    if (now && holdsLive(pending, now)) return finish(store, { ...pending, orgId: now.orgId }, now.deviceId);
     if (!retried) return settleSSOIdentity(api, store, false, true);
     throw error;
   }

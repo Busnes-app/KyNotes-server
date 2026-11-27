@@ -304,6 +304,7 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
     wrap = { wrapAlg: IDENTITY_WRAP_ALG, wrappedPrivateKey: base64(wrapIdentity(password.keys.userKEK, prepared.identity.privateKey, prepared.userID)) };
   }
   let deviceId: string;
+  let orgId: string | undefined;
   await store.noteReset?.(prepared.identity.publicKey).catch(() => undefined);
   const replace = (with_: typeof wrap) => api.replaceIdentity({ publicKey: base64(prepared.identity.publicKey), ...with_, expectedDeviceId, recovery: { wrapAlg: RECOVERY_ALG, wrappedKey: prepared.wrappedKey } });
   try {
@@ -318,9 +319,11 @@ export async function resetIdentity(api: Pick<RecoveryAPI, "replaceIdentity" | "
     const listed = live && keyOrUndefined(live.publicKey);
     if (!live || !listed || !sameBytes(listed, prepared.identity.publicKey)) throw error;
     deviceId = live.deviceId;
+    orgId = live.orgId;
   }
   kept.delete(prepared);
-  const identity = { ...prepared.identity, deviceId, orgId: (await api.myIdentity())?.orgId };
+  orgId ??= (await api.myIdentity().catch(() => undefined))?.orgId;
+  const identity = { ...prepared.identity, deviceId, orgId };
   return { identity, kept: await store.save(identity) };
 }
 

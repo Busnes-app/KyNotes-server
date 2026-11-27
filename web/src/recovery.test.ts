@@ -486,6 +486,24 @@ describe("a reset whose response was lost (M5)", () => {
     expect(new Set(bodies.map((input) => input.publicKey))).toEqual(new Set([base64(fresh.publicKey)]));
     expect(new Set(bodies.map((input) => input.recovery.wrappedKey))).toEqual(new Set([p.wrappedKey]));
   }, 30_000);
+
+  it("still saves the installed private key locally if follow-up myIdentity() fails", async () => {
+    const fresh = generateIdentity();
+    const p = await prepareRecovery(fresh, user);
+    confirmRecoverySaved(p, asked(p));
+    const store = memoryStore();
+    const api = {
+      replaceIdentity: vi.fn(async () => ({ deviceId: dev })),
+      myIdentity: vi.fn(async () => { throw new TypeError("Failed to fetch"); }),
+    };
+    const done = await resetIdentity(api, store, p, was, "RESET");
+    expect(done.kept).toBe(true);
+    expect(done.identity.deviceId).toBe(dev);
+    expect(done.identity.publicKey).toEqual(fresh.publicKey);
+    const saved = await store.load();
+    expect(saved?.deviceId).toBe(dev);
+    expect(saved?.privateKey).toEqual(fresh.privateKey);
+  }, 30_000);
 });
 
 describe("refusals", () => {
