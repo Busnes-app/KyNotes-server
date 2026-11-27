@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { recoveryAPI, upgradeIdentity, myIdentity } from "../api";
+import { APIRequestError, recoveryAPI, upgradeIdentity } from "../api";
 import { base64, type LoginKeys } from "../crypto";
 import { wrapIdentity, IDENTITY_WRAP_ALG } from "../teamKeys";
 import { downloadFile } from "../download";
@@ -332,9 +332,16 @@ export function PQUpgrade({ userID, held, store, stepUp, password, onUpgraded }:
     if (!prepared || !old.current) return;
     try {
       if (keys.current && password) await password.stepUp(keys.current.authSecret); else await stepUp();
-      const next = { ...prepared.identity, deviceId:old.current.deviceId, orgId:(await myIdentity())?.orgId };
-      submission.current ??= {deviceID:next.deviceId,publicKey:base64(next.publicKey),wrapAlg:keys.current?IDENTITY_WRAP_ALG:"none",wrappedPrivateKey:keys.current?base64(wrapIdentity(keys.current.userKEK,next.privateKey,userID)):"",recoveryKey:prepared.wrappedKey};
-      await upgradeIdentity(submission.current);
+      submission.current ??= {deviceID:old.current.deviceId,publicKey:base64(prepared.identity.publicKey),wrapAlg:keys.current?IDENTITY_WRAP_ALG:"none",wrappedPrivateKey:keys.current?base64(wrapIdentity(keys.current.userKEK,prepared.identity.privateKey,userID)):"",recoveryKey:prepared.wrappedKey};
+      let upgraded: { deviceId: string; recoveryId: string; orgId?: string };
+      try {
+        upgraded = await upgradeIdentity(submission.current);
+      } catch (error) {
+        if (!(error instanceof APIRequestError && error.code === "device_only_required")) throw error;
+        submission.current = { ...submission.current, wrapAlg: "none", wrappedPrivateKey: "" };
+        upgraded = await upgradeIdentity(submission.current);
+      }
+      const next = { ...prepared.identity, deviceId: upgraded.deviceId || old.current.deviceId, orgId: upgraded.orgId ?? old.current.orgId };
       if (!(await store.save(next,old.current))) throw new Error("The server upgraded your key, but this browser could not keep it. Restore with the new recovery code.");
       forget(true);keys.current?.userKEK.fill(0);keys.current=undefined;setStatus("Encryption upgraded. Other browsers must sign in again or link. Compare your new fingerprint with your teams.");onUpgraded();
     } catch(error) {setStatus(recoveryRefusal(error,"upgrade encryption").message);}

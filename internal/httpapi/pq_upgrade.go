@@ -18,6 +18,8 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
+var errDeviceOnlyRequired = errors.New("device only required")
+
 // Upgrade retains the device row and old decryption key, preserving every historical
 // envelope. New generations wait for all approved members to upgrade and re-trust.
 func pqUpgradeRoutes(mux RouteMux, db *sql.DB) {
@@ -41,7 +43,7 @@ func pqUpgradeRoutes(mux RouteMux, db *sql.DB) {
 		}
 		sum := sha256.Sum256(pub)
 		fp := hex.EncodeToString(sum[:])
-		var recoveryID string
+		var recoveryID, orgID string
 		err = dbTx(db, func(tx *sql.Tx) error {
 			now := time.Now().UTC()
 			stamp := now.Format(time.RFC3339)
@@ -51,7 +53,7 @@ func pqUpgradeRoutes(mux RouteMux, db *sql.DB) {
 			var device, oldPublic, oldAlg, oldRecovery string
 			var oldWrapped, oldRecoveryBytes []byte
 			var linked bool
-			err := tx.QueryRow(`SELECT i.device_id,d.public_key,i.wrap_alg,i.wrapped_private_key,i.recovery_id,i.recovery_wrapped_key,u.sso_subject<>'' FROM user_identities i JOIN devices d ON d.id=i.device_id JOIN users u ON u.id=i.user_id WHERE i.user_id=?`, s.UserID).Scan(&device, &oldPublic, &oldAlg, &oldWrapped, &oldRecovery, &oldRecoveryBytes, &linked)
+			err := tx.QueryRow(`SELECT i.device_id,d.public_key,i.wrap_alg,i.wrapped_private_key,i.recovery_id,i.recovery_wrapped_key,u.sso_subject<>'',u.org_id FROM user_identities i JOIN devices d ON d.id=i.device_id JOIN users u ON u.id=i.user_id WHERE i.user_id=?`, s.UserID).Scan(&device, &oldPublic, &oldAlg, &oldWrapped, &oldRecovery, &oldRecoveryBytes, &linked, &orgID)
 			if errors.Is(err, sql.ErrNoRows) {
 				return errIdentityMissing
 			}
@@ -61,7 +63,10 @@ func pqUpgradeRoutes(mux RouteMux, db *sql.DB) {
 			if device != in.DeviceID {
 				return errRecoveryMoved
 			}
-			if linked && in.WrapAlg != deviceOnlyWrapAlg || !linked && s.SSOIssuer == "" && in.WrapAlg != identityWrapAlg {
+			if linked && in.WrapAlg != deviceOnlyWrapAlg {
+				return errDeviceOnlyRequired
+			}
+			if !linked && s.SSOIssuer == "" && in.WrapAlg != identityWrapAlg {
 				return errEnvelopeInvalid
 			}
 			old, err := base64.StdEncoding.DecodeString(oldPublic)
@@ -101,6 +106,10 @@ func pqUpgradeRoutes(mux RouteMux, db *sql.DB) {
 			}
 			return storage.RecordAuditOutcomeTx(tx, s.UserID, "identity.pq_upgrade", "", device, "success", fmt.Sprintf("containers_retired=%d", retired), RequestID(r))
 		})
+		if errors.Is(err, errDeviceOnlyRequired) {
+			WriteError(w, r, 409, "device_only_required", "an account linked to KySignOn keeps no password copy of its key")
+			return
+		}
 		if errors.Is(err, errEnvelopeInvalid) {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
 			return
@@ -108,6 +117,6 @@ func pqUpgradeRoutes(mux RouteMux, db *sql.DB) {
 		if writeIdentityError(w, r, err) {
 			return
 		}
-		writeJSON(w, map[string]string{"deviceId": in.DeviceID, "fingerprint": fp, "recoveryId": recoveryID})
+		writeJSON(w, map[string]string{"deviceId": in.DeviceID, "fingerprint": fp, "recoveryId": recoveryID, "orgId": orgID})
 	})))
 }

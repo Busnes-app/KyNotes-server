@@ -75,3 +75,53 @@ func TestPQUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPQUpgradeLinkedAccountRequiresDeviceOnly(t *testing.T) {
+	p := newPairClient(t, strings.Repeat("q", 32))
+	did := p.createIdentity(t)
+	old := bytes.Repeat([]byte{9}, 32)
+	_, public, err := teamkeys.GeneratePQIdentity(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`UPDATE devices SET public_key=? WHERE id=?`, b64(public[1:33]), did); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.db.Exec(`UPDATE users SET sso_subject='sub-linked' WHERE id=?`, pairUser); err != nil {
+		t.Fatal(err)
+	}
+	var wantOrgID string
+	if err := p.db.QueryRow(`SELECT org_id FROM users WHERE id=?`, pairUser).Scan(&wantOrgID); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]string{
+		"deviceID":          did,
+		"publicKey":         b64(public),
+		"wrapAlg":           identityWrapAlg,
+		"wrappedPrivateKey": b64(bytes.Repeat([]byte{5}, teamkeys.PQWrappedIdentityBytes)),
+		"recoveryKey":       b64(bytes.Repeat([]byte{6}, teamkeys.PQRecoveryBytes)),
+	}
+	send := func(v map[string]string) (int, string) {
+		raw, _ := json.Marshal(v)
+		return status(t, p.do(t, http.MethodPost, "/api/v1/me/identity/pq-upgrade", raw, true, false))
+	}
+	if code, out := send(body); code != http.StatusConflict || errorCode(t, out) != "device_only_required" {
+		t.Fatalf("expected 409 device_only_required, got %d %s", code, out)
+	}
+	body["wrapAlg"] = deviceOnlyWrapAlg
+	body["wrappedPrivateKey"] = ""
+	code, out := send(body)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 on device-only retry, got %d %s", code, out)
+	}
+	var resp struct {
+		DeviceID string `json:"deviceId"`
+		OrgID    string `json:"orgId"`
+	}
+	if err := json.Unmarshal([]byte(out), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.DeviceID != did || resp.OrgID != wantOrgID {
+		t.Fatalf("unexpected response: %+v (want orgId %q)", resp, wantOrgID)
+	}
+}

@@ -298,4 +298,4 @@ export const putReminder = (id: string, at: string) => request<void>(`/api/v1/re
 export const deleteReminder = (id: string) => request<void>(`/api/v1/reminders/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 /** Retains legacy decryption and replaces the password/recovery copies atomically. */
-export const upgradeIdentity = (input: { deviceID: string; publicKey: string; wrapAlg: string; wrappedPrivateKey: string; recoveryKey: string }) => request<{ deviceId: string; recoveryId: string }>("/api/v1/me/identity/pq-upgrade", { method: "POST", body: JSON.stringify(input) });
+export const upgradeIdentity = (input: { deviceID: string; publicKey: string; wrapAlg: string; wrappedPrivateKey: string; recoveryKey: string }) => request<{ deviceId: string; recoveryId: string; orgId?: string }>("/api/v1/me/identity/pq-upgrade", { method: "POST", body: JSON.stringify(input) });
