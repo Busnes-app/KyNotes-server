@@ -69,6 +69,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		writeJSON(w, map[string]any{"uploadId": r.PathValue("id"), "status": status, "receivedBytes": received, "nextChunk": next, "expiresAt": expires})
 	})))
 	mux.Handle("DELETE /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -104,6 +106,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		w.WriteHeader(http.StatusOK)
 	})))
 	mux.Handle("POST /api/v1/containers/{id}/uploads", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -146,7 +150,7 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		id, _ := ids.Mint("ups")
 		now := time.Now().UTC()
 		ttl := uploadTTL(cfg)
-		e := dbTx(db, func(tx *sql.Tx) error {
+		e := blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
 				return e
 			}
@@ -172,6 +176,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		writeJSON(w, map[string]any{"uploadId": id, "chunkBytes": cfg.Limits.ChunkBytes, "expiresAt": now.Add(ttl).UTC().Format(time.RFC3339), "nextChunk": 0})
 	})))
 	mux.Handle("PATCH /api/v1/uploads/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -212,12 +218,15 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 			return
 		}
 		if shared {
-			lease, _, err := storage.SessionLock(r.Context(), db, "upload/"+id, true)
+			lease, _, err := storage.SessionLock(r.Context(), db, uploadLockName(blobs, id), true)
 			if err != nil {
 				WriteError(w, r, 503, "unavailable", "upload busy")
 				return
 			}
 			defer lease.Release()
+			if b, ok := blobs.(*requestObjects); ok {
+				b.upload, b.inherited = lease, true
+			}
 			query, exec = lease, lease.Exec
 			r = r.WithContext(lease.Context)
 		} else {
@@ -305,6 +314,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		writeJSON(w, map[string]any{"receivedBytes": received + n, "nextChunk": next + 1})
 	})))
 	mux.Handle("POST /api/v1/uploads/{id}/finalize", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -325,16 +336,23 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 			return
 		}
 		// A retry after a lost response: a finalized session answers as its finalize did.
-		if status == "finalized" && finalized != "" {
+		replay := func(q rowQuerier) bool {
+			if status != "finalized" || finalized == "" {
+				return false
+			}
 			if kind == "preview" {
 				writeJSON(w, map[string]any{"previewDigest": finalized, "bytes": received})
-				return
+				return true
 			}
 			var att string
-			if db.QueryRow(`SELECT id FROM attachments WHERE container_id=? AND blob_digest=? AND deleted_at=''`, cid, finalized).Scan(&att) == nil {
+			if q.QueryRow(`SELECT id FROM attachments WHERE container_id=? AND blob_digest=? AND deleted_at=''`, cid, finalized).Scan(&att) == nil {
 				writeJSON(w, map[string]any{"attachmentId": att, "digest": finalized, "bytes": received})
-				return
+				return true
 			}
+			return false
+		}
+		if replay(db) {
+			return
 		}
 		if !uploadLive(status, created, expires) {
 			WriteError(w, r, 410, "gone", "upload session expired")
@@ -388,21 +406,36 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
 		}
+		// Reopen pins the upload connection in object mode. Failure updates and the
+		// preview lookup must use it too, including with a one-connection pool.
+		var query rowQuerier = db
+		exec := db.Exec
+		if b, ok := blobs.(*requestObjects); ok && b.upload != nil {
+			query, exec = b.upload, b.upload.Exec
+			// Another replica may have finalized while Reopen waited for its lock.
+			if err := query.QueryRow(`SELECT status,finalized_digest FROM upload_sessions WHERE id=?`, id).Scan(&status, &finalized); err != nil {
+				WriteError(w, r, 500, "internal", "internal server error")
+				return
+			}
+			if replay(query) {
+				return
+			}
+		}
 		if tmp.Size() != declared {
 			_ = tmp.Close()
-			_, _ = db.Exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
+			_, _ = exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
 			WriteError(w, r, 422, "digest_mismatch", "ciphertext size mismatch")
 			return
 		}
 		digest, size, e := tmp.Finalize(expected)
 		if e != nil {
-			_, _ = db.Exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
+			_, _ = exec(`UPDATE upload_sessions SET status='failed' WHERE id=?`, id)
 			WriteError(w, r, 422, "digest_mismatch", "ciphertext digest mismatch")
 			return
 		}
 		if kind == "preview" {
 			now := time.Now().UTC().Format(time.RFC3339)
-			e = dbTx(db, func(tx *sql.Tx) error {
+			e = blobTransaction(db, blobs, func(tx *sql.Tx) error {
 				if e := checkUploader(tx, cid, s.UserID, r.Header.Get(keySchemeHeader)); e != nil {
 					dropUnclaimed(tx, blobs, digest)
 					return e
@@ -436,9 +469,9 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		now := time.Now().UTC().Format(time.RFC3339)
 		previewDigest := ""
 		if in.PreviewUploadID != "" {
-			_ = db.QueryRow(`SELECT finalized_digest FROM upload_sessions WHERE id=? AND user_id=? AND container_id=? AND kind='preview' AND status='finalized'`, in.PreviewUploadID, s.UserID, cid).Scan(&previewDigest)
+			_ = query.QueryRow(`SELECT finalized_digest FROM upload_sessions WHERE id=? AND user_id=? AND container_id=? AND kind='preview' AND status='finalized'`, in.PreviewUploadID, s.UserID, cid).Scan(&previewDigest)
 		}
-		e = dbTx(db, func(tx *sql.Tx) error {
+		e = blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			if e := checkWriteGate(tx, cid, s.UserID, in.KeyGeneration, r.Header.Get(keySchemeHeader)); e != nil {
 				dropUnclaimed(tx, blobs, digest)
 				return e
@@ -486,6 +519,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		writeJSON(w, map[string]any{"attachmentId": att, "digest": digest, "bytes": size})
 	})))
 	mux.Handle("GET /api/v1/attachments/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		s, _ := auth.SessionFromContext(r)
 		if ids.Validate("att", r.PathValue("id")) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
@@ -506,6 +541,8 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 		http.ServeContent(w, r, "", time.Time{}, f)
 	})))
 	mux.Handle("GET /api/v1/attachments/{id}/preview", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		s, _ := auth.SessionFromContext(r)
 		if ids.Validate("att", r.PathValue("id")) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")

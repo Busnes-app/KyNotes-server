@@ -4,7 +4,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/fips140"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +23,8 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/storage/pgdialect"
 )
 
-// replicaInputs is validated startup preparation. It neither opens a store nor enables multi
-// mode; config.Load keeps refusing multi until all phase-6 prerequisites have been delivered.
+// replicaInputs is the environment-only startup snapshot. The configuration build gate
+// decides whether Serve may assemble it; maintenance uses the same shared field map.
 type replicaInputs struct {
 	DSN                                  string
 	Tenancy                              storage.Tenancy
@@ -123,7 +125,16 @@ func replicaFields(c config.Config, in replicaInputs) map[string]string {
 	server.Bind = ""
 	server.TrustedProxies = nil
 	vapid, _ := in.VAPID.PublicKey.Bytes() // P-256 was validated at the environment boundary.
+	backupID := "off"
+	if parse(c.Backup.DepositInterval) != 0 {
+		backupID = "unavailable"
+		if key, err := replicaBackupKey(); err == nil {
+			digest := sha256.Sum256(key)
+			backupID = hex.EncodeToString(digest[:])
+		}
+	}
 	return map[string]string{
+		"pg_backup_key": backupID, "pg_backup_prefix": os.Getenv("KYNOTES_PG_BACKUP_PREFIX"),
 		"tenancy_mode": in.Tenancy.Mode, "staff_org_id": in.Tenancy.StaffOrg, "region": in.Tenancy.Region,
 		"pairing_secret": c.Secrets.PairingSecret, "server_salt_key": c.Secrets.ServerSaltKey,
 		"sso": encode(in.SSO), "vapid_key": base64.StdEncoding.EncodeToString(vapid),

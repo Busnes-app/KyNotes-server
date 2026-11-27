@@ -151,6 +151,7 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
 - `internal/keyprotocol/AGENTS.md` — public identity/envelope wire validation; private crypto stays in `internal/teamkeys`.
 
 - `docs/AGENTS.md` — mdBook manual, chapter ownership and documentation checks.
+- `e2e/AGENTS.md` — build-gated Serve runtime integration and release refusal tests.
 
 - `internal/worker/AGENTS.md` — PostgreSQL worker ownership, cancellation and takeover tests.
 
@@ -206,8 +207,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   table must be classified in `internal/storage/orgs_test.go`; a new org-owned one gets the
   `_org_exists`, `_org_fixed` and, with a parent, `_org_parent` and `_org_parent_move` triggers. A
   column added to a cleanup source table must be written into existing rows by its migration
-  (docs/CLEANUP-CAPACITY.md). `KYNOTES_TENANCY=multi`, and `KYNOTES_STAFF_ORG_ID` or `KYNOTES_REGION`
-  in single mode, fail every config load (`tenancyEnv`); the multi-tenant gate reads the
+  (docs/CLEANUP-CAPACITY.md). Release builds refuse `KYNOTES_TENANCY=multi`; `KYNOTES_STAFF_ORG_ID` or
+  `KYNOTES_REGION` in single mode also fail every config load (`tenancyEnv`); the multi-tenant gate reads the
   build-tagged constant `multiTenantBuild` (`internal/config/gate_release.go` `false`,
   `gate_kye2e.go` `true` only under `-tags kye2e`), and a `kye2e` build admits `multi` only with
   an `https` `KYNOTES_SSO_ISSUER` under `.test` (RFC 2606). `scripts/check-test-build-tag.sh`
@@ -340,8 +341,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   `TestQualifyObjectStoreRefusesIncompleteInput`. It proves no SigV4 request-age refusal.
   `accept-replica-config --confirm-stopped` loads the complete app-owned field map through a
   separate read-only maintenance loader, requires the retained salt key and fixed mode/staff/
-  region, and atomically audits changed names only. Stop every replica first. Normal config
-  loaders and multi startup remain refused; maintenance never mints local keys or recovers bytes.
+  region, and atomically audits changed names only. Stop every replica first. Release startup remains refused; the gated test runtime is described below. Maintenance
+  never mints local keys or recovers bytes.
   Verify `TestStaffUserCommand*`, `TestStaffBootstrap*`, `TestReplicaMaintenance*`,
   `TestReplicaAccept*`, existing bootstrap/user/golden tests and both backend race profiles.
 
@@ -432,15 +433,35 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   key and no local key mint. `replicaFields` excludes per-host settings and object credentials.
   `runReplicaSchedules` serializes minute jobs plus immediate pool reporting; attempts count
   even when destinations fail. `drainReplica` withdraws readiness, cancels work, waits five
-  seconds for proxies, drains HTTP for five and jobs for ten. These entry points do not enable
-  startup or invent object/PG-backup adapters. Verify `TestReplica*`, `TestBackendSeam*`,
+  seconds for proxies, drains HTTP for five and jobs for ten. The test-only runtime binds
+  these entry points after immutable tenancy, configuration and bucket identity verification. Verify `TestReplica*`, `TestBackendSeam*`,
   `TestObjectKeys*`, `TestStoreIdentitySingleMode*`, both backend suites and the golden.
+
+- Replica runtime (`internal/app/serve_replica.go`) is admitted only by the existing `kye2e`
+  config gate and a reserved `.test` issuer. `Serve` checks that gate even with a directly built
+  Config. Release startup still refuses multi. Single mode keeps the SQLite/volume/bootstrap/
+  socket/backup/GC/push path. Multi takes environment keys, an immutable PG mode/staff/region,
+  the complete keyed fingerprint and a bucket store-ID/probe before binding HTTP or workers.
+  It uses fixed SSO, staff-only bootstrap, per-request org object stores and elected schedules.
+  Upload and digest session locks cover remote writes and short pinned-connection claims;
+  finalize replays committed results after waiting for ownership. Failure and preview SQL
+  also reuse the pinned connection, so a one-connection pool cannot deadlock;
+  `claimBlob` uses verified PUT evidence, and refused remote writes wait for the orphan sweep.
+  Object maintenance fences expired uploads before deleting parts outside N3; disabled blob GC
+  still runs metadata maintenance. Native PG archives require the existing hex key-file format
+  plus explicit `KYNOTES_PG_BACKUP_PREFIX` under `backups/`, ending `/`; shared fingerprints bind
+  the key identity and prefix. `backup.deposit_interval=0` disables that schedule. Attempts are
+  shared across owners; archive retention follows blob retention and audit records results.
+  No capsule/local-directory mirror is offered in multi. This is E2E assembly, not hosted
+  provider/cell/restore-coverage qualification. Verify `TestMultiServeRuntime` with the test tag
+  and `TEST_POSTGRES_DSN`, `TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock` with the PG
+  test URL, native backup and immutable-open tests, both full race suites and build/image guards.
 
 - Primary-object credential preparation (`internal/app/replica_objects.go`) reads only the
   selected environment/_FILE forms, rejects ambiguous/empty/multiline/oversized inputs and
   nonregular files, and reports setting names only. Credentials never enter replica fields,
   SQL, local key files or printable client state. Its concrete shared-client constructor does
-  no I/O and is not wired into startup. Verify `TestReplicaObject*` in normal/FIPS profiles
+  no I/O and is wired by the gated replica startup. Verify `TestReplicaObject*` in normal/FIPS profiles
   plus existing object/replica/golden tests. See the tenancy plan for remaining erasure gates.
 
 - `internal/storage/migrations/0008_frozen_contract_columns.sql` exposes the

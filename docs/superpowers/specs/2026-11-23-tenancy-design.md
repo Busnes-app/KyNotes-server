@@ -1756,3 +1756,62 @@ only when both the store's server-owned fixed marker and recorded multi mode agr
 account/org/erasure/revocation/replay fences remain under the writer lock. Single mode and
 mutable stores retain the database configuration recheck. Signed tests cover fixed directory
 signatures, logout replay/in-flight-login fencing, and refusal to bypass single-mode settings.
+
+### Track 3 PR 6: test-only multi-tenant runtime assembly
+
+`Serve` now checks the existing configuration build gate even when called with a manually
+constructed Config. A release build still refuses `KYNOTES_TENANCY=multi`. Only the suite's
+`-tags kye2e` build, with an HTTPS issuer under `.test`, assembles the following runtime.
+Historical "startup still refused" sections above describe their individual preparation PRs;
+this section supersedes that statement for the test build only.
+
+- Environment-only replica inputs supply pairing/server-salt keys, fixed SSO and the VAPID
+  private key. Config loading in multi mode never reads or mints local keys. Missing inputs,
+  volume fallback and single-mode capsule directories/mirrors refuse startup.
+- `OpenPostgresReplica` migrates a fresh target and records immutable multi/staff-org/region
+  bindings, or verifies an existing target. It refuses single-mode databases, nonempty unbound
+  targets and different staff/region values. The original single-mode opener is unchanged.
+- Startup verifies the full keyed `replicaFields` map, then binds the real S3 client's bounded
+  GET and exclusive PUT to the store-ID/probe protocol. No S3 operation holds N3; a fingerprint
+  mismatch reaches no bucket operation. Staff bootstrap precedes HTTP; everyday bootstrap,
+  setup tokens, SQLite directory locks and admin sockets are not part of this branch.
+- The router receives PG, immutable environment SSO, VAPID push and per-org Objects resolvers.
+  The route adapter binds orgs from authenticated credentials or the already-validated share
+  token, owns request-local body files and shares numbered upload parts across replicas. Upload
+  and digest session locks cover remote I/O and pinned short claim transactions. Claim checks
+  consume verified PUT evidence without HEAD under N3; refused writes remain for orphan GC.
+  Finalized parts are deleted after commit. Expiry fences uploads under the same org/upload
+  lock before deleting parts, including with blob GC disabled. Single-mode streams and SQL
+  remain on their existing path.
+- The elected worker binds org and erased polls, restore replay, pool reporting, lifecycle
+  purge/erasure, shared state cleanup, reminders, object maintenance/GC/orphan sweeping and
+  native archive attempts. The bucket purge uses the existing late-PUT fence. Readiness includes
+  the cached PG ping; liveness stays independent. Drain withdraws readiness, cancels schedules,
+  allows proxy convergence, shuts down HTTP and waits for workers before closing PG. The shared
+  S3 client owns no closeable connection pool; it uses the process HTTP transport.
+- Native archives use the existing `KYNOTES_PG_BACKUP_KEY_FILE` format (64 hex characters),
+  plus an explicit `KYNOTES_PG_BACKUP_PREFIX` beginning `backups/`, composed of nonempty path
+  components and ending `/` (maximum 256 bytes, components at most 64 characters). The operator
+  supplies the intended cell/scope prefix; this PR does not select cell routing. Key identity
+  and prefix join the shared fingerprint. An enabled schedule without those inputs fails
+  closed; `backup.deposit_interval: "0"` turns it off for E2E fixtures. Attempts survive elected
+  ownership changes through a shared timestamp. Archives are sealed into private scratch files,
+  uploaded after the read-only PG snapshot ends and audited locally. Retention removes archives
+  older than configured blob retention; no kept note version is pruned. These copies share the
+  primary bucket and are not claimed as an independent disaster-recovery destination.
+
+Verification: `e2e/TestMultiServeRuntime` exercises actual Serve startup, health/readiness,
+fixed SSO without persisted secrets, bucket identity refusal, shared fingerprint mismatch,
+elected polling and readiness withdrawal/worker drain. `TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock`
+round-trips parts, duplicate chunk retries, concurrent finalization, refused digests, previews,
+page saves, downloads, expiry and same-digest org separation through the real shared client over verified TLS; each wire call
+allows an independent N3 writer to commit. Immutable PG binding, native archive cadence,
+always-run input/claim guards, release refusal and existing elected-owner takeover tests cover
+the remaining seams. The native runtime test skips cleanly without `TEST_POSTGRES_DSN` or the
+existing `KYNOTES_TEST_DATABASE_URL`.
+
+This assembly establishes test-suite execution, not hosted readiness. A selected provider's
+request-age/late-PUT bound, production credential scope, cell assignment, independent backup
+placement and post-restore blob coverage remain separate qualification gates. Existing signed
+fixed-SSO tests own callback/logout/directory authentication evidence; the startup test does
+not claim cross-product lifecycle acceptance.

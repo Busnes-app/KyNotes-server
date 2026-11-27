@@ -17,10 +17,8 @@ import (
 	"github.com/Busnes-app/kynotes-server/internal/worker"
 )
 
-// replicaSchedules is the application adapter, not another scheduler. The eventual multi
-// startup binds gc to storage.RunObjectGC, purge to the org's blobstore.Objects.Purge and
-// backup to backup.BackupPostgres with its object-storage destination.
-// Until then config.Load refuses multi; the single-mode loops stay unchanged.
+// replicaSchedules is the elected application adapter. The gated replica startup binds
+// object GC/purge and native sealed PostgreSQL archives; single mode keeps its own loops.
 type replicaSchedules struct {
 	db           *sql.DB
 	orgs         *orgsync.Poller

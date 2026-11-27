@@ -23,6 +23,9 @@ const orgUnreferenced = `NOT EXISTS(SELECT 1 FROM object_versions v WHERE v.org_
 // object takes around its I/O and short write transaction.
 func BlobLockName(org, digest string) string { return "blob/" + org + "/" + digest }
 
+// UploadLockName is shared by object upload requests and the orphan sweep.
+func UploadLockName(org, id string) string { return "upload/" + org + "/" + id }
+
 // RunObjectGC is RunGC's blob sweep for multi mode, where blobs live in object storage keyed
 // by org. Each blob is re-checked and its rows deleted under its session lock, committed, and
 // only then is the object deleted, still under the lock. A delete that fails after the commit
@@ -128,7 +131,7 @@ func SweepOrphanObjects(ctx context.Context, db *sql.DB, stores ObjectStores) (i
 		}
 		for id, at := range uploads {
 			if !at.IsZero() && at.Before(cutoff) {
-				due = append(due, orphan{"upload/" + id, `SELECT count(*) FROM upload_sessions WHERE org_id=? AND id=? AND status='pending'`, id, store.DeleteParts})
+				due = append(due, orphan{UploadLockName(org, id), `SELECT count(*) FROM upload_sessions WHERE org_id=? AND id=? AND status='pending'`, id, store.DeleteParts})
 			}
 		}
 		for _, o := range due {
@@ -207,4 +210,98 @@ func sweepObject(ctx context.Context, db *sql.DB, stores ObjectStores, org, dige
 		return false, err
 	}
 	return true, store.Delete(lease.Context, digest)
+}
+
+// RunObjectMaintenance retires expired uploads under the same org/upload lock used by
+// requests. Commit the fence before deleting remote parts; a failed DELETE remains retryable.
+func RunObjectMaintenance(ctx context.Context, db *sql.DB, stores ObjectStores, now time.Time) error {
+	rows, err := db.QueryContext(ctx, `SELECT org_id,id FROM upload_sessions WHERE ((status='pending' AND expires_at<?) OR (status='failed' AND finalized_digest='')) AND `+OrgServes("org_id")+` ORDER BY org_id,id LIMIT 100`, now.UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	type upload struct{ org, id string }
+	var due []upload
+	for rows.Next() {
+		var u upload
+		if err := rows.Scan(&u.org, &u.id); err != nil {
+			rows.Close()
+			return err
+		}
+		due = append(due, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, u := range due {
+		if err := expireObjectUpload(ctx, db, stores, u.org, u.id, now); err != nil {
+			return err
+		}
+	}
+	// Same non-blob retention rules as the single-mode worker. No kept version is pruned.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`DELETE FROM attachment_refs WHERE attachment_id IN (SELECT id FROM attachments WHERE container_id IN (SELECT id FROM containers WHERE deleted_at<>''))`,
+		`UPDATE attachments SET deleted_at=(SELECT deleted_at FROM containers WHERE id=attachments.container_id) WHERE deleted_at='' AND container_id IN (SELECT id FROM containers WHERE deleted_at<>'')`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	at, cut := now.UTC().Format(time.RFC3339), now.Add(-24*time.Hour).UTC().Format(time.RFC3339)
+	for _, stmt := range []struct {
+		q    string
+		args []any
+	}{
+		{`DELETE FROM upload_sessions WHERE status='expired' AND updated_at<?`, []any{cut}},
+		{`DELETE FROM sessions WHERE (revoked_at!='' AND revoked_at<?) OR hard_expires_at<?`, []any{cut, at}},
+		{`DELETE FROM idempotency_keys WHERE created_at<?`, []any{cut}},
+		{`DELETE FROM invitation_envelopes WHERE invitation_id IN (SELECT id FROM invitations WHERE status='pending' AND expires_at<=?)`, []any{at}},
+		{`DELETE FROM link_requests WHERE expires_at<=?`, []any{at}},
+		{`DELETE FROM sealed_share_links WHERE expires_at<=? OR revoked_at<>''`, []any{at}},
+	} {
+		if _, err := tx.ExecContext(ctx, stmt.q, stmt.args...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+func expireObjectUpload(ctx context.Context, db *sql.DB, stores ObjectStores, org, id string, now time.Time) error {
+	lease, _, err := SessionLock(ctx, db, UploadLockName(org, id), true)
+	if err != nil {
+		return err
+	}
+	defer lease.Release()
+	tx, err := lease.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE upload_sessions SET status='failed',updated_at=? WHERE id=? AND org_id=? AND ((status='pending' AND expires_at<?) OR (status='failed' AND finalized_digest='')) AND `+OrgServes("org_id"), now.UTC().Format(time.RFC3339), id, org, now.UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if n == 0 {
+		return nil
+	}
+	store, err := stores(org)
+	if err != nil {
+		return err
+	}
+	if err := store.DeleteParts(lease.Context, id); err != nil {
+		return err
+	}
+	_, err = lease.Exec(`UPDATE upload_sessions SET status='expired',updated_at=? WHERE id=? AND org_id=? AND status='failed'`, now.UTC().Format(time.RFC3339), id, org)
+	return err
 }

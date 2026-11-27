@@ -69,7 +69,19 @@ func openPostgres(dsn, searchPath string, migrate bool) (*Store, error) {
 	return openPostgresContext(context.Background(), dsn, searchPath, migrate)
 }
 
+// OpenPostgresReplica migrates and binds a new multi-tenant database, or verifies its immutable binding.
+func OpenPostgresReplica(ctx context.Context, dsn string, tenancy Tenancy) (*Store, error) {
+	if !tenancy.Multi() || tenancy.StaffOrg == "" || tenancy.StaffOrg == DefaultOrgID || tenancy.Region == "" {
+		return nil, errors.New("replicas: invalid PostgreSQL tenancy binding")
+	}
+	return openPostgresBound(ctx, dsn, "", true, &tenancy)
+}
+
 func openPostgresContext(ctx context.Context, dsn, searchPath string, migrate bool) (*Store, error) {
+	return openPostgresBound(ctx, dsn, searchPath, migrate, nil)
+}
+
+func openPostgresBound(ctx context.Context, dsn, searchPath string, migrate bool, tenancy *Tenancy) (*Store, error) {
 	where := pgdialect.Describe(dsn)
 	if searchPath != "" {
 		dsn = withSearchPath(dsn, searchPath)
@@ -91,7 +103,11 @@ func openPostgresContext(ctx context.Context, dsn, searchPath string, migrate bo
 	if migrate {
 		err = s.migratePostgres()
 		if err == nil {
-			err = s.ensureOrgs()
+			if tenancy == nil {
+				err = s.ensureOrgs()
+			} else {
+				err = s.ensureReplicaTenancy(ctx, *tenancy)
+			}
 		}
 	} else {
 		var ok bool

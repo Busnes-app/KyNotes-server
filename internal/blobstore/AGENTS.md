@@ -8,13 +8,14 @@ Own opaque blob streams, single-volume compatibility and the tenancy blob seam.
 
 - `Backend`/`Temporary` are the product's storage seam; they do not expose filesystem handles.
 - `Objects` owns the prepared per-org permanent ciphertext and numbered upload-part I/O
-  through the exported shared S3 client. It is not yet the complete `Backend`/`Temporary`
-  runtime adapter: exclusive control creation, age metadata and route wiring remain gated.
+  through the exported shared S3 client. The gated `internal/httpapi/replica_blobs.go` adapter
+  owns request binding, temporary bodies, shared parts and pinned claim transactions.
   `storage.RunObjectGC` and the purge's prefix step call it from the elected worker.
 - `Store`/`Temp` retain the single-tenant volume implementation and paths.
 - Key helpers own validation of org/blob/part path components.
 - `VerifySharedIdentity` owns N15 control-file identity/probe decisions; the real object adapter
-  binds its read/create-exclusive callbacks only through the shared primary-object client.
+  binds its read/create-exclusive callbacks only through the shared primary-object client
+  in `internal/app/serve_replica.go`, before readiness or worker election.
 
 ## Local Contracts
 
