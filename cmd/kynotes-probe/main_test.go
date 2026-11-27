@@ -75,3 +75,27 @@ func TestLoadOrCreateDeviceKeyUpgradesLegacyX25519Key(t *testing.T) {
 		t.Fatal("opened content key mismatch")
 	}
 }
+
+func TestIdentityRejectsLegacyAccountIdentity(t *testing.T) {
+	legacy, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate legacy key: %v", err)
+	}
+	id, err := teamkeys.ParseIdentity(legacy.Bytes())
+	if err != nil {
+		t.Fatalf("parse legacy identity: %v", err)
+	}
+	p := &client{identityKey: id}
+	if err := p.identity(); err == nil {
+		t.Fatal("identity() accepted legacy 32-byte account identity, want error")
+	}
+
+	pqID, err := teamkeys.NewIdentity()
+	if err != nil {
+		t.Fatalf("new PQ identity: %v", err)
+	}
+	p.identityKey = pqID
+	if err := p.identity(); err != nil {
+		t.Fatalf("identity() rejected PQ account identity: %v", err)
+	}
+}

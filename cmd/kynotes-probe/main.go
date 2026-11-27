@@ -101,6 +101,9 @@ func (p *client) takeOverPath() string { return p.keyPath + ".takeover" }
 // would. An identity without a password copy cannot be used here and stops the run.
 func (p *client) identity() error {
 	if p.identityKey != nil {
+		if len(p.identityKey.Bytes()) != teamkeys.PQPrivateBytes {
+			return errors.New("the probe account has a legacy X25519 encryption identity; sign in on the web to complete the post-quantum identity upgrade, or use a fresh probe account")
+		}
 		return nil
 	}
 	res, err := p.request(http.MethodGet, "/api/v1/me/identity", nil, nil, false)
