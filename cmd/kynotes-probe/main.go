@@ -311,8 +311,9 @@ func (p *client) stepUp() error {
 	return nil
 }
 
-// loadOrCreateDeviceKey returns the probe's random X25519 device key, created
-// once (0600, in a 0700 directory) so re-runs re-pair the same device.
+// loadOrCreateDeviceKey returns the probe's PQ device key, created once (0600,
+// in a 0700 directory) so re-runs re-pair the same device. A persisted legacy
+// 32-byte X25519 key is upgraded in place so SealPQEnvelope succeeds.
 func loadOrCreateDeviceKey(path string) (*teamkeys.IdentityKey, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -325,7 +326,25 @@ func loadOrCreateDeviceKey(path string) (*teamkeys.IdentityKey, error) {
 		if err != nil {
 			return nil, err
 		}
-		return teamkeys.ParseIdentity(raw)
+		key, err := teamkeys.ParseIdentity(raw)
+		if err != nil {
+			return nil, err
+		}
+		if len(key.Bytes()) == teamkeys.PQPrivateBytes {
+			return key, nil
+		}
+		upgraded, _, err := teamkeys.GeneratePQIdentity(raw)
+		if err != nil {
+			return nil, err
+		}
+		key, err = teamkeys.ParseIdentity(upgraded)
+		if err != nil {
+			return nil, err
+		}
+		if err := writeDeviceKeyAtomic(path, key.Bytes()); err != nil {
+			return nil, err
+		}
+		return key, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -333,21 +352,44 @@ func loadOrCreateDeviceKey(path string) (*teamkeys.IdentityKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if _, err = f.Write(key.Bytes()); err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(path)
+	if err := writeDeviceKeyAtomic(path, key.Bytes()); err != nil {
 		return nil, err
 	}
 	return key, nil
+}
+
+func writeDeviceKeyAtomic(path string, keyBytes []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".kynotes-probe-key-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(keyBytes); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 // revokeDevice logs in again (revocation needs a session under five minutes
