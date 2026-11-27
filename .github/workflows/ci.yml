@@ -205,6 +205,7 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: scripts/check-test-build-tag.sh
+      - run: scripts/check-pqc-tls.sh
       # The release binary must not depend on where it is built: build it the way the
       # Dockerfile does (no .git in the context, -trimpath) from two directories and require
       # identical bytes. docs/VERIFYING-RELEASES.md tells users how to repeat this.
