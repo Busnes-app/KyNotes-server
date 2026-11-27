@@ -82,14 +82,17 @@ func UploadRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, cfg config.
 			return
 		}
 		var uid string
-		if e := db.QueryRow(`SELECT user_id FROM upload_sessions WHERE id=?`, id).Scan(&uid); e != nil || uid != s.UserID {
+		if e := db.QueryRowContext(r.Context(), `SELECT user_id FROM upload_sessions WHERE id=?`, id).Scan(&uid); e != nil || uid != s.UserID {
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
 		if t, e := blobs.Reopen(id); e == nil {
 			_ = t.Abort()
 		}
-		_, _ = db.Exec(`UPDATE upload_sessions SET status='failed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), id)
+		if _, e := blobExec(r.Context(), db, blobs, `UPDATE upload_sessions SET status='failed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), id); e != nil {
+			WriteError(w, r, 503, "unavailable", "upload unavailable")
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("HEAD /api/v1/containers/{id}/attachments/by-digest/{digest}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

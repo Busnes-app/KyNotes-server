@@ -101,7 +101,7 @@ func openPostgresBound(ctx context.Context, dsn, searchPath string, migrate bool
 	s := &Store{db: db, pg: true}
 	_, s.migrationKey = pgdialect.LockKeys(searchPath)
 	if migrate {
-		err = s.migratePostgres()
+		err = s.migratePostgres(ctx, tenancy)
 		if err == nil {
 			if tenancy == nil {
 				err = s.ensureOrgs()
@@ -124,9 +124,9 @@ func openPostgresBound(ctx context.Context, dsn, searchPath string, migrate bool
 
 // migratePostgres applies the postgres/ files above the recorded version, under a session
 // advisory lock on one pinned connection, so replicas starting together migrate once and a
-// holder that dies releases the lock with its connection.
-func (s *Store) migratePostgres() error {
-	ctx := context.Background()
+// holder that dies releases the lock with its connection. Existing databases have their
+// tenancy binding checked before any pending migrations run.
+func (s *Store) migratePostgres(ctx context.Context, tenancy *Tenancy) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
@@ -135,7 +135,16 @@ func (s *Store) migratePostgres() error {
 	if _, err = conn.ExecContext(ctx, `SELECT pg_advisory_lock(?)`, s.migrationKey); err != nil {
 		return err
 	}
-	defer conn.ExecContext(ctx, `SELECT pg_advisory_unlock(?)`, s.migrationKey)
+	defer conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(?)`, s.migrationKey)
+	if tenancy != nil {
+		if err = verifyExistingReplicaTarget(ctx, conn, *tenancy); err != nil {
+			return err
+		}
+	} else {
+		if err = verifyExistingSingleTarget(ctx, conn); err != nil {
+			return err
+		}
+	}
 	var applied int
 	var exists bool
 	if err = conn.QueryRowContext(ctx, `SELECT to_regclass('schema_migrations') IS NOT NULL`).Scan(&exists); err != nil {

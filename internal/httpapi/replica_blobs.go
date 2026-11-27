@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -146,6 +147,21 @@ func (b *requestObjects) begin() (*sql.Tx, error) {
 		return b.upload.Begin()
 	}
 	return b.db.BeginTx(b.r.Context(), nil)
+}
+func (b *requestObjects) exec(q string, args ...any) (sql.Result, error) {
+	if b.blob != nil {
+		return b.blob.Exec(q, args...)
+	}
+	if b.upload != nil {
+		return b.upload.Exec(q, args...)
+	}
+	return b.db.ExecContext(b.r.Context(), q, args...)
+}
+func blobExec(ctx context.Context, db *sql.DB, backend blobstore.Backend, q string, args ...any) (sql.Result, error) {
+	if b, ok := backend.(*requestObjects); ok {
+		return b.exec(q, args...)
+	}
+	return db.ExecContext(ctx, q, args...)
 }
 func blobBegin(db *sql.DB, backend blobstore.Backend) (*sql.Tx, error) {
 	if b, ok := backend.(*requestObjects); ok {

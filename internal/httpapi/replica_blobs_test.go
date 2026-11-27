@@ -308,6 +308,45 @@ func TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock(t *testing.T) {
 	if err := u.db.QueryRow(`SELECT status FROM upload_sessions WHERE id=?`, bad).Scan(&failed); err != nil || failed != "failed" {
 		t.Fatalf("refused upload status: %s %v", failed, err)
 	}
+	// Cancelling an upload with SetMaxOpenConns(1) must reuse the pinned upload lease
+	// for the status update, keep remote deletion outside a write transaction, and
+	// release the connection so subsequent DB queries complete within a deadline.
+	cancelled := u.upload(t, 8, []byte("abcdefgh"))
+	res = u.chunk(t, cancelled, 0, "abcd")
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("cancel setup chunk: %d", res.StatusCode)
+	}
+	cancelCtx, cancelTimeout := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelTimeout()
+	delReq, err := http.NewRequestWithContext(cancelCtx, "DELETE", u.url+"/api/v1/uploads/"+cancelled, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cookie := range u.hc.Jar.Cookies(delReq.URL) {
+		if cookie.Name == "csrf_token" {
+			delReq.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	res, err = u.hc.Do(delReq)
+	if err != nil {
+		t.Fatalf("cancel upload deadlocked or failed: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("cancel upload: %d", res.StatusCode)
+	}
+	var cancelledStatus string
+	if err := u.db.QueryRowContext(cancelCtx, `SELECT status FROM upload_sessions WHERE id=?`, cancelled).Scan(&cancelledStatus); err != nil || cancelledStatus != "failed" {
+		t.Fatalf("cancelled upload status: %s %v", cancelledStatus, err)
+	}
+	mu.Lock()
+	for name := range objects {
+		if strings.Contains(name, "/uploads/"+cancelled+"/") {
+			t.Errorf("cancelled upload part retained: %s", name)
+		}
+	}
+	mu.Unlock()
 	// A preview lookup after PUT must also share the pinned connection.
 	previewSum := sha256.Sum256([]byte("tiny"))
 	res = u.do(t, "POST", "/api/v1/containers/"+u.container+"/uploads", []byte(fmt.Sprintf(`{"declaredBytes":4,"expectedDigest":"%x","kind":"preview"}`, previewSum)), true)
