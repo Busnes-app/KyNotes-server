@@ -15,8 +15,8 @@ const DefaultOrgID = "00000000-0000-0000-0000-000000000001"
 var ErrTenancyMode = errors.New("database tenancy mode differs from the configured mode")
 
 // ensureOrgs records the tenancy mode and the default org. It checks before it writes, so a
-// refused start leaves the database as it was. This release runs single-tenant only
-// (KYNOTES_TENANCY=multi is refused by config until the spec's PR 6).
+// refused start leaves the database as it was. The gated replica opener uses its separate
+// immutable multi-mode binding; this single-mode path never converts an installation.
 func (s *Store) ensureOrgs() error {
 	const mode = "single"
 	tx, err := s.db.Begin()

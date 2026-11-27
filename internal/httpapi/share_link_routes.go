@@ -28,6 +28,8 @@ const MaxShareLinkLifetime = 30 * 24 * time.Hour
 
 func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits config.Limits) {
 	mux.Handle("POST /api/v1/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -60,7 +62,7 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits c
 		token := base64.RawURLEncoding.EncodeToString(tokenBytes[:])
 		sum := sha256.Sum256([]byte(token))
 		now := time.Now().UTC().Format(time.RFC3339)
-		err = dbTx(db, func(tx *sql.Tx) error {
+		err = blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			var quota int64
 			var org string
 			if e := tx.QueryRow(`SELECT quota_bytes,org_id FROM users WHERE id=?`, s.UserID).Scan(&quota, &org); e != nil {
@@ -131,6 +133,8 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits c
 	})))
 
 	mux.Handle("DELETE /api/v1/share-links/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -141,7 +145,7 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits c
 			WriteError(w, r, 404, "not_found", "not found")
 			return
 		}
-		err := dbTx(db, func(tx *sql.Tx) error {
+		err := blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			now := time.Now().UTC().Format(time.RFC3339)
 			cleanup := storage.CleanupFor(db)
 			changed, e := cleanup.RevokeSealedLink(tx, id, s.UserID, now)
@@ -165,6 +169,8 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits c
 	})))
 
 	mux.Handle("POST /api/v1/objects/{id}/share-links", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -216,7 +222,7 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits c
 			return
 		}
 		created := time.Now().UTC().Format(time.RFC3339)
-		err = dbTx(db, func(tx *sql.Tx) error {
+		err = blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			if _, e := tx.Exec(`INSERT INTO share_links(id,token_hash,object_id,object_version,expires_at,created_at) VALUES(?,?,?,?,?,?)`, id, tokenHash, objectID, version, expires.UTC().Format(time.RFC3339), created); e != nil {
 				return e
 			}
@@ -233,6 +239,8 @@ func ShareLinkRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits c
 	})))
 
 	mux.HandleFunc("GET /api/v1/share-links/{token}", func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		token := r.PathValue("token")
 		if len(token) != 43 {
 			WriteError(w, r, 404, "not_found", "not found")

@@ -85,6 +85,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 		writeJSON(w, out)
 	})))
 	mux.Handle("GET /api/v1/conflicts/{id}", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		uid, _ := auth.CredentialUserID(r)
 		if ids.Validate("cfl", r.PathValue("id")) != nil {
 			WriteError(w, r, 400, "invalid_request", "invalid request")
@@ -106,6 +108,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 		http.ServeContent(w, r, "", time.Time{}, f)
 	})))
 	mux.Handle("POST /api/v1/conflicts/{id}/resolve", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -116,7 +120,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
-		e := dbTx(db, func(tx *sql.Tx) error {
+		e := blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			var cid, role string
 			if e := tx.QueryRow(`SELECT c.container_id,m.role FROM conflicts c JOIN memberships m ON m.container_id=c.container_id AND m.user_id=? WHERE c.id=? AND m.revoked_at=''`, s.UserID, r.PathValue("id")).Scan(&cid, &role); e != nil {
 				return e
@@ -137,6 +141,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("DELETE /api/v1/objects/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -153,7 +159,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
-		if e := dbTx(db, func(tx *sql.Tx) error {
+		if e := blobTransaction(db, blobs, func(tx *sql.Tx) error {
 			var seq int64
 			if e := tx.QueryRow(`UPDATE containers SET change_seq=change_seq+1,updated_at=? WHERE id=? RETURNING change_seq`, now, cid).Scan(&seq); e != nil {
 				return e
@@ -185,6 +191,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 		w.WriteHeader(http.StatusNoContent)
 	})))
 	mux.Handle("GET /api/v1/objects/{id}", auth.RequireEither(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		uid, _ := auth.CredentialUserID(r)
 		oid := r.PathValue("id")
 		if ids.Validate("obj", oid) != nil {
@@ -226,6 +234,8 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 		_, _ = io.Copy(w, f)
 	})))
 	mux.Handle("PUT /api/v1/objects/{id}", auth.RequireSession(db, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobs, releaseBlobs := requestBlobs(r, blobs)
+		defer releaseBlobs()
 		if auth.CheckCSRF(r) != nil {
 			WriteError(w, r, 403, "csrf_failed", "csrf validation failed")
 			return
@@ -324,7 +334,7 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
-		tx, e := db.Begin()
+		tx, e := blobBegin(db, blobs)
 		if e != nil {
 			WriteError(w, r, 500, "internal", "internal server error")
 			return
@@ -427,6 +437,9 @@ func ObjectRoutes(mux RouteMux, db *sql.DB, blobs blobstore.Backend, limits conf
 // lock): a refused save's file then never outlives the refusal. A parallel save of the same bytes that
 // finalized but has not claimed yet finds the file gone in claimBlob and fails; its client retries.
 func dropUnclaimed(tx *sql.Tx, blobs blobstore.Backend, digest string) {
+	if _, object := blobs.(*requestObjects); object {
+		return
+	} // Orphan sweep owns refused remote writes outside N3.
 	var claimed int
 	if tx.QueryRow(`SELECT COUNT(*) FROM blobs WHERE digest=?`, digest).Scan(&claimed) == nil && claimed == 0 {
 		_ = blobs.Delete(digest)
@@ -436,6 +449,11 @@ func dropUnclaimed(tx *sql.Tx, blobs blobstore.Backend, digest string) {
 // claimBlob records a finalized blob for cid and clears its GC mark. GC deletes files only
 // inside its own write transaction (storage.sweepBlob), so a file present here outlives tx.
 func claimBlob(tx *sql.Tx, blobs blobstore.Backend, digest, cid string, size int64, now string) error {
+	if b, ok := blobs.(*requestObjects); ok {
+		if e := b.checkServes(tx, cid); e != nil {
+			return e
+		}
+	}
 	if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at,org_id) VALUES(?,?,?,(SELECT org_id FROM containers WHERE id=?)) ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`, digest, size, now, cid); e != nil {
 		return e
 	}

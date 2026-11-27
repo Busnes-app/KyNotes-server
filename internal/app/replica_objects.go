@@ -16,7 +16,7 @@ import (
 
 // newReplicaObjectClient prepares the selected primary-object client without network I/O.
 // It is separate from maintenance/fingerprint input: credentials are per replica and never
-// belong in shared settings. Startup remains refused until every hosted prerequisite exists.
+// belong in shared settings. The gated replica startup binds the control-file protocol.
 func newReplicaObjectClient(in replicaInputs) (*shareds3.Client, error) {
 	access, err := replicaObjectCredential("KYNOTES_BLOB_S3_ACCESS_KEY")
 	if err != nil {

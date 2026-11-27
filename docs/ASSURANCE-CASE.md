@@ -151,8 +151,8 @@ deactivation until they expire. Each is in
   atomic PKCE consumption and admission, wrong-org presence, generation-bound refunds,
   reminder claims/reschedules, session-loss cancellation, saturated request pools and atomic
   restore fencing. Shared-state failures deny admission. SQLite retains its memory paths and
-  golden fixtures. These mechanisms do not enable multi startup; scheduling/blob/restore
-  adapters and the full configuration boundary remain prerequisites.
+  golden fixtures. The test-only runtime assembly below binds these mechanisms; production
+  startup remains refused pending hosted qualification.
 - **Replica adapter preparation:** blob-seam tests preserve volume bytes while rejecting org
   prefix purge; key builders separate org namespaces. Control-file identity tests exercise
   CAS races/private-store refusal without an S3 client copy. Environment/fingerprint tests
@@ -210,11 +210,11 @@ client gate clearance, exclusive controls, provider age and native recovery rema
 Primary-object client preparation has a separate environment/_FILE credential boundary.
 `TestReplicaObject*` covers bounded values/files, source ambiguity, nonregular/missing paths,
 multiline/empty refusal and secret-safe errors/formatting. Construction writes no shared
-settings or local store and does not enable startup. A late PUT after a lost PG lock is fenced
+settings or local store. The gated test runtime now calls that constructor. A late PUT after a lost PG lock is fenced
 by time: `TestLatePutAfterPurgeIsErasedBeforeTheOrgIsMarkedPurged` lands a timed-out PUT after
 the prefix delete and fails if the purge completes inside the window;
 `TestOrphanSweepDeletesOnlyOldUnclaimedObjects` covers GC/erasure orphans. The provider's
-honoring of the window is unqualified. Runtime/GC/purge/provider and native-PG recovery gates remain explicit.
+honoring of the window is unqualified. Hosted provider/late-PUT and restore-coverage qualification gates remain explicit.
 
 Host maintenance uses the exact existing PG schema and recorded staff org/region, with no
 migration or local-key fallback. Tests require atomic account/audit creation, real password
@@ -229,7 +229,7 @@ The fixed environment SSO store has no database handle and refuses Save; concurr
 and Save cannot replace its deployment snapshot. Signed issuer tests across independent PG
 pools prove shared one-use login state, wrong-org and changed-settings refusal, and absence of
 environment client/directory secrets in settings and PKCE payloads. The normal single store
-and hosted startup gate retain their existing contracts; runtime assembly is still unbuilt.
+and release startup gate retain their existing contracts; only the suite test build assembles it.
 
 Final login/step-up, logout and signed-directory admission recognize the immutable snapshot
 only when both the store's server-owned fixed marker and recorded multi mode agree. All
@@ -242,4 +242,17 @@ response publication. Tests recheck a concurrently revoked actor, refuse failed 
 customer web mutations/content access, and compare logical usage. The staff browser performs
 only read operations for accounts and SSO, validates returned metadata and suppresses stale
 scope responses. Single-mode golden/UI regressions remain required; no hosted readiness is
-claimed while startup is refused.
+claimed by the test-only runtime.
+
+
+The test-only `Serve` runtime verifies immutable PG tenancy, the keyed shared fingerprint and
+bucket identity before readiness, staff bootstrap or worker election. Request-owned org object
+adapters keep upload/digest locks on a pinned connection and use verified PUT evidence in
+short claims instead of remote HEAD under N3. Expiry fences parts before deletion. The runtime
+integration test proves health, fixed SSO without persisted secrets, drift/bucket refusal and
+readiness withdrawal/worker drain. `TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock`
+alternates two independent one-connection pools and permits another writer during each S3 call.
+Release tests exercise direct `Serve` refusal as well as config loading. Native archive tests
+prove sealed upload and attempt cadence; copies in the primary bucket are not independent
+recovery. Provider request-age guarantees, cell assignment and post-restore blob coverage remain
+unqualified; no production startup or hosted readiness claim changes.

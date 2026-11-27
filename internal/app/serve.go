@@ -23,8 +23,14 @@ import (
 )
 
 func Serve(ctx context.Context, c config.Config, log *logging.Logger, version string) error {
+	if err := config.ValidateTenancy(); err != nil {
+		return err
+	}
 	if err := config.Validate(c); err != nil {
 		return err
+	}
+	if os.Getenv("KYNOTES_TENANCY") == "multi" {
+		return serveReplica(ctx, c, log)
 	}
 	auth.SetCSRFKey(c.Secrets.PairingSecret)
 	unlock, err := storage.LockDirectory(c.DataDir)

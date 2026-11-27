@@ -178,6 +178,14 @@ func loadSecrets(c *Config) error {
 }
 
 func loadSecretsMode(c *Config, create bool) error {
+	if os.Getenv("KYNOTES_TENANCY") == "multi" {
+		c.Secrets.PairingSecret = os.Getenv("KYNOTES_SECRETS_PAIRING_SECRET")
+		c.Secrets.ServerSaltKey = os.Getenv("KYNOTES_SECRETS_SERVER_SALT_KEY")
+		if len(c.Secrets.PairingSecret) < 32 || len(c.Secrets.ServerSaltKey) < 32 {
+			return errors.New("multi mode requires pairing and server-salt keys in environment")
+		}
+		return nil
+	}
 	if c.DataDir == "" {
 		return nil
 	}
@@ -405,6 +413,10 @@ func duration(name, value string) error {
 	}
 	return nil
 }
+
+// ValidateTenancy checks the build and environment gate even for callers that construct Config directly.
+func ValidateTenancy() error { return tenancyEnv() }
+
 func Validate(c Config) error {
 	return validate(c, true)
 }

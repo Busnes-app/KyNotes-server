@@ -6,7 +6,7 @@ import (
 )
 
 // Backend is the blob seam from tenancy N15. Single mode always receives New's volume store;
-// multi-mode construction remains refused until the shared primary-object backend exists.
+// the gated multi-mode router supplies request-owned org/object/part adapters.
 type Backend interface {
 	NewTemp(id string) (Temporary, error)
 	Reopen(id string) (Temporary, error)

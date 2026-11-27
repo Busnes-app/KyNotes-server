@@ -67,6 +67,7 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 	var push *webpush.Sender
 	var exempt *exemptNetworks
 	var orgPoll *orgsync.Poller
+	var objects storage.ObjectStores
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case *sql.DB:
@@ -85,9 +86,14 @@ func buildRoutes(ready func() bool, extras ...any) (*recordingMux, config.Config
 			exempt = v
 		case *orgsync.Poller:
 			orgPoll = v
+		case storage.ObjectStores:
+			objects = v
 		}
 	}
 	if db != nil {
+		if objects != nil {
+			blobs = &replicaBlobs{db: db, stores: objects}
+		}
 		if ssoStore == nil {
 			ssoStore = sso.NewStore(db)
 		}
