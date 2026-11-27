@@ -14,14 +14,21 @@ declare global {
 }
 let loading: Promise<PQ> | undefined;
 export function loadPQ(): Promise<PQ> {
-  return loading ??= (async () => {
-    if (globalThis.pqwasm) return globalThis.pqwasm;
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "/assets/pq/wasm_exec.js";
-      script.onload = () => resolve(); script.onerror = () => reject(new Error("Could not load encryption runtime"));
-      document.head.append(script);
-    });
+  if (globalThis.pqwasm) return Promise.resolve(globalThis.pqwasm);
+  if (loading) return loading;
+  const attempt = (async () => {
+    if (!globalThis.Go) {
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "/assets/pq/wasm_exec.js";
+        script.onload = () => resolve();
+        script.onerror = () => {
+          script.remove();
+          reject(new Error("Could not load encryption runtime"));
+        };
+        document.head.append(script);
+      });
+    }
     const go = new globalThis.Go();
     const response = await fetch("/assets/pq/pq.wasm");
     if (!response.ok) throw new Error("Could not load encryption module");
@@ -30,6 +37,11 @@ export function loadPQ(): Promise<PQ> {
     if (!globalThis.pqwasm) throw new Error("Encryption module did not initialize");
     return globalThis.pqwasm;
   })();
+  loading = attempt;
+  attempt.catch(() => {
+    if (loading === attempt) loading = undefined;
+  });
+  return attempt;
 }
 export function result<T>(value: Result<T>): T {
   if (typeof value === "object" && value !== null && "error" in value) throw new Error(value.error);

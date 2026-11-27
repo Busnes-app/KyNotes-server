@@ -35,6 +35,8 @@ describe("v4 X-Wing envelopes",()=>{
   });
 });
 
+import { loadPQ } from "./pq";
+
 it("PQ identities open legacy history but refuse a classical envelope at the write generation",async()=>{
   const old=legacyVectors.envelopes[0], me={...generatePQIdentityReady(h(old.recipientPrivateKey)),deviceId:old.recipientDeviceId,userId:`usr_${"a".repeat(26)}`};
   const sender=generatePQIdentityReady(h(old.senderPrivateKey));
@@ -43,4 +45,37 @@ it("PQ identities open legacy history but refuse a classical envelope at the wri
   const open=(generation:number)=>openKeyring({containerID:old.containerId,envelopes:[row],me,members:[member],pins:{},known:{generation,mark:0,digests:{}}});
   expect((await open(old.keyGeneration)).ring.size).toBe(0);
   expect((await open(old.keyGeneration+1)).ring.get(old.keyGeneration)).toEqual(h(old.contentKey));
+});
+
+it("loadPQ clears a failed load promise so subsequent retries succeed", async () => {
+  const savedPQ = globalThis.pqwasm;
+  const savedGo = globalThis.Go;
+  const savedFetch = globalThis.fetch;
+  // Valid minimal WebAssembly module (magic + version 1) so real WebAssembly.instantiate runs.
+  const emptyWasm = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+  try {
+    let fetchCalls = 0;
+    globalThis.pqwasm = undefined;
+    globalThis.Go = class {
+      importObject: WebAssembly.Imports = {};
+      run(_instance: WebAssembly.Instance): Promise<void> {
+        globalThis.pqwasm = savedPQ;
+        return Promise.resolve();
+      }
+    };
+    globalThis.fetch = (async () => {
+      fetchCalls++;
+      if (fetchCalls === 1) throw new Error("transient network error");
+      return new Response(emptyWasm, { status: 200 });
+    }) as typeof fetch;
+
+    await expect(loadPQ()).rejects.toThrow("transient network error");
+    const loaded = await loadPQ();
+    expect(loaded).toBe(savedPQ);
+    expect(fetchCalls).toBe(2);
+  } finally {
+    globalThis.pqwasm = savedPQ;
+    globalThis.Go = savedGo;
+    globalThis.fetch = savedFetch;
+  }
 });
