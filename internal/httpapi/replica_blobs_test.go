@@ -414,3 +414,133 @@ func TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock(t *testing.T) {
 		t.Fatalf("org keys collided: %d objects", len(objects))
 	}
 }
+
+func TestReplicaObjectSaveRefusesSuspendedCustomerOrgWhileStaffActive(t *testing.T) {
+	if !storage.OnPostgresTest() {
+		t.Skip("set KYNOTES_TEST_DATABASE_URL")
+	}
+	u := newUploadClient(t)
+	toMultiMode(t, u.db, "org_staff")
+	if _, err := u.db.Exec(`INSERT INTO org_pool(org_id,ceiling_bytes,expires_at,seq) VALUES(?,100000000,'2099-01-01T00:00:00Z',1)`, storage.DefaultOrgID); err != nil {
+		t.Fatal(err)
+	}
+	var puts atomic.Int32
+	s3server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			puts.Add(1)
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.Header().Set("ETag", `"object"`)
+			return
+		}
+		w.WriteHeader(204)
+	}))
+	defer s3server.Close()
+	client, err := shareds3.New(shareds3.Config{Endpoint: s3server.URL, Bucket: "bucket", AccessKey: "test", SecretKey: "test", HTTP: s3server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := t.TempDir()
+	stores := storage.ObjectStores(func(org string) (*blobstore.Objects, error) { return blobstore.NewObjects(client, org, scratch, 1000) })
+	cfg := config.Defaults()
+	cfg.Server.DevInsecureCookies = true
+	cfg.DataDir = scratch
+	server := httptest.NewServer(NewRouter(logging.New(io.Discard, "info", "json"), cfg.Server.MaxRequestBytes, func() bool { return true }, u.db, cfg, stores))
+	defer server.Close()
+	u.url = server.URL
+
+	res := u.do(t, "POST", "/api/v1/containers/"+u.container+"/objects", []byte(`{"kind":"note"}`), true)
+	var object struct {
+		ID string `json:"id"`
+	}
+	if res.StatusCode != 200 {
+		t.Fatalf("create page: %d", res.StatusCode)
+	}
+	if err := json.NewDecoder(res.Body).Decode(&object); err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+
+	// Stream the body via a pipe so the handler authenticates and binds requestObjects
+	// to the active customer org before suspension, then suspend the customer org
+	// while the staff org remains active and finish streaming to trigger Finalize.
+	pr, pw := io.Pipe()
+	req, err := http.NewRequest("PUT", u.url+"/api/v1/objects/"+object.ID, pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Kynotes-Key-Generation", fmt.Sprint(u.generation))
+	req.Header.Set("X-Kynotes-Base-Version", "0")
+	req.Header.Set(keySchemeHeader, keySchemeShared)
+	for _, cookie := range u.hc.Jar.Cookies(req.URL) {
+		if cookie.Name == "csrf_token" {
+			req.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	done := make(chan *http.Response, 1)
+	errs := make(chan error, 1)
+	go func() {
+		resp, err := u.hc.Do(req)
+		if err != nil {
+			errs <- err
+			return
+		}
+		done <- resp
+	}()
+	// Writing the first chunk blocks until the handler has called NewTemp (binding b.org)
+	// and started io.Copy into the temporary file.
+	if _, err := pw.Write([]byte("page-")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.db.Exec(`UPDATE orgs SET status='suspended' WHERE id=?`, storage.DefaultOrgID); err != nil {
+		t.Fatal(err)
+	}
+	var staffServes int
+	if err := u.db.QueryRow(`SELECT count(*) FROM orgs o WHERE o.id='org_staff' AND ` + storage.OrgServes("o.id")).Scan(&staffServes); err != nil || staffServes != 1 {
+		t.Fatalf("staff org should remain active: %d %v", staffServes, err)
+	}
+	if _, err := pw.Write([]byte("ciphertext")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errs:
+		t.Fatal(err)
+	case resp := <-done:
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			t.Fatalf("suspended customer org save succeeded: %d %s", resp.StatusCode, body)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("suspended customer org save timed out")
+	}
+	if got := puts.Load(); got != 0 {
+		t.Fatalf("suspended customer org produced %d object PUT(s), want 0", got)
+	}
+	var currentVersion, versionCount int
+	if err := u.db.QueryRow(`SELECT current_version FROM objects WHERE id=?`, object.ID).Scan(&currentVersion); err != nil || currentVersion != 0 {
+		t.Fatalf("suspended customer org bumped current_version=%d err=%v", currentVersion, err)
+	}
+	if err := u.db.QueryRow(`SELECT count(*) FROM object_versions WHERE object_id=?`, object.ID).Scan(&versionCount); err != nil || versionCount != 0 {
+		t.Fatalf("suspended customer org created %d object_versions err=%v", versionCount, err)
+	}
+
+	// Claim transactions must also recheck serving status if suspension races after PUT.
+	digest := strings.Repeat("ab", 32)
+	tx, err := u.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	lease, _, err := storage.SessionLock(context.Background(), u.db, storage.BlobLockName(storage.DefaultOrgID, digest), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	b := &requestObjects{org: storage.DefaultOrgID, blob: lease, digest: digest, size: 15}
+	if err := claimBlob(tx, b, digest, u.container, 15, time.Now().UTC().Format(time.RFC3339)); err == nil {
+		t.Fatal("claimBlob admitted write for suspended customer org while staff org active")
+	}
+}

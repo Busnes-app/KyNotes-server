@@ -449,6 +449,11 @@ func dropUnclaimed(tx *sql.Tx, blobs blobstore.Backend, digest string) {
 // claimBlob records a finalized blob for cid and clears its GC mark. GC deletes files only
 // inside its own write transaction (storage.sweepBlob), so a file present here outlives tx.
 func claimBlob(tx *sql.Tx, blobs blobstore.Backend, digest, cid string, size int64, now string) error {
+	if b, ok := blobs.(*requestObjects); ok {
+		if e := b.checkServes(tx, cid); e != nil {
+			return e
+		}
+	}
 	if _, e := tx.Exec(`INSERT INTO blobs(digest,size_bytes,created_at,org_id) VALUES(?,?,?,(SELECT org_id FROM containers WHERE id=?)) ON CONFLICT(org_id,digest) DO UPDATE SET unreferenced_since=''`, digest, size, now, cid); e != nil {
 		return e
 	}

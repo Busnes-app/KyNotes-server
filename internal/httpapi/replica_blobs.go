@@ -72,7 +72,7 @@ func (b *requestObjects) resolve() error {
 		return nil
 	}
 	if uid, ok := auth.CredentialUserID(b.r); ok {
-		if err := b.db.QueryRowContext(b.r.Context(), `SELECT org_id FROM users WHERE id=? AND `+storage.OrgServes("org_id"), uid).Scan(&b.org); err != nil {
+		if err := b.db.QueryRowContext(b.r.Context(), `SELECT u.org_id FROM users u WHERE u.id=? AND `+storage.OrgServes("u.org_id"), uid).Scan(&b.org); err != nil {
 			return err
 		}
 	} else {
@@ -148,6 +148,16 @@ func (b *requestObjects) begin() (*sql.Tx, error) {
 	}
 	return b.db.BeginTx(b.r.Context(), nil)
 }
+func (b *requestObjects) checkServes(tx *sql.Tx, cid string) error {
+	var serves int
+	if err := tx.QueryRow(`SELECT count(*) FROM containers c JOIN orgs o ON o.id=c.org_id WHERE c.id=? AND o.id=? AND `+storage.OrgServes("o.id"), cid, b.org).Scan(&serves); err != nil {
+		return err
+	}
+	if serves != 1 {
+		return errors.New("org no longer serves")
+	}
+	return nil
+}
 func (b *requestObjects) exec(q string, args ...any) (sql.Result, error) {
 	if b.blob != nil {
 		return b.blob.Exec(q, args...)
@@ -218,7 +228,7 @@ func (t *objectTemp) Write(raw []byte) (int, error) {
 }
 func (t *objectTemp) admit() error {
 	var count int
-	err := t.b.upload.QueryRow(`SELECT count(*) FROM upload_sessions WHERE id=? AND org_id=? AND status='pending' AND `+storage.OrgServes("org_id"), t.id, t.b.org).Scan(&count)
+	err := t.b.upload.QueryRow(`SELECT count(*) FROM upload_sessions us WHERE us.id=? AND us.org_id=? AND us.status='pending' AND `+storage.OrgServes("us.org_id"), t.id, t.b.org).Scan(&count)
 	if err != nil {
 		return err
 	}
@@ -316,7 +326,7 @@ func (t *objectTemp) Finalize(expected string) (string, int64, error) {
 	}
 	t.b.blob = lease
 	var serves int
-	if err := lease.QueryRow(`SELECT count(*) FROM orgs WHERE id=? AND `+storage.OrgServes("id"), t.b.org).Scan(&serves); err != nil {
+	if err := lease.QueryRow(`SELECT count(*) FROM orgs o WHERE o.id=? AND `+storage.OrgServes("o.id"), t.b.org).Scan(&serves); err != nil {
 		return "", 0, err
 	}
 	if serves != 1 {
