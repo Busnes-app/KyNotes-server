@@ -10,8 +10,10 @@ import (
 	"time"
 
 	shareds3 "github.com/Busnes-app/ky-primitives/s3"
+	"github.com/Busnes-app/ky-primitives/suitedir"
 	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
+	"github.com/Busnes-app/kynotes-server/internal/orgsync"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
 
@@ -473,5 +475,44 @@ func TestObjectMaintenanceExpiresAnUploadOnAOneConnectionPool(t *testing.T) {
 	fixture.mu.Unlock()
 	if ok {
 		t.Error("the expired upload's part survived")
+	}
+}
+
+// C4, no moves: a directory listing that moves org_b to another served cell leaves its objects
+// readable where they were written, and its purge still erases every one of them.
+func TestAMovedOrgsObjectsStayReadableAndPurged(t *testing.T) {
+	db := runtimeDatabase(t)
+	fixture, client := newObjectFixture(t)
+	d := putBlob(t, db, client, "org_b", []byte("written in us-east-2"), time.Now())
+	list := func(status string, rev int64) orgsync.ListFunc {
+		return func(context.Context, int64) ([]suitedir.Org, int64, error) {
+			return []suitedir.Org{{ID: "org_b", Status: status, Revision: rev, HomeRegion: "eu", Enabled: true}}, rev, nil
+		}
+	}
+	if err := orgsync.New(db, list("active", 2)).Poll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := stores(t, db, client)(t.Context(), "org_b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.Stat(t.Context(), d); err != nil || !ok {
+		t.Errorf("the moved org's object is unreadable: ok=%v err=%v", ok, err)
+	}
+	if err := orgsync.New(db, list("deleted", 3)).Poll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	purge := purgeWith(stores(t, db, client))
+	if err := storage.PurgeDeletedOrgs(t.Context(), db, purge); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE server_settings SET value='0' WHERE key='purge_fence:org_b'`); err != nil { // past the late-PUT window
+		t.Fatal(err)
+	}
+	if err := storage.PurgeDeletedOrgs(t.Context(), db, purge); err != nil {
+		t.Fatal(err)
+	}
+	if keys := orgKeys(fixture, "org_b"); len(keys) != 0 || purgedAt(t, db, "org_b") == "" {
+		t.Fatalf("after the purge: keys=%v purged_at=%q", keys, purgedAt(t, db, "org_b"))
 	}
 }

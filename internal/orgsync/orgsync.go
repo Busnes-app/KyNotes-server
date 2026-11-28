@@ -78,9 +78,21 @@ func (p *Poller) poll(ctx context.Context) error {
 		if err = tx.QueryRowContext(ctx, serves, o.ID).Scan(&before); err != nil {
 			return err
 		}
-		// A listing never moves an org back to an older revision; an equal one is the same state.
-		if _, err = tx.ExecContext(ctx, `INSERT INTO orgs(id,status,revision,enabled,home_region,seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,enabled=excluded.enabled,home_region=excluded.home_region,seen_at=excluded.seen_at WHERE excluded.revision>=orgs.revision`, o.ID, o.Status, o.Revision, enabled, o.HomeRegion, seen); err != nil {
+		var cell string
+		var revision int64
+		if err = tx.QueryRowContext(ctx, `SELECT home_region,revision FROM orgs WHERE id=?`, o.ID).Scan(&cell, &revision); err != nil && err != sql.ErrNoRows {
 			return err
+		}
+		// A listing never moves an org back to an older revision; an equal one is the same state.
+		// Cells: orgs never move. home_region is kept from first sight, since object keys and
+		// purge derive from it, and a listing in another cell stops the org until it is undone.
+		if _, err = tx.ExecContext(ctx, `INSERT INTO orgs(id,status,revision,enabled,home_region,seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,enabled=CASE WHEN excluded.home_region=orgs.home_region THEN excluded.enabled ELSE 0 END,seen_at=excluded.seen_at WHERE excluded.revision>=orgs.revision`, o.ID, o.Status, o.Revision, enabled, o.HomeRegion, seen); err != nil {
+			return err
+		}
+		if cell != "" && cell != o.HomeRegion && o.Revision >= revision {
+			if err = storage.RecordAuditOutcomeTx(tx, "", "org.cell_move_refused", "", o.ID, "denied", "from="+cell+",to="+o.HomeRegion, "org-poll"); err != nil {
+				return err
+			}
 		}
 		var after int
 		if err = tx.QueryRowContext(ctx, serves, o.ID).Scan(&after); err != nil {
