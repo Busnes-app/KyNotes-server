@@ -441,3 +441,37 @@ func TestOrphanSweepKeepsObjectsOfAnOrgStoppedDuringTheListing(t *testing.T) {
 		t.Fatalf("a stopped org lost objects: %v", keys)
 	}
 }
+
+// Expiring an upload holds its lease's connection. The store lookup must not need a second
+// one, or maintenance on a one-connection pool waits on itself until cancelled.
+func TestObjectMaintenanceExpiresAnUploadOnAOneConnectionPool(t *testing.T) {
+	db := runtimeDatabase(t)
+	fixture, client := newObjectFixture(t)
+	id, err := ids.Mint("ups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimeStore(t, client, "org_a", t.TempDir()).PutPart(t.Context(), id, 0, strings.NewReader("chunk"), 5); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO upload_sessions(id,user_id,container_id,declared_bytes,chunk_bytes,created_at,updated_at,expires_at,org_id) VALUES(?,'usr_a','cnt_a',5,5,'t','t','2000-01-01T00:00:00Z','org_a')`, id); err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if err := storage.RunObjectMaintenance(ctx, db, stores(t, db, client), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := db.QueryRow(`SELECT status FROM upload_sessions WHERE id=?`, id).Scan(&status); err != nil || status != "expired" {
+		t.Fatalf("status=%q err=%v", status, err)
+	}
+	key, _ := blobstore.UploadPartKey("eu", "org_a", id, 0)
+	fixture.mu.Lock()
+	_, ok := fixture.objects[key]
+	fixture.mu.Unlock()
+	if ok {
+		t.Error("the expired upload's part survived")
+	}
+}

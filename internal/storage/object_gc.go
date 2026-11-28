@@ -283,6 +283,11 @@ func RunObjectMaintenance(ctx context.Context, db *sql.DB, stores ObjectStores, 
 	return tx.Commit()
 }
 func expireObjectUpload(ctx context.Context, db *sql.DB, stores ObjectStores, org, id string, now time.Time) error {
+	// Resolve before locking: the lookup takes a pool connection and the lease pins one.
+	store, err := stores(ctx, org)
+	if err != nil {
+		return err
+	}
 	lease, _, err := SessionLock(ctx, db, UploadLockName(org, id), true)
 	if err != nil {
 		return err
@@ -306,10 +311,6 @@ func expireObjectUpload(ctx context.Context, db *sql.DB, stores ObjectStores, or
 	}
 	if n == 0 {
 		return nil
-	}
-	store, err := stores(ctx, org)
-	if err != nil {
-		return err
 	}
 	if err := store.DeleteParts(lease.Context, id); err != nil {
 		return err
