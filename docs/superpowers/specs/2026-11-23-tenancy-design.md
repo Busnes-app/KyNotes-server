@@ -966,8 +966,11 @@ and KyMessages-Native's merged implementations:
   that does not serve. `TestAnOrgOfAnotherCellIsRefusedEverywhere` covers the session (password
   and SSO; the MCP client signs in with a password session), the paired device, sealed and page
   share links, SSO sign-in and the `export_only` session.
-- **C4, no moves.** A poll that lists an org in another cell writes it and the org stops
-  serving here, with its sessions (`TestPollEndsTheSessionsOfAnOrgMovedToAnotherCell`).
+- **C4, no moves.** The poll keeps an org's `home_region` from first sight. A listing in any
+  other cell, served here or not, stops the org with its sessions and audits
+  `org.cell_move_refused`; the org serves again once the listing is undone. Its objects stay
+  readable and purgeable in their cell (`TestPollRefusesToMoveAnOrgBetweenServedCells`,
+  `TestAMovedOrgsObjectsStayReadableAndPurged`).
 - **Object prefix.** Every object key is under `cells/<home_region>/orgs/<org>/`
   (`blobstore.OrgPrefix`), and `storage.CellObjectStores` opens each org's store from its
   mirrored `home_region`, so purge, GC, the orphan sweep and the late-PUT fence stay in the
