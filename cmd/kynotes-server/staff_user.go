@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/Busnes-app/kynotes-server/internal/auth"
+	"github.com/Busnes-app/kynotes-server/internal/config"
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 	"github.com/Busnes-app/kynotes-server/internal/storage"
 )
@@ -39,9 +40,10 @@ func staffUserCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 	if username == "" || len(username) > 128 || strings.IndexFunc(username, unicode.IsControl) >= 0 {
 		return usage
 	}
-	dsn, staffOrg, region := os.Getenv("KYNOTES_DB_DSN"), os.Getenv("KYNOTES_STAFF_ORG_ID"), os.Getenv("KYNOTES_REGION")
-	if dsn == "" || staffOrg == "" || region == "" {
-		return errors.New("staff creation requires KYNOTES_DB_DSN, KYNOTES_STAFF_ORG_ID and KYNOTES_REGION in the environment")
+	dsn, staffOrg := os.Getenv("KYNOTES_DB_DSN"), os.Getenv("KYNOTES_STAFF_ORG_ID")
+	cells, err := config.Cells()
+	if dsn == "" || staffOrg == "" || err != nil {
+		return errors.New("staff creation requires KYNOTES_DB_DSN, KYNOTES_STAFF_ORG_ID and KY_CELLS in the environment")
 	}
 	if file, ok := stdin.(*os.File); ok {
 		if state, err := file.Stat(); err == nil && state.Mode()&os.ModeCharDevice != 0 {
@@ -83,8 +85,8 @@ func staffUserCommand(ctx context.Context, args []string, stdin io.Reader, stdou
 	defer store.Close()
 	// Verify the recorded target before spending password-hash work or creating credentials.
 	tenancy, err := storage.TenancyOfContext(ctx, store.DB())
-	if err != nil || !tenancy.Multi() || tenancy.StaffOrg != staffOrg || tenancy.Region != region {
-		return errors.New("recorded multi-mode staff org or region differs; no account created")
+	if err != nil || !tenancy.Binds(storage.Tenancy{Mode: "multi", StaffOrg: staffOrg}, cells) {
+		return errors.New("recorded multi-mode staff org or cells differ; no account created")
 	}
 	hash, err := auth.HashAuthSecret(in.AuthSecret)
 	if err != nil {

@@ -784,8 +784,8 @@ with no default; existing rows are backfilled. Triggers refuse an unknown org, a
 `org_id`, a row whose org differs from its parent's, and a customer audit row with no org.
 At open, `ensureOrgs` records `server_settings.tenancy_mode='single'` and the default org; a
 database recorded in another mode is refused before anything is written. `KYNOTES_TENANCY`
-accepts only `single` (multi is refused until the spec's PR 6), and `KYNOTES_STAFF_ORG_ID` and
-`KYNOTES_REGION` are refused in single mode. The single-tenant upgrade golden
+accepts only `single` (multi is refused until the spec's PR 6), and `KYNOTES_STAFF_ORG_ID`,
+`KY_CELLS` and `KYNOTES_REGION` are refused in single mode. The single-tenant upgrade golden
 (`internal/httpapi/testdata/tenancy-golden`) proves the API answers are unchanged.
 
 ## Tenancy amendment, PR 2 (PostgreSQL store)

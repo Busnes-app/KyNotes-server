@@ -69,19 +69,27 @@ func openPostgres(dsn, searchPath string, migrate bool) (*Store, error) {
 	return openPostgresContext(context.Background(), dsn, searchPath, migrate)
 }
 
-// OpenPostgresReplica migrates and binds a new multi-tenant database, or verifies its immutable binding.
-func OpenPostgresReplica(ctx context.Context, dsn string, tenancy Tenancy) (*Store, error) {
-	if !tenancy.Multi() || tenancy.StaffOrg == "" || tenancy.StaffOrg == DefaultOrgID || tenancy.Region == "" {
+// replicaBinding is a multi-mode start: its mode and staff org, and the cells it serves.
+type replicaBinding struct {
+	Tenancy
+	cells []string
+}
+
+// OpenPostgresReplica migrates and binds a new multi-tenant database, recording cells[0] as the
+// staff org's cell, or verifies its immutable binding (Tenancy.Binds).
+func OpenPostgresReplica(ctx context.Context, dsn string, tenancy Tenancy, cells []string) (*Store, error) {
+	if !tenancy.Multi() || tenancy.StaffOrg == "" || tenancy.StaffOrg == DefaultOrgID || len(cells) == 0 {
 		return nil, errors.New("replicas: invalid PostgreSQL tenancy binding")
 	}
-	return openPostgresBound(ctx, dsn, "", true, &tenancy)
+	tenancy.Region = cells[0]
+	return openPostgresBound(ctx, dsn, "", true, &replicaBinding{tenancy, cells})
 }
 
 func openPostgresContext(ctx context.Context, dsn, searchPath string, migrate bool) (*Store, error) {
 	return openPostgresBound(ctx, dsn, searchPath, migrate, nil)
 }
 
-func openPostgresBound(ctx context.Context, dsn, searchPath string, migrate bool, tenancy *Tenancy) (*Store, error) {
+func openPostgresBound(ctx context.Context, dsn, searchPath string, migrate bool, tenancy *replicaBinding) (*Store, error) {
 	where := pgdialect.Describe(dsn)
 	if searchPath != "" {
 		dsn = withSearchPath(dsn, searchPath)
@@ -126,7 +134,7 @@ func openPostgresBound(ctx context.Context, dsn, searchPath string, migrate bool
 // advisory lock on one pinned connection, so replicas starting together migrate once and a
 // holder that dies releases the lock with its connection. Existing databases have their
 // tenancy binding checked before any pending migrations run.
-func (s *Store) migratePostgres(ctx context.Context, tenancy *Tenancy) error {
+func (s *Store) migratePostgres(ctx context.Context, tenancy *replicaBinding) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err

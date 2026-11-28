@@ -25,7 +25,7 @@ func replicaMaintenanceTarget(t *testing.T) (*storage.Store, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO orgs(id,status,home_region) VALUES('org_staff','active','eu')`, `INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','eu','t')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO orgs(id,status,home_region) VALUES('org_staff','active','eu')`, `INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','eu','t'),('cell:eu','','t')`} {
 		if _, err := st.DB().Exec(q); err != nil {
 			t.Fatal(err)
 		}

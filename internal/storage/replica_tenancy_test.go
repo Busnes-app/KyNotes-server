@@ -29,7 +29,7 @@ func TestReplicaOpenVerifiesImmutableTenancy(t *testing.T) {
 	q.Set("search_path", schema)
 	u.RawQuery = q.Encode()
 	want := Tenancy{Mode: "multi", StaffOrg: "org_staff", Region: "local"}
-	if s, err := OpenPostgresReplica(context.Background(), u.String(), want); err == nil {
+	if s, err := OpenPostgresReplica(context.Background(), u.String(), want, []string{"local"}); err == nil {
 		s.Close()
 		t.Fatal("single database adopted as multi")
 	}
@@ -37,7 +37,7 @@ func TestReplicaOpenVerifiesImmutableTenancy(t *testing.T) {
 	if _, err := st.DB().Exec(`DELETE FROM server_settings WHERE key='tenancy_mode'; DELETE FROM org_usage; DELETE FROM orgs`); err != nil {
 		t.Fatal(err)
 	}
-	replica, err := OpenPostgresReplica(context.Background(), u.String(), want)
+	replica, err := OpenPostgresReplica(context.Background(), u.String(), want, []string{"local", "eu"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,8 +46,17 @@ func TestReplicaOpenVerifiesImmutableTenancy(t *testing.T) {
 	if err != nil || got != want {
 		t.Fatalf("binding: %v %v", got, err)
 	}
-	for _, changed := range []Tenancy{{"multi", "org_other", "local"}, {"multi", "org_staff", "other"}} {
-		if s, err := OpenPostgresReplica(context.Background(), u.String(), changed); err == nil {
+	// Cells may be added or reordered; the staff org's recorded cell must stay listed.
+	if s, err := OpenPostgresReplica(context.Background(), u.String(), want, []string{"eu", "us-east-2", "local"}); err != nil {
+		t.Fatalf("added cell refused: %v", err)
+	} else {
+		s.Close()
+	}
+	for _, changed := range []struct {
+		t     Tenancy
+		cells []string
+	}{{Tenancy{Mode: "multi", StaffOrg: "org_other"}, []string{"local"}}, {want, []string{"eu"}}} {
+		if s, err := OpenPostgresReplica(context.Background(), u.String(), changed.t, changed.cells); err == nil {
 			s.Close()
 			t.Fatal("immutable binding changed")
 		}
@@ -60,7 +69,11 @@ func TestReplicaOpenVerifiesImmutableTenancy(t *testing.T) {
 
 func TestReplicaOpenRejectsInvalidBindingBeforeConnecting(t *testing.T) {
 	for _, want := range []Tenancy{{"single", "org_staff", "local"}, {"multi", "", "local"}, {"multi", DefaultOrgID, "local"}, {"multi", "org_staff", ""}} {
-		if st, err := OpenPostgresReplica(context.Background(), "not-a-dsn", want); err == nil {
+		cells := []string{want.Region}
+		if want.Region == "" {
+			cells = nil
+		}
+		if st, err := OpenPostgresReplica(context.Background(), "not-a-dsn", want, cells); err == nil {
 			st.Close()
 			t.Fatal("invalid binding accepted")
 		}
@@ -122,7 +135,7 @@ func TestReplicaOpenRefusesMismatchedTargetBeforePendingMigration(t *testing.T) 
 
 	want := Tenancy{Mode: "multi", StaffOrg: "org_staff", Region: "local"}
 	// Case 1: existing single-mode database with pending migration 0036.
-	if s, err := OpenPostgresReplica(context.Background(), u.String(), want); err == nil {
+	if s, err := OpenPostgresReplica(context.Background(), u.String(), want, []string{"local"}); err == nil {
 		s.Close()
 		t.Fatal("single-mode database accepted by replica open")
 	}
@@ -137,7 +150,7 @@ func TestReplicaOpenRefusesMismatchedTargetBeforePendingMigration(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if s, err := OpenPostgresReplica(context.Background(), u.String(), want); err == nil {
+	if s, err := OpenPostgresReplica(context.Background(), u.String(), want, []string{"local"}); err == nil {
 		s.Close()
 		t.Fatal("mismatched multi-mode database accepted by replica open")
 	}
@@ -145,7 +158,7 @@ func TestReplicaOpenRefusesMismatchedTargetBeforePendingMigration(t *testing.T) 
 
 	// Case 3: matching multi-mode binding succeeds and applies pending migration 0036.
 	matched := Tenancy{Mode: "multi", StaffOrg: "org_other", Region: "eu"}
-	replica, err := OpenPostgresReplica(context.Background(), u.String(), matched)
+	replica, err := OpenPostgresReplica(context.Background(), u.String(), matched, []string{"eu"})
 	if err != nil {
 		t.Fatalf("matching multi-mode target refused: %v", err)
 	}

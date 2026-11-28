@@ -68,18 +68,14 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	seen := p.now().UTC().Format(time.RFC3339)
-	tenancy, err := storage.TenancyOfContext(ctx, tx)
-	if err != nil {
-		return err
-	}
-	serves := `SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?`
+	serves := `SELECT count(*) FROM orgs o WHERE o.id=? AND o.status='active' AND o.enabled=1 AND ` + storage.InServedCell("o")
 	for _, o := range orgs {
 		enabled := 0
 		if o.Enabled {
 			enabled = 1
 		}
 		var before int
-		if err = tx.QueryRowContext(ctx, serves, o.ID, tenancy.Region).Scan(&before); err != nil {
+		if err = tx.QueryRowContext(ctx, serves, o.ID).Scan(&before); err != nil {
 			return err
 		}
 		// A listing never moves an org back to an older revision; an equal one is the same state.
@@ -87,7 +83,7 @@ func (p *Poller) poll(ctx context.Context) error {
 			return err
 		}
 		var after int
-		if err = tx.QueryRowContext(ctx, serves, o.ID, tenancy.Region).Scan(&after); err != nil {
+		if err = tx.QueryRowContext(ctx, serves, o.ID).Scan(&after); err != nil {
 			return err
 		}
 		// An org that stops serving loses its sessions with the change, and the change is audited

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"github.com/Busnes-app/ky-primitives/netallow"
 	"github.com/Busnes-app/ky-primitives/offsite"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Busnes-app/kynotes-server/internal/blobstore"
 )
 
 type Config struct {
@@ -378,12 +381,41 @@ func tenancyEnv() error {
 	default:
 		return errors.New("KYNOTES_TENANCY: must be single or multi")
 	}
-	for _, name := range []string{"KYNOTES_STAFF_ORG_ID", "KYNOTES_REGION", "KYNOTES_DB_DSN", "KYNOTES_SSO_ISSUER", "KYNOTES_SSO_CLIENT_ID", "KYNOTES_SSO_CLIENT_SECRET", "KYNOTES_SSO_HMAC_SECRET"} {
+	for _, name := range []string{"KYNOTES_STAFF_ORG_ID", "KY_CELLS", "KYNOTES_REGION", "KYNOTES_DB_DSN", "KYNOTES_SSO_ISSUER", "KYNOTES_SSO_CLIENT_ID", "KYNOTES_SSO_CLIENT_SECRET", "KYNOTES_SSO_HMAC_SECRET"} {
 		if os.Getenv(name) != "" {
 			return fmt.Errorf("%s: set only in multi-tenant mode", name)
 		}
 	}
 	return nil
+}
+
+// MaxCells is KyIdentity's cap on an app's region map (Cells, "Limits").
+const MaxCells = 32
+
+// Cells reads KY_CELLS, the cells (KyIdentity home regions) a multi-mode deployment serves:
+// comma-separated slugs, each once, at most MaxCells (Cells, C1). KYNOTES_REGION, the earlier
+// single region, is still read as a one-cell list; setting both is refused.
+func Cells() ([]string, error) {
+	raw, region := os.Getenv("KY_CELLS"), os.Getenv("KYNOTES_REGION")
+	switch {
+	case raw != "" && region != "":
+		return nil, errors.New("KY_CELLS replaces KYNOTES_REGION: set only KY_CELLS")
+	case raw == "" && region == "":
+		return nil, errors.New("KY_CELLS is required: the cells this deployment serves, comma-separated (KYNOTES_REGION names one)")
+	case raw == "":
+		raw = region
+	}
+	var cells []string
+	for _, c := range strings.Split(raw, ",") {
+		if c = strings.TrimSpace(c); !blobstore.ValidCell(c) || slices.Contains(cells, c) {
+			return nil, fmt.Errorf("KY_CELLS: %q is not a home region slug, or is listed twice", c)
+		}
+		cells = append(cells, c)
+	}
+	if len(cells) > MaxCells {
+		return nil, fmt.Errorf("KY_CELLS: at most %d cells", MaxCells)
+	}
+	return cells, nil
 }
 
 // parseEnvLimit reads a rate limit. Limits cannot be turned off: anything but a positive integer is an error.

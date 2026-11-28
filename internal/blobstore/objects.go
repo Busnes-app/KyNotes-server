@@ -19,9 +19,9 @@ import (
 // Callers authorize first and hold the org/digest session lock through PUT/claim or row-drop/
 // DELETE. No object I/O may run under the global database writer lock.
 type Objects struct {
-	client       *shareds3.Client
-	org, scratch string
-	maxBytes     int64
+	client             *shareds3.Client
+	cell, org, scratch string
+	maxBytes           int64
 }
 
 // putDeadline bounds every Put/PutPart call, from entry, so a write admitted before an erasure
@@ -37,14 +37,14 @@ const LatePutWindow = 20 * time.Minute
 func (Objects) String() string   { return "blobstore.Objects" }
 func (Objects) GoString() string { return "blobstore.Objects" }
 
-func NewObjects(client *shareds3.Client, org, scratch string, maxBytes int64) (*Objects, error) {
-	if _, err := OrgPrefix(org); err != nil {
+func NewObjects(client *shareds3.Client, cell, org, scratch string, maxBytes int64) (*Objects, error) {
+	if _, err := OrgPrefix(cell, org); err != nil {
 		return nil, err
 	}
 	if client == nil || maxBytes <= 0 || maxBytes == 1<<63-1 {
 		return nil, os.ErrInvalid
 	}
-	return &Objects{client: client, org: org, scratch: scratch, maxBytes: maxBytes}, nil
+	return &Objects{client: client, cell: cell, org: org, scratch: scratch, maxBytes: maxBytes}, nil
 }
 
 // Put verifies a bounded private snapshot before any PUT. The caller's session lock makes
@@ -52,7 +52,7 @@ func NewObjects(client *shareds3.Client, org, scratch string, maxBytes int64) (*
 func (s *Objects) Put(ctx context.Context, digest string, body io.Reader, size int64) error {
 	ctx, cancel := context.WithTimeout(ctx, putDeadline)
 	defer cancel()
-	key, err := BlobKey(s.org, digest)
+	key, err := BlobKey(s.cell, s.org, digest)
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func (s *Objects) Put(ctx context.Context, digest string, body io.Reader, size i
 // Open downloads and hashes before exposing seekable bytes. Each request owns its temporary
 // file; Close removes it. This is neither a persistent cache nor a volume fallback.
 func (s *Objects) Open(ctx context.Context, digest string) (io.ReadSeekCloser, int64, error) {
-	key, err := BlobKey(s.org, digest)
+	key, err := BlobKey(s.cell, s.org, digest)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -115,7 +115,7 @@ func (s *Objects) openKey(ctx context.Context, key, digest string) (*privateObje
 }
 
 func (s *Objects) Stat(ctx context.Context, digest string) (int64, bool, error) {
-	key, err := BlobKey(s.org, digest)
+	key, err := BlobKey(s.cell, s.org, digest)
 	if err != nil {
 		return 0, false, err
 	}
@@ -135,7 +135,7 @@ func (s *Objects) Stat(ctx context.Context, digest string) (int64, bool, error) 
 // Delete is explicit removal after references are gone. Remove every physical version of the
 // one immutable ciphertext key; this does not prune any kept logical object_versions row.
 func (s *Objects) Delete(ctx context.Context, digest string) error {
-	key, err := BlobKey(s.org, digest)
+	key, err := BlobKey(s.cell, s.org, digest)
 	if err != nil {
 		return err
 	}
@@ -145,12 +145,12 @@ func (s *Objects) Delete(ctx context.Context, digest string) error {
 // Purge deletes only this org's namespace after its audited deletion has fenced all writers.
 // Provider retention/replica refusals remain errors; no success is inferred from a partial purge.
 func (s *Objects) Purge(ctx context.Context) error {
-	prefix, _ := OrgPrefix(s.org) // validated at construction
+	prefix, _ := OrgPrefix(s.cell, s.org) // validated at construction
 	return s.client.DeletePrefix(ctx, prefix)
 }
 
 func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
-	prefix, _ := OrgPrefix(s.org)
+	prefix, _ := OrgPrefix(s.cell, s.org)
 	prefix += "blobs/"
 	keys, err := s.listKeys(ctx, prefix)
 	if err != nil {
@@ -162,7 +162,7 @@ func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
 		if ok {
 			_, digest, ok = strings.Cut(digest, "/")
 		}
-		canonical, keyErr := BlobKey(s.org, digest)
+		canonical, keyErr := BlobKey(s.cell, s.org, digest)
 		if !ok || keyErr != nil || key != canonical {
 			return nil, ErrCorruptBlob
 		}
@@ -174,7 +174,7 @@ func (s *Objects) ListDigests(ctx context.Context) ([]string, error) {
 // Stored lists the org's blobs and uploads with the provider's modification time, the latest
 // part's for an upload. A zero time is unknown age: the orphan sweep never deletes on it.
 func (s *Objects) Stored(ctx context.Context) (blobs, uploads map[string]time.Time, err error) {
-	prefix, _ := OrgPrefix(s.org)
+	prefix, _ := OrgPrefix(s.cell, s.org)
 	objects, err := s.listObjects(ctx, prefix)
 	if err != nil {
 		return nil, nil, err
@@ -184,7 +184,7 @@ func (s *Objects) Stored(ctx context.Context) (blobs, uploads map[string]time.Ti
 		rest := o.Key[len(prefix):]
 		if strings.HasPrefix(rest, "blobs/") {
 			digest := rest[strings.LastIndexByte(rest, '/')+1:]
-			if key, err := BlobKey(s.org, digest); err != nil || key != o.Key {
+			if key, err := BlobKey(s.cell, s.org, digest); err != nil || key != o.Key {
 				return nil, nil, ErrCorruptBlob
 			}
 			blobs[digest] = o.LastModified
@@ -192,7 +192,7 @@ func (s *Objects) Stored(ctx context.Context) (blobs, uploads map[string]time.Ti
 		}
 		id, index, _ := strings.Cut(strings.TrimPrefix(rest, "uploads/"), "/")
 		n, err := strconv.ParseInt(index, 10, 64)
-		if key, keyErr := UploadPartKey(s.org, id, n); err != nil || keyErr != nil || key != o.Key {
+		if key, keyErr := UploadPartKey(s.cell, s.org, id, n); err != nil || keyErr != nil || key != o.Key {
 			return nil, nil, ErrCorruptBlob
 		}
 		switch t, seen := uploads[id]; {

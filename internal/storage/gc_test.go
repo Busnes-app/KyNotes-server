@@ -258,7 +258,7 @@ func TestGCWaitsWhileTheBlobsOrgIsStopped(t *testing.T) {
 	d := blob("orphan")
 	for _, q := range []string{
 		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('cell:eu','','t'),('staff_org_id','org_staff','t')`,
 		`UPDATE orgs SET status='suspended',home_region='eu' WHERE id='` + DefaultOrgID + `'`,
 	} {
 		if _, err := db.Exec(q); err != nil {

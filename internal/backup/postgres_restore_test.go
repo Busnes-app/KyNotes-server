@@ -24,7 +24,7 @@ func postgresRestoreFixture(t *testing.T) *storage.Store {
 		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
 		`UPDATE orgs SET revision=7`,
 		`INSERT INTO orgs(id,status,home_region,revision) VALUES('org_staff','active','local',9)`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','local','t'),('org_poll_revision','100','t'),('erased_poll_revision','100','t'),('replica_config_fingerprint','old','t'),('blob_store_id','retained-store','t'),('blob_probe','old-probe','t'),('backup_interval_sec','900','t'),('kyrecovery_token','sealed-token-to-retain','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','local','t'),('cell:local','','t'),('org_poll_revision','100','t'),('erased_poll_revision','100','t'),('replica_config_fingerprint','old','t'),('blob_store_id','retained-store','t'),('blob_probe','old-probe','t'),('backup_interval_sec','900','t'),('kyrecovery_token','sealed-token-to-retain','t')`,
 		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at) VALUES('usr_restore','restored','hash','salt',600000,'t','t')`,
 		`INSERT INTO containers(id,kind,owner_user_id,created_at,updated_at) VALUES('ctr_restore','workbook','usr_restore','t','t')`,
 		`INSERT INTO objects(id,container_id,kind,change_seq,created_at,updated_at) VALUES('obj_restore','ctr_restore','note',1,'t','t')`,

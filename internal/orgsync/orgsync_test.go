@@ -156,7 +156,7 @@ func TestPollEndsTheSessionsOfAnOrgThatStops(t *testing.T) {
 	s := open(t)
 	for _, q := range []string{
 		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('cell:eu','','t'),('staff_org_id','org_staff','t')`,
 		`INSERT INTO orgs(id,status,revision,home_region) VALUES('org_a','active',1,'eu')`,
 		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id) VALUES('usr_a','a','x','x',1,'t','t','org_a')`,
 		`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('ses_a','usr_a','h','c','t','2099-01-01T00:00:00Z','2099-01-01T00:00:00Z')`,
@@ -195,7 +195,7 @@ func TestPollKeepsExportOnlySessionsForDeletion(t *testing.T) {
 	s := open(t)
 	for _, q := range []string{
 		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('cell:eu','','t'),('staff_org_id','org_staff','t')`,
 		`INSERT INTO orgs(id,status,revision,home_region) VALUES('org_a','active',1,'eu')`,
 		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id) VALUES('usr_a','a','x','x',1,'t','t','org_a')`,
 		`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at,export_only) VALUES('ses_plain','usr_a','h1','c','t','2099-01-01T00:00:00Z','2099-01-01T00:00:00Z',0),('ses_export','usr_a','h2','c','t','2099-01-01T00:00:00Z','2099-01-01T00:00:00Z',1)`,
@@ -211,5 +211,30 @@ func TestPollKeepsExportOnlySessionsForDeletion(t *testing.T) {
 	var left string
 	if err := s.DB().QueryRow(`SELECT COALESCE(MAX(id),'') FROM sessions WHERE user_id='usr_a'`).Scan(&left); err != nil || left != "ses_export" {
 		t.Fatalf("sessions left: %q %v, want only ses_export", left, err)
+	}
+}
+
+// C4, no moves: a listing that puts a serving org in a cell this deployment does not serve
+// stops it here, and its sessions end as for a suspension.
+func TestPollEndsTheSessionsOfAnOrgMovedToAnotherCell(t *testing.T) {
+	s := open(t)
+	for _, q := range []string{
+		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('cell:eu','','t'),('staff_org_id','org_staff','t')`,
+		`INSERT INTO orgs(id,status,revision,home_region) VALUES('org_a','active',1,'eu')`,
+		`INSERT INTO users(id,username,auth_secret_hash,login_salt,login_iterations,created_at,updated_at,org_id) VALUES('usr_a','a','x','x',1,'t','t','org_a')`,
+		`INSERT INTO sessions(id,user_id,token_hash,csrf_hash,created_at,expires_at,hard_expires_at) VALUES('ses_a','usr_a','h','c','t','2099-01-01T00:00:00Z','2099-01-01T00:00:00Z')`,
+	} {
+		if _, err := s.DB().Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	dir := &fakeDirectory{orgs: []suitedir.Org{{ID: "org_a", Status: "active", Revision: 2, HomeRegion: "us-east-2", Enabled: true}}}
+	if err := New(s.DB(), dir.list).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := s.DB().QueryRow(`SELECT count(*) FROM sessions WHERE user_id='usr_a'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d sessions survived the move to another cell (%v)", n, err)
 	}
 }

@@ -83,7 +83,7 @@ func (b *requestObjects) resolve() error {
 		}
 	}
 	var err error
-	b.objects, err = b.stores(b.org)
+	b.objects, err = b.stores(b.r.Context(), b.org)
 	return err
 }
 func (b *requestObjects) Open(digest string) (io.ReadSeekCloser, int64, error) {

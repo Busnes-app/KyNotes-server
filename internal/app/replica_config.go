@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,7 @@ import (
 type replicaInputs struct {
 	DSN                                  string
 	Tenancy                              storage.Tenancy
+	Cells                                []string // KY_CELLS
 	SSO                                  sso.SSOSettings
 	VAPID                                *ecdsa.PrivateKey
 	BlobEndpoint, BlobBucket, BlobRegion string
@@ -55,11 +57,11 @@ func readReplicaInputs(c config.Config) (config.Config, replicaInputs, error) {
 	if in.Tenancy.StaffOrg, err = required("KYNOTES_STAFF_ORG_ID"); err != nil {
 		return c, in, err
 	}
-	if _, err := blobstore.OrgPrefix(in.Tenancy.StaffOrg); err != nil {
-		return c, in, errors.New("replicas: KYNOTES_STAFF_ORG_ID is invalid")
+	if in.Cells, err = config.Cells(); err != nil {
+		return c, in, fmt.Errorf("replicas: %w", err)
 	}
-	if in.Tenancy.Region, err = required("KYNOTES_REGION"); err != nil {
-		return c, in, err
+	if _, err := blobstore.OrgPrefix(in.Cells[0], in.Tenancy.StaffOrg); err != nil {
+		return c, in, errors.New("replicas: KYNOTES_STAFF_ORG_ID is invalid")
 	}
 	for name, dst := range map[string]*string{"KYNOTES_SECRETS_PAIRING_SECRET": &c.Secrets.PairingSecret, "KYNOTES_SECRETS_SERVER_SALT_KEY": &c.Secrets.ServerSaltKey} {
 		value, err := required(name)
@@ -135,7 +137,7 @@ func replicaFields(c config.Config, in replicaInputs) map[string]string {
 	}
 	return map[string]string{
 		"pg_backup_key": backupID, "pg_backup_prefix": os.Getenv("KYNOTES_PG_BACKUP_PREFIX"),
-		"tenancy_mode": in.Tenancy.Mode, "staff_org_id": in.Tenancy.StaffOrg, "region": in.Tenancy.Region,
+		"tenancy_mode": in.Tenancy.Mode, "staff_org_id": in.Tenancy.StaffOrg, "cells": encode(slices.Sorted(slices.Values(in.Cells))),
 		"pairing_secret": c.Secrets.PairingSecret, "server_salt_key": c.Secrets.ServerSaltKey,
 		"sso": encode(in.SSO), "vapid_key": base64.StdEncoding.EncodeToString(vapid),
 		"server": encode(server), "limits": encode(c.Limits), "ratelimit": encode(c.RateLimit), "gc": encode(c.GC),

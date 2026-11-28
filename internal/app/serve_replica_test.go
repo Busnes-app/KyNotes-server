@@ -98,7 +98,7 @@ func TestReplicaBackupUploadsSealedArchiveAndCountsAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, err := st.DB().Exec(`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'; INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff',''),('region','local','')`); err != nil {
+	if _, err := st.DB().Exec(`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'; INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff',''),('region','local',''),('cell:local','','')`); err != nil {
 		t.Fatal(err)
 	}
 

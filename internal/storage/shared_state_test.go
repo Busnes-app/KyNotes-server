@@ -24,7 +24,7 @@ func sharedReplicas(t *testing.T) (*sql.DB, *sql.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { other.Close() })
-	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('region','local','t'),('staff_org_id','org_staff','t')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('region','local','t'),('cell:local','','t'),('staff_org_id','org_staff','t')`} {
 		if _, err := s.DB().Exec(q); err != nil {
 			t.Fatal(err)
 		}

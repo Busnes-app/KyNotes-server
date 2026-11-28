@@ -67,6 +67,42 @@ func TestReplicaKeysRequireEnvironmentAndCreateNoLocalFiles(t *testing.T) {
 		t.Fatal("replica preparation enabled multi startup")
 	}
 }
+
+// KY_CELLS is the served cell list; KYNOTES_REGION names one cell. Every replica must list the
+// same cells, in any order (the fingerprint).
+func TestReplicaCellsAreReadAndFingerprinted(t *testing.T) {
+	replicaEnvironment(t)
+	c := config.Defaults()
+	_, in, err := readReplicaInputs(c)
+	if err != nil || !reflect.DeepEqual(in.Cells, []string{"eu"}) {
+		t.Fatalf("KYNOTES_REGION as one cell: %v %v", in.Cells, err)
+	}
+	t.Setenv("KYNOTES_REGION", "")
+	t.Setenv("KY_CELLS", "us-east-2,eu")
+	_, a, err := readReplicaInputs(c)
+	if err != nil || !reflect.DeepEqual(a.Cells, []string{"us-east-2", "eu"}) {
+		t.Fatalf("KY_CELLS: %v %v", a.Cells, err)
+	}
+	t.Setenv("KY_CELLS", "eu,us-east-2")
+	_, b, _ := readReplicaInputs(c)
+	t.Setenv("KY_CELLS", "eu")
+	_, one, _ := readReplicaInputs(c)
+	if replicaFields(c, a)["cells"] != replicaFields(c, b)["cells"] || replicaFields(c, a)["cells"] == replicaFields(c, one)["cells"] {
+		t.Fatal("the fingerprint must bind the set of cells, not their order")
+	}
+	for _, bad := range []string{"eu,eu", "EU", "eu/1"} {
+		t.Setenv("KY_CELLS", bad)
+		if _, _, err := readReplicaInputs(c); err == nil || !strings.Contains(err.Error(), "KY_CELLS") {
+			t.Fatalf("KY_CELLS=%q: %v", bad, err)
+		}
+	}
+	t.Setenv("KY_CELLS", "eu")
+	t.Setenv("KYNOTES_REGION", "eu")
+	if _, _, err := readReplicaInputs(c); err == nil {
+		t.Fatal("KY_CELLS and KYNOTES_REGION both accepted")
+	}
+}
+
 func TestReplicaFingerprintSeparatesSharedAndPerHostSettings(t *testing.T) {
 	replicaEnvironment(t)
 	c, in, err := readReplicaInputs(config.Defaults())
@@ -99,7 +135,7 @@ func TestReplicaFingerprintSeparatesSharedAndPerHostSettings(t *testing.T) {
 	if reflect.DeepEqual(fields, replicaFields(c, other)) {
 		t.Fatal("bucket difference omitted")
 	}
-	for _, key := range []string{"tenancy_mode", "region", "pairing_secret", "server_salt_key", "sso", "vapid_key", "server", "limits", "ratelimit", "gc", "backup_deposit_interval", "backup_allow_private_recovery", "strong_crypto", "blob_backend", "blob_endpoint", "blob_bucket", "blob_region"} {
+	for _, key := range []string{"tenancy_mode", "cells", "pairing_secret", "server_salt_key", "sso", "vapid_key", "server", "limits", "ratelimit", "gc", "backup_deposit_interval", "backup_allow_private_recovery", "strong_crypto", "blob_backend", "blob_endpoint", "blob_bucket", "blob_region"} {
 		if _, ok := fields[key]; !ok {
 			t.Errorf("required shared field omitted: %s", key)
 		}

@@ -33,7 +33,7 @@ func TestMultiModeSignInNeedsAServingOrgInThisRegion(t *testing.T) {
 	f := newLogoutFixture(t)
 	toMultiMode(t, f.db, "org_staff")
 	for _, q := range []string{
-		`UPDATE server_settings SET value='eu' WHERE key='region'`,
+		`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`,
 		`INSERT INTO orgs(id,status,home_region) VALUES('org_a','active','eu'),('org_d','active','eu'),('org_paused','suspended','eu'),('org_far','active','us')`,
 		`INSERT INTO orgs(id,status,enabled,home_region) VALUES('org_off','active',0,'eu')`,
 		`INSERT INTO erased_subjects(subject,org_id,revision) VALUES('gone','org_a',1)`,
@@ -104,7 +104,7 @@ func TestMultiModeDirectoryKeepsAccountsInTheirOrg(t *testing.T) {
 		t.Fatalf("single mode user.erased=%d %s", res.Code, res.Body.String())
 	}
 	toMultiMode(t, f.db, "org_staff")
-	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'`, `INSERT INTO orgs(id,status,home_region) VALUES('org_a','active','eu'),('org_b','active','eu')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`, `INSERT INTO orgs(id,status,home_region) VALUES('org_a','active','eu'),('org_b','active','eu')`} {
 		if _, err := f.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
@@ -175,7 +175,7 @@ func TestMultiModeDirectoryKeepsAccountsInTheirOrg(t *testing.T) {
 func TestMultiModeLogoutWithAnotherOrgStillEndsSessions(t *testing.T) {
 	f := newLogoutFixture(t)
 	toMultiMode(t, f.db, "org_staff")
-	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'`, `INSERT INTO orgs(id,status,home_region) VALUES('org_a','active','eu')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`, `INSERT INTO orgs(id,status,home_region) VALUES('org_a','active','eu')`} {
 		if _, err := f.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}
@@ -216,7 +216,7 @@ func TestMultiModeLogoutWithAnotherOrgStillEndsSessions(t *testing.T) {
 func TestMultiModeSignInWaitsForOnePollOfAnUnmirroredOrg(t *testing.T) {
 	f := newLogoutFixture(t)
 	toMultiMode(t, f.db, "org_staff")
-	if _, err := f.db.Exec(`UPDATE server_settings SET value='eu' WHERE key='region'`); err != nil {
+	if _, err := f.db.Exec(`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`); err != nil {
 		t.Fatal(err)
 	}
 	polls := 0
@@ -242,7 +242,7 @@ func TestMultiModeSignInWaitsForOnePollOfAnUnmirroredOrg(t *testing.T) {
 func TestMultiModeExportOnlySignInDuringDeletion(t *testing.T) {
 	f := newLogoutFixture(t)
 	toMultiMode(t, f.db, "org_staff")
-	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'`, `INSERT INTO orgs(id,status,home_region) VALUES('org_closing','deletion_scheduled','eu')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`, `INSERT INTO orgs(id,status,home_region) VALUES('org_closing','deletion_scheduled','eu')`} {
 		if _, err := f.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}

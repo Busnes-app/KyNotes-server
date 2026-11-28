@@ -52,7 +52,7 @@ var tenancyMessages = map[string]string{
 }
 
 // tenancyRefusal applies the multi-mode sign-in rules (tenancy spec, Identity binding,
-// Sign-in): the token names an org that is mirrored, active, enabled and in this region, and a
+// Sign-in): the token names an org that is mirrored, active, enabled and in a served cell, and a
 // subject that was never erased. It returns the refusal code and audit reason, or "" to go on;
 // single mode always goes on. An org not yet mirrored waits for one poll (orgsync.Poller.Await,
 // at most 5 s, once per org every 10 s). An export_only token is admitted while its org is
@@ -66,7 +66,7 @@ func tenancyRefusal(ctx context.Context, db *sql.DB, t storage.Tenancy, claims *
 	}
 	var erased, serving, exporting, mirrored int
 	read := func() error {
-		return db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?),(SELECT count(*) FROM orgs WHERE id=? AND status='deletion_scheduled' AND enabled=1 AND home_region=?),(SELECT count(*) FROM orgs WHERE id=?)`, claims.Subject, claims.OrgID, t.Region, claims.OrgID, t.Region, claims.OrgID).Scan(&erased, &serving, &exporting, &mirrored)
+		return db.QueryRow(`SELECT (SELECT count(*) FROM erased_subjects WHERE subject=?),(SELECT count(*) FROM orgs o WHERE o.id=? AND o.status='active' AND o.enabled=1 AND `+storage.InServedCell("o")+`),(SELECT count(*) FROM orgs o WHERE o.id=? AND o.status='deletion_scheduled' AND o.enabled=1 AND `+storage.InServedCell("o")+`),(SELECT count(*) FROM orgs WHERE id=?)`, claims.Subject, claims.OrgID, claims.OrgID, claims.OrgID).Scan(&erased, &serving, &exporting, &mirrored)
 	}
 	if err = read(); err != nil {
 		return "", "", err

@@ -207,8 +207,8 @@ Non-trivial logic must include one runnable check (unit test or minimal self-che
   table must be classified in `internal/storage/orgs_test.go`; a new org-owned one gets the
   `_org_exists`, `_org_fixed` and, with a parent, `_org_parent` and `_org_parent_move` triggers. A
   column added to a cleanup source table must be written into existing rows by its migration
-  (docs/CLEANUP-CAPACITY.md). Release builds refuse `KYNOTES_TENANCY=multi`; `KYNOTES_STAFF_ORG_ID` or
-  `KYNOTES_REGION` in single mode also fail every config load (`tenancyEnv`); the multi-tenant gate reads the
+  (docs/CLEANUP-CAPACITY.md). Release builds refuse `KYNOTES_TENANCY=multi`; `KYNOTES_STAFF_ORG_ID`,
+  `KY_CELLS` or `KYNOTES_REGION` in single mode also fail every config load (`tenancyEnv`); the multi-tenant gate reads the
   build-tagged constant `multiTenantBuild` (`internal/config/gate_release.go` `false`,
   `gate_kye2e.go` `true` only under `-tags kye2e`), and a `kye2e` build admits `multi` only with
   an `https` `KYNOTES_SSO_ISSUER` under `.test` (RFC 2606). `scripts/check-test-build-tag.sh`

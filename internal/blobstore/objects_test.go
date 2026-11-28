@@ -49,7 +49,7 @@ func newObjectFixture(t *testing.T) (*objectFixture, *shareds3.Client) {
 	f := &objectFixture{objects: map[string][]byte{}, puts: map[string]int{}, failures: map[string]int{}, modified: map[string]time.Time{}}
 	server := httptest.NewTLSServer(http.HandlerFunc(f.serve))
 	t.Cleanup(server.Close)
-	client, err := shareds3.New(shareds3.Config{Endpoint: server.URL, Bucket: "bucket", Region: "local", AccessKey: "object-fixture-access", SecretKey: "object-fixture-secret", HTTP: server.Client()})
+	client, err := shareds3.New(shareds3.Config{Endpoint: server.URL, Bucket: "bucket", Region: "eu", AccessKey: "object-fixture-access", SecretKey: "object-fixture-secret", HTTP: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func noObjectFiles(t *testing.T, dir string) {
 }
 func objectStore(t *testing.T, client *shareds3.Client, org, dir string) *blobstore.Objects {
 	t.Helper()
-	store, err := blobstore.NewObjects(client, org, dir, 64)
+	store, err := blobstore.NewObjects(client, "eu", org, dir, 64)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,8 +223,8 @@ func TestObjectsVerifyPrivateStreamsDeduplicateAndKeepOrgsSeparate(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	keyA, _ := blobstore.BlobKey("org_a", digest)
-	keyB, _ := blobstore.BlobKey("org_b", digest)
+	keyA, _ := blobstore.BlobKey("eu", "org_a", digest)
+	keyB, _ := blobstore.BlobKey("eu", "org_b", digest)
 	fixture.mu.Lock()
 	putsA, putsB := fixture.puts[keyA], fixture.puts[keyB]
 	fixture.mu.Unlock()
@@ -278,7 +278,7 @@ func TestObjectsRefuseCorruptionOversizeCancellationAndStorageFailures(t *testin
 	store := objectStore(t, client, "org_a", dir)
 	body := []byte("opaque ciphertext")
 	digest := objectDigest(body)
-	key, _ := blobstore.BlobKey("org_a", digest)
+	key, _ := blobstore.BlobKey("eu", "org_a", digest)
 	for _, test := range []struct {
 		digest string
 		body   []byte
@@ -328,7 +328,7 @@ func TestObjectsRefuseCorruptionOversizeCancellationAndStorageFailures(t *testin
 		t.Fatal("oversized object admitted", err)
 	}
 	noObjectFiles(t, dir)
-	if _, err := blobstore.NewObjects(client, "../org", dir, 64); err == nil {
+	if _, err := blobstore.NewObjects(client, "eu", "../org", dir, 64); err == nil {
 		t.Fatal("org traversal accepted")
 	}
 }
@@ -345,7 +345,7 @@ func TestObjectsListPaginationAndCanonicalKeys(t *testing.T) {
 		t.Fatal("pagination lost objects", got, err)
 	}
 	fixture.mu.Lock()
-	fixture.objects["orgs/org_a/blobs/not/canonical"] = []byte("bad")
+	fixture.objects["cells/eu/orgs/org_a/blobs/not/canonical"] = []byte("bad")
 	fixture.mu.Unlock()
 	if _, err := store.ListDigests(t.Context()); !errors.Is(err, blobstore.ErrCorruptBlob) {
 		t.Fatal("malformed object key admitted", err)
@@ -432,7 +432,7 @@ func TestObjectsPutAcrossSingleConnectionPoolsHoldsOnlyTheKeyLock(t *testing.T) 
 	if probeErr != nil {
 		t.Fatal("object I/O held N3", probeErr)
 	}
-	key, _ := blobstore.BlobKey(storage.DefaultOrgID, digest)
+	key, _ := blobstore.BlobKey("eu", storage.DefaultOrgID, digest)
 	fixture.mu.Lock()
 	puts := fixture.puts[key]
 	fixture.mu.Unlock()
@@ -471,7 +471,7 @@ func TestObjectPartsCrossReplicasRetriesRollbackAndFinalize(t *testing.T) {
 	if err := b.PutPart(t.Context(), id, 1, bytes.NewReader(chunks[1]), 4); err != nil {
 		t.Fatal("identical chunk retry", err)
 	}
-	key, _ := blobstore.UploadPartKey("org_a", id, 1)
+	key, _ := blobstore.UploadPartKey("eu", "org_a", id, 1)
 	fixture.mu.Lock()
 	puts := fixture.puts[key]
 	fixture.mu.Unlock()
@@ -568,7 +568,7 @@ func TestObjectPartsRefuseGapsSizesDigestAndMalformedTailWithoutLeakingFiles(t *
 		t.Fatal("wrong final digest admitted", err)
 	}
 	noObjectFiles(t, dir)
-	key, _ := blobstore.UploadPartKey("org_a", id, 0)
+	key, _ := blobstore.UploadPartKey("eu", "org_a", id, 0)
 	fixture.mu.Lock()
 	fixture.objects[strings.TrimSuffix(key, "0")+"not-an-index"] = []byte("bad")
 	fixture.mu.Unlock()
@@ -600,7 +600,7 @@ func TestObjectsKeepOpaqueGzipBytesAndMetadata(t *testing.T) {
 	if err := store.Put(t.Context(), digest, bytes.NewReader(wire), int64(len(wire))); err != nil {
 		t.Fatal(err)
 	}
-	key, _ := blobstore.BlobKey("org_a", digest)
+	key, _ := blobstore.BlobKey("eu", "org_a", digest)
 	fixture.mu.Lock()
 	fixture.gzipKey = key
 	fixture.mu.Unlock()

@@ -110,9 +110,9 @@ func MintPasswordSession(db *sql.DB, w http.ResponseWriter, userID, passwordHash
 	return s, nil
 }
 
-// exportOrg is SQL true while the account's org is deletion_scheduled, enabled and in this
-// region: the one non-serving state that still admits an export_only session (spec N11).
-const exportOrg = `EXISTS(SELECT 1 FROM orgs eo WHERE eo.id=u.org_id AND eo.status='deletion_scheduled' AND eo.enabled=1 AND eo.home_region=(SELECT value FROM server_settings WHERE key='region'))`
+// exportOrg is SQL true while the account's org is deletion_scheduled, enabled and in a served
+// cell: the one non-serving state that still admits an export_only session (spec N11).
+var exportOrg = `EXISTS(SELECT 1 FROM orgs eo WHERE eo.id=u.org_id AND eo.status='deletion_scheduled' AND eo.enabled=1 AND ` + storage.InServedCell("eo") + `)`
 
 func ResolveSession(db *sql.DB, r *http.Request, now time.Time) (Session, error) {
 	c, err := r.Cookie(sessionCookie)

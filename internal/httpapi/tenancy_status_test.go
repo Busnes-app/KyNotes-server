@@ -39,7 +39,7 @@ func TestStoppedOrgIsRefusedOnEveryCredential(t *testing.T) {
 		t.Fatalf("links: %s %s", sealedBody, pageBody)
 	}
 	toMultiMode(t, p.db, "org_staff")
-	if _, err := p.db.Exec(`UPDATE server_settings SET value='eu' WHERE key='region'`); err != nil {
+	if _, err := p.db.Exec(`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`); err != nil {
 		t.Fatal(err)
 	}
 	set := func(q string) {
@@ -93,7 +93,7 @@ func TestStoppedOrgsRemindersWait(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Minute)
 	addReminder(t, p.db, p.id, strings.Repeat("a", 26), now)
 	toMultiMode(t, p.db, "org_staff")
-	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'`, `UPDATE orgs SET status='suspended',home_region='eu' WHERE id='` + storage.DefaultOrgID + `'`} {
+	for _, q := range []string{`UPDATE server_settings SET value='eu' WHERE key='region'; INSERT INTO server_settings(key,value,updated_at) VALUES('cell:eu','','')`, `UPDATE orgs SET status='suspended',home_region='eu' WHERE id='` + storage.DefaultOrgID + `'`} {
 		if _, err := p.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}

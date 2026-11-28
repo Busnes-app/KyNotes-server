@@ -10,7 +10,7 @@ import (
 // before any pending migrations run, so an accidental target pointing at a single-mode
 // database or a differently bound multi-tenant database is refused without altering its
 // schema. A fresh or unbound empty database proceeds to migration and binding.
-func verifyExistingReplicaTarget(ctx context.Context, conn *sql.Conn, want Tenancy) error {
+func verifyExistingReplicaTarget(ctx context.Context, conn *sql.Conn, want replicaBinding) error {
 	var hasSettings bool
 	if err := conn.QueryRowContext(ctx, `SELECT to_regclass('server_settings') IS NOT NULL`).Scan(&hasSettings); err != nil {
 		return err
@@ -26,7 +26,7 @@ func verifyExistingReplicaTarget(ctx context.Context, conn *sql.Conn, want Tenan
 			if err != nil {
 				return err
 			}
-			if got != want {
+			if !got.Binds(want.Tenancy, want.cells) {
 				return ErrTenancyMode
 			}
 			return nil
@@ -76,7 +76,7 @@ func verifyExistingSingleTarget(ctx context.Context, conn *sql.Conn) error {
 	return nil
 }
 
-func (s *Store) ensureReplicaTenancy(ctx context.Context, want Tenancy) error {
+func (s *Store) ensureReplicaTenancy(ctx context.Context, want replicaBinding) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -91,7 +91,7 @@ func (s *Store) ensureReplicaTenancy(ctx context.Context, want Tenancy) error {
 		if err != nil {
 			return err
 		}
-		if got != want {
+		if !got.Binds(want.Tenancy, want.cells) {
 			return ErrTenancyMode
 		}
 		return tx.Commit()

@@ -285,7 +285,7 @@ only actual proxy networks, not all Internet addresses. IPv6 identities retain /
 A self-hosted install is single-tenant: leave `KYNOTES_TENANCY` unset or set it to `single`.
 The value is recorded in the database at first start, and a start in another mode is refused.
 `multi` is refused at startup in this release, and so are `KYNOTES_STAFF_ORG_ID`,
-`KYNOTES_REGION`, `KYNOTES_DB_DSN` (a PostgreSQL database) and `KYNOTES_SSO_ISSUER`,
+`KY_CELLS`, `KYNOTES_REGION`, `KYNOTES_DB_DSN` (a PostgreSQL database) and `KYNOTES_SSO_ISSUER`,
 `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET` (its fixed
 identity provider), which belong to it. A self-hosted install configures single sign-on under
 **Single sign-on** in the administrator console, as before.
@@ -346,8 +346,9 @@ Standalone commands and startup retain their existing behavior.
 
 ### Create a dedicated staff administrator
 
-Set `KYNOTES_TENANCY=multi`, `KYNOTES_DB_DSN`, `KYNOTES_STAFF_ORG_ID` and `KYNOTES_REGION`
-in the host environment, matching the database record. Run `kynotes-server user add --admin
+Set `KYNOTES_TENANCY=multi`, `KYNOTES_DB_DSN`, `KYNOTES_STAFF_ORG_ID` and `KY_CELLS`
+(or a one-cell `KYNOTES_REGION`) in the host environment; the cells must include the staff
+org's recorded cell. Run `kynotes-server user add --admin
 --username <name>` and supply one JSON object on stdin with `authSecret` (64 lowercase hex
 characters), `loginSalt` (16–64 bytes in standard base64), and `iterations` (600000–1000000,
 or omitted for 600000). Use the same password derivation as the existing single-mode stdin

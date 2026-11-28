@@ -48,7 +48,7 @@ func scheduleReplicas(t *testing.T) (*sql.DB, *sql.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { second.Close() })
-	for _, q := range []string{`UPDATE orgs SET status='stale'`, `UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','local','t')`, `INSERT INTO orgs(id,status,home_region) VALUES('org_staff','active','local')`} {
+	for _, q := range []string{`UPDATE orgs SET status='stale'`, `UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','local','t'),('cell:local','','t')`, `INSERT INTO orgs(id,status,home_region) VALUES('org_staff','active','local')`} {
 		if _, err := st.DB().Exec(q); err != nil {
 			t.Fatal(err)
 		}
