@@ -33,7 +33,7 @@ func TestPostgresRestoreCommandUsesExistingTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','local','t')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('staff_org_id','org_staff','t'),('region','local','t'),('cell:local','','t')`} {
 		if _, err := st.DB().Exec(q); err != nil {
 			t.Fatal(err)
 		}

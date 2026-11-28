@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `KY_CELLS` is refused at startup in single-tenant mode, like the other multi-tenant settings. It lists the cells a multi-tenant deployment serves. Self-hosted installs need no change.
+
 - `ky-primitives` moves to the revision whose `suitedir` lists organisations (`90b0e58`), for the multi-tenant mode's org mirror. No other package KyNotes uses changed; self-hosted installs need no change.
 
 - `KYNOTES_SSO_ISSUER`, `KYNOTES_SSO_CLIENT_ID`, `KYNOTES_SSO_CLIENT_SECRET` and `KYNOTES_SSO_HMAC_SECRET` are refused at startup: they belong to the multi-tenant mode. Self-hosted installs keep configuring single sign-on in the administrator console.

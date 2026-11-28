@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -59,9 +60,50 @@ func storedTenancyMode(tx *sql.Tx) (string, error) {
 }
 
 // Tenancy is the install's recorded mode (ensureOrgs), read where a rule differs by mode.
+// Region is multi mode's first cell, recorded at the first start as the staff org's cell.
 type Tenancy struct{ Mode, StaffOrg, Region string }
 
 func (t Tenancy) Multi() bool { return t.Mode == "multi" }
+
+// Binds reports whether a start with want's mode and staff org serving cells (KY_CELLS) may use
+// a database recorded as t: cells may be added or reordered, but must keep the staff org's cell.
+func (t Tenancy) Binds(want Tenancy, cells []string) bool {
+	return t.Mode == want.Mode && t.StaffOrg == want.StaffOrg && slices.Contains(cells, t.Region)
+}
+
+// servedCellKey prefixes one server_settings row per cell this deployment serves (KY_CELLS),
+// replaced at every multi-mode start (SetServedCells).
+const servedCellKey = "cell:"
+
+// InServedCell is SQL that is true when the orgs row aliased alias is in a served cell (Cells, C5).
+func InServedCell(alias string) string {
+	return `EXISTS(SELECT 1 FROM server_settings sc WHERE sc.key='` + servedCellKey + `'||` + alias + `.home_region)`
+}
+
+// SetServedCells makes cells the cells this deployment serves. Rows are added before others are
+// removed, so replicas starting together with one list never collide.
+func SetServedCells(ctx context.Context, db *sql.DB, cells []string) error {
+	if len(cells) == 0 {
+		return errors.New("served cells: none")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	keep := make([]any, len(cells))
+	marks := ""
+	for i, cell := range cells {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO server_settings(key,value,updated_at) VALUES(?,'','') ON CONFLICT(key) DO NOTHING`, servedCellKey+cell); err != nil {
+			return err
+		}
+		keep[i], marks = servedCellKey+cell, marks+",?"
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM server_settings WHERE key LIKE '`+servedCellKey+`%' AND key NOT IN (`+marks[1:]+`)`, keep...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 // TenancyOf reads the recorded mode, staff org and region; a database without the record is
 // single-tenant.
@@ -74,12 +116,12 @@ func TenancyOf(q interface {
 }
 
 // OrgServes is SQL that is true when the org named by the column expression col may be served:
-// always in single mode; in multi mode only an active, enabled org in this install's region
-// (tenancy N9, N13). Credential checks and the workers carry it, so a stopped org is refused on
-// the next request and its reminders and blobs wait. After a restore no customer org serves
+// always in single mode; in multi mode only an active, enabled org in a cell this deployment
+// serves (tenancy N9, N13, Cells). Credential checks and the workers carry it, so a stopped org
+// is refused on the next request and its reminders and blobs wait. After a restore no customer org serves
 // until both suite feeds were replayed from zero (RestoreReplayKey).
 func OrgServes(col string) string {
-	return `(COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR EXISTS(SELECT 1 FROM orgs so WHERE so.id=` + col + ` AND so.status='active' AND so.enabled=1 AND so.home_region=(SELECT value FROM server_settings WHERE key='region') AND (so.id=(SELECT value FROM server_settings WHERE key='staff_org_id') OR NOT EXISTS(SELECT 1 FROM server_settings WHERE key='` + RestoreReplayKey + `'))))`
+	return `(COALESCE((SELECT value FROM server_settings WHERE key='tenancy_mode'),'single')<>'multi' OR EXISTS(SELECT 1 FROM orgs so WHERE so.id=` + col + ` AND so.status='active' AND so.enabled=1 AND ` + InServedCell("so") + ` AND (so.id=(SELECT value FROM server_settings WHERE key='staff_org_id') OR NOT EXISTS(SELECT 1 FROM server_settings WHERE key='` + RestoreReplayKey + `'))))`
 }
 
 // RestoreReplayKey is the server_settings row a restore writes and the elected worker deletes

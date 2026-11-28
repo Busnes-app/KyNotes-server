@@ -25,7 +25,7 @@ func AcceptReplicaConfiguration(ctx context.Context, path string) error {
 	}
 	defer store.Close()
 	current, err := storage.TenancyOfContext(ctx, store.DB())
-	if err != nil || current != in.Tenancy {
+	if err != nil || !current.Binds(in.Tenancy, in.Cells) {
 		return errors.New("replicas: recorded install binding differs")
 	}
 	return storage.AcceptReplicaConfig(ctx, store.DB(), c.Secrets.ServerSaltKey, replicaFields(c, in))

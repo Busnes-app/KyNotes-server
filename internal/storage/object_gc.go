@@ -11,7 +11,19 @@ import (
 
 // ObjectStores resolves one org's primary-object store. Only the elected multi-mode worker
 // calls it, with org IDs read from blob rows.
-type ObjectStores func(org string) (*blobstore.Objects, error)
+type ObjectStores func(ctx context.Context, org string) (*blobstore.Objects, error)
+
+// CellObjectStores opens each org's store under its cell, the org's mirrored home_region
+// (Cells: orgs never move), so purge, GC and the orphan sweep stay in the org's own prefix.
+func CellObjectStores(db *sql.DB, open func(cell, org string) (*blobstore.Objects, error)) ObjectStores {
+	return func(ctx context.Context, org string) (*blobstore.Objects, error) {
+		var cell string
+		if err := db.QueryRowContext(ctx, `SELECT home_region FROM orgs WHERE id=?`, org).Scan(&cell); err != nil {
+			return nil, err
+		}
+		return open(cell, org)
+	}
+}
 
 // objectGCBatch caps one pass (spec, Blobs in S3-compatible storage: Delete).
 const objectGCBatch = 100
@@ -110,7 +122,7 @@ func SweepOrphanObjects(ctx context.Context, db *sql.DB, stores ObjectStores) (i
 	}
 	deleted := 0
 	for _, org := range orgs {
-		store, err := stores(org)
+		store, err := stores(ctx, org)
 		if err != nil {
 			return deleted, err
 		}
@@ -177,7 +189,7 @@ func dropOrphan(ctx context.Context, db *sql.DB, org, lock, claimed, id string, 
 }
 
 func sweepObject(ctx context.Context, db *sql.DB, stores ObjectStores, org, digest, cut string) (bool, error) {
-	store, err := stores(org)
+	store, err := stores(ctx, org)
 	if err != nil {
 		return false, err
 	}
@@ -271,6 +283,11 @@ func RunObjectMaintenance(ctx context.Context, db *sql.DB, stores ObjectStores, 
 	return tx.Commit()
 }
 func expireObjectUpload(ctx context.Context, db *sql.DB, stores ObjectStores, org, id string, now time.Time) error {
+	// Resolve before locking: the lookup takes a pool connection and the lease pins one.
+	store, err := stores(ctx, org)
+	if err != nil {
+		return err
+	}
 	lease, _, err := SessionLock(ctx, db, UploadLockName(org, id), true)
 	if err != nil {
 		return err
@@ -294,10 +311,6 @@ func expireObjectUpload(ctx context.Context, db *sql.DB, stores ObjectStores, or
 	}
 	if n == 0 {
 		return nil
-	}
-	store, err := stores(org)
-	if err != nil {
-		return err
 	}
 	if err := store.DeleteParts(lease.Context, id); err != nil {
 		return err

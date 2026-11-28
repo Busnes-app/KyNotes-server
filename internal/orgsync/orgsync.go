@@ -68,26 +68,34 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	seen := p.now().UTC().Format(time.RFC3339)
-	tenancy, err := storage.TenancyOfContext(ctx, tx)
-	if err != nil {
-		return err
-	}
-	serves := `SELECT count(*) FROM orgs WHERE id=? AND status='active' AND enabled=1 AND home_region=?`
+	serves := `SELECT count(*) FROM orgs o WHERE o.id=? AND o.status='active' AND o.enabled=1 AND ` + storage.InServedCell("o")
 	for _, o := range orgs {
 		enabled := 0
 		if o.Enabled {
 			enabled = 1
 		}
 		var before int
-		if err = tx.QueryRowContext(ctx, serves, o.ID, tenancy.Region).Scan(&before); err != nil {
+		if err = tx.QueryRowContext(ctx, serves, o.ID).Scan(&before); err != nil {
+			return err
+		}
+		var cell string
+		var revision int64
+		if err = tx.QueryRowContext(ctx, `SELECT home_region,revision FROM orgs WHERE id=?`, o.ID).Scan(&cell, &revision); err != nil && err != sql.ErrNoRows {
 			return err
 		}
 		// A listing never moves an org back to an older revision; an equal one is the same state.
-		if _, err = tx.ExecContext(ctx, `INSERT INTO orgs(id,status,revision,enabled,home_region,seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,enabled=excluded.enabled,home_region=excluded.home_region,seen_at=excluded.seen_at WHERE excluded.revision>=orgs.revision`, o.ID, o.Status, o.Revision, enabled, o.HomeRegion, seen); err != nil {
+		// Cells: orgs never move. home_region is kept from first sight, since object keys and
+		// purge derive from it, and a listing in another cell stops the org until it is undone.
+		if _, err = tx.ExecContext(ctx, `INSERT INTO orgs(id,status,revision,enabled,home_region,seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,revision=excluded.revision,enabled=CASE WHEN excluded.home_region=orgs.home_region THEN excluded.enabled ELSE 0 END,seen_at=excluded.seen_at WHERE excluded.revision>=orgs.revision`, o.ID, o.Status, o.Revision, enabled, o.HomeRegion, seen); err != nil {
 			return err
 		}
+		if cell != "" && cell != o.HomeRegion && o.Revision >= revision {
+			if err = storage.RecordAuditOutcomeTx(tx, "", "org.cell_move_refused", "", o.ID, "denied", "from="+cell+",to="+o.HomeRegion, "org-poll"); err != nil {
+				return err
+			}
+		}
 		var after int
-		if err = tx.QueryRowContext(ctx, serves, o.ID, tenancy.Region).Scan(&after); err != nil {
+		if err = tx.QueryRowContext(ctx, serves, o.ID).Scan(&after); err != nil {
 			return err
 		}
 		// An org that stops serving loses its sessions with the change, and the change is audited

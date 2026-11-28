@@ -3,16 +3,24 @@ package blobstore
 import (
 	"encoding/hex"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/Busnes-app/kynotes-server/internal/ids"
 )
 
+// cellSlug is KyIdentity's home region slug (Cells, C1).
+var cellSlug = regexp.MustCompile(`^[a-z][a-z0-9-]{1,31}$`)
+
+// ValidCell reports whether cell is a home region slug, safe as an object-key component.
+func ValidCell(cell string) bool { return cellSlug.MatchString(cell) }
+
 // OrgPrefix, BlobKey and UploadPartKey narrow object-key components at the storage boundary.
-// They do not select a backend or introduce a shared-volume implementation.
-func OrgPrefix(org string) (string, error) {
-	if len(org) == 0 || len(org) > 128 {
+// They do not select a backend or introduce a shared-volume implementation. An org's keys sit
+// under its cell (its home_region, fixed: orgs never move), so cells can share a bucket.
+func OrgPrefix(cell, org string) (string, error) {
+	if !ValidCell(cell) || len(org) == 0 || len(org) > 128 {
 		return "", os.ErrInvalid
 	}
 	for _, c := range org {
@@ -20,10 +28,10 @@ func OrgPrefix(org string) (string, error) {
 			return "", os.ErrInvalid
 		}
 	}
-	return "orgs/" + org + "/", nil
+	return "cells/" + cell + "/orgs/" + org + "/", nil
 }
-func BlobKey(org, digest string) (string, error) {
-	prefix, err := OrgPrefix(org)
+func BlobKey(cell, org, digest string) (string, error) {
+	prefix, err := OrgPrefix(cell, org)
 	if err != nil {
 		return "", err
 	}
@@ -35,8 +43,8 @@ func BlobKey(org, digest string) (string, error) {
 	}
 	return prefix + "blobs/" + digest[:2] + "/" + digest[2:4] + "/" + digest, nil
 }
-func UploadPartKey(org, id string, index int64) (string, error) {
-	prefix, err := OrgPrefix(org)
+func UploadPartKey(cell, org, id string, index int64) (string, error) {
+	prefix, err := OrgPrefix(cell, org)
 	if err != nil {
 		return "", err
 	}

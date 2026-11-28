@@ -46,13 +46,20 @@ func serveReplica(ctx context.Context, c config.Config, log *logging.Logger) err
 	if err != nil {
 		return err
 	}
-	store, err := storage.OpenPostgresReplica(ctx, in.DSN, in.Tenancy)
+	store, err := storage.OpenPostgresReplica(ctx, in.DSN, in.Tenancy, in.Cells)
 	if err != nil {
 		return errors.New("replicas: PostgreSQL open or immutable tenancy binding failed")
 	}
 	defer store.Close()
+	if in.Tenancy, err = storage.TenancyOfContext(ctx, store.DB()); err != nil {
+		return err
+	}
 	fields := replicaFields(c, in)
 	if err := storage.VerifyReplicaConfig(ctx, store.DB(), c.Secrets.ServerSaltKey, fields); err != nil {
+		return err
+	}
+	// Only a start whose KY_CELLS every replica shares (the fingerprint) replaces the served cells.
+	if err := storage.SetServedCells(ctx, store.DB(), in.Cells); err != nil {
 		return err
 	}
 	// Identity I/O is deliberately after the fingerprint transaction has committed.
@@ -82,8 +89,8 @@ func serveReplica(ctx context.Context, c config.Config, log *logging.Logger) err
 		return err
 	}
 	maxBytes := max(c.Limits.ObjectMaxBytes, c.Limits.AttachmentMaxBytes)
-	stores := storage.ObjectStores(func(org string) (*blobstore.Objects, error) {
-		return blobstore.NewObjects(client, org, c.DataDir, maxBytes)
+	stores := storage.CellObjectStores(store.DB(), func(cell, org string) (*blobstore.Objects, error) {
+		return blobstore.NewObjects(client, cell, org, c.DataDir, maxBytes)
 	})
 	directory := suitedir.Client{Issuer: in.SSO.IssuerURL, ClientID: in.SSO.ClientID, ClientSecret: in.SSO.ClientSecret}
 	orgs := orgsync.New(store.DB(), directory.Orgs)
@@ -107,7 +114,7 @@ func serveReplica(ctx context.Context, c config.Config, log *logging.Logger) err
 			_, err := storage.RunObjectGC(ctx, store.DB(), stores, now, parse(c.GC.Retention))
 			return err
 		}, purge: func(ctx context.Context, org string) error {
-			objects, err := stores(org)
+			objects, err := stores(ctx, org)
 			if err != nil {
 				return err
 			}

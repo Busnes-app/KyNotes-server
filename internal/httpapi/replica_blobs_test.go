@@ -137,7 +137,9 @@ func TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	scratch := t.TempDir()
-	stores := storage.ObjectStores(func(org string) (*blobstore.Objects, error) { return blobstore.NewObjects(client, org, scratch, 1000) })
+	stores := storage.ObjectStores(func(_ context.Context, org string) (*blobstore.Objects, error) {
+		return blobstore.NewObjects(client, "local", org, scratch, 1000)
+	})
 	cfg := config.Defaults()
 	cfg.Server.DevInsecureCookies = true
 	cfg.Limits.ChunkBytes = 4
@@ -227,7 +229,7 @@ func TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock(t *testing.T) {
 		t.Fatalf("download: %d %s", res.StatusCode, raw)
 	}
 	sum := sha256.Sum256(raw)
-	key, _ := blobstore.BlobKey(storage.DefaultOrgID, hex.EncodeToString(sum[:]))
+	key, _ := blobstore.BlobKey("local", storage.DefaultOrgID, hex.EncodeToString(sum[:]))
 	mu.Lock()
 	_, stored := objects[key]
 	for name := range objects {
@@ -401,7 +403,7 @@ func TestReplicaObjectRoutesUploadAndSaveOutsideWriterLock(t *testing.T) {
 		t.Fatalf("expired parts remain admitted: %s %v", status, err)
 	}
 	// Creating a same-digest object in another org must address a different permanent key.
-	other, err := stores("org_other")
+	other, err := stores(t.Context(), "org_other")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +442,9 @@ func TestReplicaObjectSaveRefusesSuspendedCustomerOrgWhileStaffActive(t *testing
 		t.Fatal(err)
 	}
 	scratch := t.TempDir()
-	stores := storage.ObjectStores(func(org string) (*blobstore.Objects, error) { return blobstore.NewObjects(client, org, scratch, 1000) })
+	stores := storage.ObjectStores(func(_ context.Context, org string) (*blobstore.Objects, error) {
+		return blobstore.NewObjects(client, "local", org, scratch, 1000)
+	})
 	cfg := config.Defaults()
 	cfg.Server.DevInsecureCookies = true
 	cfg.DataDir = scratch

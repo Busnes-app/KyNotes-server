@@ -109,7 +109,7 @@ func everyValue(t *testing.T, s *Store, skip ...string) map[string]string {
 func purgeFixture(t *testing.T) (*Store, []string, map[string]string) {
 	t.Helper()
 	s := openFresh(t)
-	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`} {
+	for _, q := range []string{`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`, `INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('cell:eu','','t'),('staff_org_id','org_staff','t')`} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatal(err)
 		}

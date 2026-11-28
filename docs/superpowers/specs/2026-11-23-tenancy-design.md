@@ -124,7 +124,7 @@ Three facts drive most of the design. They are why KyNotes cannot simply copy C.
 | N10 | **The storage limit is the org's pool, held by KyIdentity.** KyNotes counts the org's charged bytes, reports them, and refuses a write that adds bytes past the grant KyIdentity's answer to the report gives (owner decision 14: `ceiling_bytes`, valid `ttl_seconds`). The grant is stored per org, so the write path makes no network call. Today's per-user and per-team caps stay as safety limits. There is no per-app `max_bytes` key. | Owner decision 10. A per-app storage key in T's `quotas_json` would be a second number the customer never bought. It matches KyCalendar's D14 (PR #190), so every app reads the pool the same way ("The org storage pool"). |
 | N11 | **Export runs in the browser, under `export_only`.** A session whose ID token carries `"export_only": true` is marked so. It admits only the routes the browser export needs, listed once in Lifecycle, Export: the reads, plus the few writes that hold no content (logout, recovery-code fetch, browser linking), so a fresh browser can still export (open question 6). Every other route answers `403 export_only`. There is no operator export command. | Fact 1: only the browser can decrypt. The browser export already exists (`exportNotebook.ts`, `AGENTS.md:273-277`). Owner decision 8. |
 | N12 | **Multi mode adopts the replica pattern**: `/livez` and `/readyz` with the drain order, a shared-configuration fingerprint, one elected worker through a PostgreSQL session advisory lock, and every security limit in PostgreSQL. | Owner decision 7. The pattern's "Product rollout contract" (a) to (f) is the checklist (Replica work). |
-| N13 | Each multi install serves one region, `KYNOTES_REGION`, **required in multi mode with no default** (N1), so a replica cannot silently join as the wrong region. An org whose `home_region` differs is treated as not serving. | T "Home region" H1 to H4: an org's data lives in one region. A misrouted token then reaches no data. |
+| N13 | Each multi deployment serves a list of cells, `KY_CELLS`, **required in multi mode with no default** (N1; see "Cells"), so a replica cannot silently join as the wrong cell. An org whose `home_region` is not one of them is treated as not serving. `KYNOTES_REGION` still names a one-cell list. | T "Home region" H1 to H4: an org's data lives in one region. A misrouted token then reaches no data. |
 | N14 | A `deleted` org is purged by the elected worker in short, resumable batches behind a fail-closed audit row. Its `orgs` row stays as a tombstone. Erased subjects come from `/api/suite/erased`. | C D12 and T "Delete everything". A purge in one transaction would hold N3's lock and stop every other org's writes. |
 | N15 | **One blob interface, two backends.** `internal/blobstore` gets an interface with the methods its callers use today (`NewTemp`, `Reopen`, `Open`, `Stat`, `Delete`, `ListDigests`), plus a prefix delete for the purge. `volume` is today's code. `object` is S3-compatible. Single-tenant always uses `volume` at `<data>/blobs`, unchanged. **Multi mode uses `object` only, and refuses to start without it** (owner decision 11). The bucket's endpoint, bucket and region join the shared-configuration fingerprint. | Owner decisions 9 and 11: hosted content is in object storage, and single-tenant installs keep volumes. A replica in another bucket would lose blobs written by the others, so a store-ID check proves the storage is shared ("Blobs in S3-compatible storage"). |
 
@@ -943,6 +943,42 @@ else.
 | — | Admit only export routes under `export_only` | n/a | N11 |
 | — | Erase on `user.erased` and `/api/suite/erased` | `user.erased` is refused as unsupported (`sso_directory.go:54`) | Lifecycle |
 | — | Asked of KyIdentity: a deleted org stays listed as `deleted` forever | true in code, with no trigger (Lifecycle, Restore) | A trigger refusing `DELETE` on `orgs` (T already refuses any status change out of `deleted`), so a restored deleted org is always purged again |
+
+## Cells
+
+KyIdentity's tenancy spec, "Cells (amendment, 2026-11-24)" (owner decision 2026-11-24), scales
+the shared install by cells, never a database or schema per org. KyNotes follows KyCalendar's
+and KyMessages-Native's merged implementations:
+
+- **C1, the list.** `KY_CELLS` is the comma-separated list of cells a deployment serves, each a
+  home region slug (`^[a-z][a-z0-9-]{1,31}$`), at most 32, no repeats (`config.Cells`). It is
+  required in multi mode and refused in single mode. `KYNOTES_REGION`, the earlier single
+  region, is read as a one-cell list; setting both is refused. The sorted set joins the shared
+  fingerprint (N12), so every replica serves the same cells; order does not matter.
+- **Binding.** The first multi start records the first cell as `server_settings.region`, the
+  staff org's cell. A later start must list it (`storage.Tenancy.Binds`); other cells may be
+  added or dropped.
+- **C5, refusal.** After the fingerprint check, every start replaces the served cells
+  (`storage.SetServedCells`, one `server_settings` row `cell:<slug>` each). `OrgServes`, which every
+  credential check and worker carries, the SSO sign-in check, the `export_only` session check,
+  the org poll's stop detection and the storage report all require the org's `home_region` to
+  be a served cell (`storage.InServedCell`). An org of another cell is answered exactly as one
+  that does not serve. `TestAnOrgOfAnotherCellIsRefusedEverywhere` covers the session (password
+  and SSO; the MCP client signs in with a password session), the paired device, sealed and page
+  share links, SSO sign-in and the `export_only` session.
+- **C4, no moves.** The poll keeps an org's `home_region` from first sight. A listing in any
+  other cell, served here or not, stops the org with its sessions and audits
+  `org.cell_move_refused`; the org serves again once the listing is undone. Its objects stay
+  readable and purgeable in their cell (`TestPollRefusesToMoveAnOrgBetweenServedCells`,
+  `TestAMovedOrgsObjectsStayReadableAndPurged`).
+- **Object prefix.** Every object key is under `cells/<home_region>/orgs/<org>/`
+  (`blobstore.OrgPrefix`), and `storage.CellObjectStores` opens each org's store from its
+  mirrored `home_region`, so purge, GC, the orphan sweep and the late-PUT fence stay in the
+  org's own cell prefix. There were no live multi-tenant servers, so no object was moved from
+  the earlier `orgs/<org>/` layout.
+- **Not built:** the native archive prefix (`KYNOTES_PG_BACKUP_PREFIX`) is still the operator's
+  `backups/...`; it is not forced under a cell. The check of `KY_CELLS` against KyIdentity's
+  region map waits for KyIdentity to expose the app's own map.
 
 ## Threat model
 

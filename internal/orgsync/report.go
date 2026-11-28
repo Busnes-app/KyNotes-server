@@ -63,7 +63,7 @@ func (r *Reporter) Report(ctx context.Context) error {
 	}
 	// Keep stopped orgs with an old grant so their next report releases it. No customer data is
 	// served here; suspended orgs' retained bytes still count in KyIdentity.
-	rows, err := r.DB.QueryContext(ctx, `SELECT o.id FROM orgs o LEFT JOIN org_pool p ON p.org_id=o.id WHERE o.home_region=? AND o.id<>? AND ((o.status='active' AND o.enabled=1) OR p.org_id IS NOT NULL) ORDER BY o.id`, tenancy.Region, tenancy.StaffOrg)
+	rows, err := r.DB.QueryContext(ctx, `SELECT o.id FROM orgs o LEFT JOIN org_pool p ON p.org_id=o.id WHERE `+storage.InServedCell("o")+` AND o.id<>? AND ((o.status='active' AND o.enabled=1) OR p.org_id IS NOT NULL) ORDER BY o.id`, tenancy.StaffOrg)
 	if err != nil {
 		return err
 	}

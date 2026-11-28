@@ -19,7 +19,7 @@ import (
 func (s *Objects) PutPart(ctx context.Context, id string, index int64, body io.Reader, size int64) error {
 	ctx, cancel := context.WithTimeout(ctx, putDeadline)
 	defer cancel()
-	key, err := UploadPartKey(s.org, id, index)
+	key, err := UploadPartKey(s.cell, s.org, id, index)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (s *Objects) PutPart(ctx context.Context, id string, index int64, body io.R
 }
 
 func (s *Objects) OpenPart(ctx context.Context, id string, index int64) (io.ReadSeekCloser, int64, error) {
-	key, err := UploadPartKey(s.org, id, index)
+	key, err := UploadPartKey(s.cell, s.org, id, index)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -65,7 +65,7 @@ func (s *Objects) OpenPart(ctx context.Context, id string, index int64) (io.Read
 // AssembleParts verifies exact part sizes/order and the optional final ciphertext digest
 // into one bounded private stream. No live part is removed before the final DB commit.
 func (s *Objects) AssembleParts(ctx context.Context, id string, totalBytes, chunkBytes int64, expected string) (io.ReadSeekCloser, string, error) {
-	if _, err := UploadPartKey(s.org, id, 0); err != nil {
+	if _, err := UploadPartKey(s.cell, s.org, id, 0); err != nil {
 		return nil, "", err
 	}
 	if totalBytes <= 0 || totalBytes > s.maxBytes || chunkBytes <= 0 || chunkBytes > s.maxBytes {
@@ -91,7 +91,7 @@ func (s *Objects) AssembleParts(ctx context.Context, id string, totalBytes, chun
 		if size > chunkBytes {
 			size = chunkBytes
 		}
-		key, _ := UploadPartKey(s.org, id, index) // org/id validated above; index is nonnegative
+		key, _ := UploadPartKey(s.cell, s.org, id, index) // org/id validated above; index is nonnegative
 		body, meta, err := s.client.Get(ctx, key, "")
 		if err != nil {
 			return nil, "", err
@@ -129,7 +129,7 @@ func (s *Objects) AssembleParts(ctx context.Context, id string, totalBytes, chun
 }
 
 func (s *Objects) partPrefix(id string) (string, error) {
-	key, err := UploadPartKey(s.org, id, 0)
+	key, err := UploadPartKey(s.cell, s.org, id, 0)
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +152,7 @@ func (s *Objects) DeletePartsFrom(ctx context.Context, id string, first int64) e
 	var doomed []string
 	for _, key := range keys {
 		index, err := strconv.ParseInt(strings.TrimPrefix(key, prefix), 10, 64)
-		canonical, keyErr := UploadPartKey(s.org, id, index)
+		canonical, keyErr := UploadPartKey(s.cell, s.org, id, index)
 		if err != nil || keyErr != nil || key != canonical {
 			return ErrCorruptBlob
 		}

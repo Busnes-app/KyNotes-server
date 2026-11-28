@@ -57,7 +57,7 @@ func poolStore(t *testing.T) *Reporter {
 	s := open(t)
 	for _, q := range []string{
 		`UPDATE server_settings SET value='multi' WHERE key='tenancy_mode'`,
-		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('staff_org_id','org_staff','t')`,
+		`INSERT INTO server_settings(key,value,updated_at) VALUES('region','eu','t'),('cell:eu','','t'),('staff_org_id','org_staff','t')`,
 		`INSERT INTO orgs(id,status,home_region) VALUES('org_staff','active','eu'),('org_a','active','eu'),('org_off','suspended','eu')`,
 	} {
 		if _, err := s.DB().Exec(q); err != nil {
